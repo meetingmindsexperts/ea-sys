@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
@@ -84,7 +85,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await db.user.findUnique({ where: { email } });
+    // The token proves the mailbox; the HOST proves the tenant. On the
+    // platform one address may be two accounts, and VerificationToken is
+    // keyed on the address alone, so the link's own domain is the only
+    // thing that says which account this is for.
+    const user = await findUserByEmail(
+      await scopeFromRequestHost(req, "password reset: host did not resolve to a tenant"),
+      email,
+      { select: { id: true, organizationId: true } },
+    );
 
     if (!user) {
       return NextResponse.json(

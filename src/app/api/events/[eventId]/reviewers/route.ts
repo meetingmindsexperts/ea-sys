@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -333,6 +334,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
     });
   } catch (error) {
+    // Same reasoning as the team invite: the existence pre-check is a read, so
+    // a concurrent add of the same address loses the INSERT with P2002. Answer
+    // it the way the pre-check would rather than 500.
+    if (isUniqueViolation(error)) {
+      apiLogger.warn({ msg: "reviewers:add-email-taken-race" });
+      return NextResponse.json(
+        { error: "An account with this email already exists.", code: "EMAIL_TAKEN" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error adding reviewer" });
     return NextResponse.json(
       { error: "Failed to add reviewer" },
@@ -353,10 +364,14 @@ async function findOrCreateReviewerUser(
 ): Promise<{ userId: string; invitationSent: boolean; existed: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
-  const existingUser = await db.user.findUnique({
-    where: { email: normalizedEmail },
-    select: { id: true, role: true },
-  });
+  // Reviewers are created org-independent, so the org-less half of this scope
+  // is what actually finds them; the org half only matters on the platform,
+  // where a same-address account in ANOTHER tenant must not block this invite.
+  const existingUser = await findUserByEmail(
+    userEmailScope(session.user.organizationId, "reviewer invite: caller carries no org"),
+    normalizedEmail,
+    { select: { id: true, role: true } },
+  );
 
   if (existingUser) {
     // Reviewers are org-independent, so no cross-org check needed

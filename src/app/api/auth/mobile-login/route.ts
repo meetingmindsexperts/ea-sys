@@ -10,8 +10,7 @@ import {
   clearLoginFailures,
 } from "@/lib/login-throttle";
 import { touchLastSeen } from "@/lib/active-users";
-import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
-import { findUserByEmail, userEmailScope } from "@/lib/tenant/user-lookup";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import {
   createMobileAccessToken,
   createMobileRefreshToken,
@@ -49,9 +48,8 @@ export async function POST(req: Request) {
     // including a throttled one, is attributed to the right user and org.
     // Tenant from the HOST, exactly as the web sign-in does: the credential
     // cannot name a tenant, and on the platform one address may exist in two.
-    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
     const user = await findUserByEmail(
-      userEmailScope(tenant.orgId, "mobile sign-in: host did not resolve to a tenant"),
+      await scopeFromRequestHost(req, "mobile sign-in: host did not resolve to a tenant"),
       email,
       {
         select: {

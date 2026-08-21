@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { emailTemplates, sendEmail } from "@/lib/email";
@@ -127,16 +128,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await db.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        organizationId: true,
+    // Which tenant's account is being reset? Only the host can say — the
+    // typed address cannot, once it may exist in two tenants. Minting the
+    // token for the wrong account would send a working reset link for an
+    // account the requester may not hold.
+    const user = await findUserByEmail(
+      await scopeFromRequestHost(req, "forgot-password: host did not resolve to a tenant"),
+      email,
+      {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          organizationId: true,
+        },
       },
-    });
+    );
 
     // Always return success to prevent account enumeration
     if (!user) {

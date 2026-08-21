@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
@@ -315,8 +316,7 @@ async function resolveCoordinatorAccount(args: {
   | { ok: false; status: number; error: string; code: string; retryAfterSeconds?: number }
 > {
   const { email, password } = args;
-  const existing = await db.user.findUnique({
-    where: { email },
+  const existing = await findUserByEmail({ organizationId: args.organizationId }, email, {
     select: { id: true, passwordHash: true, organizationId: true, termsAcceptedAt: true },
   });
 
@@ -383,8 +383,7 @@ async function resolveCoordinatorAccount(args: {
     // re-resolves as a sign-in against the winner's row (review L6).
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
       apiLogger.warn({ msg: "public/group-register:account-create-race", ip: args.clientIp });
-      const winner = await db.user.findUnique({
-        where: { email },
+      const winner = await findUserByEmail({ organizationId: args.organizationId }, email, {
         select: { id: true, passwordHash: true, organizationId: true },
       });
       // The loser's re-check is a credential check like any other — same

@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 
 const { mockDb, createGroupMock, notifyMock, sendVerifyMock } = vi.hoisted(() => ({
   mockDb: {
-    user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     event: { findFirst: vi.fn() },
@@ -100,7 +100,7 @@ const GROUP_OK = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.event.findFirst.mockResolvedValue(EVENT);
-  mockDb.user.findUnique.mockResolvedValue(null);
+  mockDb.user.findFirst.mockResolvedValue(null);
   mockDb.user.create.mockResolvedValue({ id: "u-new" });
   mockDb.user.update.mockResolvedValue({});
   createGroupMock.mockResolvedValue(GROUP_OK);
@@ -161,7 +161,7 @@ describe("POST /group-register — gates", () => {
 
 describe("POST /group-register — coordinator account", () => {
   it("401 BAD_CREDENTIALS for an existing account with the wrong password", async () => {
-    mockDb.user.findUnique.mockResolvedValue({
+    mockDb.user.findFirst.mockResolvedValue({
       id: "u1",
       passwordHash: await bcrypt.hash("other-password", 4),
       termsAcceptedAt: new Date(),
@@ -176,7 +176,7 @@ describe("POST /group-register — coordinator account", () => {
   // a spray against it must be visible in Sign-in Activity. Before this it
   // recorded nothing at all.
   it("a wrong password writes a FAILED_PASSWORD LoginEvent attributed to the account", async () => {
-    mockDb.user.findUnique.mockResolvedValue({
+    mockDb.user.findFirst.mockResolvedValue({
       id: "u1",
       passwordHash: await bcrypt.hash("other-password", 4),
       organizationId: "org1",
@@ -195,7 +195,7 @@ describe("POST /group-register — coordinator account", () => {
   });
 
   it("existing account + correct password → service gets that userId, and the sign-in is recorded", async () => {
-    mockDb.user.findUnique.mockResolvedValue({
+    mockDb.user.findFirst.mockResolvedValue({
       id: "u-existing",
       passwordHash: await bcrypt.hash("password123", 4),
       termsAcceptedAt: new Date(),

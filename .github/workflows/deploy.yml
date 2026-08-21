@@ -110,6 +110,15 @@ jobs:
       - name: Platform-operator boundary (x-org-id + operator gates)
         run: bash scripts/check-platform-operator.sh
 
+      # User.email is globally unique on master and per-tenant on the platform,
+      # and Prisma's client still believes the old @unique — so a bare
+      # findUnique({ where: { email } }) keeps compiling and silently returns
+      # whichever tenant's row the planner reaches first. Dropping an index
+      # cannot make code fail loudly, so the only thing that can catch it is a
+      # rule about the shape of the query.
+      - name: User-by-email lookups are tenant-scoped
+        run: bash scripts/check-user-email-scope.sh
+
       # A datetime-local input has no timezone, so slicing an ISO string into
       # one shifts the stored instant on every re-save, compounding. Shipped
       # and fixed three times (dinner console, submission deadlines, promo

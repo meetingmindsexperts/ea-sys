@@ -19,7 +19,7 @@ const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
-      user: { findUnique: vi.fn().mockResolvedValue(null) },
+      user: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       speaker: { findUnique: vi.fn().mockResolvedValue({ id: "sp1", sourceRegistrationId: null }) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
       _tx: tx,
@@ -86,7 +86,7 @@ beforeEach(() => {
     id: "ev1", name: "Ev", slug: "ev-slug",
     settings: { allowAbstractSubmissions: true }, organizationId: "org1",
   });
-  mockDb.user.findUnique.mockResolvedValue(null);
+  mockDb.user.findFirst.mockResolvedValue(null);
   mockDb.speaker.findUnique.mockResolvedValue({ id: "sp1", sourceRegistrationId: null });
   mockDb._tx.speaker.findUnique.mockResolvedValue(null);
   mockDb._tx.speaker.create.mockResolvedValue({ id: "sp1" });

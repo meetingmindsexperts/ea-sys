@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
@@ -134,18 +135,25 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check if user already exists. NOTE: email is globally unique, so this
-    // matches a user in ANY org — including org-independent accounts
-    // (REGISTRANT created at public registration, SUBMITTER, REVIEWER, all with
-    // organizationId = null) and users in a DIFFERENT org. Those never appear
-    // in the team-members list (GET filters by organizationId), so a blocked
-    // invite can look like it "vanished". We log the collision with the
-    // existing account's role/org so it's diagnosable, and return a message
-    // that explains which case it is.
-    const existingUser = await db.user.findUnique({
-      where: { email },
-      select: { id: true, role: true, organizationId: true },
-    });
+    // Check if user already exists — in THIS org or org-independent. The
+    // org-independent half is load-bearing: REGISTRANT/SUBMITTER/REVIEWER
+    // accounts carry no org, and finding them is what turns this invite into a
+    // PROMOTE rather than a blocked duplicate. They never appear in the
+    // team-members list (GET filters by organizationId), so a blocked invite
+    // can look like it "vanished"; we log the collision with the existing
+    // account's role/org so it's diagnosable.
+    //
+    // Scoped rather than global since Aug 21 2026 (per-tenant email, item 6).
+    // On master this is a no-op — there is exactly one organisation, so "this
+    // org OR no org" is the whole table. The foreign-org branch below is
+    // therefore unreachable today and stays only as the honest answer if a
+    // second org ever appears while email is still globally unique; the create
+    // maps P2002 to the same 409, so neither ordering can 500.
+    const existingUser = await findUserByEmail(
+      userEmailScope(session.user.organizationId, "invite: signed-in admin carries no org"),
+      email,
+      { select: { id: true, role: true, organizationId: true } },
+    );
 
     if (existingUser) {
       const sameOrg = existingUser.organizationId === session.user.organizationId;
@@ -396,6 +404,20 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (error) {
+    // The pre-check above answers "does an account already hold this address?"
+    // by READING, and a read cannot be a guarantee: two admins inviting the
+    // same person concurrently both pass it, and the losing INSERT raises
+    // P2002. Map it to the same 409 the pre-check would have returned, so the
+    // constraint — not the read — is what actually decides, and neither
+    // ordering can produce a 500. This also keeps the answer right if the
+    // deployment's uniqueness rule is narrower than the pre-check's scope.
+    if (isUniqueViolation(error)) {
+      apiLogger.warn({ msg: "organization/users:invite-email-taken-race" });
+      return NextResponse.json(
+        { error: "An account with this email already exists.", code: "EMAIL_TAKEN" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error creating user" });
     return NextResponse.json(
       { error: "Failed to create user" },

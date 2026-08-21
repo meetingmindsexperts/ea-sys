@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, hashSpy, isTrustedSpy, needsVerifySpy, sendVerifySpy, notifySpy, errorSpy, warnSpy } =
   vi.hoisted(() => ({
     mockDb: {
-      user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+      user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
       registration: { update: vi.fn(), updateMany: vi.fn() },
     },
     hashSpy: vi.fn().mockResolvedValue("hashed-pw"),
@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   isTrustedSpy.mockReturnValue(false);
   needsVerifySpy.mockReturnValue(false);
-  mockDb.user.findUnique.mockResolvedValue(null);
+  mockDb.user.findFirst.mockResolvedValue(null);
   mockDb.user.create.mockResolvedValue({ id: "u-new" });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
@@ -62,13 +62,13 @@ beforeEach(() => {
 describe("ensureRegistrantAccount", () => {
   it("no-ops when no password (guest registration) — touches nothing", async () => {
     await ensureRegistrantAccount({ ...base, password: undefined });
-    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.user.findFirst).not.toHaveBeenCalled();
     expect(mockDb.user.create).not.toHaveBeenCalled();
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
   it("existing user: links this reg + sweeps siblings + stamps terms first time", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: null });
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: null });
     await ensureRegistrantAccount(base);
     expect(mockDb.registration.update).toHaveBeenCalledWith({
       where: { id: "reg1" },
@@ -86,7 +86,7 @@ describe("ensureRegistrantAccount", () => {
   });
 
   it("existing user with terms already accepted: does NOT overwrite the stamp", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date() });
+    mockDb.user.findFirst.mockResolvedValue({ id: "u-exist", role: "REGISTRANT", termsAcceptedAt: new Date() });
     await ensureRegistrantAccount(base);
     expect(mockDb.user.update).not.toHaveBeenCalled();
   });
@@ -130,7 +130,7 @@ describe("ensureRegistrantAccount", () => {
   });
 
   it("failure-isolated: a DB error is logged (error) and swallowed, never thrown", async () => {
-    mockDb.user.findUnique.mockRejectedValue(new Error("db down"));
+    mockDb.user.findFirst.mockRejectedValue(new Error("db down"));
     await expect(ensureRegistrantAccount(base)).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "registrant-account:create-or-link-failed", registrationId: "reg1" }),

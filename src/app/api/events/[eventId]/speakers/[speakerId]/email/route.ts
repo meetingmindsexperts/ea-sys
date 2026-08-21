@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc , eventLocationVars } from "@/lib/email";
@@ -556,6 +557,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Collision checks BEFORE the transaction so we return clean 409s
     // rather than P2002 constraint errors.
+    // The User half is tenant-scoped: on the platform `User.email` is unique
+    // PER TENANT, so an account in another tenant is not a collision and must
+    // not block this change. On master (one org) the scope covers the whole
+    // table, so this is a no-op. The check mirrors whichever uniqueness rule
+    // the deployment actually enforces, which is the point of scoping it.
     const [speakerCollision, userCollision] = await Promise.all([
       db.speaker.findFirst({
         where: { eventId, email: newEmail, id: { not: speakerId } },
@@ -563,8 +569,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }),
       speaker.userId
         ? db.user.findFirst({
-            where: { email: newEmail, id: { not: speaker.userId } },
+            where: {
+              ...userEmailWhere({ organizationId: orgGuard.orgId }, newEmail),
+              id: { not: speaker.userId },
+            },
             select: { id: true },
+            orderBy: USER_EMAIL_ORDER_BY,
           })
         : Promise.resolve(null),
     ]);
@@ -588,7 +598,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // may surface a collision via P2002 at that point. Warn here so the
     // audit trail flags the risk.
     if (!speaker.userId) {
-      const shadowUser = await db.user.findFirst({ where: { email: newEmail }, select: { id: true } });
+      const shadowUser = await db.user.findFirst({
+        where: userEmailWhere({ organizationId: orgGuard.orgId }, newEmail),
+        select: { id: true },
+        orderBy: USER_EMAIL_ORDER_BY,
+      });
       if (shadowUser) {
         apiLogger.warn({
           msg: "speaker email changed to an address already held by a User row — future link flow may fail",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
@@ -545,11 +546,17 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "New email is the same as the current email", code: "NO_CHANGE" }, { status: 400 });
     }
 
-    // Collision check for User.email (global unique).
+    // Collision check for User.email — global on master, per-tenant on the
+    // platform, and this scope follows whichever rule the deployment enforces.
+    // On master (one org) it covers the whole table, so nothing changes.
     const userCollision = registration.userId
       ? await db.user.findFirst({
-          where: { email: newEmail, id: { not: registration.userId } },
+          where: {
+            ...userEmailWhere({ organizationId: orgGuard.orgId }, newEmail),
+            id: { not: registration.userId },
+          },
           select: { id: true },
+          orderBy: USER_EMAIL_ORDER_BY,
         })
       : null;
 

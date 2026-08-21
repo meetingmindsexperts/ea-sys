@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { createNotification } from "@/lib/notifications";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -77,10 +78,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Find the user
-    const user = await db.user.findUnique({
-      where: { email },
-    });
+    // The token proves the mailbox; the HOST proves the tenant. On the platform
+    // one address may be two accounts, and VerificationToken is keyed on the
+    // address alone, so the link's own domain is the only thing that says which
+    // account is being activated.
+    const user = await findUserByEmail(
+      await scopeFromRequestHost(req, "invitation acceptance: host did not resolve to a tenant"),
+      email,
+      { select: { id: true, organizationId: true, firstName: true, lastName: true, role: true } },
+    );
 
     if (!user) {
       return NextResponse.json(
@@ -94,8 +100,12 @@ export async function POST(req: Request) {
 
     // Update user and delete token in a transaction
     await db.$transaction(async (tx) => {
+      // By id, not by email. `update({ where: { email } })` needs email to be
+      // unique, and on the platform it is only unique per tenant — Prisma would
+      // still compile it (its client believes the old @unique) and the DB would
+      // no longer guarantee it addresses one row.
       await tx.user.update({
-        where: { email },
+        where: { id: user.id },
         data: {
           passwordHash,
           emailVerified: new Date(),
@@ -220,18 +230,21 @@ export async function GET(req: Request) {
       );
     }
 
-    // Get user info
-    const user = await db.user.findUnique({
-      where: { email: normalizedEmail },
-      select: {
-        firstName: true,
-        lastName: true,
-        email: true,
-        organization: {
-          select: { name: true },
+    // Same rule as the POST: host decides which tenant's invitation this is.
+    const user = await findUserByEmail(
+      await scopeFromRequestHost(req, "invitation preview: host did not resolve to a tenant"),
+      normalizedEmail,
+      {
+        select: {
+          firstName: true,
+          lastName: true,
+          email: true,
+          organization: {
+            select: { name: true },
+          },
         },
       },
-    });
+    );
 
     if (!user) {
       return NextResponse.json(

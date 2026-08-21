@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
+import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -77,8 +78,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = event.organizationId;
     return await runWithTenant(orgId, async () => {
-    const existingUser = await db.user.findUnique({
-      where: { email: emailLower },
+    const existingUser = await findUserByEmail({ organizationId: orgId }, emailLower, {
       select: {
         id: true, role: true, passwordHash: true, organizationId: true,
         firstName: true, lastName: true, termsAcceptedAt: true,

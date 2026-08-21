@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
+import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
@@ -51,8 +52,12 @@ export async function ensureRegistrantAccount(args: {
   if (!password) return;
 
   try {
-    const existingUser = await db.user.findUnique({
-      where: { email },
+    // Tenant-scoped: linking a registration to an account found by email ALONE
+    // would, on the platform, attach one tenant's registration to another
+    // tenant's user (docs/PLATFORM_DECISIONS.md §6). On master this is a no-op
+    // — one org, and every external account is org-null, so the org-less half
+    // of the scope finds exactly what the global lookup found.
+    const existingUser = await findUserByEmail({ organizationId }, email, {
       select: { id: true, role: true, termsAcceptedAt: true },
     });
 

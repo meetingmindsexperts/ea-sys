@@ -14,8 +14,7 @@ import {
 } from "@/lib/login-throttle";
 import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import { decideSessionValidity } from "@/lib/session-validity";
-import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
-import { findUserByEmail, userEmailScope } from "@/lib/tenant/user-lookup";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 
@@ -113,9 +112,8 @@ export const {
         // once a minute, not once a login. On master it resolves to
         // DEFAULT_ORG_ID and the lookup behaves exactly as the previous global
         // one, because email is still globally unique there.
-        const tenant = await resolveTenantOrg(normalizeHost(request?.headers.get("host")));
         const user = await findUserByEmail(
-          userEmailScope(tenant.orgId, "sign-in: host did not resolve to a tenant"),
+          await scopeFromRequestHost(request, "sign-in: host did not resolve to a tenant"),
           email,
           {
             select: {

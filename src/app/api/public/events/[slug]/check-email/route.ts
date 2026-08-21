@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -90,7 +91,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       // return the raw role — this is a public, unauthenticated endpoint and
       // leaking whether an email is an ADMIN/ORGANIZER/etc. would let anyone
       // harvest privileged accounts for phishing.
-      db.user.findUnique({ where: { email }, select: { role: true } }),
+      db.user.findFirst({
+        where: userEmailWhere({ organizationId: event.organizationId }, email),
+        select: { role: true },
+        orderBy: USER_EMAIL_ORDER_BY,
+      }),
     ]);
 
     // Can the abstract-submission flow take this email through the self-serve

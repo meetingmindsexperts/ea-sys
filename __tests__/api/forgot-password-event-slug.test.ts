@@ -26,8 +26,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockSendEmail, mockCheckRateLimit, mockHashVerificationToken } = vi.hoisted(() => ({
   mockDb: {
-    user: { findUnique: vi.fn() },
+    // findFirst as well as findUnique: the route resolves the user through
+    // findUserByEmail (tenant-aware), which uses findFirst so it can express
+    // the "this tenant OR tenant-less" match.
+    user: { findUnique: vi.fn(), findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
+    tenantDomain: { findUnique: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
     verificationToken: { deleteMany: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -104,7 +108,7 @@ beforeEach(() => {
 
   // Default happy-path stubs — overridden per test where needed.
   mockCheckRateLimit.mockReturnValue({ allowed: true });
-  mockDb.user.findUnique.mockResolvedValue({
+  mockDb.user.findFirst.mockResolvedValue({
     id: "u-1",
     email: "user@example.com",
     firstName: "Test",
@@ -187,7 +191,7 @@ describe("POST /api/auth/forgot-password — event-scoped reset link", () => {
   it("preserves account-enumeration safety with eventSlug — 200 even for unknown email", async () => {
     // The whole flow is supposed to return 200 regardless of whether
     // the email exists. Adding eventSlug must not break that guarantee.
-    mockDb.user.findUnique.mockResolvedValueOnce(null);
+    mockDb.user.findFirst.mockResolvedValueOnce(null);
     const res = await POST(makeReq({ email: "nobody@example.com", eventSlug: "hff2026" }));
     expect(res.status).toBe(200);
     // No email sent because no user — but the API still says 200,

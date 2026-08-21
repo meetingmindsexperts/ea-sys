@@ -60,6 +60,7 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
+import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
 
 /**
  * Which accounts a by-email lookup may see.
@@ -147,3 +148,46 @@ export async function findUserByEmail<S extends Prisma.UserSelect>(
     orderBy: USER_EMAIL_ORDER_BY,
   }) as Promise<Prisma.UserGetPayload<{ select: S }> | null>;
 }
+
+/**
+ * The scope for a request whose tenant can only come from the front door.
+ *
+ * Sign-in and every token flow (password reset, email verification, invitation
+ * acceptance) share one property: the thing the caller presents — a password, a
+ * mailbox token — proves *who*, and cannot say *which tenant*. On the platform
+ * the same address may be two accounts, so the tenant has to come from the host
+ * the request arrived on. A reset link is clicked on the tenant's own domain,
+ * which is exactly the signal needed.
+ *
+ * A helper rather than two lines at each call site, because the two lines
+ * include `normalizeHost` — and a raw `Host` header carries a port, casing and
+ * a possible trailing dot, so skipping it silently resolves nothing and falls
+ * back to a cross-tenant lookup.
+ */
+export async function scopeFromRequestHost(
+  req: Request | undefined,
+  reasonIfUnresolved: string,
+): Promise<UserEmailScope> {
+  const { orgId } = await resolveTenantOrg(normalizeHost(req?.headers.get("host")));
+  return userEmailScope(orgId, reasonIfUnresolved);
+}
+
+/**
+ * Is this a unique-constraint violation (Prisma P2002)?
+ *
+ * Pairs with the scoped lookups above at every site that READS to decide
+ * whether an address is taken and then WRITES. The read is not a guarantee —
+ * two concurrent requests both pass it — so the constraint has to be allowed to
+ * have the last word, and its refusal must come back as the same answer the
+ * read would have given. Structural, not defensive: it is also what keeps the
+ * response right when the deployment's uniqueness rule is narrower than the
+ * scope the pre-check used.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}
+

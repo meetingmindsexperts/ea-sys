@@ -5,6 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -173,10 +174,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Check if email is already taken
-    const existingUser = await db.user.findUnique({
-      where: { email: emailLower },
-      select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true },
-    });
+    const existingUser = await findUserByEmail(
+      { organizationId: event.organizationId },
+      emailLower,
+      { select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true } },
+    );
 
     // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
     if (existingUser && existingUser.role !== "REGISTRANT") {

@@ -451,17 +451,41 @@ resolver is what closes that, and it must land with, or before, this file.
   `NULLS LAST` ordering makes a tenant-less account **shadow** a real tenant
   account with the same address — Postgres genuinely returns the wrong row
   without it, so the ordering is not decoration.
-- **Remaining: 19 email-keyed lookup sites across 16 files.** Five groups with
-  genuinely different tenant sources — token flows (the token's own row),
-  collision checks (the session), public registration (the event), CRM (the
-  ctx), and the deliberate cross-org sweeps. The ones needing a judgement call
-  rather than a mechanical edit are those sweeps:
-  `src/lib/registrant-account.ts` (sweeps sibling unlinked registrations on the
-  same email), `check-email`, `abstract-start`, `group-register`. On the
-  platform each must become tenant-local.
-- **A CI gate** forbidding a direct user-by-email lookup outside the resolver,
-  once the sites are migrated. Until it exists, the resolver is a convention
-  rather than an invariant.
+- ✅ **Done Aug 21:** all remaining by-email sites, and the CI gate
+  ([scripts/check-user-email-scope.sh](../scripts/check-user-email-scope.sh),
+  three mutations verified). The rule it pins is that a by-email `User` lookup
+  is tenant-safe in exactly two ways: through the resolver, or by carrying
+  `organizationId` in the same `where`.
+
+  **Two facts from prod reframed the migration, and both were measured rather
+  than assumed.** Master has **exactly one organisation** (12 org-bound users,
+  **0** emails held in two orgs), so "this org OR no org" covers the entire user
+  table and every narrowing below is a provable no-op there. And the two CRM
+  deal-owner lookups were **already correct** — a strict `{ email,
+  organizationId }`, which is right because that answer must be an org *member*,
+  so an org-less row must not match. A mechanical sweep would have widened them
+  and broken that.
+
+  **The migration split by what each site is FOR, not by where it lives:**
+  - *Identity reads* — "which account is this person?" — become tenant-scoped:
+    sign-in, the token flows, `registrant-account`'s create-or-link (on the
+    platform, linking by email alone attaches one tenant's registration to
+    another tenant's user), the public-registration doors.
+  - *Collision checks* — "will this write collide?" — must mirror **the
+    constraint the write can violate**, which is global on master and
+    per-tenant on the platform. Scoping them is what makes them follow whichever
+    rule the deployment actually enforces.
+  - The second kind exposed something worth fixing on its own account: a
+    pre-check is a **read**, and a read is not a guarantee. Two admins inviting
+    the same address concurrently both passed it and the loser got a raw P2002
+    → 500. The team-invite and reviewer-invite routes now map that to the same
+    409 the pre-check returns, so the constraint has the last word and neither
+    ordering can 500. That is a pre-existing race closed in passing.
+- **The escape hatch is the deliverable, not a loophole.** A genuinely
+  cross-tenant lookup is written as `{ unscoped: true, reason: "…" }`, so
+  `grep 'unscoped: true'` is the list of decisions the platform must revisit —
+  a sentence someone wrote and a reviewer read, rather than an omission nobody
+  noticed. There are none in `src/` today.
 - **Flagged, not fixed: the login throttle is keyed on email globally.**
   `isLoginBlocked(email, ip)` shares one bucket across tenants, so on the
   platform an attacker hammering tenant A's login with a known address locks

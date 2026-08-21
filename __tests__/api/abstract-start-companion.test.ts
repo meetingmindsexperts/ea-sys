@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), findFirst: vi.fn() },
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     registration: { findFirst: vi.fn() },
@@ -77,7 +77,7 @@ beforeEach(() => {
   rateLimitSpy.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   compareSpy.mockResolvedValue(true);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
-  mockDb.user.findUnique.mockResolvedValue({
+  mockDb.user.findFirst.mockResolvedValue({
     id: "u1",
     role: "SUBMITTER",
     passwordHash: "hash",
@@ -156,7 +156,7 @@ describe("abstract-start — guards", () => {
   });
 
   it("an unknown address is recorded as FAILED_UNKNOWN_EMAIL — spray, not targeting", async () => {
-    mockDb.user.findUnique.mockResolvedValue(null);
+    mockDb.user.findFirst.mockResolvedValue(null);
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(401);
     expect(mockDb.loginEvent.create).toHaveBeenCalledWith(
@@ -177,7 +177,7 @@ describe("abstract-start — guards", () => {
     rateLimitSpy.mockReturnValue({ allowed: false, retryAfterSeconds: 60 });
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(429);
-    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.user.findFirst).not.toHaveBeenCalled();
   });
 
   it("404 when the event doesn't resolve for this host/slug", async () => {

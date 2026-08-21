@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { needsEmailVerification } from "@/lib/internal-domains";
@@ -58,10 +59,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await db.user.findUnique({
-      where: { email },
-      select: { id: true, emailVerified: true, organizationId: true },
-    });
+    // The token proves the mailbox; the HOST proves the tenant. On the
+    // platform one address may be two accounts, and VerificationToken is
+    // keyed on the address alone, so the link's own domain is the only
+    // thing that says which account this is for.
+    const user = await findUserByEmail(
+      await scopeFromRequestHost(req, "email verification: host did not resolve to a tenant"),
+      email,
+      { select: { id: true, emailVerified: true, organizationId: true } },
+    );
     if (!user) {
       await db.verificationToken
         .delete({ where: { identifier_token: { identifier, token: tokenHash } } })
