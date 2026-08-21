@@ -23,6 +23,10 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e/tenancy-shots",
+  // Compile the routes the suite uses before the first assertion — see the
+  // header of _warmup.ts. Not `retries`: that would hide this AND hide a real
+  // flake later.
+  globalSetup: "./e2e/tenancy-shots/_warmup.ts",
   testIgnore: ["**/_*.ts"],
   fullyParallel: false,
   workers: 1,
