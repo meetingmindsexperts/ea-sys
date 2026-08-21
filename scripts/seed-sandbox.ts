@@ -63,6 +63,13 @@ const TENANTS = [
   },
 ];
 
+/**
+ * The synthetic operator org (PLATFORM_DECISIONS §3). Must match the
+ * PLATFORM_ORG_ID that `npm run dev:sandbox` exports — if the two drift, the
+ * operator silently stops being one and every cross-tenant surface 403s.
+ */
+const PLATFORM_ORG_ID = "sandbox-org-platform";
+
 async function main() {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   const start = new Date("2026-11-01T09:00:00Z");
@@ -357,17 +364,62 @@ async function main() {
     });
   }
 
-  // A platform-operator SUPER_ADMIN for GLOBAL observability (logs, sign-in
-  // activity, worker health, system errors) — those surfaces are NOT tenant
-  // data, so they work regardless of org. Org-bound to Acme so org-scoped
-  // pages still resolve cleanly; TRUE cross-tenant data debugging (seeing INTO
-  // any tenant) needs the "act as tenant" switcher — see docs/SANDBOX.md.
+  // ------------------------------------------------------------------
+  // TWO SUPER_ADMINs, on purpose. They are the fixture for the boundary
+  // fixed on Aug 21 2026, and the sandbox previously had only the wrong one.
+  //
+  // `canActAsPlatformOperator` has two conditions: the role is SUPER_ADMIN,
+  // AND — when PLATFORM_ORG_ID is set — the user belongs to that org. Until
+  // this seed there was nowhere for the second condition to execute, so a
+  // TENANT's own SUPER_ADMIN was a platform operator: it could read every
+  // tenant's logs, enumerate every organisation, browse our repository, and
+  // swap the acting org with an x-org-id header. That is not hypothetical —
+  // super@sandbox.test below is org-bound to Acme, and that is exactly the
+  // account the fix refuses.
+  //
+  // So the sandbox now seeds a synthetic PLATFORM org (PLATFORM_DECISIONS §3)
+  // with no events, no TenantDomain and no tenant data — it is a home for the
+  // operator, not a tenant — and keeps the Acme-bound SUPER_ADMIN as the
+  // negative case. `npm run dev:sandbox` sets PLATFORM_ORG_ID to it.
+  // ------------------------------------------------------------------
+  await db.organization.upsert({
+    where: { id: PLATFORM_ORG_ID },
+    update: { name: "Sandbox Platform (operator)", slug: "sandbox-platform" },
+    create: {
+      id: PLATFORM_ORG_ID,
+      name: "Sandbox Platform (operator)",
+      slug: "sandbox-platform",
+      logo: null,
+      settings: {},
+    },
+  });
+
+  // The REAL operator. Belongs to the platform org, so it satisfies both
+  // conditions and keeps every cross-tenant capability.
+  await db.user.upsert({
+    where: { email: "operator@sandbox.test" },
+    update: { role: "SUPER_ADMIN", passwordHash, emailVerified: new Date(), organizationId: PLATFORM_ORG_ID },
+    create: {
+      email: "operator@sandbox.test",
+      firstName: "Platform",
+      lastName: "Operator",
+      passwordHash,
+      role: "SUPER_ADMIN",
+      organizationId: PLATFORM_ORG_ID,
+      emailVerified: new Date(),
+    },
+  });
+
+  // The NEGATIVE case: a tenant's own SUPER_ADMIN. Same role, different org,
+  // and therefore not an operator. Kept under its original address so the
+  // existing sandbox docs and habits still work — what changed is what it can
+  // reach, which is now Acme and nothing else.
   await db.user.upsert({
     where: { email: "super@sandbox.test" },
     update: { role: "SUPER_ADMIN", passwordHash, emailVerified: new Date(), organizationId: "sandbox-org-acme" },
     create: {
       email: "super@sandbox.test",
-      firstName: "Sandbox",
+      firstName: "Acme",
       lastName: "SuperAdmin",
       passwordHash,
       role: "SUPER_ADMIN",
@@ -380,7 +432,8 @@ async function main() {
   for (const t of TENANTS) {
     console.log(`   ${t.host}  →  ${t.name}  (login: ${t.adminEmail} / ${PASSWORD})`);
   }
-  console.log(`   SUPER_ADMIN (logs/activity/health): super@sandbox.test / ${PASSWORD}  (home org: Acme)`);
+  console.log(`   Platform operator (cross-tenant): operator@sandbox.test / ${PASSWORD}`);
+  console.log(`   Tenant SUPER_ADMIN (must be REFUSED cross-tenant): super@sandbox.test / ${PASSWORD}  (org: Acme)`);
   console.log(`   Shared public slug: /e/${SHARED_SLUG}  (serves each org's own event by host)`);
 }
 

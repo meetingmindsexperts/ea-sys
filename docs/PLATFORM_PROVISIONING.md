@@ -272,6 +272,20 @@ fails **open** — the id is used directly, so the tenant lane is entered for th
   with a standalone `SUPER_ADMIN` comparison. This is the guard against the
   failure the sweep actually found, which was not a missing predicate but a
   correct predicate that only eight files had adopted.
+- **`npm run tenancy:isolation` now also runs the operator boundary as two
+  accounts** — a SUPER_ADMIN belonging to a TENANT (refused: `x-org-id` falls
+  back to its own org, ops surfaces 403) and one belonging to the platform org
+  (granted: reads another tenant with the header, keeps the ops surfaces). The
+  two are each other's control; a guard that refused everyone would pass the
+  first and fail the second.
+
+  This is also the first time `PLATFORM_ORG_ID` has executed **anywhere**. The
+  second condition of `canActAsPlatformOperator` — membership of the platform
+  org — was written in August, unit-tested, and never run on any deployment;
+  the sandbox seeded only an Acme-bound SUPER_ADMIN, which is precisely the
+  account the condition exists to refuse. *Correct and unrun* is the shape of
+  every defect found on Aug 21, so a predicate ten authorisation sites now
+  depend on should not have stayed in it.
 
 ### The evidence pack
 

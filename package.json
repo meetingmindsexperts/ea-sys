@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3113",
-    "dev:sandbox": "RLS_SET_LOCAL=1 TENANCY_ENFORCE_HOST=1 DATABASE_URL='postgresql://app_user:app_user_pw@localhost:55432/sandbox' DIRECT_URL='postgresql://postgres:postgres@localhost:55432/sandbox' next dev -p 3114",
+    "dev:sandbox": "RLS_SET_LOCAL=1 TENANCY_ENFORCE_HOST=1 PLATFORM_ORG_ID=sandbox-org-platform DATABASE_URL='postgresql://app_user:app_user_pw@localhost:55432/sandbox' DIRECT_URL='postgresql://postgres:postgres@localhost:55432/sandbox' next dev -p 3114",
     "sandbox:setup": "tsx scripts/setup-sandbox.ts",
     "sandbox:seed": "tsx scripts/seed-sandbox.ts",
     "build": "prisma generate && next build",

@@ -33,6 +33,24 @@ database, different URLs. Your MMG `npm run dev` on `localhost:3113` is unchange
 | RLS | off | **on** |
 | Log in as | your MMG users | `admin@acme.test` / `admin@globex.test` (pw `sandbox123`) |
 
+### The four sandbox accounts
+
+All use password `sandbox123`.
+
+| Account | Role / org | What it demonstrates |
+|---|---|---|
+| `admin@acme.test` | ADMIN, Acme | An ordinary tenant administrator |
+| `admin@globex.test` | ADMIN, Globex | The other tenant, for side-by-side comparison |
+| `operator@sandbox.test` | SUPER_ADMIN, **platform org** | The real platform operator: reads our logs, enumerates orgs, and may "act as" a tenant via the `x-org-id` header |
+| `super@sandbox.test` | SUPER_ADMIN, **Acme** | The NEGATIVE case — same role, a tenant's org, so **not** an operator |
+
+That last pair is the fixture for the boundary fixed Aug 21, 2026.
+`canActAsPlatformOperator` requires SUPER_ADMIN **and** membership of
+`PLATFORM_ORG_ID`, and until this seed existed the sandbox had only the
+Acme-bound one — so the second condition had nowhere to run, on any
+deployment. A customer's own administrator will look exactly like
+`super@sandbox.test`, which is why it is kept rather than promoted.
+
 ---
 
 ## Setup (one-time)

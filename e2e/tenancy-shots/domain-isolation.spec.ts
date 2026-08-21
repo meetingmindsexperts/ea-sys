@@ -263,3 +263,98 @@ test("a tenant admin cannot reach our repository or our infrastructure", async (
     );
   }
 });
+
+/**
+ * The platform-operator boundary, exercised for the first time (Aug 21 2026).
+ *
+ * `canActAsPlatformOperator` has two conditions — SUPER_ADMIN, and membership
+ * of PLATFORM_ORG_ID — and until this spec the second one had never executed
+ * anywhere. Not master, not the sandbox, not CI. It was unit-tested and unrun.
+ *
+ * That matters because the whole ADMIN-gate sweep rests on it: ten
+ * authorisation sites were changed to ask this predicate instead of
+ * `role === "SUPER_ADMIN"`, and "the predicate is correct" and "the predicate
+ * runs" are different claims. Both of the day's bugs were the second kind —
+ * correct code nothing reached.
+ *
+ * The fixture is deliberately the awkward one. `super@sandbox.test` is a
+ * SUPER_ADMIN belonging to ACME, which is exactly the account the fix exists to
+ * refuse and exactly what a customer's own administrator will look like on the
+ * platform. `operator@sandbox.test` belongs to the synthetic platform org and
+ * must keep everything.
+ *
+ * Requires `npm run dev:sandbox` (which sets PLATFORM_ORG_ID) and a seed from
+ * this repo's scripts/seed-sandbox.ts.
+ */
+const GLOBEX_ORG_ID = "sandbox-org-globex";
+
+const OPS_SURFACES = [
+  "/api/logs?since=10m&source=database",
+  "/api/organizations",
+  "/api/admin/docs/tree",
+];
+
+async function loginAs(page: Page, host: string, email: string): Promise<void> {
+  await page.goto(`http://${host}/login`);
+  await page.getByLabel("Email").waitFor({ state: "visible", timeout: 90_000 });
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByRole("button", { name: /sign in|log ?in/i }).click();
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+}
+
+test("a TENANT's SUPER_ADMIN is not a platform operator", async ({ page }) => {
+  const acme = TENANTS[0];
+  await loginAs(page, acme.host, "super@sandbox.test");
+
+  // Its own tenant still works — the fix must refuse cross-tenant reach, not
+  // break the account.
+  const own = await page.request.get(`http://${acme.host}/api/events`);
+  expect(own.status()).toBe(200);
+  expect(await own.text()).toContain("Acme Annual Summit");
+
+  // The x-org-id override is REFUSED: it gets its own org's events back, not
+  // Globex's. Before Aug 21 this header was honoured on the role alone, and
+  // through PUT /api/organization it was a cross-tenant WRITE.
+  const swapped = await page.request.get(`http://${acme.host}/api/events`, {
+    headers: { "x-org-id": GLOBEX_ORG_ID },
+  });
+  expect(swapped.status()).toBe(200);
+  const body = await swapped.text();
+  expect(body, "x-org-id let a tenant admin read another tenant").not.toContain(
+    "Globex Annual Summit",
+  );
+  expect(body, "the refusal must fall back to the caller's own org, not to nothing").toContain(
+    "Acme Annual Summit",
+  );
+
+  // Our logs, our organisation list, our repository.
+  for (const path of OPS_SURFACES) {
+    const res = await page.request.get(`http://${acme.host}${path}`, { maxRedirects: 0 });
+    expect(res.status(), `${path} must not serve a tenant SUPER_ADMIN`).toBe(403);
+  }
+});
+
+test("the platform operator keeps every cross-tenant capability", async ({ page }) => {
+  // The other half, and the half that makes the first half meaningful: a guard
+  // that refused everyone would pass the test above and be useless.
+  const acme = TENANTS[0];
+  await loginAs(page, acme.host, "operator@sandbox.test");
+
+  // The operator's own org holds no events, so an unswapped read is empty —
+  // which is what makes the swapped read below unambiguous evidence.
+  const own = await page.request.get(`http://${acme.host}/api/events`);
+  expect(own.status()).toBe(200);
+  expect(await own.text()).not.toContain("Annual Summit");
+
+  const swapped = await page.request.get(`http://${acme.host}/api/events`, {
+    headers: { "x-org-id": GLOBEX_ORG_ID },
+  });
+  expect(swapped.status()).toBe(200);
+  expect(await swapped.text()).toContain("Globex Annual Summit");
+
+  for (const path of OPS_SURFACES) {
+    const res = await page.request.get(`http://${acme.host}${path}`, { maxRedirects: 0 });
+    expect(res.status(), `${path} must remain reachable by the operator`).not.toBe(403);
+  }
+});
