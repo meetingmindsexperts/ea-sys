@@ -69,6 +69,8 @@ const TENANTS = [
  * operator silently stops being one and every cross-tenant surface 403s.
  */
 const PLATFORM_ORG_ID = "sandbox-org-platform";
+/** The operator console host. Sign-in is host-bound, so the operator needs one. */
+const PLATFORM_HOST = "platform.localhost";
 
 async function main() {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
@@ -378,9 +380,19 @@ async function main() {
   // account the fix refuses.
   //
   // So the sandbox now seeds a synthetic PLATFORM org (PLATFORM_DECISIONS §3)
-  // with no events, no TenantDomain and no tenant data — it is a home for the
-  // operator, not a tenant — and keeps the Acme-bound SUPER_ADMIN as the
-  // negative case. `npm run dev:sandbox` sets PLATFORM_ORG_ID to it.
+  // with no events and no tenant data — it is a home for the operator, not a
+  // tenant — and keeps the Acme-bound SUPER_ADMIN as the negative case.
+  // `npm run dev:sandbox` sets PLATFORM_ORG_ID to it.
+  //
+  // It DOES get a TenantDomain, and that is a correction made Aug 21 2026 after
+  // tenant-scoped login shipped. This block originally said "no TenantDomain",
+  // which was fine while sign-in was global — and became a lockout the moment
+  // the lookup started resolving the tenant from the Host: the operator's org
+  // matched no domain, so signing in anywhere found nothing and the platform
+  // had no door for the person who operates it. The operator signs in on their
+  // OWN host, then acts as a tenant through `x-org-id`
+  // (`resolveActingOrgId`) — which is the flow that was designed, just never
+  // exercised until login became host-bound.
   // ------------------------------------------------------------------
   await db.organization.upsert({
     where: { id: PLATFORM_ORG_ID },
@@ -391,6 +403,19 @@ async function main() {
       slug: "sandbox-platform",
       logo: null,
       settings: {},
+    },
+  });
+
+  // The operator console's host. Without it there is no way to sign in as the
+  // operator at all — see the note above.
+  await db.tenantDomain.upsert({
+    where: { domain: PLATFORM_HOST },
+    update: { organizationId: PLATFORM_ORG_ID, isPrimary: true, verifiedAt: new Date() },
+    create: {
+      domain: PLATFORM_HOST,
+      organizationId: PLATFORM_ORG_ID,
+      isPrimary: true,
+      verifiedAt: new Date(),
     },
   });
 
@@ -432,7 +457,7 @@ async function main() {
   for (const t of TENANTS) {
     console.log(`   ${t.host}  →  ${t.name}  (login: ${t.adminEmail} / ${PASSWORD})`);
   }
-  console.log(`   Platform operator (cross-tenant): operator@sandbox.test / ${PASSWORD}`);
+  console.log(`   ${PLATFORM_HOST}  →  operator console (sign in HERE: operator@sandbox.test / ${PASSWORD})`);
   console.log(`   Tenant SUPER_ADMIN (must be REFUSED cross-tenant): super@sandbox.test / ${PASSWORD}  (org: Acme)`);
   console.log(`   Shared public slug: /e/${SHARED_SLUG}  (serves each org's own event by host)`);
 }

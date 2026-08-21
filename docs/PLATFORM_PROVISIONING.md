@@ -174,6 +174,19 @@ Do not start this until Phase A is clean.
 The platform DB is empty, so there is no way to log in yet. It needs an
 Organization, a SUPER_ADMIN, and a `TenantDomain` row for its hostname.
 
+> **The operator org needs a `TenantDomain` too, and this is easy to miss.**
+> Sign-in resolves the tenant from the `Host` (PLATFORM_DECISIONS §6), so an org
+> with no verified domain has **no door** — including the synthetic platform org
+> from §3, which by description "owns nothing and nobody logs into". Somebody
+> does: the operator. Without an operator console host, the platform ships with
+> no way to sign in and operate it, and the symptom is an ordinary "invalid
+> email or password" that tells you nothing. Found in the sandbox the day
+> host-bound login landed, by running it rather than by any test.
+>
+> The operator signs in on that host and then acts as a tenant through the
+> `x-org-id` header (`resolveActingOrgId`); they never sign in on a tenant's
+> host, and after this change they cannot.
+
 > **Not built yet.** There is no tenant-creation surface anywhere in the app
 > (`/admin` has docs, help-queries and infra; nothing else), so this is
 > currently a manual seed. Building it is the next product track — see

@@ -286,6 +286,8 @@ test("a tenant admin cannot reach our repository or our infrastructure", async (
  * Requires `npm run dev:sandbox` (which sets PLATFORM_ORG_ID) and a seed from
  * this repo's scripts/seed-sandbox.ts.
  */
+/** The operator console host — sign-in is host-bound, so the operator needs one. */
+const PLATFORM_HOST = `platform.localhost:${PORT}`;
 const GLOBEX_ORG_ID = "sandbox-org-globex";
 
 const OPS_SURFACES = [
@@ -338,23 +340,48 @@ test("a TENANT's SUPER_ADMIN is not a platform operator", async ({ page }) => {
 test("the platform operator keeps every cross-tenant capability", async ({ page }) => {
   // The other half, and the half that makes the first half meaningful: a guard
   // that refused everyone would pass the test above and be useless.
-  const acme = TENANTS[0];
-  await loginAs(page, acme.host, "operator@sandbox.test");
+  //
+  // The operator signs in on the OPERATOR CONSOLE host, not a tenant's. That is
+  // not a detail of this test — sign-in resolves the tenant from the Host
+  // (PLATFORM_DECISIONS §6), so an org with no domain has no door, and until
+  // Aug 21 2026 the platform org deliberately had none. Signing in here and
+  // then reaching a tenant through `x-org-id` IS the operator flow; it simply
+  // was never exercised while login was global.
+  await loginAs(page, PLATFORM_HOST, "operator@sandbox.test");
 
   // The operator's own org holds no events, so an unswapped read is empty —
   // which is what makes the swapped read below unambiguous evidence.
-  const own = await page.request.get(`http://${acme.host}/api/events`);
+  const own = await page.request.get(`http://${PLATFORM_HOST}/api/events`);
   expect(own.status()).toBe(200);
   expect(await own.text()).not.toContain("Annual Summit");
 
-  const swapped = await page.request.get(`http://${acme.host}/api/events`, {
+  const swapped = await page.request.get(`http://${PLATFORM_HOST}/api/events`, {
     headers: { "x-org-id": GLOBEX_ORG_ID },
   });
   expect(swapped.status()).toBe(200);
   expect(await swapped.text()).toContain("Globex Annual Summit");
 
   for (const path of OPS_SURFACES) {
-    const res = await page.request.get(`http://${acme.host}${path}`, { maxRedirects: 0 });
+    const res = await page.request.get(`http://${PLATFORM_HOST}${path}`, { maxRedirects: 0 });
     expect(res.status(), `${path} must remain reachable by the operator`).not.toBe(403);
   }
+});
+
+test("a tenant's host is NOT a door into another tenant's account", async ({ page }) => {
+  // Sign-in is host-bound, so Globex's admin must not authenticate on Acme's
+  // host. It reads as "no such account", which is correct and, as
+  // PLATFORM_DECISIONS §6 says, deliberately confusing.
+  const acme = TENANTS[0];
+  await page.goto(`http://${acme.host}/login`);
+  await page.getByLabel(/email/i).fill("admin@globex.test");
+  await page.getByLabel(/password/i).fill("sandbox123");
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.waitForTimeout(2500);
+  // Still on the login page — not signed in to anything.
+  expect(page.url()).toContain("/login");
+
+  // And the same credentials on their OWN host do work, so the refusal above
+  // is about the tenant boundary and not about the password.
+  await loginAs(page, TENANTS[1].host, "admin@globex.test");
+  expect(page.url()).not.toContain("/login");
 });

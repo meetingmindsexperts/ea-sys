@@ -481,6 +481,33 @@ resolver is what closes that, and it must land with, or before, this file.
     → 500. The team-invite and reviewer-invite routes now map that to the same
     409 the pre-check returns, so the constraint has the last word and neither
     ordering can 500. That is a pre-existing race closed in passing.
+- ⚠️ **Two things only running it found, both fixed Aug 21.** Neither had a
+  failing test, because both are about *reachability* rather than logic — the
+  recurring shape of this whole round.
+
+  **1. An unrecognised `Host` was a universal login.** The resolver returns a
+  null org for two opposite reasons, and `scopeFromRequestHost` collapsed them:
+  `unscoped` (master, no `DEFAULT_ORG_ID` — legacy global behaviour, correct)
+  and `unknown-enforced` (the platform, where an unknown host is *defined* to
+  resolve nothing). Falling back to a global lookup meant `Host: evil.example`
+  signed in fine against any tenant on the enforcing sandbox — verified, then
+  verified fixed. Not a privilege escalation (the session still carries the
+  caller's own org), but it defeats the binding the change exists for, and it
+  means removing a tenant's `TenantDomain` would not have closed its front door.
+  `Host` is attacker-controlled, so the enforcing deployment now fails **closed**
+  via a third scope, `{ none: true, reason }`, which matches nothing and does not
+  query. Both directions are mutation-verified — failing closed on *both*
+  branches would lock master's 113 org-null accounts out.
+
+  **2. The platform operator had no door.** The synthetic operator org (§3) was
+  seeded deliberately with **no `TenantDomain`** — "a home for the operator, not
+  a tenant" — which was fine while sign-in was global and became a lockout the
+  moment it became host-bound. The operator signs in on an **operator console
+  host** and *then* reaches a tenant through `x-org-id`; that is exactly the flow
+  `resolveActingOrgId` was written for, and nothing had exercised it. Recorded as
+  a provisioning requirement in
+  [PLATFORM_PROVISIONING.md](PLATFORM_PROVISIONING.md) §B2, because the symptom
+  is an ordinary "invalid email or password" that tells the operator nothing.
 - **The escape hatch is the deliverable, not a loophole.** A genuinely
   cross-tenant lookup is written as `{ unscoped: true, reason: "…" }`, so
   `grep 'unscoped: true'` is the list of decisions the platform must revisit —

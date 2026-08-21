@@ -75,7 +75,14 @@ export type UserEmailScope =
   /** This tenant's account, falling back to a tenant-less one. */
   | { organizationId: string }
   /** Every tenant. Legitimate in a few places; each must say why. */
-  | { unscoped: true; reason: string };
+  | { unscoped: true; reason: string }
+  /**
+   * NO account, deliberately. The request could not be attributed to a tenant
+   * on a deployment that says an unattributable request resolves nothing
+   * (`TENANCY_ENFORCE_HOST=1`). Distinct from `unscoped`, and the distinction
+   * is the whole point — see `scopeFromRequestHost`.
+   */
+  | { none: true; reason: string };
 
 /**
  * Build a scope from a possibly-unresolved org id (e.g. the host resolver's
@@ -106,6 +113,8 @@ export function userEmailWhere(
   scope: UserEmailScope,
   email: string,
 ): Prisma.UserWhereInput {
+  // Matches nothing, by construction — safe to compose with any other filter.
+  if ("none" in scope) return { id: { in: [] } };
   if ("unscoped" in scope) return { email };
   return {
     email,
@@ -141,6 +150,11 @@ export async function findUserByEmail<S extends Prisma.UserSelect>(
   email: string,
   args: { select: S; client?: UserLookupClient },
 ): Promise<Prisma.UserGetPayload<{ select: S }> | null> {
+  // No tenant, on a deployment that says that means no account: answer without
+  // touching the database. `userEmailWhere` returns a match-nothing filter for
+  // the same case, so a composing call site is safe too.
+  if ("none" in scope) return null;
+
   const client = args.client ?? db;
   return client.user.findFirst({
     where: userEmailWhere(scope, email),
@@ -168,8 +182,33 @@ export async function scopeFromRequestHost(
   req: Request | undefined,
   reasonIfUnresolved: string,
 ): Promise<UserEmailScope> {
-  const { orgId } = await resolveTenantOrg(normalizeHost(req?.headers.get("host")));
-  return userEmailScope(orgId, reasonIfUnresolved);
+  const { orgId, source } = await resolveTenantOrg(normalizeHost(req?.headers.get("host")));
+  if (orgId) return { organizationId: orgId };
+
+  // THE BRANCH THAT MATTERS, and it is not `orgId ? … : …`.
+  //
+  // The resolver returns a null org for two opposite reasons, and collapsing
+  // them was a real defect — caught by driving the sandbox with a forged Host,
+  // not by any test:
+  //
+  //   - `unscoped`      → master, no DEFAULT_ORG_ID. Legacy, org-unscoped
+  //                       behaviour is CORRECT: 90% of its accounts carry no
+  //                       org and must still sign in.
+  //   - `unknown-enforced` → the platform, where an unrecognised Host is
+  //                       defined to resolve NOTHING (404 semantics). Falling
+  //                       back to a global lookup turns the one endpoint that
+  //                       must be tenant-bound into a universal one: `Host:
+  //                       evil.example` signed in fine against any tenant, so
+  //                       removing a tenant's TenantDomain would not have
+  //                       closed its front door. Not a privilege escalation —
+  //                       the session still carries the caller's own org — but
+  //                       it defeats the binding this whole change exists for.
+  //
+  // Host is attacker-controlled, so the enforcing deployment must fail CLOSED.
+  if (source === "unknown-enforced") {
+    return { none: true, reason: reasonIfUnresolved };
+  }
+  return { unscoped: true, reason: reasonIfUnresolved };
 }
 
 /**

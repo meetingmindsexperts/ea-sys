@@ -13,14 +13,21 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/tenant/resolver", () => ({
+  normalizeHost: (h: string | null | undefined) => (h ? h.toLowerCase() : null),
+  resolveTenantOrg: vi.fn(),
+}));
+
 vi.mock("@/lib/db", () => ({ db: { user: { findFirst: vi.fn() } } }));
 
 import { db } from "@/lib/db";
+import { resolveTenantOrg } from "@/lib/tenant/resolver";
 import {
   findUserByEmail,
   userEmailScope,
   userEmailWhere,
   USER_EMAIL_ORDER_BY,
+  scopeFromRequestHost,
 } from "@/lib/tenant/user-lookup";
 
 const findFirst = db.user.findFirst as unknown as ReturnType<typeof vi.fn>;
@@ -125,5 +132,57 @@ describe("findUserByEmail", () => {
     expect(row).toEqual({ id: "in-tx" });
     expect(tx.user.findFirst).toHaveBeenCalledTimes(1);
     expect(findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("scopeFromRequestHost", () => {
+  const resolve = resolveTenantOrg as unknown as ReturnType<typeof vi.fn>;
+  const req = (host: string) => new Request("http://x/", { headers: { host } });
+
+  it("uses the org a known host resolves to", async () => {
+    resolve.mockResolvedValueOnce({ orgId: "org-acme", source: "domain" });
+    expect(await scopeFromRequestHost(req("acme.test"), "r")).toEqual({
+      organizationId: "org-acme",
+    });
+  });
+
+  it("FAILS CLOSED on an unrecognised host when the deployment enforces hosts", async () => {
+    // The defect this test exists for, found by driving the sandbox with a
+    // forged Host rather than by any assertion: `unknown-enforced` means the
+    // request resolves to NOTHING, and treating it as "unscoped" turned
+    // sign-in into a universal endpoint reachable with `Host: evil.example`.
+    // Returning `{ unscoped: true }` here must fail this test.
+    resolve.mockResolvedValueOnce({ orgId: null, source: "unknown-enforced" });
+    expect(await scopeFromRequestHost(req("evil.example"), "r")).toEqual({
+      none: true,
+      reason: "r",
+    });
+  });
+
+  it("stays UNSCOPED on master, where an unresolved host is the legacy case", async () => {
+    // The opposite branch, and it must not be swept up by the fix above:
+    // master with no DEFAULT_ORG_ID resolves nothing on purpose, and 90% of its
+    // accounts carry no org. Failing closed here locks everyone out.
+    resolve.mockResolvedValueOnce({ orgId: null, source: "unscoped" });
+    expect(await scopeFromRequestHost(req("anything"), "r")).toEqual({
+      unscoped: true,
+      reason: "r",
+    });
+  });
+});
+
+describe("a `none` scope matches nothing", () => {
+  it("returns null WITHOUT querying the database", async () => {
+    const row = await findUserByEmail({ none: true, reason: "r" }, "a@x.test", {
+      select: { id: true },
+    });
+    expect(row).toBeNull();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("builds a match-nothing where, so a composing call site is safe too", () => {
+    expect(userEmailWhere({ none: true, reason: "r" }, "a@x.test")).toEqual({
+      id: { in: [] },
+    });
   });
 });

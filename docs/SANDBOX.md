@@ -13,7 +13,7 @@ database, different URLs. Your MMG `npm run dev` on `localhost:3113` is unchange
 
 ## What it gives you
 
-- **Two tenants**: *Acme Events* (`acme.localhost`) and *Globex Summits* (`globex.localhost`).
+- **Two tenants**: *Acme Events* (`acme.localhost`) and *Globex Summits* (`globex.localhost`), plus an **operator console** at `platform.localhost` which is not a tenant and holds no event data.
 - **The DB-level backstop is real**: the app connects as the non-owner Postgres
   role `app_user`, so Row-Level Security actually enforces (owners bypass RLS).
   With no tenant context a swept table returns **zero rows** (fail-closed) —
@@ -27,7 +27,7 @@ database, different URLs. Your MMG `npm run dev` on `localhost:3113` is unchange
 | | Your MMG dev (unchanged) | Sandbox |
 |---|---|---|
 | Command | `npm run dev` | `npm run dev:sandbox` |
-| URL(s) | `localhost:3113` | `acme.localhost:3114` / `globex.localhost:3114` |
+| URL(s) | `localhost:3113` | `acme.localhost:3114` / `globex.localhost:3114` / `platform.localhost:3114` (operator) |
 | Database | `ea_sys_prod_local` (:54322) | `sandbox` db in the tenancy container (:55432, as `app_user`) |
 | Orgs | 1 (MMG) | 2 (Acme, Globex) |
 | RLS | off | **on** |
@@ -41,7 +41,7 @@ All use password `sandbox123`.
 |---|---|---|
 | `admin@acme.test` | ADMIN, Acme | An ordinary tenant administrator |
 | `admin@globex.test` | ADMIN, Globex | The other tenant, for side-by-side comparison |
-| `operator@sandbox.test` | SUPER_ADMIN, **platform org** | The real platform operator: reads our logs, enumerates orgs, and may "act as" a tenant via the `x-org-id` header |
+| `operator@sandbox.test` | SUPER_ADMIN, **platform org** | The real platform operator: reads our logs, enumerates orgs, and may "act as" a tenant via the `x-org-id` header. **Sign in on `platform.localhost:3114`**, not on a tenant's host |
 | `super@sandbox.test` | SUPER_ADMIN, **Acme** | The NEGATIVE case — same role, a tenant's org, so **not** an operator |
 
 That last pair is the fixture for the boundary fixed Aug 21, 2026.
@@ -50,6 +50,15 @@ That last pair is the fixture for the boundary fixed Aug 21, 2026.
 Acme-bound one — so the second condition had nowhere to run, on any
 deployment. A customer's own administrator will look exactly like
 `super@sandbox.test`, which is why it is kept rather than promoted.
+
+**The operator has a host of its own, and that is not cosmetic.** Sign-in
+resolves the tenant from the `Host` (PLATFORM_DECISIONS §6), so an org with no
+`TenantDomain` has no door. The platform org originally had none — deliberately,
+"a home for the operator, not a tenant" — and the day login became host-bound
+that turned into a lockout of the one account that operates the platform. The
+operator signs in on the operator console host and *then* reaches a tenant via
+`x-org-id`, which is the flow `resolveActingOrgId` was written for and which
+nothing exercised until sign-in stopped being global.
 
 ---
 
@@ -76,7 +85,7 @@ never clobbers it. Re-seed any time with `npm run sandbox:seed`.
 > git worktree — advanced, usually not worth it.)
 
 ```bash
-npm run dev:sandbox      # http://acme.localhost:3114  +  http://globex.localhost:3114
+npm run dev:sandbox      # acme.localhost:3114 + globex.localhost:3114 + platform.localhost:3114
 ```
 
 `*.localhost` resolves to 127.0.0.1 automatically — no `/etc/hosts` editing.
