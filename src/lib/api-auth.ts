@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { validateApiKey } from "@/lib/api-key";
 import { verifyMobileToken } from "@/lib/mobile-jwt";
+import { resolveActingOrgId } from "@/lib/platform-operator";
 
 export interface OrgContext {
   organizationId: string;
@@ -26,15 +27,11 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
   // 1. Try NextAuth session first
   const session = await auth();
   if (session?.user?.organizationId) {
-    let orgId = session.user.organizationId;
-
-    // SUPER_ADMIN can override org via x-org-id header
-    if (session.user.role === "SUPER_ADMIN") {
-      const overrideOrgId = req.headers.get("x-org-id");
-      if (overrideOrgId) {
-        orgId = overrideOrgId;
-      }
-    }
+    // The x-org-id override is honoured for a PLATFORM OPERATOR only, never
+    // for a tenant's own SUPER_ADMIN. See resolveActingOrgId for why.
+    const orgId = resolveActingOrgId(req, session.user, session.user.organizationId, {
+      route: "getOrgContext:session",
+    });
 
     return {
       organizationId: orgId,
@@ -53,15 +50,12 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
   if (bearerToken && bearerToken.split(".").length === 3) {
     const decoded = verifyMobileToken(bearerToken);
     if (decoded && decoded.type === "access" && decoded.organizationId) {
-      let orgId = decoded.organizationId;
-
-      // SUPER_ADMIN can override org via x-org-id header
-      if (decoded.role === "SUPER_ADMIN") {
-        const overrideOrgId = req.headers.get("x-org-id");
-        if (overrideOrgId) {
-          orgId = overrideOrgId;
-        }
-      }
+      const orgId = resolveActingOrgId(
+        req,
+        { id: decoded.userId, role: decoded.role, organizationId: decoded.organizationId },
+        decoded.organizationId,
+        { route: "getOrgContext:mobile" },
+      );
 
       return {
         organizationId: orgId,

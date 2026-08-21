@@ -244,9 +244,17 @@ was sound. What was missing was the mechanism it depended on, the routes nobody
 had swept, and the authorisation gates nobody had re-read.
 
 **One cause repeats: gates written when `ADMIN` meant "us".** Finding 4 is one
-instance and there are likely more. A sweep of every `adminOnly` flag and
-`role === "ADMIN"` check, asked against *"is this still right when ADMIN is a
-customer?"*, is worth scheduling before launch.
+instance and there are likely more. ✅ **That sweep ran the same day** and found
+ten more sites — six of which let a `SUPER_ADMIN` swap the acting organisation
+via an `x-org-id` header, including a cross-tenant **write**. Note the role: the
+rehearsal signed in as ADMIN, so it could not have found them. Full record in
+[PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) § "ADMIN-gate sweep".
+
+**And one shape the rehearsal did NOT contain.** All five defects here fail
+*closed*: no lane, RLS matches nothing, empty screen. The `x-org-id` override
+fails **open** — the id is used directly, so the tenant lane is entered for the
+*target* org and RLS serves their rows correctly. Worth stating plainly, because
+"RLS is the backstop" is true for a missing lane and false for a wrong one.
 
 ### What now guards against a recurrence
 
@@ -259,6 +267,11 @@ customer?"*, is worth scheduling before launch.
   `WITH CHECK` or mistypes the GUC fails the unit suite.
 - The RLS boot tripwire — a deployment claiming enforcement while connected as a
   role that bypasses it refuses to start.
+- `scripts/check-platform-operator.sh` — `x-org-id` has exactly one reader, every
+  platform surface calls the operator predicate, and none decides authorisation
+  with a standalone `SUPER_ADMIN` comparison. This is the guard against the
+  failure the sweep actually found, which was not a missing predicate but a
+  correct predicate that only eight files had adopted.
 
 ### The evidence pack
 

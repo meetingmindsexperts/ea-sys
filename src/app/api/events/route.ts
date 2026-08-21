@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveActingOrgId } from "@/lib/platform-operator";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { slugify, deriveEventCode } from "@/lib/utils";
@@ -45,13 +46,14 @@ export async function GET(req: Request) {
     // incorrectly return null for them — handle session auth separately here.
     const session = await auth();
     if (session?.user) {
-      // SUPER_ADMIN org override via x-org-id header
+      // Org override, platform-operator only. Org-null roles (REVIEWER /
+      // SUBMITTER / REGISTRANT) carry no own org, so the override cannot apply
+      // to them and the nullish fallback keeps their existing behaviour.
       const user = { ...session.user };
-      if (user.role === "SUPER_ADMIN") {
-        const overrideOrgId = req.headers.get("x-org-id");
-        if (overrideOrgId) {
-          user.organizationId = overrideOrgId;
-        }
+      if (user.organizationId) {
+        user.organizationId = resolveActingOrgId(req, session.user, user.organizationId, {
+          route: "events:GET",
+        });
       }
 
       // An org-null role (REVIEWER / SUBMITTER / REGISTRANT) reaches this route

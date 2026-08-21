@@ -101,6 +101,15 @@ jobs:
       - name: Tenant ALS (swept-domain runWithTenant wraps)
         run: bash scripts/check-tenant-als.sh
 
+      # Cross-tenant authorisation. `canActAsPlatformOperator` was written in
+      # August 2026 and then only eight files adopted it; the Aug 21 sweep found
+      # ten more still deciding the same question with a bare SUPER_ADMIN check,
+      # six of which let a caller swap the acting org via an x-org-id header.
+      # Writing the predicate is half the job; adopting it is the other half,
+      # and this gate is what keeps it adopted.
+      - name: Platform-operator boundary (x-org-id + operator gates)
+        run: bash scripts/check-platform-operator.sh
+
       # A datetime-local input has no timezone, so slicing an ISO string into
       # one shifts the stored instant on every re-save, compounding. Shipped
       # and fixed three times (dinner console, submission deadlines, promo

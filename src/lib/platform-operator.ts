@@ -97,3 +97,64 @@ export function denyNonOperator(
     { status: 403 },
   );
 }
+
+/**
+ * Resolve which organisation a request is acting on, honouring the `x-org-id`
+ * override ONLY for a genuine platform operator.
+ *
+ * WHY THIS EXISTS (found by the Aug 21 2026 ADMIN-gate sweep)
+ * -----------------------------------------------------------
+ * Six call sites read `x-org-id` and swapped the acting org on nothing more
+ * than `role === "SUPER_ADMIN"`. That is correct in single-org mode, where
+ * SUPER_ADMIN means an MMG employee and the header is just the org switcher in
+ * `use-api.ts`. On the platform it means a customer's own SUPER_ADMIN could
+ * read — and through `PUT /api/organization`, WRITE — any other tenant's
+ * organisation by setting one header.
+ *
+ * This one is a different and worse shape than the five defects the tenancy
+ * rehearsal found. Those all failed CLOSED: no lane, RLS matches nothing, an
+ * empty screen. This fails OPEN. The overridden id is used directly, so a
+ * later `runWithTenant(orgId)` enters the TARGET tenant's lane and RLS serves
+ * their rows faithfully. RLS is not a backstop against a caller who has been
+ * handed the wrong tenant id; it is an accomplice.
+ *
+ * MASTER IS UNAFFECTED. `PLATFORM_ORG_ID` is unset there, so
+ * `canActAsPlatformOperator` reduces to the previous `role === "SUPER_ADMIN"`
+ * test and the org switcher keeps working exactly as before.
+ *
+ * Both outcomes are logged, deliberately at different levels: an honoured
+ * override is a cross-tenant action and must be traceable (info); a REFUSED
+ * one is an attempt to reach another tenant and is a security event (warn).
+ * The no-op case — header present but naming the caller's own org, which the
+ * switcher does routinely — is silent, so the warn stays meaningful.
+ */
+export function resolveActingOrgId(
+  req: Request,
+  user: { id?: string; role?: string | null; organizationId?: string | null } | null | undefined,
+  ownOrgId: string,
+  ctx?: { route?: string },
+): string {
+  const requested = req.headers.get("x-org-id");
+  if (!requested || requested === ownOrgId) return ownOrgId;
+
+  if (!canActAsPlatformOperator(user)) {
+    apiLogger.warn({
+      msg: "platform-operator:org-override-refused",
+      role: user?.role ?? null,
+      userId: user?.id ?? null,
+      ownOrgId,
+      requestedOrgId: requested,
+      ...(ctx?.route ? { route: ctx.route } : {}),
+    });
+    return ownOrgId;
+  }
+
+  apiLogger.info({
+    msg: "platform-operator:org-override",
+    userId: user?.id ?? null,
+    ownOrgId,
+    actingOrgId: requested,
+    ...(ctx?.route ? { route: ctx.route } : {}),
+  });
+  return requested;
+}

@@ -21,7 +21,7 @@
 | 4 | The `?? ""` fallback pass | ✅ **DONE** Aug 11, 2026. Decision CORRECTED then shipped (§4) |
 | 5 | Privileged maintenance lane | ✅ **BUILT** Aug 11, 2026. All four decisions taken, code shipped (§5) |
 | 6 | Phase-1 identity model | 🔶 OPEN — owner thesis + counter-inputs recorded (§6), discussion pending |
-| 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ DECIDED — **next immediate build priority** (not started) |
+| 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ **IMPLEMENTED** Aug 4, 2026 (§7) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
 
 ---
@@ -429,10 +429,95 @@ Two consequences for this list:
   portal** — my-registration, invoices, quotes, barcodes, promo codes — returns
   nothing on the platform until item 6 is resolved. That is worth weighing when
   scheduling it.
-- **A new item, not previously on this list: sweep every `ADMIN` gate.** Four of
-  the five findings share one cause — authorisation written when `ADMIN` meant
-  an MMG employee, re-read now that it can mean a customer. Bounded, and cheaper
-  before launch than after.
+- **A new item, not previously on this list: sweep every `ADMIN` gate.** Finding
+  4 is one instance of a class — authorisation written when `ADMIN` meant an MMG
+  employee, re-read now that it can mean a customer. Bounded, and cheaper before
+  launch than after. ✅ **DONE Aug 21, 2026** — see "ADMIN-gate sweep" below.
+  (An earlier revision of this line said "four of the five findings share one
+  cause". That was wrong: only finding 4 does. Corrected rather than deleted,
+  because the overstatement was in the direction that makes a real risk sound
+  bigger, and the next reader should know which number to trust.)
+
+---
+
+## ADMIN-gate sweep — ✅ DONE (Aug 21, 2026)
+
+Prompted by rehearsal finding 4 (`Docs` and `Infra / Ops` were `adminOnly`,
+written when ADMIN meant an MMG employee). The sweep asked one question of every
+authorisation check: **is this still right when ADMIN — or SUPER_ADMIN — is a
+customer?**
+
+The serious finding was not `ADMIN` at all.
+
+### Tier 1 — `x-org-id` was a cross-tenant read *and write*
+
+Six sites let a `SUPER_ADMIN` swap the acting organisation by setting a request
+header, gated on the role alone with no `PLATFORM_ORG_ID` check:
+
+| Site | Effect |
+|---|---|
+| `src/lib/api-auth.ts` ×2 (session + mobile JWT) | inherited by **12 API routes** |
+| `src/app/api/organization/route.ts` GET | read any tenant's organisation |
+| `src/app/api/organization/route.ts` **PUT** | **write** any tenant's organisation — the id went straight into `organization.update({ where: { id: orgId } })` |
+| `src/app/api/organization/branding/route.ts` | read any tenant's branding |
+| `src/app/api/events/route.ts` | list any tenant's events |
+
+**This is a different and worse shape than the five rehearsal defects.** Those
+all failed **closed** — no lane, RLS matches nothing, an empty screen. This
+failed **open**: the overridden id is used directly, so a later
+`runWithTenant(orgId)` enters the *target* tenant's lane and RLS serves their
+rows faithfully. RLS is not a backstop against a caller who has been handed the
+wrong tenant id; it is an accomplice.
+
+All six now resolve through `resolveActingOrgId()` in `platform-operator.ts`,
+which honours the header for a platform operator only, logs an honoured
+override at info (a cross-tenant action must be traceable) and a refused one at
+warn (an attempt to reach another tenant is a security event), and stays silent
+on the no-op case the org switcher produces routinely.
+
+### Tier 2 — four platform-ops routes on a bare check
+
+`api/logs` and `api/logs/archive` (cross-tenant `SystemLog`, DELETE-capable),
+`api/admin/alerts/silence` (silences **our** paging), and `api/organizations`
+(enumerates every tenant: name, slug, logo, user and event counts). All said
+`SUPER_ADMIN`; none called `denyNonOperator`. All four now do.
+
+### Verified correct, deliberately unchanged
+
+Every `organization/*` credential, user and branding-write route (a tenant admin
+managing their own org); `admin/infra` + `traffic` (the bare check is a coarse
+pre-filter and `canActAsPlatformOperator` picks the scope — already right);
+the abstracts chair-override; MCP consent. The `admin/infra` page derives
+`isOperator` from the server's `scope` field rather than a client role check,
+which is better than what was asked for.
+
+**Flagged, not changed, needs an owner call:** `api-keys` and `oauth-clients`
+let a SUPER_ADMIN grant the `INTERNAL` rate-limit tier, which exempts a key from
+*our* rate limit. It is org-bound so it is not a leak, but on the platform it
+lets a tenant lift their own ceiling.
+
+### Why the rehearsal missed it, and the lesson
+
+The rehearsal signed in as a tenant **ADMIN**. The gate here is **SUPER_ADMIN**,
+and *"SUPER_ADMIN means us"* is the identical assumption one level up.
+`platform-operator.ts` documents this exact risk in its own header — that
+excluding SUPER_ADMIN from `ASSIGNABLE_USER_ROLES` "is a property of one screen,
+not an invariant" — and the predicate was still adopted by only eight files.
+
+> **Writing the right predicate is half the job; the sweep that adopts it is the
+> other half.** A guard that exists but is never called is indistinguishable
+> from no guard, and is worse than none, because its existence reads as
+> coverage.
+
+`scripts/check-platform-operator.sh` (gating in CI) now pins three invariants:
+`x-org-id` has exactly one reader; every listed platform surface calls the
+operator predicate; and no platform surface decides authorisation with a
+standalone `SUPER_ADMIN` comparison. All three are mutation-verified.
+
+**Master is unaffected.** `PLATFORM_ORG_ID` is unset there, so
+`canActAsPlatformOperator` reduces to the previous role test and the dashboard
+org switcher behaves exactly as before — asserted by a dedicated test rather
+than reasoned about.
 
 ---
 
@@ -459,12 +544,27 @@ build.
   shared instance, see `MULTI_TENANCY_IMPACT.md` §7.1), MediaMTX as a singleton,
   and the globally-unique `invoiceNumber` / `qrCode` / `dtcmBarcode` /
   `stripePaymentId` namespaces.
-- **Six models carry tenant data with no `organizationId` and no RLS policy**,
-  and are not mentioned anywhere in MULTI_TENANCY.md: `EmailTemplate`,
-  `Notification`, `DeviceToken`, `InvoiceCounter`, `EventBillingAccount`,
-  `McpOAuthClient`, `EventStats`, `ImportLog`. RLS is opt-in per table, so a
-  table with no policy is readable from every lane. `InvoiceCounter` and
-  `McpOAuthClient` look like the two that matter. Needs a short audit pass to
-  classify each as genuinely global vs missed. Not a build.
+- **The eight unpoliced models: audited Aug 21, 2026. No new decisions.**
+  They were recorded as eight open questions; they are three, and two of the
+  three are already-scheduled work rather than a gap:
+
+  | Models | Verdict |
+  |---|---|
+  | `EmailTemplate`, `InvoiceCounter`, `EventBillingAccount`, `ImportLog`, `EventStats` | Each carries a **required `eventId`** and nothing else. `Event` is itself unpoliced, so these inherit its status exactly — they are the **Event RLS** decision, not a separate one. |
+  | `Notification`, `DeviceToken` | Keyed on `userId`. They follow **item 6 (identity)**. |
+  | `McpOAuthClient` | **Correctly global.** A DCR registration is created by an anonymous client *before* anyone consents, so it has no org to carry. The org binding lives on `McpOAuthAccessToken`. |
+
+  **And three models the list missed, which look like the real gap and are not:**
+  `ApiKey`, `McpOAuthAccessToken` and `McpOAuthAuthCode` all *do* carry
+  `organizationId` and have no policy. Policying them would deadlock login:
+  they are read on the **authentication** path, which is what *establishes* the
+  lane — no lane exists yet to read the row that says which lane you are in.
+  They are the same class as `TenantDomain`: deliberately global, defended by
+  the fact that every lookup is by secret hash, so there is nothing to
+  enumerate. Written down here because to the next person doing a sweep they
+  look exactly like an oversight.
+
+  The general rule worth keeping: **anything read before identity is resolved
+  cannot be protected by identity.**
 - This document stays the single revisit point: update it in place as items
   close.

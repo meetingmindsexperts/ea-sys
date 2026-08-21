@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { denyNonOperator } from "@/lib/platform-operator";
 import { apiLogger } from "@/lib/logger";
 import { getAlertSilence, setAlertSilence } from "@/lib/admin-alert";
 
@@ -33,14 +34,9 @@ export async function GET() {
     apiLogger.warn({ msg: "admin/alerts/silence:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.role !== "SUPER_ADMIN") {
-    apiLogger.warn({
-      msg: "admin/alerts/silence:forbidden",
-      userId: session.user.id,
-      role: session.user.role,
-    });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // Silencing alerts silences OUR paging, not the tenant's.
+  const denied = denyNonOperator(session, { route: "admin/alerts/silence" });
+  if (denied) return denied;
 
   const silencedUntil = await getAlertSilence();
   return NextResponse.json({ silencedUntil: silencedUntil?.toISOString() ?? null });
@@ -52,14 +48,9 @@ export async function POST(req: Request) {
     apiLogger.warn({ msg: "admin/alerts/silence:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.role !== "SUPER_ADMIN") {
-    apiLogger.warn({
-      msg: "admin/alerts/silence:forbidden",
-      userId: session.user.id,
-      role: session.user.role,
-    });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // Silencing alerts silences OUR paging, not the tenant's.
+  const denied = denyNonOperator(session, { route: "admin/alerts/silence" });
+  if (denied) return denied;
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

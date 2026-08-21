@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { auth } from "@/lib/auth";
+import { denyNonOperator } from "@/lib/platform-operator";
 import { apiLogger } from "@/lib/logger";
 import { listArchives, resolveArchivePath, runLogArchiveTick } from "@/lib/log-archive";
 
 async function requireSuperAdmin() {
   const session = await auth();
   if (!session?.user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null };
-  if (session.user.role !== "SUPER_ADMIN") return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }), session: null };
+  const denied = denyNonOperator(session, { route: "logs:archive" });
+  if (denied) return { error: denied, session: null };
   return { error: null, session };
 }
 

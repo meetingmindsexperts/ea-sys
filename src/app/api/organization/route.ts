@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveActingOrgId } from "@/lib/platform-operator";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -37,12 +38,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // SUPER_ADMIN can view any org via x-org-id header
-    let orgId = session.user.organizationId!;
-    if (session.user.role === "SUPER_ADMIN") {
-      const overrideOrgId = req.headers.get("x-org-id");
-      if (overrideOrgId) orgId = overrideOrgId;
-    }
+    // Reading ANOTHER org is a platform-operator action, not an org-admin one.
+    const orgId = resolveActingOrgId(req, session.user, session.user.organizationId!, {
+      route: "organization:GET",
+    });
 
     const organization = await db.organization.findUnique({
       where: { id: orgId },
@@ -111,12 +110,12 @@ export async function PUT(req: Request) {
       taxId, invoicePrefix,
     } = validated.data;
 
-    // SUPER_ADMIN can update any org via x-org-id header
-    let orgId = session.user.organizationId!;
-    if (session.user.role === "SUPER_ADMIN") {
-      const overrideOrgId = req.headers.get("x-org-id");
-      if (overrideOrgId) orgId = overrideOrgId;
-    }
+    // The most dangerous of the six override sites: this id goes straight into
+    // `organization.update({ where: { id: orgId } })`, so an un-gated override
+    // is a cross-tenant WRITE, not just a read.
+    const orgId = resolveActingOrgId(req, session.user, session.user.organizationId!, {
+      route: "organization:PUT",
+    });
 
     // Get current organization to merge settings
     const currentOrg = await db.organization.findUnique({

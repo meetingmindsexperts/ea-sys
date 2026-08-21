@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { denyNonOperator } from "@/lib/platform-operator";
 import { db } from "@/lib/db";
 import { readFile, stat } from "fs/promises";
 import { join } from "path";
@@ -273,9 +274,9 @@ export async function DELETE(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Cross-tenant by nature: SystemLog carries every tenant's log lines.
+    const denied = denyNonOperator(session, { route: "logs:GET" });
+    if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
     const since = searchParams.get("since") || "24h";
@@ -315,13 +316,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only SUPER_ADMIN can access logs
-    if (session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json(
-        { error: "Forbidden. Only super admins can access system logs." },
-        { status: 403 }
-      );
-    }
+    const denied = denyNonOperator(session, { route: "logs:DELETE" });
+    if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
     const level = searchParams.get("level") || "error";
