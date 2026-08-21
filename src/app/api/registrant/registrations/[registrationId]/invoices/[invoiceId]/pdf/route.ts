@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
@@ -14,12 +16,19 @@ interface RouteParams {
  * GET /api/registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf
  * Download invoice PDF (registrant or org member).
  */
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { registrationId, invoiceId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf", userId: session?.user?.id }, async () => {
 
     // Verify ownership. See sibling `/invoices/route.ts` for the
     // null-organizationId guard — REVIEWER / SUBMITTER sessions have
@@ -85,6 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${invoice.invoiceNumber}.pdf"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error generating registrant invoice PDF" });

@@ -519,10 +519,32 @@ resolver is what closes that, and it must land with, or before, this file.
   that address out at tenant B. Low severity (a nuisance, not a breach) and
   deliberately out of scope for the identity change, but it is the same class
   of global-by-email assumption and should move with the rest.
-- The `/api/registrant/**` routes, deliberately unwrapped pending this decision,
-  can now take their tenant lane. Until they do, **the whole registrant portal
-  returns nothing on the platform** — my-registration, invoices, quotes,
-  barcodes, promo codes.
+- ✅ **Done Aug 21:** the `/api/registrant/**` routes take their tenant lane —
+  all 12 handlers across 10 routes, gated in
+  [check-tenant-als.sh](../scripts/check-tenant-als.sh).
+
+  **The lane comes from the HOST, and it has to.** A REGISTRANT is org-null on
+  master by design (the Aug 6 ruling), so the session cannot supply it; and
+  `Registration` carries an RLS policy, so the rows cannot be read first to find
+  out. Same shape as sign-in: the front door is the only thing that knows.
+  `resolveRequestOrgId` is the one-liner both use, and it exists rather than
+  being inlined because those two lines include `normalizeHost` — skip it and a
+  `Host` with a port silently resolves nothing.
+
+  **The sandbox had ZERO registrant accounts**, so the entire portal —
+  my-registration, invoices, quotes, barcodes, promo codes — had never once run
+  against a deployment with RLS on. That is the same gap that hid the operator
+  lockout the day before, and it is now a fixture plus a browser test asserting
+  each tenant's delegate sees their OWN registration and not the other's.
+  Asserting only "not the other tenant's" would have passed against the bug,
+  since an empty list is exactly what a missing lane produces.
+
+  Mutation-verified: removing the lane makes the portal **500** under RLS.
+- The three stale "deliberately cross-org, pending the identity-model decision"
+  comments (`registrant-account.ts` ×2, the portal's link-on-read sweep) are
+  corrected: those sweeps are by EMAIL, and inside a tenant lane they are
+  tenant-local by construction rather than by a where-clause someone has to
+  remember.
 - Password reset, invitation acceptance and email verification all key on email
   and become tenant-scoped with it.
 - `buildEventAccessWhere`'s org-null branches: external accounts now carry an

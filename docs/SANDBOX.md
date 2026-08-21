@@ -41,6 +41,7 @@ All use password `sandbox123`.
 |---|---|---|
 | `admin@acme.test` | ADMIN, Acme | An ordinary tenant administrator |
 | `admin@globex.test` | ADMIN, Globex | The other tenant, for side-by-side comparison |
+| `delegate@acme.test` / `delegate@globex.test` | REGISTRANT, that tenant | The registrant portal — my-registration, invoices, quotes, barcodes. Its tenant lane comes from the **host**, so sign in on that tenant's domain |
 | `operator@sandbox.test` | SUPER_ADMIN, **platform org** | The real platform operator: reads our logs, enumerates orgs, and may "act as" a tenant via the `x-org-id` header. **Sign in on `platform.localhost:3114`**, not on a tenant's host |
 | `super@sandbox.test` | SUPER_ADMIN, **Acme** | The NEGATIVE case — same role, a tenant's org, so **not** an operator |
 

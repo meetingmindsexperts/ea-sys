@@ -119,6 +119,34 @@ async function main() {
       },
     });
 
+    // A REGISTRANT per tenant, deliberately left UNLINKED to its registration
+    // (`userId` stays null below) so signing in exercises the portal's
+    // link-on-read sweep as well as the read itself.
+    //
+    // Added Aug 21 2026 with the registrant tenant lane, and the reason is the
+    // same one that produced the operator account the day before: the sandbox
+    // had ZERO registrant accounts, so the entire portal — my-registration,
+    // invoices, quotes, barcodes, promo codes — had never once run against a
+    // deployment with RLS on. `Registration` carries a policy, so without a
+    // lane every one of those routes returns nothing, and nothing here could
+    // have told us.
+    await db.user.upsert({
+      where: { email: `delegate@${t.slug}.test` },
+      update: { organizationId: t.orgId, role: "REGISTRANT", passwordHash, emailVerified: new Date() },
+      create: {
+        email: `delegate@${t.slug}.test`,
+        firstName: "Dana",
+        lastName: "Delegate",
+        passwordHash,
+        role: "REGISTRANT",
+        // Tenant-bound, which is the platform identity model (item 6). On
+        // master an external registrant would be org-null; the sandbox models
+        // the platform.
+        organizationId: t.orgId,
+        emailVerified: new Date(),
+      },
+    });
+
     // Same slug in BOTH orgs — allowed by @@unique([organizationId, slug]) and
     // the whole point of the public host-routing demo.
     await db.event.upsert({
@@ -456,6 +484,9 @@ async function main() {
   console.log("✅ sandbox seeded:");
   for (const t of TENANTS) {
     console.log(`   ${t.host}  →  ${t.name}  (login: ${t.adminEmail} / ${PASSWORD})`);
+  }
+  for (const t of TENANTS) {
+    console.log(`   ${t.host}  registrant portal: delegate@${t.slug}.test / ${PASSWORD}`);
   }
   console.log(`   ${PLATFORM_HOST}  →  operator console (sign in HERE: operator@sandbox.test / ${PASSWORD})`);
   console.log(`   Tenant SUPER_ADMIN (must be REFUSED cross-tenant): super@sandbox.test / ${PASSWORD}  (org: Acme)`);

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
@@ -17,13 +19,20 @@ interface RouteParams {
   params: Promise<{ groupId: string; invoiceId: string }>;
 }
 
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [{ groupId, invoiceId }, session] = await Promise.all([params, auth()]);
     if (!session?.user?.id) {
       apiLogger.warn({ msg: "my-group-invoice:unauthorized", groupId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/my-group/[groupId]/invoice/[invoiceId]", userId: session?.user?.id }, async () => {
 
     // PDF generation is CPU-bound; cap a coordinator hammering refresh.
     const limit = checkRateLimit({
@@ -66,6 +75,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "Content-Disposition": `inline; filename="${invoice.invoiceNumber}.pdf"`,
         "Cache-Control": "private, no-store",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "my-group-invoice:failed" });

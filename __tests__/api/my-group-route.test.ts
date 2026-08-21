@@ -46,6 +46,9 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 vi.mock("@/lib/invoice-service", () => ({ generatePDFForInvoice: mockGeneratePdf }));
 
 import { GET as getMyGroup } from "@/app/api/registrant/my-group/route";
+
+/** The handler now takes a Request: the tenant lane comes from the Host. */
+const req = () => new Request("http://localhost/api/registrant/my-group");
 import { GET as getInvoice } from "@/app/api/registrant/my-group/[groupId]/invoice/[invoiceId]/route";
 
 const GROUP_ROW = {
@@ -101,20 +104,20 @@ beforeEach(() => {
 describe("GET /api/registrant/my-group", () => {
   it("401s when signed out", async () => {
     mockAuth.mockResolvedValue(null);
-    const res = await getMyGroup();
+    const res = await getMyGroup(req());
     expect(res.status).toBe(401);
     expect(mockDb.registrationGroup.findMany).not.toHaveBeenCalled();
   });
 
   it("binds to the caller's coordinatorUserId — never to an org", async () => {
-    await getMyGroup();
+    await getMyGroup(req());
     const where = mockDb.registrationGroup.findMany.mock.calls[0][0].where;
     expect(where).toEqual({ coordinatorUserId: "user-1" });
     expect(JSON.stringify(where)).not.toContain("organizationId");
   });
 
   it("NEVER returns a member's entry barcode", async () => {
-    const res = await getMyGroup();
+    const res = await getMyGroup(req());
     const body = await res.json();
     expect(JSON.stringify(body)).not.toContain("SECRET-BARCODE-123");
     // ...but does say whether a badge exists, which is what a coordinator needs.
@@ -123,7 +126,7 @@ describe("GET /api/registrant/my-group", () => {
   });
 
   it("counts live members and reports cancellations separately", async () => {
-    const body = await (await getMyGroup()).json();
+    const body = await (await getMyGroup(req())).json();
     expect(body.groups[0].memberCount).toBe(1);
     expect(body.groups[0].cancelledCount).toBe(1);
     // Subtotal excludes the cancelled member.
@@ -131,7 +134,7 @@ describe("GET /api/registrant/my-group", () => {
   });
 
   it("reports the open invoice as the amount due", async () => {
-    const body = await (await getMyGroup()).json();
+    const body = await (await getMyGroup(req())).json();
     expect(body.groups[0].amountDue).toBe(262.5);
     expect(body.groups[0].isPaid).toBe(false);
   });
@@ -140,14 +143,14 @@ describe("GET /api/registrant/my-group", () => {
     mockDb.registrationGroup.findMany.mockResolvedValue([
       { ...GROUP_ROW, invoices: [{ ...GROUP_ROW.invoices[0], status: "PAID", paidDate: new Date() }] },
     ]);
-    const body = await (await getMyGroup()).json();
+    const body = await (await getMyGroup(req())).json();
     expect(body.groups[0].isPaid).toBe(true);
     expect(body.groups[0].amountDue).toBe(0);
   });
 
   it("500s rather than pretending the coordinator has no group", async () => {
     mockDb.registrationGroup.findMany.mockRejectedValue(new Error("db down"));
-    const res = await getMyGroup();
+    const res = await getMyGroup(req());
     expect(res.status).toBe(500);
   });
 });

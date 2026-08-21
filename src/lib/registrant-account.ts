@@ -68,8 +68,11 @@ export async function ensureRegistrantAccount(args: {
         where: { id: registrationId },
         data: { userId: existingUser.id },
       });
-      // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
-      // — NOT wrapped/org-bound in the Registration-core sweep.
+      // Sweeps by EMAIL, not by org. That was recorded as a pending
+      // identity-model question; item 6 settled it (PLATFORM_DECISIONS §6) and
+      // the answer needs no change here: on the platform this runs inside the
+      // caller's tenant lane, so "every unlinked registration on this address"
+      // is already tenant-local. On master, one org, so it is the same set.
       await db.registration.updateMany({
         where: { attendee: { email }, userId: null },
         data: { userId: existingUser.id },
@@ -101,8 +104,11 @@ export async function ensureRegistrantAccount(args: {
         },
       });
       // Link this registration + any other unlinked registrations by this email.
-      // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
-      // — NOT wrapped/org-bound in the Registration-core sweep.
+      // Sweeps by EMAIL, not by org. That was recorded as a pending
+      // identity-model question; item 6 settled it (PLATFORM_DECISIONS §6) and
+      // the answer needs no change here: on the platform this runs inside the
+      // caller's tenant lane, so "every unlinked registration on this address"
+      // is already tenant-local. On master, one org, so it is the same set.
       await db.registration.updateMany({
         where: { attendee: { email }, userId: null },
         data: { userId: newUser.id },

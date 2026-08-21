@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -58,7 +60,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const rl = checkRateLimit({ key: `registrant-promo:${session.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
+    // The guard above narrows `session.user.email`, but a nested narrowing does
+    // not survive into the closure below. Capture it.
+    const actor = { id: session.user.id, email: session.user.email };
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/promo", userId: actor.id }, async () => {
+
+    const rl = checkRateLimit({ key: `registrant-promo:${actor.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) {
       apiLogger.warn({ msg: "registrant/promo:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
@@ -67,7 +80,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const reg = await ownedRegistration(registrationId, session.user.id, session.user.email.toLowerCase());
+    const reg = await ownedRegistration(registrationId, actor.id, actor.email.toLowerCase());
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
@@ -87,8 +100,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: result.message, code: result.code }, { status: statusFor(result.code) });
     }
 
-    apiLogger.info({ msg: "registrant/promo:applied", registrationId, userId: session.user.id, ip: getClientIp(req) });
+    apiLogger.info({ msg: "registrant/promo:applied", registrationId, userId: actor.id, ip: getClientIp(req) });
     return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "registrant/promo:apply-failed" });
     return NextResponse.json({ error: "Failed to apply promo code" }, { status: 500 });
@@ -102,7 +116,18 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const reg = await ownedRegistration(registrationId, session.user.id, session.user.email.toLowerCase());
+    // The guard above narrows `session.user.email`, but a nested narrowing does
+    // not survive into the closure below. Capture it.
+    const actor = { id: session.user.id, email: session.user.email };
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/promo", userId: actor.id }, async () => {
+
+    const reg = await ownedRegistration(registrationId, actor.id, actor.email.toLowerCase());
     if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
 
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "registrant" });
@@ -111,8 +136,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 
-    apiLogger.info({ msg: "registrant/promo:removed", registrationId, userId: session.user.id, removed: result.removed });
+    apiLogger.info({ msg: "registrant/promo:removed", registrationId, userId: actor.id, removed: result.removed });
     return NextResponse.json({ success: true, removed: result.removed });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "registrant/promo:remove-failed" });
     return NextResponse.json({ error: "Failed to remove promo code" }, { status: 500 });

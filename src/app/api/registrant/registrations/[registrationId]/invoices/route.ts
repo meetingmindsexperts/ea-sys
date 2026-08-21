@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
@@ -13,12 +15,19 @@ interface RouteParams {
  * GET /api/registrant/registrations/[registrationId]/invoices
  * List invoices for a registration (registrant or org member).
  */
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { registrationId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/invoices", userId: session?.user?.id }, async () => {
 
     // Scope the lookup by role. REGISTRANTs are org-independent so we
     // match on ownership (userId). Everyone else must be scoped to
@@ -82,6 +91,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(invoices);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error listing registration invoices" });
     return NextResponse.json({ error: "Failed to list invoices" }, { status: 500 });

@@ -47,6 +47,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Domains that have completed the Phase-2 isolation sweep (org-bound queries +
 # runWithTenant wrap + RLS policy). GROW this as domains are swept.
 SWEPT_ROUTE_DIRS=(
+  "src/app/api/registrant"        # Registrant portal — lane taken from the HOST (item 6 follow-on, Aug 21, 2026)
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
   "src/app/api/invoices"          # Invoice sweep — org-wide hub + export (July 27, 2026)

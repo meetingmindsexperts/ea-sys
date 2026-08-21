@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -29,7 +31,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userEmail = session.user.email.toLowerCase();
+    // A nested narrowing (`session.user.email`) does not survive into the
+    // closure below, so capture it.
+    const actorEmail = session.user.email;
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/resend-confirmation", userId: session?.user?.id }, async () => {
+
+    const userEmail = actorEmail.toLowerCase();
 
     // 3 sends / registration / hour — enough for genuine recovery cases
     // (a lost email + one retry) without letting the button be weaponised.
@@ -154,6 +167,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       message: `Confirmation email sent to ${registration.attendee.email}.`,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "registrant:resend-confirmation failed" });

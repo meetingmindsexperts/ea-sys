@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -10,12 +12,23 @@ import { syncToContact } from "@/lib/contact-sync";
  * GET /api/registrant/registrations
  * Returns all registrations linked to the current user.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await auth();
     if (!session?.user?.id || !session.user.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // A nested narrowing (`session.user.email`) does not survive into the
+    // closure below, so capture it.
+    const actorEmail = session.user.email;
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations", userId: session?.user?.id }, async () => {
 
     // Auto-link orphan registrations: people often register for an event
     // without a password (admin-created, CSV-imported, or self-signup with
@@ -24,9 +37,11 @@ export async function GET() {
     // that email should show up on their portal. We link-on-read here so
     // the row both appears in THIS response and stays linked for future
     // requests.
-    const userEmail = session.user.email.toLowerCase();
-    // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
-    // — NOT wrapped/org-bound in the Registration-core sweep.
+    const userEmail = actorEmail.toLowerCase();
+    // Sweeps by EMAIL. Recorded as a pending identity-model question until
+    // item 6 settled it (PLATFORM_DECISIONS §6): this now runs inside the
+    // caller's tenant lane, so on the platform the sweep is tenant-local by
+    // construction rather than by a where-clause someone has to remember.
     await db.registration.updateMany({
       where: {
         userId: null,
@@ -80,6 +95,7 @@ export async function GET() {
     });
 
     return NextResponse.json(registrations);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registrant registrations" });
     return NextResponse.json({ error: "Failed to fetch registrations" }, { status: 500 });
@@ -120,6 +136,13 @@ export async function PUT(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations", userId: session?.user?.id }, async () => {
 
     const body = await req.json();
     const validated = selfEditSchema.safeParse(body);
@@ -222,6 +245,7 @@ export async function PUT(req: Request) {
     });
 
     return NextResponse.json(updated);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating registrant registration" });
     return NextResponse.json({ error: "Failed to update registration" }, { status: 500 });

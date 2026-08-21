@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
@@ -29,7 +31,7 @@ interface RouteParams {
  *   back, and saved it as `quote.json` — a confusing UX we had no way to
  *   recover from at the route layer.
  */
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   // Capture early so the catch block can log routing context even if
   // params/auth fail.
   let registrationId: string | undefined;
@@ -45,18 +47,27 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    // `session` is a `let` above, so its narrowing does not reach the closure.
+    const authedUser = session.user;
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/quote", userId: authedUser.id }, async () => {
+
     // Fetch registration with all needed data. Reviewers/submitters
     // (role != REGISTRANT but organizationId == null) are rejected
     // here — Prisma would otherwise throw a validation error on the
     // nested relation filter.
-    const isRegistrant = session.user.role === "REGISTRANT";
+    const isRegistrant = authedUser.role === "REGISTRANT";
     if (!isRegistrant) {
-      if (!session.user.organizationId) {
+      if (!authedUser.organizationId) {
         apiLogger.warn({
           msg: "registrant/quote:forbidden-no-org",
           registrationId,
-          userId: session.user.id,
-          role: session.user.role,
+          userId: authedUser.id,
+          role: authedUser.role,
         });
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
@@ -70,8 +81,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         apiLogger.warn({
           msg: "registrant/quote:denyFinance",
           registrationId,
-          userId: session.user.id,
-          role: session.user.role,
+          userId: authedUser.id,
+          role: authedUser.role,
         });
         return noFinance;
       }
@@ -82,9 +93,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
         id: registrationId,
         // Allow owner or org members
         ...(isRegistrant
-          ? { userId: session.user.id }
+          ? { userId: authedUser.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-          : { event: buildEventAccessWhere(session.user) }),
+          : { event: buildEventAccessWhere(authedUser) }),
       },
       include: {
         attendee: true,
@@ -131,8 +142,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({
         msg: "registrant/quote:not-found",
         registrationId,
-        userId: session.user.id,
-        role: session.user.role,
+        userId: authedUser.id,
+        role: authedUser.role,
       });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
@@ -148,6 +159,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     // Surface routing context + the Prisma error code (when present) so

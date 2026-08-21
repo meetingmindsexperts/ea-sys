@@ -120,3 +120,26 @@ export async function resolveTenantOrg(host: string | null): Promise<TenantResol
   cache.set(host, { res, at: Date.now() });
   return res;
 }
+
+/**
+ * The tenant org for a request, from its `Host`. `null` when the host resolves
+ * to nothing (master with no `DEFAULT_ORG_ID`, or an enforcing deployment that
+ * refuses the host).
+ *
+ * A helper rather than the two lines inline, for the same reason
+ * `scopeFromRequestHost` is one: the two lines include `normalizeHost`, and a
+ * raw `Host` carries a port, casing and a possible trailing dot — skip it and
+ * the lookup silently resolves nothing.
+ *
+ * Pair with `runWithTenantLane` on routes that have no other source of tenant.
+ * The registrant portal is the case this was written for: a REGISTRANT is
+ * org-null on master by design, and the rows they are asking for are behind an
+ * RLS policy on the platform, so the lane cannot come from the session and
+ * cannot be read out of the database first. It comes from the front door they
+ * walked through, exactly as sign-in does.
+ */
+export async function resolveRequestOrgId(req: Request | undefined): Promise<string | null> {
+  const { orgId } = await resolveTenantOrg(normalizeHost(req?.headers.get("host")));
+  return orgId;
+}
+

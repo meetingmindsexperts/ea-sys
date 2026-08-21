@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getClientIp } from "@/lib/security";
@@ -79,6 +81,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/my-group/[groupId]/members", userId: session?.user?.id }, async () => {
+
     // Adding members claims seats and can cancel + reissue an invoice, so this
     // is deliberately tighter than the read routes.
     const limit = checkRateLimit({
@@ -135,6 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.result, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "my-group-add-members:failed" });
     return NextResponse.json({ error: "Failed to add members" }, { status: 500 });

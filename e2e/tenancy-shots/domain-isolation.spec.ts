@@ -385,3 +385,37 @@ test("a tenant's host is NOT a door into another tenant's account", async ({ pag
   await loginAs(page, TENANTS[1].host, "admin@globex.test");
   expect(page.url()).not.toContain("/login");
 });
+
+test("the registrant portal returns the caller's own rows, and only their tenant's", async ({
+  page,
+}) => {
+  // Until Aug 21 2026 the /api/registrant/** routes were deliberately left
+  // without a tenant lane, pending the identity-model decision (item 6). The
+  // consequence was not a leak, it was the opposite: `Registration` carries an
+  // RLS policy, so on a platform-shaped deployment the WHOLE portal —
+  // my-registration, invoices, quotes, barcodes, promo codes — answered with
+  // nothing at all, and no test could see it because the sandbox had zero
+  // registrant accounts.
+  //
+  // A REGISTRANT is org-null on master by design, and these rows sit behind a
+  // policy, so the lane cannot come from the session and cannot be read out of
+  // the database first. It comes from the host, exactly as sign-in does.
+  const eventNameOf = (key: string) =>
+    key === "acme" ? "Acme Annual Summit 2026" : "Globex Annual Summit 2026";
+
+  for (const t of TENANTS) {
+    await loginAs(page, t.host, `delegate@${t.key}.test`);
+
+    const res = await page.request.get(`http://${t.host}/api/registrant/registrations`);
+    expect(res.status(), `${t.key} portal must answer`).toBe(200);
+
+    const body = await res.text();
+    // Present, not merely non-empty: an empty list is exactly what a missing
+    // lane produces, so asserting "no other tenant" alone would pass against
+    // the very bug this pins.
+    expect(body, `${t.key} must see its OWN registration`).toContain(eventNameOf(t.key));
+    expect(body, `${t.key} must not see ${t.other}'s`).not.toContain(eventNameOf(t.other));
+
+    await page.context().clearCookies();
+  }
+});

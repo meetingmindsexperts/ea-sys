@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { resolveRequestOrgId } from "@/lib/tenant/resolver";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { round2 } from "@/lib/registration-financials";
@@ -9,22 +11,31 @@ import { readGroupRegistrationSettings } from "@/lib/group-registration-settings
  * GET /api/registrant/my-group — the coordinator's own group registrations.
  *
  * Ownership is `RegistrationGroup.coordinatorUserId === session.user.id`, NOT
- * an org check: a coordinator is a REGISTRANT (org-null by design), so this
- * route is cross-org like its `/api/registrant/*` siblings — the identity model
- * decision recorded in MULTI_TENANCY_IMPACT.md §8.1.
+ * an org check: a coordinator is a REGISTRANT, org-null on master by design
+ * (docs/IDENTITY_AND_ROLES.md §1). The ownership rule is unchanged, but the
+ * route now runs inside a tenant LANE taken from the host — the two are
+ * different questions, and the lane is what lets this read anything at all
+ * under platform RLS (PLATFORM_DECISIONS §6, decided Aug 21 2026).
  *
  * Deliberately NOT returned: member `qrCode`. It is a physical-access
  * credential (the July-11 barcode boundary) and each member already receives
  * their own by email. The coordinator sees only WHETHER a badge exists, which
  * is what they actually need to chase a member.
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       apiLogger.warn({ msg: "my-group:unauthorized" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Tenancy lane (item 6 follow-on). A REGISTRANT is org-null on master by
+    // design, and the rows below sit behind an RLS policy on the platform — so
+    // the lane cannot come from the session and cannot be read out of the
+    // database first. It comes from the host, exactly as sign-in does.
+    const orgId = await resolveRequestOrgId(req);
+    return await runWithTenantLane(orgId, { route: "registrant/my-group", userId: session?.user?.id }, async () => {
 
     const groups = await db.registrationGroup.findMany({
       where: { coordinatorUserId: session.user.id },
@@ -187,6 +198,7 @@ export async function GET() {
     });
 
     return NextResponse.json({ groups: payload });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "my-group:list-failed" });
     return NextResponse.json({ error: "Failed to load your group" }, { status: 500 });
