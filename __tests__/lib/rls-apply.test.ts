@@ -123,3 +123,116 @@ describe("the real prisma/rls directory", () => {
     }
   });
 });
+
+/**
+ * Policy conformance.
+ *
+ * 74 of the 77 policies are byte-identical to one template, which means they
+ * were copy-pasted, which means they can drift. The tests above catch a missing
+ * ENABLE and a stray FORCE. They do NOT catch the failure that matters most: a
+ * block where someone narrowed `FOR ALL` to `FOR SELECT`, or dropped the
+ * WITH CHECK, or fat-fingered the GUC name. Each of those still reads as
+ * protection in review and enforces less than it appears to.
+ *
+ * So these pin the PROPERTIES rather than the text. The load-bearing one is
+ * that USING is never NULL-permissive: USING governs reads, and a NULL escape
+ * there would expose every org-less row to every tenant.
+ */
+describe("policy conformance", () => {
+  const STRICT = `"organizationId" = current_setting('app.current_org', true)`;
+  /** Permits INSERTing a row with no org. Read access stays strict regardless. */
+  const NULL_PERMISSIVE = `"organizationId" IS NULL OR "organizationId" = current_setting('app.current_org', true)`;
+
+  /**
+   * The ONLY tables allowed a NULL-permissive WITH CHECK, and why: each
+   * legitimately stores rows with no owning org (an auth email to an org-null
+   * account, an audit row from an org-null actor, a help query from a reviewer
+   * or submitter). Prisma's create() emits INSERT..RETURNING, so a strict
+   * WITH CHECK rejects those writes and the row is silently lost. See
+   * docs/PLATFORM_DECISIONS.md §3.
+   *
+   * A FOURTH table appearing here should be a decision, not a copy-paste.
+   */
+  const NULL_WRITE_ALLOWED = new Set(["AuditLog", "EmailLog", "HelpChatQuery"]);
+
+  interface Policy {
+    file: string;
+    table: string;
+    name: string;
+    body: string;
+  }
+
+  const policies: Policy[] = readPolicyFiles([sharedPolicyDir()]).flatMap((f) =>
+    [...f.statements.join(";\n").matchAll(/CREATE POLICY\s+(\w+)\s+ON\s+"(\w+)"([\s\S]*?)(?=;|$)/g)].map(
+      (m) => ({
+        file: f.file,
+        name: m[1],
+        table: m[2],
+        body: m[3].replace(/\s+/g, " ").trim(),
+      }),
+    ),
+  );
+
+  it("found every policy in the directory", () => {
+    // Guards the parser itself: a regex that silently matched nothing would
+    // make every assertion below vacuously true.
+    expect(policies.length).toBeGreaterThan(70);
+  });
+
+  it("applies to ALL commands, never just SELECT", () => {
+    // FOR SELECT leaves INSERT/UPDATE/DELETE unenforced, so a tenant could
+    // write rows into another tenant while reads look correctly isolated.
+    for (const p of policies) {
+      expect(p.body, `${p.file}: ${p.table}`).toMatch(/^FOR ALL TO PUBLIC\b/);
+    }
+  });
+
+  it("guards reads strictly, with no NULL escape, on every table", () => {
+    // The load-bearing one. USING governs what a lane can READ.
+    for (const p of policies) {
+      const using = p.body.match(/USING \((.*?)\) WITH CHECK/)?.[1]?.trim();
+      expect(using, `${p.file}: ${p.table} has no parseable USING`).toBeTruthy();
+      expect(using, `${p.file}: ${p.table} USING is not the strict predicate`).toBe(STRICT);
+    }
+  });
+
+  it("always has a WITH CHECK", () => {
+    // Without it, writes are unenforced entirely.
+    for (const p of policies) {
+      expect(p.body, `${p.file}: ${p.table}`).toContain("WITH CHECK");
+    }
+  });
+
+  it("permits NULL-org writes only on the three tables that need it", () => {
+    for (const p of policies) {
+      const check = p.body.match(/WITH CHECK \(([\s\S]*)\)$/)?.[1]?.trim();
+      expect(check, `${p.file}: ${p.table} has no parseable WITH CHECK`).toBeTruthy();
+
+      if (check === STRICT) continue;
+
+      expect(check, `${p.file}: ${p.table} WITH CHECK is neither shape`).toBe(NULL_PERMISSIVE);
+      expect(
+        NULL_WRITE_ALLOWED.has(p.table),
+        `${p.file}: ${p.table} permits NULL-org writes but is not one of the three ` +
+          `tables justified for it. If that is deliberate, add it to NULL_WRITE_ALLOWED ` +
+          `with the reason.`,
+      ).toBe(true);
+    }
+  });
+
+  it("reads the tenant from one GUC name everywhere", () => {
+    // A typo'd GUC never resolves, so the policy fail-closes to zero rows
+    // forever and the symptom is an empty page rather than an error.
+    for (const p of policies) {
+      const gucs = [...p.body.matchAll(/current_setting\('([^']+)'/g)].map((m) => m[1]);
+      expect(gucs.length, `${p.file}: ${p.table}`).toBeGreaterThan(0);
+      for (const g of gucs) expect(g, `${p.file}: ${p.table}`).toBe("app.current_org");
+    }
+  });
+
+  it("names each policy after its table", () => {
+    for (const p of policies) {
+      expect(p.name, `${p.file}: ${p.table}`).toBe(`${p.table.toLowerCase()}_tenant_isolation`);
+    }
+  });
+});
