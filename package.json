@@ -28,6 +28,7 @@
     "test:e2e:seed": "DATABASE_URL=\"$DATABASE_URL_TEST\" DIRECT_URL=\"$DATABASE_URL_TEST\" tsx prisma/seed-e2e.ts",
     "docs:screenshots": "playwright test -c playwright.docs.config.ts",
     "docs:screenshots:ui": "playwright test -c playwright.docs.config.ts --ui",
+    "tenancy:screenshots": "playwright test -c playwright.tenancy.config.ts",
     "db:push": "bash scripts/guard-db-target.sh && prisma db push",
     "db:reset": "bash scripts/guard-db-target.sh && prisma migrate reset",
     "db:migrate": "prisma migrate deploy",

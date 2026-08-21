@@ -150,3 +150,46 @@ describe("SET LOCAL query extension behavior", () => {
     expect(txSpy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The AsyncLocalStorage must be ONE instance per process.
+ *
+ * This is not a style preference. `db` is cached on globalThis, so the Prisma
+ * query extension's closure over `getTenantStore` outlives any single module
+ * graph. If this module's store is plain module state, a second graph gets a
+ * second AsyncLocalStorage: `runWithTenant` writes to one, the extension reads
+ * the other, finds nothing, and passes through WITHOUT issuing SET LOCAL. Under
+ * fail-closed RLS every policied table then returns zero rows, silently — no
+ * error, no log line, just empty pages that look exactly like a domain nobody
+ * swept.
+ *
+ * Observed Aug 21 2026 in the two-tenant sandbox. The tell was that a route
+ * could see the right org in its own store while the extension returned nothing
+ * and an explicitly-set GUC returned the right row.
+ */
+describe("tenant store instance identity", () => {
+  it("keeps the AsyncLocalStorage on globalThis, not in module scope", () => {
+    const g = globalThis as unknown as { tenantAls?: { getStore: () => unknown } };
+    expect(
+      g.tenantAls,
+      "the tenant AsyncLocalStorage is module-local again — a second module " +
+        "graph would get a second instance and every policied table would " +
+        "silently return zero rows under RLS",
+    ).toBeDefined();
+  });
+
+  it("writes to the SAME instance the global holds", () => {
+    // The identity check that matters: it is not enough for a store to exist on
+    // globalThis, runWithTenant has to be the thing populating it. A module that
+    // exported a global AND kept a private one would pass the test above.
+    const g = globalThis as unknown as {
+      tenantAls: { getStore: () => { orgId: string } | undefined };
+    };
+    let seenViaGlobal: string | undefined;
+    return runWithTenant("org-identity-check", async () => {
+      seenViaGlobal = g.tenantAls.getStore()?.orgId;
+    }).then(() => {
+      expect(seenViaGlobal).toBe("org-identity-check");
+    });
+  });
+});

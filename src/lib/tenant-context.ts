@@ -31,7 +31,34 @@ export interface TenantStore {
   inTenantTx?: boolean;
 }
 
-const als = new AsyncLocalStorage<TenantStore>();
+/**
+ * The store is pinned to `globalThis`, and that is LOAD-BEARING rather than a
+ * dev-time nicety.
+ *
+ * `db` in src/lib/db.ts is already globalThis-cached, so the Prisma client —
+ * and with it the query extension's closure over `getTenantStore` — survives
+ * across module graphs. This module's state does not. Under Next's dev bundler
+ * that produced two AsyncLocalStorage instances: `runWithTenant` wrote to the
+ * route's, the extension read db.ts's, found nothing, passed through without
+ * issuing SET LOCAL, and fail-closed RLS returned ZERO ROWS from every policied
+ * table. Observed Aug 21 2026 in the two-tenant sandbox, where a diagnostic
+ * showed the route holding the right org, an explicit GUC returning the right
+ * row, and the extension returning none.
+ *
+ * The failure direction is safe (empty, never a leak) but it is silent, and it
+ * makes every policied table look like a domain that was never swept — which
+ * would have sent us chasing phantom bugs across twenty domains.
+ *
+ * A production build very likely has a single server graph, but "very likely"
+ * is not a basis for the mechanism that enforces tenant isolation. One instance
+ * per PROCESS is the actual requirement, so state it the same way db.ts does.
+ */
+const globalForTenant = globalThis as unknown as {
+  tenantAls?: AsyncLocalStorage<TenantStore>;
+};
+
+const als = globalForTenant.tenantAls ?? new AsyncLocalStorage<TenantStore>();
+globalForTenant.tenantAls = als;
 
 /**
  * Run `fn` with the given tenant org bound to the async context.

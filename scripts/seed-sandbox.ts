@@ -31,6 +31,7 @@ const TENANTS = [
     orgId: "sandbox-org-acme",
     name: "Acme Events",
     slug: "acme",
+    primaryColor: "#0d7d6c",
     host: "acme.localhost",
     adminEmail: "admin@acme.test",
     eventId: "sandbox-evt-acme",
@@ -42,6 +43,7 @@ const TENANTS = [
     orgId: "sandbox-org-globex",
     name: "Globex Summits",
     slug: "globex",
+    primaryColor: "#7c3aed",
     host: "globex.localhost",
     adminEmail: "admin@globex.test",
     eventId: "sandbox-evt-globex",
@@ -57,10 +59,25 @@ async function main() {
   const end = new Date("2026-11-03T18:00:00Z");
 
   for (const t of TENANTS) {
+    // logo is pinned to null on BOTH branches, deliberately. public/uploads/ is
+    // a single flat directory shared with the local production copy (see
+    // npm run uploads:refresh), so anything picked from the media library here
+    // is a REAL uploaded file — a live client's logo can end up rendering as a
+    // fictional tenant's branding, which is exactly what happened once. The
+    // text fallback is unmistakably generic and cannot borrow anybody's mark.
+    // primaryColor differs per tenant so the two are distinguishable at a
+    // glance, and because per-tenant theming is itself worth demonstrating.
     await db.organization.upsert({
       where: { id: t.orgId },
-      update: { name: t.name, slug: t.slug },
-      create: { id: t.orgId, name: t.name, slug: t.slug, settings: {} },
+      update: { name: t.name, slug: t.slug, logo: null, primaryColor: t.primaryColor },
+      create: {
+        id: t.orgId,
+        name: t.name,
+        slug: t.slug,
+        logo: null,
+        primaryColor: t.primaryColor,
+        settings: {},
+      },
     });
 
     await db.tenantDomain.upsert({
