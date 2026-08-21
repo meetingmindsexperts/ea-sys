@@ -105,10 +105,14 @@ serves submitters/reviewers (event details, theme pickers, their own rows) must 
 via `buildEventAccessWhere` — and gets an "org-null role can read its surfaces" regression
 test so the next sweep can't re-break it.
 
-**The one sanctioned future version:** the platform identity model (PLATFORM_DECISIONS
-item 6 — email unique *per tenant*) makes external accounts tenant-bound **by design**,
-with the supporting redesign (tenant-scoped login, membership seam). That is the right
-layer for "submitters belong to an org" — not a column stamp on today's master.
+**The one sanctioned future version — now DECIDED (Aug 21, 2026):** the platform identity
+model (PLATFORM_DECISIONS item 6) makes external accounts tenant-bound **by design**,
+enforced by making `User.organizationId` required and email unique on
+`(organizationId, email)`, with tenant-scoped login resolving the org from the host. A
+Membership join was weighed and rejected — chiefly because a shared account shares a
+password across tenants. That is the right layer for "submitters belong to an org" — not
+a column stamp on today's master, and **this ruling stands unchanged for master**, which
+stays single-org with org-null external logins.
 
 *(Related housekeeping, Aug 6, 2026: the vestigial second org "Meeting Minds" — one empty
 draft event, no users/keys/data — was deleted from prod. Master is single-org, MM Group,

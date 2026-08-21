@@ -20,7 +20,7 @@
 | 3 | Org-null audit-write loss | ✅ DECIDED: stamp a **synthetic platform org**, not MMG's (nuance resolved Aug 11) |
 | 4 | The `?? ""` fallback pass | ✅ **DONE** Aug 11, 2026. Decision CORRECTED then shipped (§4) |
 | 5 | Privileged maintenance lane | ✅ **BUILT** Aug 11, 2026. All four decisions taken, code shipped (§5) |
-| 6 | Phase-1 identity model | 🔶 OPEN — owner thesis + counter-inputs recorded (§6), discussion pending |
+| 6 | Phase-1 identity model | ✅ **DECIDED** Aug 21, 2026 — per-tenant accounts, enforced by a column (§6) |
 | 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ **IMPLEMENTED** Aug 4, 2026 (§7) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
 
@@ -291,36 +291,119 @@ see **zero rows** from any tenant lane under platform RLS:
 
 ---
 
-## 6. Phase-1 identity model — 🔶 OPEN (thesis recorded; discussion pending)
+## 6. Phase-1 identity model — ✅ DECIDED (Aug 21, 2026)
 
-**Background.** Today `User.email` is **globally unique** — one email = one
-account across everything. On a multi-tenant platform, the same person (e.g.
-a doctor) may register with two different tenant orgs' events.
+**Decision: per-tenant accounts, enforced by a column.** `User.organizationId`
+becomes **required**, and email uniqueness moves from global to
+**`@@unique([organizationId, email])`**. The same address in two tenants is two
+independent accounts with separate passwords. This is the owner's original
+thesis, taken as written after the discussion below.
 
-**Owner's thesis (his words, recorded as a starting position, not a final
-decision):** *"I think one email is global and unique per tenant, and for the
-other tenant, the email is global and unique. We need to keep that
-distinction. This is my thought process, I may be wrong, we will discuss
-further."* — i.e. **email uniqueness is scoped per tenant**: the same address
-can exist independently in two tenants, as two separate accounts.
+### Background
 
-**Claude's inputs:**
-- This is the **standard SaaS model** and likely the right call.
-- Implications to walk through in the discussion:
-  - **Login becomes tenant-scoped** — you sign in *on a tenant's domain*, and
-    the credential lookup keys on `(organizationId, email)`, not global email.
-  - The global-unique `User.email` index changes to a compound
-    `(organizationId, email)` unique.
-  - **The hard edge is the org-null roles** (REVIEWER crossing orgs,
-    SUBMITTER, REGISTRANT) — they currently rely on ONE global account
-    spanning orgs. Per-tenant uniqueness needs a story for them (per-tenant
-    accounts vs a Membership join model).
-  - The **two-silo topology softens this**: a person active in MMG *and* a
-    platform tenant already has two accounts (separate DBs), so per-tenant
-    uniqueness inside the platform DB is the consistent continuation, not a
-    break.
-- Nothing else on this list is blocked by item 6 — items 7 and 8 proceed
-  independently.
+`User.email` is globally unique today — one email, one account, everywhere. On
+a platform the same person (a doctor, say) may register with two tenants.
+
+**Owner's thesis (recorded Aug 4 as a starting position):** *"I think one email
+is global and unique per tenant, and for the other tenant, the email is global
+and unique. We need to keep that distinction. This is my thought process, I may
+be wrong, we will discuss further."*
+
+### What the discussion changed
+
+**The decision was narrower than this item made it look.** The Aug 6 ruling in
+[IDENTITY_AND_ROLES.md](IDENTITY_AND_ROLES.md) §1 — that external logins stay
+org-null on master and never inherit an event's org — already named its own
+exception: *"the one sanctioned future version: the platform identity model
+(item 6) makes external accounts tenant-bound **by design**, with the supporting
+redesign (tenant-scoped login, membership seam)."* The two positions are
+consistent, not in tension, and the shape was pre-committed. What was genuinely
+open was the **mechanism**.
+
+**The numbers reframed the "hard edge".** This item recorded org-null roles as
+an edge case. Measured on prod (read-only, Aug 21): **113 of 126 accounts — 90%
+— are org-null** (REGISTRANT 86, SUBMITTER 27) against 12 org-bound team
+accounts. They are not an edge; they are the user table, and they are precisely
+what the change is about. Also measured: **zero REVIEWER accounts exist**, so
+the named hard case (one reviewer serving several orgs) is hypothetical.
+*(The one org-null ORGANIZER is the seeded `mcp-remote@system.local` system
+user, not an anomaly.)*
+
+### The alternative, and why it lost
+
+A **Membership table** — `User` keeps a globally unique email, and
+`Membership(userId, organizationId, role)` carries the per-tenant role — was
+weighed seriously, and it is **much cheaper than it first appears**. The
+expected cost was "move `role` off `User`, touch ~200 `session.user.role` reads
+and all nine visibility predicates". That is wrong: the JWT already carries
+`{ role, organizationId }` as a pair, so every consumer reads the *session*, not
+the database. Only **three** sites write `token.role`, plus one 5-minute
+revalidation read. The session shape would not change at all.
+
+It lost on three grounds, none of them cost:
+
+1. **A shared account shares a password.** One compromised credential reaches
+   every tenant that person belongs to. The column contains it to one.
+2. **The two-silo topology already answers it.** A person active at MMG *and* a
+   platform tenant has two accounts regardless — separate databases. Per-tenant
+   accounts inside the platform DB are the consistent continuation.
+3. **Its unique advantage has no instances.** The only thing Membership buys
+   that the column does not is one human serving several tenants without
+   duplicate accounts. Prod has zero reviewers, and no tenant has asked.
+
+**Recorded honestly: the column is the LESS reversible choice.** Membership →
+column is easy; column → Membership means merging duplicate accounts, which is
+painful. This was accepted knowingly. **Revisit trigger:** a real tenant asking
+for shared reviewers or shared staff across tenants.
+
+### Two traps, both load-bearing
+
+**1. The NULL trap — the constraint must come after the stamp.**
+`@@unique([organizationId, email])` on a *nullable* column enforces **nothing**
+for org-null rows: Postgres treats NULLs as distinct, so two
+`(NULL, 'doctor@x.com')` rows are perfectly legal and the index looks like
+protection while providing none. Every row must carry a non-null org *before*
+the constraint is added. Free on the greenfield platform DB (no rows); a live
+footgun if anyone attempts it on master, where 90% of rows are org-null.
+
+**2. Login must resolve the tenant BEFORE the lookup.** `src/lib/auth.ts` does
+`user.findUnique({ where: { email } })` with no org in scope — it cannot stay
+that way once email is only unique per tenant. The host resolver
+(`src/lib/tenant/resolver.ts`) already exists, so this is wiring rather than new
+machinery. **The UX consequence is deliberate and needs designing:** signing in
+on the wrong tenant's host reads as "no such account", which is correct and
+confusing.
+
+This is the same structural fact today's ADMIN-gate sweep ran into from the
+other side: **anything read before identity is resolved cannot be protected by
+identity.** Login is the canonical case — the tenant must come from the *host*,
+because the credential cannot supply it.
+
+### Build-time items
+
+- `User.organizationId` → required; `@@unique([organizationId, email])`; stamp
+  every row before the constraint (greenfield: nothing to stamp).
+- Tenant-scoped login: resolve the org from the host, then look up
+  `(organizationId, email)`. Three `token.role` write sites and the 5-minute
+  revalidation read stay as they are.
+- **23 email-keyed lookup sites across 18 files** gain an org filter. The ones
+  needing a judgement call rather than a mechanical edit are the deliberate
+  cross-org sweeps: `src/lib/registrant-account.ts` (sweeps sibling unlinked
+  registrations on the same email), `check-email`, `abstract-start`,
+  `group-register`. On the platform each must become tenant-local.
+- The `/api/registrant/**` routes, deliberately unwrapped pending this decision,
+  can now take their tenant lane. Until they do, **the whole registrant portal
+  returns nothing on the platform** — my-registration, invoices, quotes,
+  barcodes, promo codes.
+- Password reset, invitation acceptance and email verification all key on email
+  and become tenant-scoped with it.
+- `buildEventAccessWhere`'s org-null branches: external accounts now carry an
+  org, so revisit whether linkage-based access is still the right rule or
+  becomes belt-and-braces.
+
+**Master is untouched by all of this.** The column change lands on the platform
+instance only; the Aug 6 ruling that external logins stay org-null on master
+stands, for exactly the reasons it gives.
 
 ---
 
@@ -523,12 +606,19 @@ than reasoned about.
 
 ## What happens next
 
-**Updated Aug 11, 2026.** Items 4, 5, 7 and 8 are done; item 3's nuance is
-resolved. **Item 6 (identity model) is now the only decision still open**, and
-it is the last thing on this list that needs a conversation rather than a
-build.
+**Updated Aug 21, 2026.** **Every item on this list is now decided.** Items 4,
+5, 7 and 8 are built; item 3's nuance is resolved; item 6 was settled on Aug 21
+and the ADMIN-gate sweep it spawned is done. What remains is build work and one
+standing question below.
 
-- **One discussion left:** item 6 (§6). Nothing else here is blocked by it.
+- **No discussions left.** Item 6 (§6) closed the list. Its build is not
+  scheduled, and until it lands **the registrant portal returns nothing on the
+  platform** — that is the one consequence worth scheduling around.
+- **One small owner call outstanding**, surfaced by the ADMIN-gate sweep and not
+  acted on: `api-keys` and `oauth-clients` let a SUPER_ADMIN grant the
+  `INTERNAL` rate-limit tier, which exempts a key from *our* rate limit. It is
+  org-bound so it is not a leak, but on the platform it lets a tenant lift its
+  own ceiling.
 - **Build-later (decided, not scheduled):** items 1, 2 and the §3 stamp. Each
   has its "build-time items" listed in its section, and all three now depend
   on the privileged lane that item 5 shipped, so they are unblocked whenever
