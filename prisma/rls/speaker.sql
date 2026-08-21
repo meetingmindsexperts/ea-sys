@@ -32,3 +32,16 @@ CREATE POLICY speakerdocument_tenant_isolation ON "SpeakerDocument"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- Added Aug 21, 2026 — sweep-bookkeeping gap (see prisma/rls/abstract.sql).
+-- SpeakerProfileForm holds a speaker's submitted photo, bio and the pointers to
+-- their passport / CV uploads, so it is squarely tenant data. Its routes (the
+-- organizer send + the public token form) both wrap; only the policy was
+-- missing.
+
+ALTER TABLE "SpeakerProfileForm" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS speakerprofileform_tenant_isolation ON "SpeakerProfileForm";
+CREATE POLICY speakerprofileform_tenant_isolation ON "SpeakerProfileForm"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

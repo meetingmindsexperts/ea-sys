@@ -19,9 +19,10 @@
  *   docker compose --profile tenancy up -d
  */
 import { execSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { applyPolicyFiles, splitSql, sharedPolicyDir } from "../prisma/rls/apply";
 
 const CONTAINER = process.env.SANDBOX_PG_CONTAINER || "ea-sys-tenancy-db";
 const OWNER_URL =
@@ -59,23 +60,22 @@ async function main() {
 
   // 3. role split + domain policies (NOT the Event pilot policy)
   console.log("[sandbox] applying role split + domain RLS policies");
-  const rlsDir = path.resolve(process.cwd(), "prisma/rls");
-  const files = [
-    path.resolve(process.cwd(), "tests/tenancy/policies/00-roles.sql"),
-    ...readdirSync(rlsDir)
-      .filter((f) => f.endsWith(".sql"))
-      .sort()
-      .map((f) => path.join(rlsDir, f)),
-  ];
   const owner = new PrismaClient({ datasourceUrl: OWNER_URL });
   try {
-    for (const file of files) {
-      const sql = readFileSync(file, "utf8");
-      for (const statement of splitSql(sql)) {
-        await owner.$executeRawUnsafe(statement);
-      }
-      console.log(`[sandbox]   applied ${path.relative(process.cwd(), file)}`);
+    // The role split first, by explicit path: this is the ONE file taken from
+    // tests/tenancy/policies, deliberately NOT the whole directory, because
+    // 10-event-rls.sql lives there too (see the note in the header).
+    const rolesFile = path.resolve(process.cwd(), "tests/tenancy/policies/00-roles.sql");
+    for (const statement of splitSql(readFileSync(rolesFile, "utf8"))) {
+      await owner.$executeRawUnsafe(statement);
     }
+    console.log("[sandbox]   applied tests/tenancy/policies/00-roles.sql");
+
+    // Then every shared per-domain policy, through the SAME applier the harness
+    // and the platform bootstrap use (prisma/rls/apply.ts).
+    await applyPolicyFiles(owner, [sharedPolicyDir()], (f) =>
+      console.log(`[sandbox]   applied prisma/rls/${f.file}`),
+    );
   } finally {
     await owner.$disconnect();
   }
@@ -90,34 +90,6 @@ async function main() {
   console.log("\n✅ Sandbox ready. Start it with:  npm run dev:sandbox");
   console.log("   Acme:   http://acme.localhost:3114    (admin@acme.test / sandbox123)");
   console.log("   Globex: http://globex.localhost:3114  (admin@globex.test / sandbox123)");
-}
-
-/** Split SQL into statements on top-level semicolons (respects $$ blocks). */
-function splitSql(sql: string): string[] {
-  const withoutComments = sql
-    .split("\n")
-    .filter((line) => !line.trim().startsWith("--"))
-    .join("\n");
-  const statements: string[] = [];
-  let current = "";
-  let inDollar = false;
-  for (let i = 0; i < withoutComments.length; i++) {
-    if (withoutComments.startsWith("$$", i)) {
-      inDollar = !inDollar;
-      current += "$$";
-      i += 1;
-      continue;
-    }
-    const ch = withoutComments[i];
-    if (ch === ";" && !inDollar) {
-      if (current.trim()) statements.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) statements.push(current.trim());
-  return statements;
 }
 
 main().catch((e) => {

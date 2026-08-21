@@ -41,3 +41,13 @@ CREATE POLICY sessionproposaltheme_tenant_isolation ON "SessionProposalTheme"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- Added Aug 21, 2026 — sweep-bookkeeping gap (see prisma/rls/abstract.sql).
+-- FLAT-policied for the INSERT…ON CONFLICT reason RegistrationSerialCounter is.
+
+ALTER TABLE "SessionProposalSerialCounter" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sessionproposalserialcounter_tenant_isolation ON "SessionProposalSerialCounter";
+CREATE POLICY sessionproposalserialcounter_tenant_isolation ON "SessionProposalSerialCounter"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

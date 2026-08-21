@@ -54,3 +54,31 @@ CREATE POLICY abstractreviewsubmission_tenant_isolation ON "AbstractReviewSubmis
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- Added Aug 21, 2026 — sweep-bookkeeping gap, not a design change.
+--
+-- Both tables gained a denormalized organizationId during their own feature
+-- work and their routes wrap in runWithTenant, but neither ever got a policy
+-- here, so they were readable from every lane while their swept siblings above
+-- were not. Found by auditing org-bearing models against the policy set while
+-- provisioning the platform bootstrap.
+--
+-- AbstractSerialCounter is FLAT-policied for exactly the reason
+-- RegistrationSerialCounter is (see prisma/rls/registration.sql): its
+-- INSERT…ON CONFLICT upsert against a policy-INVISIBLE row would raise a
+-- unique violation the caller misreads as a duplicate, so the counter must be
+-- visible in its own tenant's lane rather than reachable through a join.
+
+ALTER TABLE "AbstractSubTheme" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS abstractsubtheme_tenant_isolation ON "AbstractSubTheme";
+CREATE POLICY abstractsubtheme_tenant_isolation ON "AbstractSubTheme"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "AbstractSerialCounter" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS abstractserialcounter_tenant_isolation ON "AbstractSerialCounter";
+CREATE POLICY abstractserialcounter_tenant_isolation ON "AbstractSerialCounter"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

@@ -20,7 +20,7 @@ Two phases, in this order, and the order is the point.
 
 | | | Cost | Proves |
 |---|---|---|---|
-| **A** | Local rehearsal on `ea_sys_prod_local` | nothing | The app **runs** under RLS against real prod-shaped data |
+| **A** | Local rehearsal: the two-tenant sandbox, then the prod copy | nothing | Isolation holds in a running app, and the app runs against real data |
 | **B** | The platform instance | a box + a Supabase project | Everything else |
 
 Phase A exists because of one property of RLS that makes it unlike most
@@ -39,98 +39,99 @@ expensive way.
 
 ## Phase A — local rehearsal
 
-### A0. Prerequisites
+Two rigs. Run them in this order; they answer different questions.
 
-- `ea_sys_prod_local` running with a recent restore (`npm run db:refresh`).
-- `.env.local` pointing `DATABASE_URL` / `DIRECT_URL` at it (this is already the
-  default local setup, see [LOCAL_DEV_DATABASE.md](LOCAL_DEV_DATABASE.md)).
+### A1. The sandbox — does isolation hold in a running app?
+
+`npm run sandbox:setup` builds a dedicated `sandbox` database inside the
+tenancy container with **two throwaway tenants**, Acme and Globex, each with a
+verified TenantDomain, an admin login, and an event **sharing the same slug** so
+host-based public routing is directly demonstrable.
+
+```bash
+docker compose --profile tenancy up -d
+npm run sandbox:setup
+npm run dev:sandbox
+```
+
+- Acme:   http://acme.localhost:3114   (`admin@acme.test` / `sandbox123`)
+- Globex: http://globex.localhost:3114 (`admin@globex.test` / `sandbox123`)
+
+The app connects as the non-owner `app_user`, so RLS actually enforces. Sign in
+as each tenant and confirm you see only that tenant's event, contact and
+speaker; then hit `/e/annual-summit` on both hosts and confirm the same slug
+resolves to different events.
+
+This never touches your prod copy, and `npm run test:tenancy` (a different
+database) cannot clobber it.
+
+### A2. The prod copy — does the app run against real data?
+
+The sandbox has one event, one contact and one speaker per tenant, so it cannot
+exercise the data-rich surfaces: a webinar console with a real ZoomMeeting,
+certificates with real templates, a registrations list with hundreds of rows.
+`ea_sys_prod_local` can.
 
 **This is fully reversible.** Applying policies changes no rows, and
-`npm run db:refresh` rebuilds the whole local DB from the DR dump regardless.
-There is no way to lose anything in this phase.
-
-### A1. Apply the role split and the policies
+`npm run db:refresh` rebuilds the local DB from the DR dump regardless.
 
 ```bash
 npx tsx scripts/bootstrap-rls.ts --dry-run          # see the plan, change nothing
 RLS_APP_USER_PASSWORD=local_dev_pw npm run rls:bootstrap
+npx tsx scripts/add-tenant-domain.ts localhost <org-slug> --verified
 ```
 
-What it does, all idempotent:
+The bootstrap creates the non-owner `app_user` role if missing, grants it table
+and sequence privileges plus `ALTER DEFAULT PRIVILEGES` (without which every
+table a future migration adds is invisible to it), applies all the policy files,
+and verifies `row_security_active()` under `SET LOCAL ROLE`. All idempotent;
+re-run whenever a new domain policy lands.
 
-1. Creates the non-owner role `app_user` if missing (password only needed the
-   first time; a re-run against a provisioned DB needs no secret at all).
-2. Grants it table + sequence privileges and, critically,
-   `ALTER DEFAULT PRIVILEGES` so tables added by future migrations are visible
-   to it. Without that line the symptom is a permission error on one endpoint,
-   weeks later.
-3. Applies all 39 `prisma/rls/*.sql` files.
-4. Verifies `row_security_active()` under `SET LOCAL ROLE app_user` for every
-   policied table, and fails loudly if any of them bypasses.
+`--verified` on the domain is load-bearing: the resolver looks the host up and
+checks `verifiedAt` and nothing else. Do **not** pass `--primary` — that marks
+the canonical public domain, and localhost is not it.
 
-Re-run it any time a new domain policy file lands.
-
-### A2. Point the app at the non-owner role
-
-In `.env.local`:
+Then in `.env.local`, switch **only** `DATABASE_URL` to the app role. `DIRECT_URL`
+stays on the owner, because migrations need DDL rights the app role deliberately
+does not have:
 
 ```
 DATABASE_URL="postgresql://app_user:local_dev_pw@localhost:54322/ea_sys_prod_local"
-DIRECT_URL="postgresql://postgres:postgres@localhost:54322/ea_sys_prod_local"
 RLS_SET_LOCAL=1
 ```
 
-`DIRECT_URL` stays on the **owner** — migrations and `db push` need DDL rights
-the app role deliberately does not have.
-
 **If you forget to switch `DATABASE_URL`, the dev server will not start.** The
-boot tripwire (`src/lib/tenant/rls-assert.ts`) checks the same thing the
-bootstrap verified, over the app's own connection, and refuses to serve with an
-error naming every table that bypasses. That refusal is the whole safety net for
-this phase: the failure mode it prevents is a database that looks isolated and
-is not.
+boot tripwire (`src/lib/tenant/rls-assert.ts`) runs the same check the bootstrap
+ran, over the app's own connection, and refuses to serve with an error naming
+every table that bypasses. That refusal is the safety net for this phase: the
+failure it prevents is a database that looks isolated and is not.
 
-### A3. Make the host resolve
+### A3. What you are looking for
 
-The dashboard takes its tenant from the session, but public event pages take it
-from the **hostname**, so `localhost` needs a mapping or every `/e/[slug]` page
-resolves to no org and renders empty:
+**Things that are empty, not things that error.** An unwrapped query under RLS
+returns zero rows silently. A registrations list showing nothing is the bug, and
+there will be no stack trace and no log line.
 
-```bash
-npx tsx scripts/add-tenant-domain.ts --list
-npx tsx scripts/add-tenant-domain.ts localhost <org-slug> --primary --verified
-```
-
-`--verified` is load-bearing: the resolver only routes verified rows. The
-resolver micro-caches for ~60s per process, so a change takes up to a minute.
-
-### A4. Walk the app and catalogue what breaks
-
-`npm run dev`, then work through the surfaces below. **You are looking for
-things that are empty or missing, not for errors.** An unwrapped query does not
-throw; it returns nothing.
-
-- [ ] Log in; events list shows the real events
-- [ ] One event: dashboard tiles, registrations list, speakers, agenda, abstracts
-- [ ] Registration detail sheet incl. the Billing tab (finance paths)
-- [ ] Check-in page; print a badge
-- [ ] Communications: recipient counts are non-zero and match the list
-- [ ] Certificates: templates list, eligibility for a tagged recipient
+- [ ] Events list, then one event: dashboard tiles, registrations, speakers, agenda, abstracts
+- [ ] Registration detail sheet including the Billing tab
+- [ ] Check-in; print a badge
+- [ ] Communications: recipient counts non-zero and matching the list
+- [ ] Certificates: templates, eligibility for a tagged recipient
 - [ ] CRM: deals board, companies, contacts, a deal detail page
 - [ ] Public: `/e/<slug>`, `/e/<slug>/register`, `/e/<slug>/agenda`
 - [ ] Settings: users, integrations, email templates
 - [ ] `/admin/infra`, `/logs`
-- [ ] The worker container's logs: every job ticking, no lease errors
+- [ ] Worker logs: every job ticking, no lease errors
 
-For anything empty, the diagnosis is nearly always the same: a query that needs
-a `runWithTenant` wrap it does not have, or a `$transaction` that should be a
+For anything empty the diagnosis is nearly always a query that needs a
+`runWithTenant` wrap it does not have, or a `$transaction` that should be a
 `tenantTransaction`. `scripts/check-tenant-als.sh` pins the swept routes, so
-gaps will be in code paths outside its allowlist.
+gaps will be outside its allowlist.
 
-### A5. Revert when done
+### A4. Revert
 
-Either flip `RLS_SET_LOCAL` back off and restore the owner `DATABASE_URL`, or
-`npm run db:refresh` for a clean slate.
+Unset `RLS_SET_LOCAL` and restore the owner `DATABASE_URL`, or
+`npm run db:refresh`.
 
 ---
 
@@ -198,6 +199,18 @@ traffic, with the pooler, the worker, Stripe webhooks and email all live.
 Each of these is decided but unbuilt, and each has its build-time items recorded
 in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
 
+- **`Event` itself has no RLS policy.** There is one, but only in
+  `tests/tenancy/policies/10-event-rls.sql`, which the harness applies and
+  neither the sandbox nor the bootstrap does. `Event` was never one of the 20
+  swept domains; `setup-sandbox.ts` states the reason in its header, that RLS on
+  it "would fail-close the whole dashboard". Sizing the sweep: **343 call sites
+  across 201 files**, the largest single domain left. Impact is narrower than it
+  sounds, because child tables carry their own denormalized `organizationId` and
+  are policied independently, so a leaked Event row does not cascade into
+  registrations. What is cross-readable at the DB layer is Event rows: names,
+  dates, venues, and the `settings` JSON. Not a blocker for tenant #1, who has
+  nobody to leak to. A before-tenant-#2 item, same shelf as the shared SES
+  sender and the CRM reply mailbox.
 - **Tenant management and onboarding** (§1). Nothing exists. This is the largest
   remaining product gap and the reason B2 is a manual seed.
 - **The synthetic platform org** (§3) for ownerless rows, plus `PLATFORM_ORG_ID`
@@ -208,11 +221,17 @@ in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
   it blocks tenant #2. Note the trap when it is decided: Postgres treats NULLs as
   distinct in a unique index, so a naive `(organizationId, email)` compound
   removes uniqueness entirely for the org-null roles.
-- **The unpoliced-model audit.** `EmailTemplate`, `Notification`, `DeviceToken`,
-  `InvoiceCounter`, `EventBillingAccount`, `McpOAuthClient`, `EventStats` and
-  `ImportLog` carry tenant data with no `organizationId` and no policy. RLS is
-  opt-in per table, so a table with no policy is readable from every lane.
-  `InvoiceCounter` and `McpOAuthClient` look like the two that matter.
+- **The remaining unpoliced tables.** An audit of org-bearing models against the
+  policy set (Aug 21) found four genuine misses, since fixed: `AbstractSubTheme`,
+  `SpeakerProfileForm`, `AbstractSerialCounter` and `SessionProposalSerialCounter`
+  all carried `organizationId` and wrapped their routes, and simply never got a
+  policy file or a CI-gate entry. What remains unpoliced is defensible but worth
+  a decision: `TenantDomain` is the tenant list itself, `ApiKey` and `McpOAuth*`
+  are read in order to *learn* the tenant, `LoginEvent` is already recorded as
+  deferred, and `User` is open decision item 6. Separately, `EmailTemplate`,
+  `Notification`, `DeviceToken`, `InvoiceCounter`, `EventBillingAccount`,
+  `EventStats` and `ImportLog` carry tenant data with no `organizationId` at all;
+  `InvoiceCounter` looks like the one that matters.
 - **Still globally shared, each a precondition before tenant #2:** SES, the CRM's
   single `CRM_EMAIL_FROM_ADDRESS` reply-forward mailbox (a real cross-tenant leak
   on a shared instance), MediaMTX as a singleton, and the globally-unique

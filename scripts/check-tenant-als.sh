@@ -188,6 +188,7 @@ SWEPT_ROUTE_FILES=(
   # organization/users/[userId]'s speaker.updateMany is cross-org BY DESIGN — no wrap.)
   "src/app/api/events/[eventId]/import/speakers/route.ts"                              # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/speaker-agreement/route.ts"                        # Speaker (July 30, 2026)
+  "src/app/api/public/events/[slug]/speaker-form/[token]/route.ts"                     # Speaker (Aug 21, 2026)
   "src/app/api/public/events/[slug]/presenter-agreement/route.ts"                      # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/submitter/route.ts"                                # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/abstract-start/route.ts"                           # Speaker (July 30, 2026)
@@ -211,6 +212,12 @@ SWEPT_ROUTE_FILES=(
   # module entry (uses tenantTransaction, opens no runWithTenant of its own).
   "src/app/api/events/[eventId]/abstract-themes/route.ts"                              # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/abstract-themes/[themeId]/route.ts"                    # Abstract (July 31, 2026)
+  # Sub-themes shipped Aug 7, 2026, AFTER the July-31 abstract sweep: the routes
+  # were written with runWithTenant but never listed here, so nothing would have
+  # caught a later edit dropping the wrap. Their table also had no RLS policy
+  # until Aug 21 (prisma/rls/abstract.sql) — same bookkeeping gap, both ends.
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/route.ts"           # Abstract (Aug 21, 2026)
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]/route.ts" # Abstract (Aug 21, 2026)
   "src/app/api/events/[eventId]/review-criteria/route.ts"                              # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/review-criteria/[criterionId]/route.ts"               # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/reviewers/route.ts"                                    # Abstract (July 31, 2026)
