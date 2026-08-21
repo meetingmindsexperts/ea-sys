@@ -1,7 +1,13 @@
 # Encrypting the EC2 root volume
 
-**Status:** not yet performed. Written 2026-08-19, shortened 2026-08-20 after
-measuring the fast path (§3).
+**Status:** ✅ **PERFORMED 2026-08-21**, successfully, in **7 min 45 s** — see
+[MAINTENANCE_LOG.md](MAINTENANCE_LOG.md) MAINT-001 for the as-executed record,
+the verification results and what the estimates got wrong. Written 2026-08-19,
+shortened 2026-08-20 after measuring the fast path (§3).
+
+**Keep this document.** It is the procedure for the *next* volume (the Singapore
+DR box is still unencrypted), and §6 is the rollback that stays open until the
+old volume is deleted.
 **Why:** the root volume is `Encrypted: false`, which is the weakest answer on
 the client security questionnaire (`SECURITY_AND_PRIVACY_POSTURE.md` §0.2).
 **Downtime:** 7 to 10 minutes, planned. (The original single-pass version of this

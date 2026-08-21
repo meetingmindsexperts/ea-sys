@@ -2,8 +2,31 @@
 
 **Project:** EA-SYS (Event Administration System)
 **Owner:** MeetingMinds Group
-**Last Updated:** July 8, 2026
+**Last Updated:** August 21, 2026
 **Platform URL:** events.meetingmindsgroup.com
+
+---
+
+## nginx maintenance page (found during MAINT-001, Aug 21 2026)
+
+When the app upstream is unreachable, nginx returns its own bare
+`502 Bad Gateway / nginx/1.24.0 (Ubuntu)`. Every visitor saw that for ~90 seconds
+during the EBS encryption window, and it is what a crash or a failed deploy shows
+too.
+
+Two problems: it reads as **broken** rather than "briefly down", and it discloses
+the server and version.
+
+**Shape of the fix.** A static page served by nginx via `error_page 502 503 504`,
+returned as **`503` with `Retry-After`**, not `200`. The status code is the part
+worth getting right: a `200` would tell crawlers the page is genuinely that
+content, and would make Uptime Robot believe the site is healthy while it is
+down. It must need no application to render — that is the entire point.
+
+**Note before editing.** The live nginx config on the box has diverged from
+`deploy/nginx.conf` (Certbot rewrote it), so **the box is the source of truth**
+and `deploy/nginx.live-snapshot.conf` must be refreshed alongside any change, or
+FROM_SCRATCH_REBUILD loses it.
 
 ---
 
