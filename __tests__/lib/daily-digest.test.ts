@@ -46,6 +46,7 @@ import { EXPECTED_JOBS } from "@/lib/worker-jobs";
 /** A snapshot with every section present, healthy, and nothing to report. */
 function healthySnapshot(): InfraSnapshot {
   return {
+    scope: "platform" as const,
     generatedAt: "2026-08-06T05:30:00.000Z",
     region: "ap-south-1",
     build: {

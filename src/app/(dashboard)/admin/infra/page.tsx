@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrafficCard } from "@/components/infra/traffic-card";
 
 interface Snapshot {
+  scope: "platform" | "org";
   generatedAt: string;
   region: string;
   build: { gitSha: string; gitShaShort: string; builtAt: string | null; slot: string | null; hostname: string };
@@ -191,7 +192,14 @@ export default function InfraPage() {
   const role = session?.user?.role;
   const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
 
+  // A tenant's ADMIN reaches this page too, and sees a different thing: their
+  // own service health, not our infrastructure. The snapshot says which it is,
+  // and the panels below are hidden rather than stubbed, because a column of
+  // "not for you" placeholders is not a page anyone wants. The three LOG panels
+  // deliberately keep their stub — an empty "recent errors" reads as "nothing
+  // is wrong", which is the one wrong thing to tell somebody.
   const [snap, setSnap] = useState<Snapshot | null>(null);
+  const isOperator = snap?.scope !== "org";
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -270,9 +278,12 @@ export default function InfraPage() {
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><Cpu className="h-6 w-6 text-primary" /> Infra / Ops</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Cpu className="h-6 w-6 text-primary" /> {isOperator ? "Infra / Ops" : "Service health"}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Deploys, email health, alarms and host metrics{snap ? ` · ${snap.region} · updated ${fmtTime(snap.generatedAt)}` : ""}.
+            {isOperator
+              ? "Deploys, email health, alarms and host metrics"
+              : "Your queued sends, failed emails and live events"}
+            {snap ? ` · updated ${fmtTime(snap.generatedAt)}` : ""}.
           </p>
           {/* "What is actually running?" — the first question of every incident,
               and one this system could not answer until the SHA was baked into
@@ -382,6 +393,7 @@ export default function InfraPage() {
               it, or whether a backup had been taken this century. */}
 
           {/* System status — DB + worker + alerts, one row */}
+          {isOperator && (
           <Card id="system" className="lg:col-span-2 scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
@@ -470,6 +482,7 @@ export default function InfraPage() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Queues — "is work piling up?" You could always see that a job ran.
               You could never see that it was falling behind. */}
@@ -499,6 +512,7 @@ export default function InfraPage() {
           {/* Last backup — nothing had EVER read back from the DR bucket. A
               backup nobody verifies is a backup you find out about at restore
               time, which is the worst possible moment. */}
+          {isOperator && (
           <Card id="backup" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Last database backup</CardTitle></CardHeader>
             <CardContent>
@@ -524,6 +538,7 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Product heartbeat — everything else on this page measures the MACHINE.
               None of it would notice that the box is green, the worker is
@@ -640,12 +655,13 @@ export default function InfraPage() {
               failed. Loads from its own endpoint rather than the shared
               snapshot: hundreds of hourly buckets would bloat every poll of
               this page, and it refreshes hourly rather than every 60s. */}
-          <TrafficCard />
+          {isOperator && <TrafficCard />}
 
           {/* Disaster recovery — all THREE streams, not just the database. A
               restore needs the dump AND the uploads AND the .env. Checking only
               one lets you believe you are covered while another has been dead
               for a month — which you would discover mid-restore. */}
+          {isOperator && (
           <Card id="dr" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Disaster recovery</CardTitle></CardHeader>
             <CardContent>
@@ -667,6 +683,7 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Abuse / auth — the only place a brute-force attempt or a client stuck
               in a retry loop would ever surface on this page. */}
@@ -688,6 +705,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Cron / Jobs — full width */}
+          {isOperator && (
           <Card id="jobs" className="lg:col-span-2 scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
@@ -733,8 +751,10 @@ export default function InfraPage() {
               ))}
             </CardContent>
           </Card>
+          )}
 
           {/* Alarms */}
+          {isOperator && (
           <Card id="alarms" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BellRing className="h-4 w-4 text-primary" /> Alarms</CardTitle></CardHeader>
             <CardContent>
@@ -754,8 +774,10 @@ export default function InfraPage() {
               ))}
             </CardContent>
           </Card>
+          )}
 
           {/* Host metrics */}
+          {isOperator && (
           <Card id="metrics" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> Host metrics</CardTitle></CardHeader>
             <CardContent>
@@ -783,8 +805,10 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Email / SES */}
+          {isOperator && (
           <Card id="ses" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> Email (SES)</CardTitle></CardHeader>
             <CardContent>
@@ -813,8 +837,10 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Deploys */}
+          {isOperator && (
           <Card id="deploys" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Rocket className="h-4 w-4 text-primary" /> Deploys</CardTitle></CardHeader>
             <CardContent>
@@ -839,6 +865,7 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Email failures */}
           <Card id="email-failures" className="scroll-mt-4">

@@ -20,7 +20,10 @@ vi.mock("@/lib/logger", () => ({
 
 import { GET } from "@/app/admin/docs/[...path]/route";
 
-const ADMIN = { user: { id: "u1", role: "ADMIN", organizationId: "org1" } };
+// Narrowed Aug 21 2026: this route serves the raw repository at a shareable
+// URL, so the gate is the platform operator, not any org admin.
+const OPERATOR = { user: { id: "u1", role: "SUPER_ADMIN", organizationId: "org1" } };
+const ORG_ADMIN = { user: { id: "u2", role: "ADMIN", organizationId: "org1" } };
 const req = (path: string) => new Request(`https://events.example.com/admin/docs/${path}`);
 const params = (...segments: string[]) => ({ params: Promise.resolve({ path: segments }) });
 
@@ -33,7 +36,7 @@ const HTML_FILE = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAuth.mockResolvedValue(ADMIN);
+  mockAuth.mockResolvedValue(OPERATOR);
   mockReadDocFile.mockResolvedValue(HTML_FILE);
 });
 
@@ -46,6 +49,17 @@ describe("GET /admin/docs/[...path]", () => {
     expect(loc).toContain("/login?callbackUrl=");
     expect(decodeURIComponent(loc)).toContain("/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html");
     expect(mockReadDocFile).not.toHaveBeenCalled();
+  });
+
+  it("403s an ORG ADMIN — on the platform that is a customer's administrator", async () => {
+    // The property this route exists to protect. It serves every .md and .html
+    // in the repository: the incident log, the AWS runbook with instance ids,
+    // the procedure for rebuilding production, our security posture. That was
+    // an acceptable ADMIN surface while every ADMIN was an MMG employee, and
+    // stopped being one the moment ADMIN can mean a tenant.
+    mockAuth.mockResolvedValue(ORG_ADMIN);
+    const res = await GET(req("/admin/docs/docs/INCIDENTS.md"), params("docs", "INCIDENTS.md"));
+    expect(res.status).toBe(403);
   });
 
   it("403s non-admin roles (docs carry security findings — never public)", async () => {

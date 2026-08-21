@@ -13,7 +13,7 @@
  * under `docs/` — so the common case (files in the docs/ directory) works
  * without the redundant prefix.
  *
- * Access: ADMIN + SUPER_ADMIN only, same gate as the /admin/docs viewer —
+ * Access: PLATFORM OPERATOR only, same gate as the /admin/docs viewer —
  * these docs carry security findings and infra details and must never be
  * public. A logged-out hit redirects to /login with a callbackUrl so a
  * shared link lands on the doc right after sign-in. All path safety
@@ -28,6 +28,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { canActAsPlatformOperator } from "@/lib/platform-operator";
 import { readDocFile, type DocsFileContent } from "@/lib/docs-fs";
 import { apiLogger } from "@/lib/logger";
 
@@ -58,7 +59,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         new URL(`/login?callbackUrl=${encodeURIComponent(url.pathname)}`, url.origin),
       );
     }
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+    // Narrowed from ADMIN to PLATFORM OPERATOR, Aug 21 2026 — see the comment
+    // on the /api/admin/docs/* routes. This one matters slightly more than
+    // those: it serves the raw file at a shareable URL, so a link pasted into
+    // a chat is only as safe as this check.
+    if (!canActAsPlatformOperator(session.user)) {
       apiLogger.warn({
         msg: "admin-docs:raw:forbidden",
         userId: session.user.id,

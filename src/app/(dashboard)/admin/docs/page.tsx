@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /admin/docs — ADMIN + SUPER_ADMIN docs viewer.
+ * /admin/docs — PLATFORM OPERATOR (SUPER_ADMIN) docs viewer.
  *
  * Browseable repository of every .md / .html in the repo (outside the
  * blocklist). Split layout:
@@ -186,8 +186,19 @@ export default function AdminDocsPage() {
   // all 4 query enable-guards + the page-level Forbidden panel below
   // stay in sync — adding a third allowed role (or removing one)
   // is a one-line change here, not a 5-place search.
+  // Narrowed from ADMIN on Aug 21 2026: this browses the whole repository, and
+  // on the platform instance ADMIN means a customer's administrator.
+  //
+  // Deliberately NOT canActAsPlatformOperator() from @/lib/platform-operator.
+  // That module imports next/server and the Pino logger, and this is a client
+  // component — Next would bundle it as `undefined` and the gate would silently
+  // evaluate wrong with nothing failing (the same trap team-roles.ts exists to
+  // avoid). It also reads PLATFORM_ORG_ID, which is server-only, so a client
+  // copy could not reach the same answer even if it imported cleanly. The four
+  // API routes run the real predicate; this is the UI half, and the page
+  // already renders a Forbidden panel if the server disagrees.
   const userRole = session?.user?.role;
-  const canViewDocs = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
+  const canViewDocs = userRole === "SUPER_ADMIN";
 
   const treeQuery = useQuery({
     queryKey: ["admin-docs-tree"],

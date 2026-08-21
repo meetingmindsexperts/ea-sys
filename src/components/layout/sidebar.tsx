@@ -37,6 +37,7 @@ import {
   HelpCircle,
   BarChart3,
   BookOpen,
+  FileCode2,
   Cpu,
   Handshake,
   Lightbulb,
@@ -68,7 +69,7 @@ import {
 // entry (see crmOnlyNavigation below).
 const CRM_IN_SIDEBAR = true;
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; external?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
@@ -89,12 +90,21 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // It also now hosts the Sign-in Activity tab, whose own gate
   // (canViewLoginActivity) is exactly ADMIN + SUPER_ADMIN.
   { name: "Activity",  href: "/activity",  icon: Activity, adminOnly: true },
-  // Docs viewer is open to ADMIN + SUPER_ADMIN (not just SUPER_ADMIN
-  // like Logs + Activity). Operationally useful for org admins to
-  // self-serve on architecture / runbook / handover material;
-  // contains no secrets (gitignore excludes .env files + screenshots
-  // + the interview-prep file).
-  { name: "Docs",      href: "/admin/docs", icon: BookOpen, adminOnly: true },
+  // The USER GUIDE is the documentation an organiser actually needs, and until
+  // Aug 21 2026 it had no link anywhere — only the help chat referenced it,
+  // while the repo docs viewer below sat in the sidebar for every admin.
+  { name: "User Guide", href: "/user-guide.html", icon: BookOpen, external: true },
+  // Docs viewer: PLATFORM OPERATOR only since Aug 21 2026, narrowed from ADMIN.
+  // It serves every .md and .html in the repository — incident log, AWS runbook
+  // with instance ids, the rebuild-production procedure, our security posture
+  // and multi-tenancy strategy. The old comment justified ADMIN access because
+  // it "contains no secrets", which held while every ADMIN was an MMG employee
+  // and stops holding the moment ADMIN can mean a customer.
+  { name: "Docs",      href: "/admin/docs", icon: FileCode2, superAdminOnly: true },
+  // Infra / Ops stays adminOnly: a tenant ADMIN reaching it now gets a SERVICE
+  // HEALTH view of their own queues, failed emails and live events. Every host,
+  // AWS, DR, deploy and alarm panel is operator-only and is not even fetched
+  // for a tenant, so their page view raises no CloudWatch or SES calls.
   { name: "Infra / Ops", href: "/admin/infra", icon: Cpu, adminOnly: true },
 ];
 
@@ -527,11 +537,15 @@ export function Sidebar() {
           ) : (
             /* Top-level nav */
             baseNavigation.map((item) => {
-              const isActive = pathname.startsWith(item.href);
+              // The user guide is a static file, not an app route: it must not
+              // be prefetched or client-navigated, and it should never match
+              // the active-highlight (pathname never equals it).
+              const isActive = !item.external && pathname.startsWith(item.href);
               const navLink = (
                 <Link
                   key={item.name}
                   href={item.href}
+                  {...(item.external ? { target: "_blank", rel: "noopener noreferrer", prefetch: false } : {})}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isCollapsed && "justify-center px-2",

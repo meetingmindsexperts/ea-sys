@@ -17,6 +17,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { denyNonOperator } from "@/lib/platform-operator";
 import { buildDocsTree } from "@/lib/docs-fs";
 import { apiLogger } from "@/lib/logger";
 
@@ -26,14 +27,18 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
-      apiLogger.warn({
-        msg: "admin-docs:tree:forbidden",
-        userId: session.user.id,
-        role: session.user.role,
-      });
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // PLATFORM OPERATOR only, narrowed from ADMIN on Aug 21 2026.
+    //
+    // This serves every .md and .html in the repository. The original comment
+    // justified ADMIN access on the grounds that it "contains no secrets" —
+    // true when every ADMIN was an MMG employee, and not the same claim once
+    // ADMIN can mean a customer's administrator on the platform instance. What
+    // is in here: our incident log, the AWS runbook with instance ids and
+    // bucket names, the procedure for rebuilding our production box, the
+    // security posture we gave a health authority, our multi-tenancy strategy
+    // and our CRM plans. None of that is a tenant's to read.
+    const denied = denyNonOperator(session, { route: "admin-docs:tree" });
+    if (denied) return denied;
 
     const tree = await buildDocsTree();
     return NextResponse.json({ tree });

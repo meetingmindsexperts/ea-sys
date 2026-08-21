@@ -241,6 +241,12 @@ export interface DrArtifact {
 }
 
 export interface InfraSnapshot {
+  /**
+   * Who this snapshot was built for. The page needs it: a tenant is shown a
+   * SERVICE HEALTH view of their own work, not a stripped-down copy of the
+   * operator's infrastructure page with a dozen "not for you" placeholders.
+   */
+  scope: "platform" | "org";
   generatedAt: string;
   region: string;
   build: BuildIdentity;
@@ -1151,27 +1157,45 @@ export async function getInfraSnapshot(
   const hit = cache.get(key);
   if (!force && hit && Date.now() - hit.at < CACHE_MS) return hit.snap;
 
-  const instanceId = await getInstanceId();
+  // Which panels this audience gets, decided BEFORE anything is fetched.
+  //
+  // Three of these sections carry an org filter and describe the tenant's own
+  // work — their queued sends, their failed emails, whether one of their events
+  // is running right now. Everything else reads the HOST or our AWS account:
+  // CPU and disk of a shared box, CloudWatch alarms, SES reputation, backup and
+  // DR posture, and the last CI deploys, whose commit messages are a running
+  // commentary on our engineering. None of that is a tenant's to see.
+  //
+  // Skipping the calls rather than fetching-then-hiding is the point. A tenant
+  // opening this page must not cause CloudWatch, SES and S3 requests against
+  // our account, both because they are billed and rate-limited, and because a
+  // panel that is only hidden in the UI is one refactor away from not being.
+  const isOperator = scope.kind === "platform";
+  const notForTenants = <T,>(empty: T) =>
+    Promise.resolve({ status: "operator-only" as const, ...empty });
+
+  const instanceId = isOperator ? await getInstanceId() : null;
   const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr] =
     await Promise.all([
-      fetchDeploys(),
-      fetchAlarms(),
-      fetchSes(),
-      fetchMetrics(instanceId),
-      fetchJobs(),
+      isOperator ? fetchDeploys() : notForTenants({ runs: [] }),
+      isOperator ? fetchAlarms() : notForTenants({ inAlarm: [] }),
+      isOperator ? fetchSes() : notForTenants({ info: null }),
+      isOperator ? fetchMetrics(instanceId) : notForTenants({ instanceId: null, values: [] }),
+      isOperator ? fetchJobs() : notForTenants({ workerLastSeen: null, rows: [] }),
       fetchRecentErrors(scope),
       fetchEmailFailures(scope),
-      fetchDatabase(),
-      fetchWorker(),
+      isOperator ? fetchDatabase() : notForTenants({ info: null }),
+      isOperator ? fetchWorker() : notForTenants({ info: null }),
       fetchQueues(scope),
-      fetchBackup(),
-      fetchAlerts(),
+      isOperator ? fetchBackup() : notForTenants({ info: null }),
+      isOperator ? fetchAlerts() : notForTenants({ info: null }),
       fetchHeartbeat(scope),
       fetchErrorTrend(scope),
       fetchAbuse(scope),
-      fetchDr(),
+      isOperator ? fetchDr() : notForTenants({ rows: [] }),
     ]);
   const snap: InfraSnapshot = {
+    scope: scope.kind,
     generatedAt: new Date().toISOString(),
     region: REGION,
     build: getBuildInfo(),
