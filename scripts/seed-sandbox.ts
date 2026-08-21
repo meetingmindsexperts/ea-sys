@@ -32,6 +32,11 @@ const TENANTS = [
     name: "Acme Events",
     slug: "acme",
     primaryColor: "#0d7d6c",
+    venue: "Acme Convention Centre",
+    city: "Dubai",
+    country: "United Arab Emirates",
+    delegatePrice: 450,
+    studentPrice: 150,
     host: "acme.localhost",
     adminEmail: "admin@acme.test",
     eventId: "sandbox-evt-acme",
@@ -44,6 +49,11 @@ const TENANTS = [
     name: "Globex Summits",
     slug: "globex",
     primaryColor: "#7c3aed",
+    venue: "Globex Exhibition Hall",
+    city: "Singapore",
+    country: "Singapore",
+    delegatePrice: 600,
+    studentPrice: 200,
     host: "globex.localhost",
     adminEmail: "admin@globex.test",
     eventId: "sandbox-evt-globex",
@@ -104,12 +114,22 @@ async function main() {
     // the whole point of the public host-routing demo.
     await db.event.upsert({
       where: { id: t.eventId },
-      update: { name: t.eventName, status: "PUBLISHED", organizationId: t.orgId },
+      update: {
+        name: t.eventName,
+        status: "PUBLISHED",
+        organizationId: t.orgId,
+        venue: t.venue,
+        city: t.city,
+        country: t.country,
+      },
       create: {
         id: t.eventId,
         organizationId: t.orgId,
         name: t.eventName,
         slug: SHARED_SLUG,
+        venue: t.venue,
+        city: t.city,
+        country: t.country,
         startDate: start,
         endDate: end,
         timezone: "Asia/Dubai",
@@ -117,6 +137,55 @@ async function main() {
         status: "PUBLISHED",
       },
     });
+
+    // Registration types with an OPEN pricing tier.
+    //
+    // Without these the public page renders "Registration Closed", which is
+    // technically fine for proving isolation (the event NAME already differs)
+    // but reads as a broken product to anyone being shown it. The smart
+    // redirect on /e/<slug> looks for the first purchasable DELEGATE tier and
+    // sends the visitor to its form; "Early Bird" is one of the names it ranks.
+    //
+    // salesStart and salesEnd are both left NULL deliberately: null start means
+    // already on sale, null end means never closes, so the sandbox cannot go
+    // stale the way a hard-coded window would the moment the seeded event date
+    // passes. Prices differ per tenant so the two public pages differ in more
+    // than their heading.
+    for (const [i, tier] of [
+      { key: "delegate", label: "Delegate", price: t.delegatePrice },
+      { key: "student", label: "Student", price: t.studentPrice },
+    ].entries()) {
+      const ticketTypeId = `sandbox-tt-${t.slug}-${tier.key}`;
+      await db.ticketType.upsert({
+        where: { id: ticketTypeId },
+        update: { name: tier.label, organizationId: t.orgId, isActive: true },
+        create: {
+          id: ticketTypeId,
+          eventId: t.eventId,
+          organizationId: t.orgId,
+          name: tier.label,
+          description: `${tier.label} admission, all three days.`,
+          price: 0, // real price lives on the tier below
+          currency: "USD",
+          sortOrder: i,
+        },
+      });
+
+      const tierId = `sandbox-tier-${t.slug}-${tier.key}`;
+      await db.pricingTier.upsert({
+        where: { id: tierId },
+        update: { price: tier.price, organizationId: t.orgId, isActive: true },
+        create: {
+          id: tierId,
+          ticketTypeId,
+          organizationId: t.orgId,
+          name: "Early Bird",
+          price: tier.price,
+          currency: "USD",
+          sortOrder: i,
+        },
+      });
+    }
 
     // A swept-table row per org so isolation is visible immediately (no need
     // to create one by hand): /contacts and the event's Speakers page.

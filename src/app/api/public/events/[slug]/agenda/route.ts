@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -27,11 +28,32 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const { slug } = await params;
 
-    const event = await db.event.findFirst({
+    // Resolve the tenant BEFORE reading anything policied.
+    //
+    // Event carries no RLS policy, so this slim lookup works with no lane —
+    // and it is the only thing here that can run without one. Everything below
+    // reads tables that ARE policied (TicketType, PricingTier, EventSession,
+    // PromoCode), and under RLS a query outside a tenant lane returns zero
+    // rows rather than an error. This route previously did the event lookup
+    // and those policied includes in ONE query, so on the platform the event
+    // resolved fine and its registration types came back EMPTY — every public
+    // event page would have read "Registration Closed" with nothing in the
+    // logs. Found in the two-tenant sandbox, Aug 21 2026.
+    const scope = await db.event.findFirst({
       where: await publicEventWhere(req, slug, {
         allowIdFallback: true,
         statuses: ["PUBLISHED", "LIVE"],
       }),
+      select: { id: true, organizationId: true },
+    });
+
+    if (!scope) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    return await runWithTenant(scope.organizationId, async () => {
+    const event = await db.event.findFirst({
+      where: { id: scope.id },
       select: {
         id: true,
         name: true,
@@ -130,6 +152,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public agenda" });
     return NextResponse.json({ error: "Failed to fetch agenda" }, { status: 500 });

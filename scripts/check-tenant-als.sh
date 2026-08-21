@@ -188,6 +188,15 @@ SWEPT_ROUTE_FILES=(
   # organization/users/[userId]'s speaker.updateMany is cross-org BY DESIGN — no wrap.)
   "src/app/api/events/[eventId]/import/speakers/route.ts"                              # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/speaker-agreement/route.ts"                        # Speaker (July 30, 2026)
+
+  # The two PUBLIC READS that were missed, added Aug 21 2026. Both did the event
+  # lookup and their POLICIED includes (TicketType, PricingTier, EventSession,
+  # PromoCode) in a single query, so the unpoliced Event resolved while its
+  # relations came back empty — public registration would have been dead on the
+  # platform, and the public agenda blank, with nothing in the logs. They are
+  # the highest-traffic unauthenticated reads in the product; gate them.
+  "src/app/api/public/events/[slug]/route.ts"                                          # Public event (Aug 21, 2026)
+  "src/app/api/public/events/[slug]/agenda/route.ts"                                   # Public agenda (Aug 21, 2026)
   "src/app/api/public/events/[slug]/speaker-form/[token]/route.ts"                     # Speaker (Aug 21, 2026)
   "src/app/api/public/events/[slug]/presenter-agreement/route.ts"                      # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/submitter/route.ts"                                # Speaker (July 30, 2026)

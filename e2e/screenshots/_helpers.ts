@@ -41,6 +41,18 @@ export async function snap(page: Page, opts: SnapOptions): Promise<string> {
 
   // Suppress the dev-only "Compiled in X ms" toast and any Sonner toasts
   // that might be lingering from the previous interaction.
+  //
+  // Also hide Next's dev-tools indicator. It is a floating badge in the corner
+  // — a bare "N" normally, or a red "1 Issue" pill when the page logged a
+  // console warning — and it renders into a <nextjs-portal> custom element
+  // outside the app's own DOM, so nothing in the page styles reaches it. These
+  // screenshots go into documentation and presentations, where a red error
+  // badge sitting over the product is worse than misleading: it is the first
+  // thing a reader's eye lands on, and it says nothing about the software they
+  // are being shown.
+  await page.addStyleTag({
+    content: "nextjs-portal, [data-nextjs-toast], #__next-build-watcher { display: none !important; }",
+  }).catch(() => undefined);
   await page.evaluate(() => {
     document.querySelectorAll('[data-sonner-toaster] li').forEach((el) => el.remove());
   });
