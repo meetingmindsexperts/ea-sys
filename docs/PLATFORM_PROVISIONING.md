@@ -217,6 +217,58 @@ traffic, with the pooler, the worker, Stripe webhooks and email all live.
 
 ---
 
+## What the rehearsal found (Aug 21, 2026)
+
+Five defects in one day, none of which any existing test could have caught.
+They are recorded here because the *shape* generalises: **every one produced an
+empty screen rather than an error**, and every one passed a green build.
+
+| | Defect | Would have looked like |
+|---|---|---|
+| 1 | The tenant lane never reached the Prisma extension. `db` is cached on `globalThis`, the `AsyncLocalStorage` was not, so two module graphs meant two stores. | **Every** policied table empty, everywhere |
+| 2 | `GET /api/public/events/[slug]` read `TicketType` and `PricingTier` outside a lane | Every public event page reading "Registration Closed". Public registration dead on arrival |
+| 3 | The public agenda route, same shape | A blank agenda |
+| 4 | `Docs` and `Infra / Ops` were `adminOnly`, written when ADMIN meant an MMG employee | A customer reading our incident log, AWS runbook and CPU graphs |
+| 5 | `events/[eventId]/tags` and `registration-types` read policied tables outside a lane | An empty tag filter and an empty registration-type dropdown |
+
+Three things worth carrying forward.
+
+**The failure mode is silence.** Under RLS a query outside a tenant lane returns
+zero rows, not an error. No exception, no log line, no failing test. A broken
+lane and a genuinely empty table are indistinguishable from the outside, which
+is why the rehearsal had to *look* rather than reason.
+
+**The bugs were at the edges, not in the swept domains.** Once the mechanism was
+fixed, the domain probe passed all thirteen domains first time. The sweep work
+was sound. What was missing was the mechanism it depended on, the routes nobody
+had swept, and the authorisation gates nobody had re-read.
+
+**One cause repeats: gates written when `ADMIN` meant "us".** Finding 4 is one
+instance and there are likely more. A sweep of every `adminOnly` flag and
+`role === "ADMIN"` check, asked against *"is this still right when ADMIN is a
+customer?"*, is worth scheduling before launch.
+
+### What now guards against a recurrence
+
+- `npm run tenancy:isolation` — thirteen domains, both tenants, through the
+  running app. Asserts each tenant's own rows are **present** as well as the
+  other's absent, because absence alone is satisfied by a broken app.
+- `scripts/check-tenant-als.sh` — a route in a swept domain that loses its wrap
+  fails CI, naming the file and the offending query.
+- Policy conformance tests — a copy-pasted policy that narrows `FOR ALL`, drops
+  `WITH CHECK` or mistypes the GUC fails the unit suite.
+- The RLS boot tripwire — a deployment claiming enforcement while connected as a
+  role that bypasses it refuses to start.
+
+### The evidence pack
+
+[MULTI_TENANCY_PROOF.html](MULTI_TENANCY_PROOF.html) is the shareable write-up
+of the working state, paired screenshots and all, with the outstanding gaps
+stated rather than omitted. Regenerate its screenshots with
+`npm run tenancy:screenshots` while the sandbox is running.
+
+---
+
 ## What is deliberately not done
 
 Each of these is decided but unbuilt, and each has its build-time items recorded

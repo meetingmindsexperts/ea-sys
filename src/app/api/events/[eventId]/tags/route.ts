@@ -28,6 +28,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 
@@ -49,7 +50,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // event id to avoid an enumeration oracle.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      // organizationId, not just id: the read below is on a POLICIED table and
+      // needs the event's tenant lane. Event carries no policy, so resolving it
+      // first works without one — which is exactly why this route (and the two
+      // public ones fixed earlier) could look correct while returning nothing.
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({
@@ -65,10 +70,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // operators might filter on (e.g. "send thank-you to all who checked
     // in"). CANCELLED is excluded because their tags are no longer
     // operationally relevant for any send action.
-    const registrations = await db.registration.findMany({
-      where: { eventId, status: { notIn: ["CANCELLED"] } },
-      select: { attendee: { select: { tags: true } } },
-    });
+    const registrations = await runWithTenant(event.organizationId, () =>
+      db.registration.findMany({
+        where: { eventId, status: { notIn: ["CANCELLED"] } },
+        select: { attendee: { select: { tags: true } } },
+      }),
+    );
 
     const counts = new Map<string, number>();
     for (const r of registrations) {

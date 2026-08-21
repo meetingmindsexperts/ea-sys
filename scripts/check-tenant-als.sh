@@ -197,6 +197,13 @@ SWEPT_ROUTE_FILES=(
   # the highest-traffic unauthenticated reads in the product; gate them.
   "src/app/api/public/events/[slug]/route.ts"                                          # Public event (Aug 21, 2026)
   "src/app/api/public/events/[slug]/agenda/route.ts"                                   # Public agenda (Aug 21, 2026)
+  # Two more of the same class, found Aug 21 2026 by scanning EVERY api route
+  # for a policied read with no lane (the public scan only covered /api/public).
+  # tags/ powers the audience tag filter; registration-types the type dropdown.
+  # Both resolved their org correctly and read a policied table outside a lane,
+  # so both would have been silently empty.
+  "src/app/api/events/[eventId]/tags/route.ts"                                         # Registration (Aug 21, 2026)
+  "src/app/api/registration-types/route.ts"                                            # Ticketing (Aug 21, 2026)
   "src/app/api/public/events/[slug]/speaker-form/[token]/route.ts"                     # Speaker (Aug 21, 2026)
   "src/app/api/public/events/[slug]/presenter-agreement/route.ts"                      # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/submitter/route.ts"                                # Speaker (July 30, 2026)

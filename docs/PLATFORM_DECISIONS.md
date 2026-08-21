@@ -411,6 +411,31 @@ row is a stray with 1 test event — never use it for platform config).
 
 ---
 
+## Rehearsal, Aug 21 2026 — five defects before any infrastructure was bought
+
+Phase A of [PLATFORM_PROVISIONING.md](PLATFORM_PROVISIONING.md) ran against the
+two-tenant sandbox and found five defects, every one of which rendered an empty
+screen rather than an error and passed a green build. The most serious would
+have made **public registration dead on arrival** on the platform; another had
+our incident log and server metrics reachable by a customer's administrator.
+The table, the reasoning, and the four guards now in place are in that document
+under "What the rehearsal found".
+
+Two consequences for this list:
+
+- **Item 6 (identity) has a bigger blast radius than recorded below.** The nine
+  `/api/registrant/**` self-service routes are deliberately unwrapped, pending
+  that decision. Under RLS they fail closed, which means the **entire registrant
+  portal** — my-registration, invoices, quotes, barcodes, promo codes — returns
+  nothing on the platform until item 6 is resolved. That is worth weighing when
+  scheduling it.
+- **A new item, not previously on this list: sweep every `ADMIN` gate.** Four of
+  the five findings share one cause — authorisation written when `ADMIN` meant
+  an MMG employee, re-read now that it can mean a customer. Bounded, and cheaper
+  before launch than after.
+
+---
+
 ## What happens next
 
 **Updated Aug 11, 2026.** Items 4, 5, 7 and 8 are done; item 3's nuance is

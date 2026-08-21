@@ -75,12 +75,22 @@ interface Domain {
   path: (t: Tenant) => string;
   marker: (slug: string) => string;
   /**
-   * Set where a domain legitimately returns nothing for a tenant, so the
-   * positive assertion is skipped and only isolation is checked. Every entry
-   * needs a reason: this flag is the one way to make a domain's check vacuous,
-   * and an unexplained one is how a real gap gets waved through.
+   * Skip the PRESENCE half: this domain legitimately has nothing of the
+   * tenant's to find, so only isolation is checked.
    */
   absenceOnly?: string;
+  /**
+   * Skip the ABSENCE half: the response genuinely cannot distinguish tenants by
+   * content, so the marker matches both and a cross-check would report a leak
+   * that is not there.
+   *
+   * Both flags carry a REASON string rather than a boolean, because each one
+   * makes half a domain's check vacuous and an unexplained flag is how a real
+   * gap gets waved through. This one was added after the first version used a
+   * name as the marker for an endpoint that returns deduplicated bare names
+   * shared by both tenants — the test correctly refused to believe it.
+   */
+  sharedShape?: string;
 }
 
 const DOMAINS: Domain[] = [
@@ -127,6 +137,30 @@ const DOMAINS: Domain[] = [
     // looks like, and it catches a lane that returns the wrong tenant's row
     // rather than no row.
     marker: (s) => (s === "acme" ? '"450"' : '"600"'),
+  },
+  {
+    name: "audience tags",
+    path: (t) => `/api/events/${t.eventId}/tags`,
+    // Seeded attendees carry no tags, so there is nothing of this tenant's to
+    // find and nothing of the other's to leak. The check that matters here is
+    // simply that it answers 200 rather than erroring — the wrap added Aug 21
+    // reads a policied table, and a broken lane shows up as an empty list that
+    // an operator reads as "nobody has been tagged".
+    marker: () => "\u0000never",
+    absenceOnly: "attendee fixtures carry no tags; 200 is the assertion",
+  },
+  {
+    name: "registration types",
+    path: () => "/api/registration-types",
+    // Returns bare names, and BOTH tenants seed "Delegate" and "Student", so a
+    // name cannot discriminate. That is the honest shape of this endpoint: it
+    // is org-wide and deliberately deduplicated, so the only wrong answer it
+    // can give is an empty one.
+    marker: () => "Delegate",
+    sharedShape:
+      "returns deduplicated bare type names, and both tenants sell a 'Delegate' " +
+      "ticket — nothing in the payload can tell the two apart, so the only wrong " +
+      "answer this endpoint can give is an empty one",
   },
   {
     name: "crm deals",
@@ -180,7 +214,7 @@ for (const t of TENANTS) {
       // break everywhere at once, and a report naming eleven domains points at
       // the mechanism while a report naming one points at the domain.
       if (!d.absenceOnly && !body.includes(d.marker(t.key))) missing.push(d.name);
-      if (body.includes(d.marker(t.other))) leaked.push(d.name);
+      if (!d.sharedShape && body.includes(d.marker(t.other))) leaked.push(d.name);
     }
 
     expect(
