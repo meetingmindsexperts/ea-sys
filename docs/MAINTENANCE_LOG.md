@@ -112,14 +112,42 @@ tool for an unresponsive box, never a time-saver on a healthy one.**
 **up**; 35 seconds with it **down**. That ratio is the entire argument for the
 warm-up step.
 
-### Found during the window, not yet fixed
+### Found during the window, and fixed the same day
 
 For roughly 90 seconds while the containers came up, every visitor got a bare
 `502 Bad Gateway / nginx/1.24.0 (Ubuntu)`. That reads as broken rather than
-"briefly down", and it discloses the server and version. A static
-maintenance page served by nginx when the app upstream is unreachable — returned
-as **503 with `Retry-After`**, not 200, so crawlers and Uptime Robot are told the
-truth — is the fix. Tracked in [ROADMAP.md](ROADMAP.md).
+"briefly down", and it discloses the server and version.
+
+✅ **Fixed** — [deploy/maintenance/](../deploy/maintenance/), applied to the box
+the same afternoon with zero downtime (nginx reload is graceful). Verified live:
+
+| | |
+|---|---|
+| Status | **503**, not 502 and not 200 |
+| Headers | `Retry-After: 600`, `Cache-Control: no-store`, `Server: nginx` (version gone) |
+| HTML branch | correct page, 3206 bytes, **zero external resources** |
+| API branch | `Content-Type: application/json`, and it **parses** — `code=MAINTENANCE` |
+| Direct request | `/maintenance.html` → 404 (`internal`), so it cannot be indexed |
+| Normal traffic | unchanged throughout — health, login, uploads 200, private 403, MCP 401 |
+
+**Two things this taught, beyond the page itself.**
+
+*The status code is the whole design.* A `200` would have told Google the page
+is genuinely that content and told Uptime Robot the site was healthy while it
+was down — a maintenance page that lies to monitoring is worse than a raw 502,
+because the 502 at least alarms.
+
+*Verify an outage page without an outage.* The obvious test is to stop the app,
+which is the thing the page exists to soften. Instead a throwaway `location`
+pointing at port 9 (`discard`) gets its connection refused, which produces the
+real 502 that triggers `error_page` — the entire chain proven on a healthy
+server, then removed. **A permanent endpoint that always 503s is a trap for the
+next reader**, so removing it was part of the job, not an afterthought.
+
+And one correction worth recording: I first said the JSON branch had no
+one-line probe because `/api/` is claimed by the proxy locations. That was
+wrong — an **exact-match** `location = /api/__maint_test` outranks both prefix
+matches. It was tested, and it was the only part that had shipped untested.
 
 ### Outstanding
 

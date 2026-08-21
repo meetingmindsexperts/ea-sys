@@ -7,7 +7,7 @@
 
 ---
 
-## nginx maintenance page (found during MAINT-001, Aug 21 2026)
+## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 
 When the app upstream is unreachable, nginx returns its own bare
 `502 Bad Gateway / nginx/1.24.0 (Ubuntu)`. Every visitor saw that for ~90 seconds
@@ -26,7 +26,13 @@ down. It must need no application to render — that is the entire point.
 **Note before editing.** The live nginx config on the box has diverged from
 `deploy/nginx.conf` (Certbot rewrote it), so **the box is the source of truth**
 and `deploy/nginx.live-snapshot.conf` must be refreshed alongside any change, or
-FROM_SCRATCH_REBUILD loses it.
+FROM_SCRATCH_REBUILD loses it. Done for this change — the snapshot was refreshed
+**from** the box after the reload, not before.
+
+**Residual, deliberately accepted:** the server-level `error_page` also covers
+`location /stream/`, so a MediaMTX outage shows the maintenance page for HLS
+segments rather than a raw 502. Better for a viewer, and the player's failover
+keys on the request failing rather than on a specific status.
 
 ---
 
