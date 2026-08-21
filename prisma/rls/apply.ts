@@ -83,9 +83,11 @@ export function readPolicyFiles(dirs: readonly string[]): PolicyFile[] {
   for (const dir of dirs) {
     if (!existsSync(dir)) {
       throw new Error(
-        `${dir} is missing. The RLS policy directories are load-bearing: ` +
-          `prisma/rls holds the SHARED per-domain policies applied by BOTH the ` +
-          `isolation harness and the platform bootstrap. Restore the dir/files.`,
+        `${dir} is missing. These SQL directories are load-bearing: prisma/rls ` +
+          `holds the SHARED per-domain RLS policies and prisma/platform holds ` +
+          `platform-only constraints that cannot live in the migration chain. ` +
+          `Both are applied by the isolation harness AND the platform ` +
+          `bootstrap. Restore the dir/files.`,
       );
     }
     for (const file of readdirSync(dir)
@@ -135,4 +137,22 @@ export async function applyPolicyFiles(
 /** The shared policy directory both consumers apply. */
 export function sharedPolicyDir(cwd: string = process.cwd()): string {
   return path.resolve(cwd, "prisma/rls");
+}
+
+/**
+ * Platform-only SQL: constraints that are correct for the platform instance and
+ * WRONG for master, so they cannot go in schema.prisma or the migration chain.
+ *
+ * One repo, one image, one schema (MULTI_TENANCY.md §0 guardrail 1) means a
+ * Prisma migration runs on both deploy targets. Anything true of only one of
+ * them therefore has to be applied out-of-band, the same way the RLS policies
+ * are. Today this holds the item-6 per-tenant email uniqueness; see
+ * prisma/platform/010-user-identity.sql for the full reasoning.
+ *
+ * Applied by scripts/bootstrap-rls.ts and by the isolation harness — the
+ * harness deliberately runs the SAME files, because a constraint proven against
+ * a hand-written copy is evidence about the copy.
+ */
+export function platformOnlyDir(cwd: string = process.cwd()): string {
+  return path.resolve(cwd, "prisma/platform");
 }

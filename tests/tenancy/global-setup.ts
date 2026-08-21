@@ -45,6 +45,24 @@ export default async function globalSetup() {
   // then re-run `npm run test:tenancy`.
   execSync("npx prisma db push --skip-generate", { env, stdio: "inherit" });
 
+  // NOTE: prisma/platform/*.sql is deliberately NOT applied here, and that is a
+  // constraint of THIS harness rather than a doubt about those files.
+  //
+  // Those files intentionally diverge from schema.prisma — 010-user-identity.sql
+  // drops the global User_email_key so an address can exist in two tenants. The
+  // `db push` above re-syncs the harness DB to schema.prisma on EVERY run, so
+  // applying them here makes the second run fail: push sees the unique index
+  // missing and refuses to re-add it without --accept-data-loss. Observed the
+  // first time this was wired, Aug 21 2026.
+  //
+  // The platform does not have the problem: it runs `prisma migrate deploy`,
+  // which skips already-applied migrations by name, so the bootstrap's drop
+  // persists across deploys. (Corollary, and the reason guard-db-target.sh
+  // matters beyond INC-002: `db push` against the platform would silently
+  // restore global email uniqueness and break per-tenant identity.)
+  //
+  // tests/tenancy/user-identity.test.ts therefore applies those files itself,
+  // around its own assertions, and restores the index afterwards.
   console.log("[tenancy:setup] applying role split + RLS policies");
   const owner = new PrismaClient({ datasourceUrl: direct });
   try {

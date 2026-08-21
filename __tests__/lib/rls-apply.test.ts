@@ -17,7 +17,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { splitSql, readPolicyFiles, sharedPolicyDir } from "../../prisma/rls/apply";
+import {
+  splitSql,
+  readPolicyFiles,
+  platformOnlyDir,
+  sharedPolicyDir,
+} from "../../prisma/rls/apply";
 
 describe("splitSql", () => {
   it("splits on top-level semicolons", () => {
@@ -234,5 +239,78 @@ describe("policy conformance", () => {
     for (const p of policies) {
       expect(p.name, `${p.file}: ${p.table}`).toBe(`${p.table.toLowerCase()}_tenant_isolation`);
     }
+  });
+});
+
+/**
+ * prisma/platform — platform-only SQL (PLATFORM_DECISIONS item 6).
+ *
+ * These files exist because master and the platform share one schema.prisma, so
+ * anything true of only one of them cannot go in the migration chain. They are
+ * applied by the platform bootstrap and the isolation harness, never by
+ * `prisma migrate deploy`.
+ *
+ * The assertions below are shape assertions on SQL text, which is normally weak
+ * — but the alternative here is a live Postgres, and one of these properties is
+ * invisible even then unless you go looking for it. See NULLS NOT DISTINCT.
+ */
+describe("the real prisma/platform directory", () => {
+  const files = readPolicyFiles([platformOnlyDir()]);
+
+  it("parses every committed file", () => {
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) expect(f.statements.length).toBeGreaterThan(0);
+  });
+
+  it("is idempotent: every statement is IF EXISTS / IF NOT EXISTS guarded", () => {
+    // The bootstrap is re-runnable by design and an operator will re-run it.
+    for (const f of files) {
+      for (const st of f.statements) {
+        expect(st, `${f.file}: "${st.slice(0, 60)}…" is not re-runnable`).toMatch(
+          /IF (NOT )?EXISTS/i,
+        );
+      }
+    }
+  });
+
+  it("stays out of prisma/rls, which the conformance tests scan for policies", () => {
+    // A non-policy file in prisma/rls would fail the CREATE POLICY conformance
+    // checks above, and the fix would be to weaken THOSE. Keeping the two
+    // directories separate is what keeps those assertions strict.
+    const shared = readPolicyFiles([sharedPolicyDir()]).map((f) => f.file);
+    for (const f of files) expect(shared).not.toContain(f.file);
+  });
+
+  describe("010-user-identity.sql", () => {
+    const sql = files.find((f) => f.file === "010-user-identity.sql");
+
+    it("is present", () => {
+      expect(sql, "the item-6 uniqueness constraint has gone missing").toBeDefined();
+    });
+
+    it("drops the GLOBAL email unique index", () => {
+      // Without this the old index still forbids the same address in two
+      // tenants, which is the entire point of item 6.
+      const joined = sql!.statements.join(" ");
+      expect(joined).toMatch(/DROP INDEX IF EXISTS "User_email_key"/i);
+    });
+
+    it("creates the compound (organizationId, email) unique index", () => {
+      const joined = sql!.statements.join(" ");
+      expect(joined).toMatch(/CREATE UNIQUE INDEX[\s\S]*"organizationId", email/i);
+    });
+
+    it("declares NULLS NOT DISTINCT — without it the index enforces NOTHING", () => {
+      // THE load-bearing assertion. Postgres treats NULLs as distinct by
+      // default, so a plain UNIQUE over a nullable organizationId lets
+      // (NULL, 'a@b.com') repeat without limit. The index would exist, look
+      // like protection, and provide none — and no test that merely checked
+      // "a unique index is created" would notice.
+      const create = sql!.statements.find((st) => /CREATE UNIQUE INDEX/i.test(st));
+      expect(create).toBeDefined();
+      expect(create, "org-null rows would get NO uniqueness at all").toMatch(
+        /NULLS NOT DISTINCT/i,
+      );
+    });
   });
 });

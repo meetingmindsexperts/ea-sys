@@ -48,7 +48,12 @@
 import path from "node:path";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import { applyPolicyFiles, readPolicyFiles, sharedPolicyDir } from "../prisma/rls/apply";
+import {
+  applyPolicyFiles,
+  readPolicyFiles,
+  platformOnlyDir,
+  sharedPolicyDir,
+} from "../prisma/rls/apply";
 import { listPoliciedTables } from "../src/lib/tenant/rls-assert";
 
 /** master prod's Supabase project ref — the one database this must never touch. */
@@ -142,11 +147,15 @@ async function main() {
   console.log(`\nTarget: ${redacted}`);
   console.log(`App role: ${args.role}\n`);
 
+  // Two directories, applied in order: the shared RLS policies, then the
+  // platform-only constraints that cannot live in the migration chain because
+  // master and the platform share one schema.prisma (see platformOnlyDir).
   const policyDir = sharedPolicyDir();
-  const files = readPolicyFiles([policyDir]);
+  const platformDir = platformOnlyDir();
+  const files = readPolicyFiles([policyDir, platformDir]);
 
   if (args.dryRun) {
-    console.log(`Would apply ${files.length} policy files from prisma/rls:`);
+    console.log(`Would apply ${files.length} SQL files from prisma/rls + prisma/platform:`);
     for (const f of files) console.log(`  ${f.file}  (${f.statements.length} statements)`);
     console.log(`\nWould ensure role "${args.role}" exists and holds table/sequence grants.`);
     console.log("Nothing was changed (--dry-run).\n");
@@ -161,7 +170,7 @@ async function main() {
       await grantToRole(owner, args.role);
 
       console.log(`Applying ${files.length} policy files…`);
-      await applyPolicyFiles(owner, [policyDir], (f) => console.log(`  ✓ ${f.file}`));
+      await applyPolicyFiles(owner, [policyDir, platformDir], (f) => console.log(`  ✓ ${f.dir}/${f.file}`));
       console.log();
     }
 
@@ -286,7 +295,7 @@ async function verify(owner: PrismaClient, role: string): Promise<void> {
   if (tables.length === 0) {
     fail(
       "No RLS policies exist on this database at all.\n" +
-        "   Re-run without --verify-only to apply prisma/rls/*.sql.",
+        "   Re-run without --verify-only to apply prisma/rls/*.sql + prisma/platform/*.sql.",
     );
   }
 

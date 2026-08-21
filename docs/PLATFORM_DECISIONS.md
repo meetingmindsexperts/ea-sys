@@ -379,10 +379,48 @@ other side: **anything read before identity is resolved cannot be protected by
 identity.** Login is the canonical case — the tenant must come from the *host*,
 because the credential cannot supply it.
 
+### The implementation constraint: this cannot be a Prisma migration
+
+Discovered while scoping the build, and it changes the shape, so it is recorded
+here rather than in a commit message.
+
+**Master and the platform share `schema.prisma`.** One repo, one image, two
+deploy targets (MULTI_TENANCY.md §0, guardrail 1) means they also share the
+migration chain. A migration making `organizationId` required would run on
+master, where 113 of 126 users are org-null *by design*, and fail
+`prisma migrate deploy`. The two ways round it each break a recorded rule:
+forking the schema violates the identical-build guardrail, and stamping
+master's external logins reverses the Aug 6 ruling.
+
+So the constraint lives where the RLS policies live —
+**[prisma/platform/010-user-identity.sql](../prisma/platform/010-user-identity.sql)**,
+applied by `scripts/bootstrap-rls.ts` and by the isolation harness, never by the
+migration chain. `readPolicyFiles`/`applyPolicyFiles` already took a *list* of
+directories, so this needed no new machinery. Master's database never sees it.
+
+The file drops the global `User_email_key` and creates
+`UNIQUE (organizationId, email) NULLS NOT DISTINCT`. That last clause is the
+NULL trap above, defused structurally: an org-less row falls back to *global*
+email uniqueness rather than to none at all.
+
+**One thing the constraint cannot do, and it is why the code half is not
+optional.** Prisma's client still believes `email` is `@unique`, so
+`user.findUnique({ where: { email } })` keeps compiling and keeps running once
+the index is gone — it simply becomes ambiguous, returning whichever tenant's
+row the planner reaches first. Dropping an index cannot make application code
+fail loudly. Routing every user-by-email lookup through one tenant-aware
+resolver is what closes that, and it must land with, or before, this file.
+
 ### Build-time items
 
-- `User.organizationId` → required; `@@unique([organizationId, email])`; stamp
-  every row before the constraint (greenfield: nothing to stamp).
+- ✅ **Done Aug 21:** the platform-only constraint SQL, its bootstrap + harness
+  wiring, unit conformance tests (both `DROP` and `NULLS NOT DISTINCT`
+  mutation-verified) and a real-Postgres behavioural test asserting that two
+  tenants may share an address, that one tenant may not repeat it, and that an
+  org-less row still gets global uniqueness.
+- `schema.prisma` stays as it is — `organizationId String?`, `email @unique` —
+  because master needs both. The divergence is deliberate and documented in the
+  SQL file's header.
 - Tenant-scoped login: resolve the org from the host, then look up
   `(organizationId, email)`. Three `token.role` write sites and the 5-minute
   revalidation read stay as they are.
