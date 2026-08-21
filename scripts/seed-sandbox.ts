@@ -187,6 +187,148 @@ async function main() {
       });
     }
 
+    // ONE row per swept domain, so every domain has something to find.
+    //
+    // The point is not realism, it is that an isolation check can distinguish
+    // "this tenant's row" from "the other tenant's row" from "nothing at all".
+    // Every value below is prefixed with the tenant slug for exactly that: a
+    // probe asserts its own marker is present AND the other's is absent, and
+    // one row per side is enough to tell all three states apart. Without a row
+    // to find, a broken lane and a correct one look identical — which is how
+    // four bugs survived until now.
+    //
+    // organizationId is stamped explicitly everywhere it exists. These are
+    // policied tables, so a row seeded without it is invisible to its own
+    // tenant and the fixture silently proves nothing.
+    await db.track.upsert({
+      where: { id: `sandbox-track-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-track-${t.slug}`,
+        eventId: t.eventId,
+        organizationId: t.orgId,
+        name: `${t.name} Main Track`,
+      },
+    });
+
+    await db.eventSession.upsert({
+      where: { id: `sandbox-session-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-session-${t.slug}`,
+        eventId: t.eventId,
+        organizationId: t.orgId,
+        trackId: `sandbox-track-${t.slug}`,
+        name: `${t.name} Opening Keynote`,
+        location: t.venue,
+        startTime: new Date("2026-11-01T09:00:00Z"),
+        endTime: new Date("2026-11-01T10:00:00Z"),
+      },
+    });
+
+    await db.attendee.upsert({
+      where: { id: `sandbox-attendee-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-attendee-${t.slug}`,
+        organizationId: t.orgId,
+        firstName: t.name.split(" ")[0],
+        lastName: "Delegate",
+        email: `delegate@${t.slug}.test`,
+      },
+    });
+
+    await db.registration.upsert({
+      where: { id: `sandbox-reg-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-reg-${t.slug}`,
+        eventId: t.eventId,
+        organizationId: t.orgId,
+        attendeeId: `sandbox-attendee-${t.slug}`,
+        ticketTypeId: `sandbox-tt-${t.slug}-delegate`,
+        pricingTierId: `sandbox-tier-${t.slug}-delegate`,
+        status: "CONFIRMED",
+        paymentStatus: "PAID",
+        serialId: 1,
+        // Globally unique, so it doubles as proof the two tenants are not
+        // sharing a row when both lists show "one registration".
+        qrCode: `SANDBOX-${t.slug.toUpperCase()}-0001`,
+      },
+    });
+
+    await db.abstract.upsert({
+      where: { id: `sandbox-abstract-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-abstract-${t.slug}`,
+        eventId: t.eventId,
+        organizationId: t.orgId,
+        speakerId: t.speakerId,
+        title: `${t.name} Abstract Submission`,
+        content: `Submitted to ${t.eventName}.`,
+        status: "SUBMITTED",
+      },
+    });
+
+    // CRM: its own contact population, deliberately separate from the event
+    // Contact store (they are different people in this product).
+    // Reuse whatever pipeline the org already has, and only create one if it
+    // has none.
+    //
+    // The app seeds a default pipeline (ensurePipelineStages) the first time
+    // anybody opens the CRM, so this table has TWO writers and the seed is not
+    // the authoritative one. An earlier version keyed this upsert on a
+    // synthetic id and therefore tried to CREATE a stage named "New" next to
+    // the app's existing "New", which violates @@unique([organizationId, name])
+    // and threw — taking the rest of the seed, and the whole second tenant,
+    // with it. Key a fixture on the table's REAL identity, never on an id you
+    // invented, whenever anything else can write the same row.
+    const stage =
+      (await db.crmPipelineStage.findFirst({
+        where: { organizationId: t.orgId },
+        orderBy: { sortOrder: "asc" },
+      })) ??
+      (await db.crmPipelineStage.create({
+        data: { organizationId: t.orgId, name: "New", sortOrder: 0 },
+      }));
+
+    const company = await db.crmCompany.upsert({
+      where: { organizationId_nameKey: { organizationId: t.orgId, nameKey: `${t.slug} sponsor co` } },
+      update: {},
+      create: {
+        organizationId: t.orgId,
+        name: `${t.name} Sponsor Co`,
+        nameKey: `${t.slug} sponsor co`,
+      },
+    });
+
+    await db.crmContact.upsert({
+      where: { organizationId_emailKey: { organizationId: t.orgId, emailKey: `sponsor@${t.slug}.test` } },
+      update: {},
+      create: {
+        organizationId: t.orgId,
+        companyId: company.id,
+        firstName: t.name.split(" ")[0],
+        lastName: "Sponsor",
+        email: `sponsor@${t.slug}.test`,
+        emailKey: `sponsor@${t.slug}.test`,
+      },
+    });
+
+    await db.crmDeal.upsert({
+      where: { id: `sandbox-deal-${t.slug}` },
+      update: { organizationId: t.orgId },
+      create: {
+        id: `sandbox-deal-${t.slug}`,
+        organizationId: t.orgId,
+        eventId: t.eventId,
+        companyId: company.id,
+        stageId: stage.id,
+        name: `${t.name} Platinum Sponsorship`,
+      },
+    });
+
     // A swept-table row per org so isolation is visible immediately (no need
     // to create one by hand): /contacts and the event's Speakers page.
     await db.contact.upsert({

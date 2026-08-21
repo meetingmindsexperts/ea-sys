@@ -29,6 +29,7 @@
     "docs:screenshots": "playwright test -c playwright.docs.config.ts",
     "docs:screenshots:ui": "playwright test -c playwright.docs.config.ts --ui",
     "tenancy:screenshots": "playwright test -c playwright.tenancy.config.ts",
+    "tenancy:isolation": "playwright test -c playwright.tenancy.config.ts domain-isolation",
     "db:push": "bash scripts/guard-db-target.sh && prisma db push",
     "db:reset": "bash scripts/guard-db-target.sh && prisma migrate reset",
     "db:migrate": "prisma migrate deploy",
