@@ -149,6 +149,20 @@ one-line probe because `/api/` is claimed by the proxy locations. That was
 wrong — an **exact-match** `location = /api/__maint_test` outranks both prefix
 matches. It was tested, and it was the only part that had shipped untested.
 
+### Aftermath (Aug 24, 2026)
+
+A `create-snapshot` from the runbook was re-run by accident against
+`vol-073ca563deaa8732a`, the retained rollback volume. No impact: that volume
+has been detached and unchanged since the swap, so the incremental was empty
+and completed instantly, and cost was nil. It was deleted the same day
+(`snap-010f28b5bb57a228e`), leaving the four originals.
+
+The lesson is not "be careful with the CLI". It is that **an as-executed record
+reads as a recipe**: the whole value of writing down exactly what was run is
+that it can be run again, which is also the hazard. §5 of
+[EBS_ENCRYPTION_RUNBOOK.md](EBS_ENCRYPTION_RUNBOOK.md) now opens with a warning
+that its ids are historical and which volume is which.
+
 ### Outstanding
 
 - [ ] **Bake period — keep `vol-073ca563deaa8732a` for at least a week** (two if

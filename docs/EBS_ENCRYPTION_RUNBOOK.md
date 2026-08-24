@@ -121,6 +121,18 @@ settle late rather than being lost.
 
 ## 5. The procedure
 
+> **⚠ These commands are LIVE and copy-pasteable, and the volume ids below are
+> real.** MAINT-001 was executed on Aug 21, 2026; on Aug 24 a `create-snapshot`
+> from this section was re-run by accident against the retained rollback volume,
+> producing a fifth unencrypted snapshot of a disk that holds uploads. Harmless
+> that time (the volume was detached and unchanged, so the incremental was
+> empty), but the hazard is structural: **an as-executed record reads as a
+> recipe.** Before running anything here, confirm you are inside a planned
+> window, and re-read §4 Pre-flight. Note that the ids in §1 are now HISTORICAL:
+> `vol-073ca563deaa8732a` is the OLD, unencrypted, DETACHED volume kept only for
+> rollback until the bake period ends; the live root is
+> `vol-08f22cd184c2bf880`, and it is already encrypted.
+
 ### Step 0: Warm-up snapshot, ~20 minutes before, instance RUNNING
 
 ```bash
