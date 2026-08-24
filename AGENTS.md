@@ -143,6 +143,31 @@ failed OPEN: a private prefix added later was world-readable until someone remem
 test failing. Note "public" there means only "served to anyone who knows the URL" — certificates are on
 that list because that is how they are delivered — which is a different axis from where bytes are stored.
 
+### 9. Correctness lives in the relationships, not in the file
+Three questions. None can be answered by reading the file you are editing.
+
+**Before writing it — does anything call this?** `storedFileExists` shipped, was imported by
+nothing, and was deleted days later.
+
+**Before shipping it — who actually reaches this?** `AbstractReviewersCard` returns `null` for a
+submitter, but **React hooks run above the early return**, so every submitter page view fired two
+staff-only requests. Chasing that 403 found a MEMBER reading reviewer identities for every abstract
+in the org. Same question, tenancy form: `GET .../speakers` keyed its lane on
+`orgCtx?.organizationId ?? session.user.organizationId`, which is null for the org-null roles it
+exists to serve. **The tenant is a property of the resource, not of whoever asked for it.**
+
+**Before relying on it — what am I assuming that could stop being true?** `getStripe` fell back to
+the env key for any org without one, and the platform was safe only because `STRIPE_SECRET_KEY`
+happened to be unset there. **An implicit guarantee resting on an absent variable is not a
+guarantee** — make the safe behaviour structural (an allow-list of one), not circumstantial.
+
+All three were found on Aug 24, 2026 after weeks to months live, and **all three would pass a
+careful review of their own file** — each was internally consistent and wrong only in relation to
+something outside it. So the defence is not more review. It is instrumentation that names the
+relationship (a refusal log carrying its `route`), a CI gate once the shape recurs across files
+(`scripts/check-*.sh`), and **running it as each role**, because a server test proves the API
+refuses while only the browser proves the client stopped asking.
+
 ---
 
 ## Roles and visibility
