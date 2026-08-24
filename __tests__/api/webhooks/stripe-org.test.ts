@@ -25,6 +25,12 @@ const { mockApiLogger, mockGetOrgSecret, mockConstructEvent, mockHandleEvent, mo
 
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/stripe", () => ({
+  // Signature verification no longer routes through getStripe (Aug 24,
+  // 2026): it is static crypto and must not depend on a resolvable API
+  // key. Same underlying spy, so existing expectations still hold.
+  verifyWebhookSignature: vi.fn((body: unknown, sig: string, secret: string) =>
+    mockConstructEvent(body, sig, secret),
+  ),
   getStripe: vi.fn(async () => ({ webhooks: { constructEvent: mockConstructEvent } })),
   getOrgStripeWebhookSecret: mockGetOrgSecret,
 }));

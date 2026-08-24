@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { getStripe } from "@/lib/stripe";
+import { verifyWebhookSignature } from "@/lib/stripe";
 import type Stripe from "stripe";
 import { handleStripeEvent } from "@/lib/stripe-webhook-handler";
 
@@ -33,10 +33,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
     }
 
-    // Env-scoped client: constructEvent is static crypto — only the secret
-    // argument matters, but the env client is the natural fit for this route.
-    const stripe = await getStripe(null);
-    event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+    // constructEvent is static crypto — only the secret argument matters. This
+    // route is env-scoped (master / MM Group), but verifying a signature has no
+    // business depending on whether an API key is resolvable, so it uses the
+    // key-less verifier like its per-org sibling.
+    event = verifyWebhookSignature(body, sig, webhookSecret);
   } catch (err) {
     apiLogger.error({ err, msg: "Stripe webhook signature verification failed" });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });

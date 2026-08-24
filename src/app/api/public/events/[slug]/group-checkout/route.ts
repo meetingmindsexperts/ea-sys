@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
-import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
+import { getStripe, isZeroDecimalCurrency, StripeCredentialsMissingError } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { buildGroupLineItems } from "@/lib/invoice-service";
 import { round2 } from "@/lib/registration-financials";
@@ -286,6 +286,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ checkoutUrl: session.url });
     });
   } catch (error) {
+    // See the note on the single-registration checkout: an unconfigured tenant
+    // is an operator problem, so say so honestly rather than returning a 500.
+    if (error instanceof StripeCredentialsMissingError) {
+      return NextResponse.json(
+        {
+          error:
+            "Online payment is not available for this event yet. Please contact the organizer.",
+          code: error.code,
+        },
+        { status: 503 },
+      );
+    }
     apiLogger.error({ err: error, msg: "group-checkout:failed" });
     return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
   }

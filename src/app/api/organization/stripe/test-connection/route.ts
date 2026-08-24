@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { db } from "@/lib/db";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, StripeCredentialsMissingError } from "@/lib/stripe";
 
 /**
  * Probe the EFFECTIVE Stripe client for this org — the same resolution chain
@@ -62,6 +62,21 @@ export async function POST() {
       }),
     });
   } catch (error) {
+    // "No key at all" is a different answer from "the key does not work", and
+    // this route is the tenant admin's only diagnostic surface. Telling them to
+    // "check the key" when they have not saved one sends them looking in the
+    // wrong place.
+    if (error instanceof StripeCredentialsMissingError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "No Stripe secret key is configured for this organization. Add one above, then test again.",
+          code: error.code,
+        },
+        { status: 400 },
+      );
+    }
     // Review L7: the SDK's error message can embed a (masked) key fragment —
     // log the real error, return static text.
     apiLogger.warn({ err: error }, "stripe:test-connection-failed");

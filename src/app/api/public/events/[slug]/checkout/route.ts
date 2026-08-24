@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
-import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
+import { getStripe, isZeroDecimalCurrency, StripeCredentialsMissingError } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
@@ -257,6 +257,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ checkoutUrl: session.url });
     });
   } catch (error) {
+    // A tenant with no Stripe key is an OPERATOR problem, not a registrant
+    // one: 503 + an honest message beats a bare 500 that reads as our outage,
+    // and the org id is already error-logged by getStripe so the alert names
+    // who has to act.
+    if (error instanceof StripeCredentialsMissingError) {
+      return NextResponse.json(
+        {
+          error:
+            "Online payment is not available for this event yet. Please contact the organizer.",
+          code: error.code,
+        },
+        { status: 503 },
+      );
+    }
     apiLogger.error({ err: error, msg: "Error creating checkout session" });
     return NextResponse.json(
       { error: "Failed to create checkout session" },

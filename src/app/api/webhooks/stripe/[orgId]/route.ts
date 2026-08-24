@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { getStripe, getOrgStripeWebhookSecret } from "@/lib/stripe";
+import { verifyWebhookSignature, getOrgStripeWebhookSecret } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import type Stripe from "stripe";
 import { handleStripeEvent } from "@/lib/stripe-webhook-handler";
@@ -78,11 +78,13 @@ export async function POST(
       return genericRefusal();
     }
 
-    // constructEvent is static crypto — only the secret argument matters.
-    // getStripe(orgId) is the natural client here (org key, env fallback
-    // when only the webhook secret is saved so far).
-    const stripe = await getStripe(orgId);
-    event = stripe.webhooks.constructEvent(body, sig, secretInfo.webhookSecret);
+    // constructEvent is static crypto — only the secret argument matters, so
+    // this deliberately does NOT resolve the org's API key. It used to call
+    // getStripe(orgId), which coupled signature verification to credential
+    // resolution: once an org with no API key is refused (Aug 24, 2026), a
+    // tenant who had saved a webhook secret but not yet a key would have had
+    // its webhooks rejected as unverifiable.
+    event = verifyWebhookSignature(body, sig, secretInfo.webhookSecret);
 
     // M2: livemode must match the org's stored key mode. A live-keyed org
     // receiving test-mode events (or vice versa) means someone pointed the

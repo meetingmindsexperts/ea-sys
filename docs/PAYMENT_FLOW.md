@@ -285,11 +285,47 @@ This is the self‑service path: a stranger fills the public form and pays by ca
 `getStripe(organizationId?)` is async and resolves **org key → env fallback**:
 the org's AES-256-GCM-encrypted key from `Organization.settings.stripe` (set
 under Settings → Integrations → Stripe Payments) when configured, else the env
-`STRIPE_SECRET_KEY`. An org with *no* key gets the identical env client, so a
-deployment with nothing configured behaves exactly as before and every
-historical PaymentIntent stays reachable through the same account. Clients are
-cached (bounded, 5-min TTL) with `invalidateStripeClientCache(orgId)` called
-from the credentials PUT/DELETE.
+`STRIPE_SECRET_KEY`. Clients are cached (bounded, 5-min TTL) with
+`invalidateStripeClientCache(orgId)` called from the credentials PUT/DELETE.
+
+**The env fallback is an ALLOW-LIST OF ONE (Aug 24, 2026 — owner ruling).**
+Only the organization named by `STRIPE_ENV_FALLBACK_ORG_ID` may use the shared
+`STRIPE_SECRET_KEY`. Any other org with no key of its own is **refused** with
+`StripeCredentialsMissingError` (`code: "STRIPE_NOT_CONFIGURED"`), error-logged
+with the org id, and surfaced to the registrant as a 503 saying online payment
+is not available yet rather than a bare 500.
+
+Before this, "no org key → env client" was unconditional. On master that is
+correct and is how MM Group keeps working. On the **platform silo** it was a
+trap: an unconfigured tenant's registrants would have paid into whatever
+account `STRIPE_SECRET_KEY` names, which is the operator's. It was safe there
+only because the variable happened to be unset — an implicit guarantee resting
+on an absent variable, where setting it once for a test routes real customer
+money to the wrong account, silently, and cross-account money is unrecoverable.
+
+An org id rather than a boolean because master carries more than one
+Organization row, and because an **absent** variable means nobody falls back,
+so the platform is safe by omission rather than by remembering to opt out.
+It is deliberately its own variable, not a reuse of `DEFAULT_ORG_ID` or
+`TENANCY_ENFORCE_HOST`: those answer different questions and merely correlate
+today, and overloading one means a tenancy flag toggled for a test changes
+where money lands.
+
+> **DEPLOY ORDER — master.** Set `STRIPE_ENV_FALLBACK_ORG_ID` to MM Group's org
+> id (the same value as `DEFAULT_ORG_ID`) **before** deploying this change, or
+> MMG checkouts refuse. `src/instrumentation.ts` logs an error at boot when a
+> key is present with no org allowed to use it, so a missed step shows up in
+> `/logs` immediately instead of at the first checkout.
+
+> **Platform.** Leave `STRIPE_ENV_FALLBACK_ORG_ID` unset, and leave
+> `STRIPE_SECRET_KEY` unset too. Every tenant configures its own key under
+> Settings → Integrations → Stripe Payments.
+
+**Signature verification never touches an API key.** `constructEvent` is static
+crypto, so both webhook routes use `verifyWebhookSignature()` rather than
+resolving a client. They previously called `getStripe(...)`, which would now
+refuse a tenant that had saved a webhook secret but not yet an API key, and
+reject its real payment events as unverifiable.
 
 **Webhooks are now TWO entry points, ONE dispatcher.** The event-dispatch body
 lives in [stripe-webhook-handler.ts](../src/lib/stripe-webhook-handler.ts)

@@ -18,6 +18,35 @@ export async function register() {
     // or policies never applied), throwing here stops the server from ever
     // serving a request with silently-disabled isolation. Flag off (master):
     // returns immediately, no DB call.
+    // Stripe env-fallback sanity (Aug 24, 2026). The shared STRIPE_SECRET_KEY
+    // is usable by exactly ONE org, named by STRIPE_ENV_FALLBACK_ORG_ID.
+    // Two misconfigurations are worth shouting about at boot rather than
+    // discovering when a registrant clicks Pay:
+    //
+    //  - key present, no org named: nobody can use it. On master that means
+    //    MM Group's checkouts will refuse (the deploy-order trap).
+    //  - org named, no key: the allow-list points at a key that isn't there.
+    //
+    // Deliberately a log, not a throw. The RLS tripwire above refuses to boot
+    // because serving with isolation silently off is worse than being down;
+    // here the failure mode is already fail-closed at the point of use, so
+    // taking the whole app down would turn a payments problem into an outage.
+    {
+      const envKey = !!process.env.STRIPE_SECRET_KEY;
+      const fallbackOrg = process.env.STRIPE_ENV_FALLBACK_ORG_ID?.trim();
+      const { apiLogger } = await import("./lib/logger");
+      if (envKey && !fallbackOrg) {
+        apiLogger.error(
+          "stripe:env-key-present-but-no-org-allowed — STRIPE_SECRET_KEY is set but STRIPE_ENV_FALLBACK_ORG_ID is not, so NO organization can use it. On master set it to MM Group's org id; on the platform unset STRIPE_SECRET_KEY.",
+        );
+      } else if (!envKey && fallbackOrg) {
+        apiLogger.error(
+          { organizationId: fallbackOrg },
+          "stripe:fallback-org-set-but-no-env-key — STRIPE_ENV_FALLBACK_ORG_ID names an org but STRIPE_SECRET_KEY is not set.",
+        );
+      }
+    }
+
     if (process.env.RLS_SET_LOCAL === "1") {
       const [{ assertRlsEnforced }, { db }] = await Promise.all([
         import("./lib/tenant/rls-assert"),

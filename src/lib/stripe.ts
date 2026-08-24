@@ -17,10 +17,14 @@ async function getDb() {
  * pattern — see src/app/api/organization/stripe/credentials/route.ts):
  *   { secretKeyEncrypted, secretKeyLast4, keyMode, webhookSecretEncrypted?, configuredAt }
  *
- * Resolution chain everywhere: org key (if configured) → env STRIPE_SECRET_KEY.
- * An org with NO configured key gets the ENV client — so master (MMG,
- * nothing configured) behaves byte-identically to the pre-feature singleton,
- * and every historical PaymentIntent stays reachable through the same account.
+ * Resolution chain: org key (if configured) → env STRIPE_SECRET_KEY, but the
+ * env step is an ALLOW-LIST OF ONE. Only the org named by
+ * `STRIPE_ENV_FALLBACK_ORG_ID` may use the shared key; every other org with no
+ * key of its own is REFUSED (StripeCredentialsMissingError). On master that
+ * variable names MM Group, so MMG behaves byte-identically to the pre-feature
+ * singleton and every historical PaymentIntent stays reachable through the same
+ * account. On the platform the variable is unset, so no tenant can ever collect
+ * into the operator's account. See envFallbackAllowedFor for the reasoning.
  *
  * Cache: bounded module Map keyed by orgId (or "__env__") with a 5-minute
  * TTL. The TTL is the CROSS-PROCESS staleness guard — the worker container
@@ -77,6 +81,55 @@ function envClient(): Stripe {
 }
 
 /**
+ * Thrown when an organization has no Stripe key and is NOT permitted to use
+ * the env fallback. Carries the org id so the log line and the operator alert
+ * name who has to act — the tenant admin, who will never see a registrant's
+ * error page.
+ */
+export class StripeCredentialsMissingError extends Error {
+  readonly code = "STRIPE_NOT_CONFIGURED";
+  constructor(readonly organizationId: string) {
+    super("This organization has not configured Stripe payment credentials");
+    this.name = "StripeCredentialsMissingError";
+  }
+}
+
+/**
+ * Which org (if any) may fall back to the env `STRIPE_SECRET_KEY`.
+ *
+ * Owner ruling, Aug 24 2026: on the platform silo a tenant with no Stripe key
+ * must FAIL LOUDLY. It must never collect into MM Group's account. Before this,
+ * "no org key → env client" was unconditional, and the platform was safe only
+ * because `STRIPE_SECRET_KEY` happened to be unset there — an implicit
+ * guarantee resting on an absent variable, where setting it once for a test
+ * would silently route every unconfigured tenant's registrants into the
+ * operator's account. Cross-account money is unrecoverable (see the note on
+ * getStripe); a refused charge is retried.
+ *
+ * An org ID rather than a boolean, for two reasons: master carries more than
+ * one Organization row and only MM Group's may use the shared key; and an
+ * ABSENT variable means nobody falls back, so the platform is safe by omission
+ * rather than by remembering to opt out. Same inversion as the `/uploads`
+ * deny-list → allow-list flip: make the safe behaviour structural, not
+ * circumstantial.
+ *
+ * Deliberately its OWN variable rather than reusing `DEFAULT_ORG_ID` or
+ * `TENANCY_ENFORCE_HOST`. Those answer different questions (which org to assume
+ * for an unresolved host; is host resolution enforced) and merely correlate
+ * today. Overloading one means a tenancy flag toggled for a test changes where
+ * money lands.
+ *
+ * MASTER DEPLOY ORDER: set `STRIPE_ENV_FALLBACK_ORG_ID` to MM Group's org id
+ * BEFORE deploying this, or MMG checkouts refuse. `src/instrumentation.ts`
+ * logs a boot-time error when a key is present with no org allowed to use it,
+ * so a missed step surfaces immediately rather than at the first checkout.
+ */
+function envFallbackAllowedFor(organizationId: string): boolean {
+  const allowed = process.env.STRIPE_ENV_FALLBACK_ORG_ID?.trim();
+  return !!allowed && allowed === organizationId;
+}
+
+/**
  * Resolve the Stripe client for an organization: the org's own configured
  * key when present, else the env fallback. Pass null/undefined for
  * explicitly env-scoped call sites (e.g. the legacy webhook route).
@@ -117,9 +170,20 @@ export async function getStripe(organizationId?: string | null): Promise<Stripe>
   }
 
   if (!stripeSettings?.secretKeyEncrypted) {
-    // Org has no key configured — env fallback is the designed behavior.
-    // Cache under the org's own key so repeated calls skip the DB read;
-    // the TTL picks up a later credential save within 5 minutes.
+    if (!envFallbackAllowedFor(organizationId)) {
+      // Error level on purpose: this is a tenant who cannot take money, and
+      // apiLogger.error is what reaches the operator alert. Deliberately NOT
+      // cached — a refusal must clear the moment a key is saved, and caching
+      // it would hold the outage for the TTL.
+      apiLogger.error(
+        { organizationId, envKeyPresent: !!process.env.STRIPE_SECRET_KEY },
+        "stripe:no-org-key-and-env-fallback-refused",
+      );
+      throw new StripeCredentialsMissingError(organizationId);
+    }
+    // The one org permitted the shared key (master / MM Group). Cache under
+    // the org's own key so repeated calls skip the DB read; the TTL picks up
+    // a later credential save within 5 minutes.
     const client = envClient();
     cacheSet(organizationId, client);
     return client;
@@ -204,6 +268,28 @@ export async function getOrgStripeWebhookSecret(
     );
     return null;
   }
+}
+
+
+/**
+ * Verify a Stripe webhook signature.
+ *
+ * `constructEvent` is static crypto: it uses ONLY the signing secret, never the
+ * API key. Both webhook routes previously reached for `getStripe(...)` here,
+ * which coupled signature verification to credential resolution — harmless
+ * while the env key existed, but once an unconfigured org refuses (above) it
+ * would break a tenant who had saved a webhook secret and not yet an API key.
+ * A dedicated key-less client removes the question.
+ */
+let signatureClient: Stripe | null = null;
+
+export function verifyWebhookSignature(
+  payload: string | Buffer,
+  signature: string,
+  webhookSecret: string,
+): Stripe.Event {
+  signatureClient ??= new Stripe("sk_signature_verification_only");
+  return signatureClient.webhooks.constructEvent(payload, signature, webhookSecret);
 }
 
 /** Test-only: reset the module cache between cases. */

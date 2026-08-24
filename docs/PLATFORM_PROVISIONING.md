@@ -194,6 +194,16 @@ Organization, a SUPER_ADMIN, and a `TenantDomain` row for its hostname.
 
 ### B3. Environment
 
+> **Stripe: leave `STRIPE_SECRET_KEY` and `STRIPE_ENV_FALLBACK_ORG_ID` BOTH
+> unset here.** Since Aug 24, 2026 the env Stripe key is usable only by the one
+> org named in `STRIPE_ENV_FALLBACK_ORG_ID`, so with neither set no tenant can
+> ever collect into the operator's account: a tenant with no key of its own is
+> refused loudly (error log naming the org, 503 to the registrant) rather than
+> silently charged to whoever the shared key belongs to. Each tenant configures
+> its own key under Settings → Integrations → Stripe Payments. See
+> [PAYMENT_FLOW.md](PAYMENT_FLOW.md) "allow-list of one".
+
+
 | Variable | Master | Platform |
 |---|---|---|
 | `DATABASE_URL` | owner | **`app_user`** |
