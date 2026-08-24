@@ -303,9 +303,12 @@ only because the variable happened to be unset — an implicit guarantee resting
 on an absent variable, where setting it once for a test routes real customer
 money to the wrong account, silently, and cross-account money is unrecoverable.
 
-An org id rather than a boolean because master carries more than one
-Organization row, and because an **absent** variable means nobody falls back,
-so the platform is safe by omission rather than by remembering to opt out.
+An org id rather than a boolean because an **absent** variable means nobody
+falls back, so the platform is safe by omission rather than by remembering to
+opt out, and because it stays correct if master ever grows a second
+Organization row (it has exactly one today, MM Group). Note that MM Group has
+no org-level key configured, so on master this variable is load-bearing for
+live payments rather than a formality.
 It is deliberately its own variable, not a reuse of `DEFAULT_ORG_ID` or
 `TENANCY_ENFORCE_HOST`: those answer different questions and merely correlate
 today, and overloading one means a tenancy flag toggled for a test changes

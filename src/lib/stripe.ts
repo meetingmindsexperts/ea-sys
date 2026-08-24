@@ -106,12 +106,18 @@ export class StripeCredentialsMissingError extends Error {
  * operator's account. Cross-account money is unrecoverable (see the note on
  * getStripe); a refused charge is retried.
  *
- * An org ID rather than a boolean, for two reasons: master carries more than
- * one Organization row and only MM Group's may use the shared key; and an
- * ABSENT variable means nobody falls back, so the platform is safe by omission
- * rather than by remembering to opt out. Same inversion as the `/uploads`
+ * An org ID rather than a boolean. The load-bearing reason is that an ABSENT
+ * variable means nobody falls back, so the platform is safe by omission rather
+ * than by remembering to opt out — the same inversion as the `/uploads`
  * deny-list → allow-list flip: make the safe behaviour structural, not
- * circumstantial.
+ * circumstantial. The secondary reason is that it stays correct if master ever
+ * grows a second Organization row (it has exactly one today, MM Group, verified
+ * Aug 24 2026), where a boolean would hand the shared key to whoever arrived.
+ *
+ * NOTE, master: MM Group has NO org-level Stripe key configured (verified the
+ * same day), so it relies entirely on this fallback. That makes the variable
+ * load-bearing for live payments, not a formality. Configuring MMG's own key
+ * under Settings → Integrations is what would eventually let it be unset.
  *
  * Deliberately its OWN variable rather than reusing `DEFAULT_ORG_ID` or
  * `TENANCY_ENFORCE_HOST`. Those answer different questions (which org to assume
