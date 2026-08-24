@@ -21,9 +21,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RESTRICTED_EVENT_DETAIL_SELECT } from "@/lib/event-visibility";
 
-const { mockAuth, mockDb, mockGetOrgContext } = vi.hoisted(() => ({
+const { mockAuth, mockDb, mockGetOrgContext, laneSpy } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockGetOrgContext: vi.fn(),
+  laneSpy: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     speaker: { findMany: vi.fn() },
@@ -45,7 +46,10 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: unknown) => fn }));
 vi.mock("@/lib/tenant-context", () => ({
-  runWithTenant: (_org: string, fn: () => unknown) => fn(),
+  runWithTenant: (org: string, fn: () => unknown) => {
+    laneSpy(org);
+    return fn();
+  },
 }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockGetOrgContext() }));
 // Spread the real module and override ONLY the predicate under test, so adding
@@ -157,5 +161,47 @@ describe("GET /api/events/[eventId]/speakers for an org-null role", () => {
 
     const where = mockDb.speaker.findMany.mock.calls[0][0].where;
     expect(where).not.toHaveProperty("userId");
+  });
+
+  // The tenant lane is a property of the RESOURCE, not of the caller.
+  //
+  // This route deliberately serves org-null roles, and the lane used to be
+  // keyed on `orgCtx?.organizationId ?? session.user.organizationId` — null for
+  // exactly those callers, so they entered no lane at all. Harmless while
+  // RLS_SET_LOCAL is off; under RLS the speaker read matches nothing and the
+  // submitter gets a silently empty list, which is indistinguishable from "this
+  // event has no speakers". Fail-closed, therefore invisible.
+  it.each(["SUBMITTER", "REVIEWER", "REGISTRANT"])(
+    "runs an org-null %s in the EVENT's tenant lane, not their (absent) own",
+    async (role) => {
+      mockGetOrgContext.mockResolvedValue(null);
+      mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: null } });
+
+      await call();
+
+      expect(laneSpy).toHaveBeenCalledWith("org1");
+    },
+  );
+
+  it("takes the lane from the event even when the caller carries a different org", async () => {
+    mockGetOrgContext.mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "u3", role: "ORGANIZER", organizationId: "orgZ" } });
+
+    await call();
+
+    expect(laneSpy).toHaveBeenCalledWith("org1");
+    expect(laneSpy).not.toHaveBeenCalledWith("orgZ");
+  });
+
+  it("authorizes before entering any lane (unresolvable event never opens one)", async () => {
+    mockDb.event.findFirst.mockResolvedValue(null);
+    mockGetOrgContext.mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+
+    const res = await call();
+
+    expect(res.status).toBe(404);
+    expect(laneSpy).not.toHaveBeenCalled();
+    expect(mockDb.speaker.findMany).not.toHaveBeenCalled();
   });
 });

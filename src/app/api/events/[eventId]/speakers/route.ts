@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
@@ -79,11 +78,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
-    // Mixed auth — API-key org, else the session user's org (org-null for a
-    // linked SUBMITTER/REGISTRANT reader).
-    const tenantOrgId = orgCtx?.organizationId ?? session?.user.organizationId;
-    return await runWithTenantLane(tenantOrgId, { route: "events:speakers", userId: session?.user?.id }, async () => {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 
@@ -115,14 +109,40 @@ export async function GET(req: Request, { params }: RouteParams) {
     // own row and nothing else. A reviewer, who has no speaker row, gets an
     // empty list; the author shown beside an abstract comes from the abstracts
     // payload, not from here.
+    // The event read resolves BOTH the authorization and the tenant, so it runs
+    // BEFORE the lane rather than inside it.
+    //
+    // It used to sit in a `Promise.all` alongside the speaker query, inside a
+    // lane keyed on `orgCtx?.organizationId ?? session.user.organizationId`.
+    // That is null for the org-null roles this route deliberately serves (a
+    // SUBMITTER's own-row lookup for the abstract author binding), so those
+    // callers entered NO lane: harmless on master, but under RLS the speaker
+    // read matches nothing and the submitter silently gets an empty list — a
+    // fail-closed bug that looks exactly like "no speakers yet". The tenant a
+    // request belongs to is a property of the RESOURCE, not of the caller.
+    //
+    // Cost: one round trip that used to run in parallel. Deliberate — the
+    // alternative is a caller-shaped fork (org-bound parallel, org-null
+    // sequential), and a ternary on `orgCtx` in this exact function is what
+    // produced the cross-event roster leak described above.
+    //
+    // NOTE: this read is intentionally OUTSIDE any lane, which is safe only
+    // while `Event` carries no RLS policy (the same assumption the Aug 6
+    // abstract-themes fix makes). When Event is swept, every site that resolves
+    // an event before knowing its tenant has to be revisited together.
+    const event = await db.event.findFirst({
+      where: eventWhere,
+      select: { id: true, organizationId: true },
+    });
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
     const ownSpeakerOnly = !orgCtx && !isTeamRole(session!.user.role);
 
-    const [event, speakers] = await Promise.all([
-      db.event.findFirst({
-        where: eventWhere,
-        select: { id: true },
-      }),
-      db.speaker.findMany({
+    return await runWithTenant(event.organizationId, async () => {
+      const speakers = await db.speaker.findMany({
         where: {
           eventId,
           ...(ownSpeakerOnly && { userId: session!.user.id }),
@@ -162,12 +182,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           },
         },
         orderBy: { createdAt: "desc" },
-      }),
-    ]);
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
+      });
 
     const response = NextResponse.json(speakers);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
