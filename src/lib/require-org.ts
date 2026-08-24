@@ -26,13 +26,30 @@ import { apiLogger } from "@/lib/logger";
  * and warn-logs who hit it, so a real ADMIN/ORGANIZER surfacing here — which
  * would mean a session lost its org, a deeper bug — is visible in /logs.
  *
+ * `route` IS REQUIRED, and that changed on Aug 24 2026 for a concrete reason.
+ * It was optional, and **137 of 144 call sites passed nothing** — including the
+ * ones that actually fired. Prod logged six `require-org:no-org` warnings for
+ * role SUBMITTER with an empty route, which says a submitter was refused
+ * somewhere among 144 routes and nothing more: not enough to fix, and the whole
+ * point of logging a refusal is to be able to fix it.
+ *
+ * The lesson is not new here — `runWithTenantLane` was given a REQUIRED `route`
+ * on Aug 11 with this reasoning written out, and this function was not brought
+ * along. **Documented-but-optional is ignored at scale.** If a field is needed
+ * every time the line is read, the type system should ask for it.
+ *
+ * The swept labels are `path:METHOD` (e.g. `events/[eventId]/tickets:POST`),
+ * derived mechanically and unique by construction, so the label is literally
+ * where the file lives. A hand-written label that names the OPERATION
+ * (`tickets:create`) is better where someone bothers; both are greppable.
+ *
  * NOTE: routes that legitimately serve org-independent users (submitter /
  * reviewer abstract flows) must NOT use this — they scope via
  * buildEventAccessWhere instead. This is only for org-admin routes.
  */
 export function requireOrgId(
   session: { user?: { id?: string; role?: string; organizationId?: string | null } } | null | undefined,
-  ctx?: { route?: string; eventId?: string },
+  ctx: { route: string; eventId?: string },
 ): { orgId: string } | { error: NextResponse } {
   const orgId = session?.user?.organizationId;
   if (!orgId) {

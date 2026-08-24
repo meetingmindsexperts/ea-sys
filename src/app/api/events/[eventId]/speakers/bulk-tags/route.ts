@@ -30,7 +30,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/bulk-tags:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Restricted roles must not rewrite tags (drive email cohorts + cert eligibility).

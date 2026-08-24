@@ -41,7 +41,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read so it
@@ -94,7 +94,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
@@ -219,7 +219,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });

@@ -660,7 +660,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.

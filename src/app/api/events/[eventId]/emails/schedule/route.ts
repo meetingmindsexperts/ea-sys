@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
@@ -217,7 +217,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // R1 (July 16, 2026): this was the ONE comms read with no role guard —

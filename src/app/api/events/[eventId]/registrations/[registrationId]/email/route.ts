@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
@@ -484,7 +484,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });

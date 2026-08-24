@@ -24,7 +24,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/review-criteria/[criterionId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
@@ -73,7 +73,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/review-criteria/[criterionId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);

@@ -52,7 +52,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
@@ -158,7 +158,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });

@@ -17,7 +17,7 @@ import { requireOrgId } from "@/lib/require-org";
 
 describe("requireOrgId", () => {
   it("returns { orgId } for an org-bound user", () => {
-    const r = requireOrgId({ user: { id: "u1", role: "ADMIN", organizationId: "org-1" } });
+    const r = requireOrgId({ user: { id: "u1", role: "ADMIN", organizationId: "org-1" } }, { route: "t" });
     expect(r).toEqual({ orgId: "org-1" });
     expect("error" in r).toBe(false);
   });
@@ -34,8 +34,22 @@ describe("requireOrgId", () => {
   });
 
   it("403 for a null session / missing user (defensive)", () => {
-    expect("error" in requireOrgId(null)).toBe(true);
-    expect("error" in requireOrgId({})).toBe(true);
-    expect("error" in requireOrgId({ user: {} })).toBe(true);
+    expect("error" in requireOrgId(null, { route: "t" })).toBe(true);
+    expect("error" in requireOrgId({}, { route: "t" })).toBe(true);
+    expect("error" in requireOrgId({ user: {} }, { route: "t" })).toBe(true);
+  });
+
+  it("EVERY refusal names its route — the reason the arg is required", () => {
+    // Prod logged six of these for role SUBMITTER with an EMPTY route, which
+    // said a submitter was refused somewhere among 144 routes and nothing more.
+    // A refusal you cannot locate is not much better than a silent one, so the
+    // route stopped being optional. 137 of 144 callers had passed nothing.
+    warn.mockClear();
+    requireOrgId({ user: { id: "u3", role: "REVIEWER", organizationId: null } }, {
+      route: "events/[eventId]/tickets:POST",
+    });
+    const [payload] = warn.mock.calls[0] as [{ route?: string }];
+    expect(payload.route).toBe("events/[eventId]/tickets:POST");
+    expect(payload.route).toBeTruthy();
   });
 });

@@ -48,7 +48,7 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
@@ -108,7 +108,7 @@ export async function POST(
       apiLogger.warn({ msg: "Unauthorized event media upload attempt" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });

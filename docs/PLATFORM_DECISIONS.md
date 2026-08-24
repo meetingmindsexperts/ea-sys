@@ -351,6 +351,57 @@ It lost on three grounds, none of them cost:
    that the column does not is one human serving several tenants without
    duplicate accounts. Prod has zero reviewers, and no tenant has asked.
 
+### A third option, raised and declined: an org ARRAY on User (Aug 24, 2026)
+
+**Owner's question:** could a submitter simply *acquire* the org of each event
+they submit to, held in an array, so one person submitting to two organisations
+stays one account?
+
+**Owner's ruling, after the trade was laid out:** *"a doctor active at MM Group
+and at a platform tenant already has two accounts and two passwords" — "yes that
+should be the case."* Per-tenant accounts confirmed; the array is declined.
+
+**Why the array was a real question and not a naive one.** It is friendlier —
+one login, no duplicate account, nothing for the person to keep track of. It
+also came from a live signal rather than theory: `tenant:no-org-lane` was firing
+on `events:speakers` for three distinct SUBMITTERs, because an org-null caller
+has no lane to give.
+
+**But it answers the wrong question, and that is the load-bearing part.** An org
+list says *who may this person access*. It does not say *which tenant is this
+request about*. A submitter calling `GET /api/events/123/speakers` still needs
+ONE lane picked, and `[acme, globex]` does not pick it — **event 123 does**. So
+the array would not have fixed the thing that prompted it; taking the lane from
+`event.organizationId` does, with no schema change at all.
+
+**Three costs, the first of them fatal:**
+
+1. **It is mutually exclusive with this item's mechanism.** `UNIQUE
+   (organizationId, email)` needs one org per row. With an array there is none,
+   so email returns to globally unique across the whole platform DB — undoing
+   what [010-user-identity.sql](../prisma/platform/010-user-identity.sql) now
+   enforces.
+2. **A shared account shares a password**, so one compromised credential reaches
+   every tenant that person belongs to. The column contains the blast radius to
+   one tenant; the array removes that containment.
+3. **`User.role` is single-valued.** Submitter at one org and reviewer at another
+   is unrepresentable by an array of orgs — and that is the realistic case, not
+   an edge one. Expressing it needs `Membership(userId, organizationId, role)`.
+   **The array is a half-measure that breaks exactly where it would first be
+   used**, which is why the alternative above is Membership and not this.
+
+**The argument that decided it.** Master and platform are separate databases, so
+a person active at both **already** has two accounts and two passwords, with no
+design choice involved. Per-tenant accounts inside the platform DB are the
+consistent continuation of a split the topology already forces, rather than a
+new inconvenience invented by this decision.
+
+**Measured the same day (prod, read-only):** 28 SUBMITTERs, speaking at events in
+**one** organisation, and **zero** REVIEWERs. The problem the array solves has
+not one instance today. The revisit trigger is unchanged and stated above: a real
+tenant asking for shared reviewers or shared staff — and the answer then is
+**Membership**, not an array.
+
 **Recorded honestly: the column is the LESS reversible choice.** Membership →
 column is easy; column → Membership means merging duplicate accounts, which is
 painful. This was accepted knowingly. **Revisit trigger:** a real tenant asking

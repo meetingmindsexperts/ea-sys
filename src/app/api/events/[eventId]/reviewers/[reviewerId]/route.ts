@@ -19,7 +19,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/reviewers/[reviewerId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);

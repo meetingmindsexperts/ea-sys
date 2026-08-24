@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const event = await loadEvent(eventId, orgGuard.orgId);
@@ -56,7 +56,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
@@ -142,7 +142,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);

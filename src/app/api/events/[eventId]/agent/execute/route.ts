@@ -255,7 +255,7 @@ export async function POST(
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/agent/execute:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
   // Role gate. NOTE: we deliberately do NOT call denyReviewer() here —

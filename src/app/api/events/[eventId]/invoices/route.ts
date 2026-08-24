@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     const noFinance = denyFinance(session);
@@ -106,7 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:POST" });
     if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session);
     if (denied) return denied;

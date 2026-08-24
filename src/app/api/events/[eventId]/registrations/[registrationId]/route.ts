@@ -145,7 +145,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -301,7 +301,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Registration-desk roles (ONSITE + MEMBER) can edit a registration (incl.
@@ -468,7 +468,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Registration DELETE stays ADMIN/ORGANIZER-only — WEBINARS is

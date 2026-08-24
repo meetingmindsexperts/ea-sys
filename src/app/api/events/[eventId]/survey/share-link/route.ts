@@ -43,7 +43,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/survey/share-link:POST" });
     if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
@@ -125,7 +125,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "events/[eventId]/survey/share-link:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
