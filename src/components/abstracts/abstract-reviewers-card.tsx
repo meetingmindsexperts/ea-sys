@@ -60,6 +60,11 @@ interface Entry {
   assignment: AbstractReviewerRow | null;
 }
 
+// Must stay in lockstep with the guards on
+// `GET|POST|DELETE /api/events/[eventId]/abstracts/[abstractId]/reviewers`,
+// which admit exactly the roles `denyReviewer` does not restrict AND that carry
+// an organizationId. Widening this set without widening the route's guards
+// produces a visible card whose every request 403s.
 const ADMIN_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 export function AbstractReviewersCard({
@@ -72,8 +77,17 @@ export function AbstractReviewersCard({
   const { data: session } = useSession();
   const isAdmin = ADMIN_ROLES.has(session?.user?.role ?? "");
 
-  const { data: poolData } = useReviewers(eventId);
-  const { data: assignedData, isLoading } = useAbstractReviewers(eventId, abstractId);
+  // Gated on the role, not just on the ids: this card renders inside the
+  // abstract edit page, which submitters and reviewers legitimately open, and
+  // both endpoints are staff-only. Hooks cannot sit below the `!isAdmin` early
+  // return, so the role has to gate the FETCH. Until Aug 24, 2026 it did not,
+  // and every submitter page view fired two requests that 403'd and were then
+  // discarded (four warn lines, since the QueryClient retries once). Costs an
+  // admin one render cycle: `useSession` has to resolve before these start.
+  const { data: poolData } = useReviewers(eventId, { enabled: isAdmin });
+  const { data: assignedData, isLoading } = useAbstractReviewers(eventId, abstractId, {
+    enabled: isAdmin,
+  });
   const assign = useAssignAbstractReviewer(eventId, abstractId);
   const unassign = useUnassignAbstractReviewer(eventId, abstractId);
 

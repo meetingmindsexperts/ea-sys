@@ -429,11 +429,17 @@ export function useImportLogs(eventId: string) {
 }
 
 // ============ REVIEWERS ============
-export function useReviewers(eventId: string) {
+/**
+ * The reviewer pool. Staff-only on the server (`denyReviewer`), so pass
+ * `{ enabled: false }` from any surface that may render for a restricted role
+ * — a React hook cannot sit behind a role early-return, so without this the
+ * fetch fires and 403s before the component decides not to render.
+ */
+export function useReviewers(eventId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.reviewers(eventId),
     queryFn: () => fetchApi<any>(`/api/events/${eventId}/reviewers`),
-    enabled: !!eventId,
+    enabled: !!eventId && (options?.enabled ?? true),
   });
 }
 
@@ -493,14 +499,23 @@ export interface AbstractReviewerRow {
   submission: { id: string; overallScore: number | null; submittedAt: string; updatedAt: string } | null;
 }
 
-export function useAbstractReviewers(eventId: string, abstractId: string) {
+/**
+ * Reviewer assignments on one abstract. Staff-only on the server (blind
+ * review), so pass `{ enabled: false }` from any surface that may render for a
+ * restricted role. See the note on `useReviewers`.
+ */
+export function useAbstractReviewers(
+  eventId: string,
+  abstractId: string,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: queryKeys.abstractReviewers(eventId, abstractId),
     queryFn: () =>
       fetchApi<{ reviewers: AbstractReviewerRow[]; total: number }>(
         `/api/events/${eventId}/abstracts/${abstractId}/reviewers`,
       ),
-    enabled: !!eventId && !!abstractId,
+    enabled: !!eventId && !!abstractId && (options?.enabled ?? true),
   });
 }
 

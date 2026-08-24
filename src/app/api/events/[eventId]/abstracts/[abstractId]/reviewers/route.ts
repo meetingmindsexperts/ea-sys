@@ -149,14 +149,34 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // WHO reviewed an abstract, and what they scored it, is STAFF-ONLY:
+    // showing it to the author breaks blind review, and showing it to a
+    // reviewer reveals their co-reviewers. `denyReviewer` runs BEFORE
+    // `requireOrgId` here (the opposite order to this file's POST) on purpose:
+    // it is the policy gate, and it must be the stated reason a restricted
+    // caller is refused.
+    //
+    // Until Aug 24, 2026 this GET had no policy gate at all. The only thing
+    // refusing a submitter was `requireOrgId` (they are org-null), which is the
+    // right answer for the wrong reason, and it refused NOTHING org-bound: a
+    // MEMBER passed it and read every abstract's reviewer list, because
+    // `buildEventAccessWhere` gives MEMBER the whole org and the abstract
+    // lookup below is not ownership-scoped. Do not remove either guard on the
+    // strength of the comment that used to sit below this one.
+    const denied = denyReviewer(session, {
+      route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET",
+      eventId,
+    });
+    if (denied) return denied;
+
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-    // Scope by role, not org: reviewers + submitters are org-independent
-    // (organizationId = null), so the old `organizationId!` filter threw a
-    // Prisma validation error ("must not be null") when a reviewer opened the
-    // abstract edit page (which renders AbstractReviewersCard → fetches this).
+    // buildEventAccessWhere rather than a bare `organizationId!` filter, which
+    // threw a Prisma validation error ("must not be null") for org-null callers
+    // (47870cc3, July 2 2026). Its org-null branches are now unreachable from
+    // this route by design — the guards above admit staff only.
     const [event, abstract] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
