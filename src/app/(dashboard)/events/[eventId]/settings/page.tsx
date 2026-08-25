@@ -64,6 +64,23 @@ import {
   Video,
 } from "lucide-react";
 import {
+  BASE_BADGE_W,
+  BASE_BADGE_H,
+  mmToPt,
+  ptToMm,
+  readBadgeLayout,
+  DEFAULT_BADGE_FIELDS,
+  type BadgeAlign,
+} from "@/lib/badge-layout";
+
+/** Common conference badge stock. Width x height in millimetres. */
+const BADGE_SIZE_PRESETS = [
+  { label: '4" x 3"', widthMm: 101.6, heightMm: 76.2 },
+  { label: '3.5" x 2.25"', widthMm: 88.9, heightMm: 57.2 },
+  { label: "A7 (105 x 74)", widthMm: 105, heightMm: 74 },
+  { label: "A6 (105 x 148)", widthMm: 105, heightMm: 148 },
+] as const;
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -354,6 +371,23 @@ export default function EventSettingsPage() {
         });
 
         const settings = data.settings || {};
+
+        // Resolved through the SAME reader the renderer uses, so the form can
+        // never show a value the PDF would not honour (clamps, per-field
+        // fallback, and the legacy badgeVerticalOffset column all included).
+        const resolvedBadge = readBadgeLayout({
+          settings,
+          badgeVerticalOffset: data.badgeVerticalOffset,
+        });
+        setBadgeLayout({
+          widthMm: String(Math.round(ptToMm(resolvedBadge.widthPt) * 10) / 10),
+          heightMm: String(Math.round(ptToMm(resolvedBadge.heightPt) * 10) / 10),
+          align: resolvedBadge.align,
+          offsetXPt: String(resolvedBadge.offsetXPt),
+          offsetYPt: String(resolvedBadge.offsetYPt),
+          fields: resolvedBadge.fields,
+        });
+
         setRegistrationSettings({
           registrationOpen: settings.registrationOpen ?? true,
           waitlistEnabled: settings.waitlistEnabled ?? false,
@@ -450,7 +484,16 @@ export default function EventSettingsPage() {
     fetchEvent();
   }, [fetchEvent]);
 
-  const handleSaveGeneral = async () => {
+  /**
+   * Saves the event COLUMNS. `extra` is merged into the same request so a tab
+   * that edits both columns and settings can save in ONE PUT rather than two
+   * — both halves hit the same endpoint, so there is no reason to risk one
+   * succeeding and the other failing.
+   *
+   * NOTE: never pass this straight to `onClick`. React would hand it the
+   * MouseEvent as `extra` and spread it into the body.
+   */
+  const handleSaveGeneral = async (extra?: Record<string, unknown>) => {
     setSaving(true);
     try {
       const res = await fetch(`/api/events/${eventId}`, {
@@ -473,6 +516,7 @@ export default function EventSettingsPage() {
           description: generalFormData.description || null,
           startDate: fromDatetimeLocal(generalFormData.startDate),
           endDate: fromDatetimeLocal(generalFormData.endDate),
+          ...extra,
         }),
       });
 
@@ -527,19 +571,56 @@ export default function EventSettingsPage() {
     }
   };
 
-  const handleSaveSettings = async () => {
-    setSaving(true);
-    try {
-      // maxAttendees is a real Event column (enforced cap) — sent top-level so
-      // the PUT runs the recompute-on-set + below-count guard; everything else
-      // stays in the settings JSON blob.
-      const { maxAttendees, ...registrationSettingsJson } = registrationSettings;
-      const res = await fetch(`/api/events/${eventId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          maxAttendees,
-          settings: {
+  // Badge geometry lives in settings.badge (see src/lib/badge-layout.ts).
+  // Sizes are entered in millimetres because print stock is quoted in mm, and
+  // converted to points on save; the nudges stay in POINTS because
+  // badgeVerticalOffset has always been points and someone has calibrated a
+  // printer against that number.
+  const [badgeLayout, setBadgeLayout] = useState({
+    widthMm: String(Math.round(ptToMm(BASE_BADGE_W) * 10) / 10),
+    heightMm: String(Math.round(ptToMm(BASE_BADGE_H) * 10) / 10),
+    align: "center" as BadgeAlign,
+    offsetXPt: "0",
+    offsetYPt: "0",
+    fields: DEFAULT_BADGE_FIELDS,
+  });
+
+  const badgePreviewUrl = () => {
+    const q = new URLSearchParams({
+      w: String(mmToPt(Number(badgeLayout.widthMm) || ptToMm(BASE_BADGE_W))),
+      h: String(mmToPt(Number(badgeLayout.heightMm) || ptToMm(BASE_BADGE_H))),
+      align: badgeLayout.align,
+      ox: String(Number(badgeLayout.offsetXPt) || 0),
+      oy: String(Number(badgeLayout.offsetYPt) || 0),
+      // Enabled keys only. The preview has to show the switches as they sit on
+      // screen, not as they were last saved, or it is not a calibration tool.
+      fields: Object.entries(badgeLayout.fields)
+        .filter(([, on]) => on)
+        .map(([k]) => k)
+        .join(","),
+    });
+    return `/api/events/${eventId}/registrations/badges/preview?${q.toString()}`;
+  };
+
+  /**
+   * The settings-blob half of a save, extracted so the Registration tab can
+   * send it in the SAME request as the event columns.
+   *
+   * Why that matters: this tab used to carry two Save buttons. The first one
+   * you met while scrolling saved the event COLUMNS (tax, DTCM), and the
+   * switches above it — Registration Open, Waitlist, Require Approval — live
+   * in the settings blob and were only saved by a second button at the very
+   * bottom. Toggling Registration Open and pressing the Save you could see
+   * gave you a green "saved" toast and threw the change away.
+   */
+  const buildSettingsPayload = () => {
+    // maxAttendees is a real Event column (enforced cap) — sent top-level so
+    // the PUT runs the recompute-on-set + below-count guard; everything else
+    // stays in the settings JSON blob.
+    const { maxAttendees, ...registrationSettingsJson } = registrationSettings;
+    return {
+      maxAttendees,
+      settings: {
             ...registrationSettingsJson,
             ...agendaSettings,
             ...abstractSettings,
@@ -557,11 +638,34 @@ export default function EventSettingsPage() {
                   ? null
                   : Number(abstractLimits.maxAbstractsPerSubmitter) || null,
             },
+            // Sent raw; readBadgeLayout clamps every field and falls back
+            // per field, so a blank or silly number cannot brick badge
+            // printing on event morning.
+            badge: {
+              widthPt: mmToPt(Number(badgeLayout.widthMm) || ptToMm(BASE_BADGE_W)),
+              heightPt: mmToPt(Number(badgeLayout.heightMm) || ptToMm(BASE_BADGE_H)),
+              align: badgeLayout.align,
+              offsetXPt: Number(badgeLayout.offsetXPt) || 0,
+              offsetYPt: Number(badgeLayout.offsetYPt) || 0,
+              fields: badgeLayout.fields,
+            },
             presenterRegistration: { payNowEnabled: presenterPayNow },
             travelGrant: { enabled: travelGrantEnabled },
-            sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
-          },
-        }),
+        sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
+      },
+    };
+  };
+
+  /** One Save for the whole Registration tab: columns and settings together. */
+  const handleSaveRegistrationTab = () => handleSaveGeneral(buildSettingsPayload());
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildSettingsPayload()),
       });
 
       if (res.ok) {
@@ -955,7 +1059,7 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={handleSaveGeneral} disabled={saving}>
+                <Button onClick={() => handleSaveGeneral()} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Changes"}
                 </Button>
@@ -1005,7 +1109,7 @@ export default function EventSettingsPage() {
         </TabsContent>
 
         {/* Registration Settings */}
-        <TabsContent value="registration">
+        <TabsContent value="registration" className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2 mb-6">
             <Link href={`/events/${eventId}/tickets`} className="group block">
               <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full">
@@ -1230,25 +1334,6 @@ export default function EventSettingsPage() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="badgeVerticalOffset">Badge Vertical Offset (points)</Label>
-                <Input
-                  id="badgeVerticalOffset"
-                  type="number"
-                  value={generalFormData.badgeVerticalOffset}
-                  onChange={(e) =>
-                    setGeneralFormData({
-                      ...generalFormData,
-                      badgeVerticalOffset: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className="w-48"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Adjust badge position on printed page. Positive = move down, negative = move up. 72 points = 1 inch. Default: 0.
-                </p>
-              </div>
-
               <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 p-4">
                 <div className="space-y-1">
                   <Label htmlFor="requiresDtcmBarcode" className="text-sm font-medium">
@@ -1274,9 +1359,16 @@ export default function EventSettingsPage() {
                 />
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Tax & Payment</h3>
-                <div className="space-y-4">
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Tax &amp; Payment</CardTitle>
+              <CardDescription>Applied to quotes and invoices for this event.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="taxRate">Tax Rate (%)</Label>
@@ -1328,17 +1420,17 @@ export default function EventSettingsPage() {
                       Shown on quotes for bank transfer payments. Leave empty to hide.
                     </p>
                   </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleSaveGeneral} disabled={saving}>
-                      <Save className="mr-2 h-4 w-4" />
-                      {saving ? "Saving..." : "Save Tax & Payment"}
-                    </Button>
-                  </div>
                 </div>
-              </div>
+            </CardContent>
+          </Card>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Agenda</h3>
+          <Card>
+            <CardHeader>
+              <CardTitle>Agenda</CardTitle>
+              <CardDescription>Controls the public agenda page for this event.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
@@ -1357,16 +1449,236 @@ export default function EventSettingsPage() {
                     }
                   />
                 </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button onClick={handleSaveSettings} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Settings"}
-                </Button>
-              </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Badge</CardTitle>
+              <CardDescription>Size and position the printed badge on the A4 sheet, and choose what prints on it. Using pre-printed stock? Turn the border off and switch off anything already on the card.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+
+                <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeWidthMm">Width (mm)</Label>
+                    <Input
+                      id="badgeWidthMm"
+                      type="number"
+                      step="0.1"
+                      value={badgeLayout.widthMm}
+                      onChange={(e) =>
+                        setBadgeLayout({ ...badgeLayout, widthMm: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeHeightMm">Height (mm)</Label>
+                    <Input
+                      id="badgeHeightMm"
+                      type="number"
+                      step="0.1"
+                      value={badgeLayout.heightMm}
+                      onChange={(e) =>
+                        setBadgeLayout({ ...badgeLayout, heightMm: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {BADGE_SIZE_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          widthMm: String(preset.widthMm),
+                          heightMm: String(preset.heightMm),
+                        })
+                      }
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="mt-6 space-y-2">
+                  <Label>Align on the A4 page</Label>
+                  <div className="flex gap-2">
+                    {(["left", "center", "right"] as const).map((a) => (
+                      <Button
+                        key={a}
+                        type="button"
+                        variant={badgeLayout.align === a ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setBadgeLayout({ ...badgeLayout, align: a })}
+                      >
+                        {a === "center" ? "Centre" : a === "left" ? "Left" : "Right"}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Left and right sit flush to the paper edge. Most printers
+                    cannot print within about 5mm of the edge, so use the
+                    nudge below to pull the badge back in.
+                  </p>
+                </div>
+
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeOffsetX">Nudge horizontally (points)</Label>
+                    <Input
+                      id="badgeOffsetX"
+                      type="number"
+                      value={badgeLayout.offsetXPt}
+                      onChange={(e) =>
+                        setBadgeLayout({ ...badgeLayout, offsetXPt: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeOffsetY">Nudge vertically (points)</Label>
+                    <Input
+                      id="badgeOffsetY"
+                      type="number"
+                      value={badgeLayout.offsetYPt}
+                      onChange={(e) =>
+                        setBadgeLayout({ ...badgeLayout, offsetYPt: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  72 points = 1 inch. Positive moves right and down. Use these
+                  to pull the badge in from the paper edge, or to line it up
+                  with pre-cut stock.
+                </p>
+
+                <div className="mt-6 space-y-3">
+                  <Label>What prints on the badge</Label>
+                  <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.border}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, border: v },
+                          })
+                        }
+                      />
+                      Cutting border
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.name}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, name: v },
+                          })
+                        }
+                      />
+                      Name
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.organization}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, organization: v },
+                          })
+                        }
+                      />
+                      Organisation
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.country}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, country: v },
+                          })
+                        }
+                      />
+                      Country
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.barcode}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, barcode: v },
+                          })
+                        }
+                      />
+                      Entry barcode
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.registrationNumber}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, registrationNumber: v },
+                          })
+                        }
+                      />
+                      Registration number
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={badgeLayout.fields.badgeType}
+                        onCheckedChange={(v) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fields: { ...badgeLayout.fields, badgeType: v },
+                          })
+                        }
+                      />
+                      Role / badge type
+                    </label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Organisation and country share the line under the name, so
+                    turning organisation on hides country.
+                  </p>
+                </div>
+
+                <div className="mt-6">
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
+                      Preview one badge
+                    </a>
+                  </Button>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Opens a sample badge using the values above, before you
+                    save. Print it on your stock to check the alignment.
+                  </p>
+                </div>
+            </CardContent>
+          </Card>
+
+          {/* ONE Save for the tab. It used to carry two: the first you met
+              while scrolling saved the event COLUMNS, while the switches above
+              it live in the settings blob and were only saved by a second
+              button at the bottom. Toggling Registration Open and pressing the
+              Save you could see returned a green toast and discarded the
+              change. Both halves PUT to the same endpoint, so this sends them
+              together in one request. */}
+          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <Button onClick={handleSaveRegistrationTab} disabled={saving} size="lg">
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving..." : "Save registration settings"}
+            </Button>
+          </div>
         </TabsContent>
 
         {/* Abstracts: submission windows, themes and review criteria in one
