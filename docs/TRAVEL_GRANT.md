@@ -20,13 +20,11 @@ be duplicated here. Operator-facing instructions are user-guide § Travel Grants
 | 3 | Settings toggle + the two Content editors | ✅ shipped |
 | 4 | `buildTravelGrantBlock` + the confirmation-email wiring | ✅ shipped |
 | 5 | Public consent form + its routes | ✅ shipped |
-| 6 | Organizer console | ⬜ not built |
+| 6 | Organizer console | ✅ shipped |
 | 7 | Docs | ✅ this file + the user guide |
 
-**The author-facing flow is complete**: an eligible author receives the
-message, opens their link, and confirms or declines. What is missing is the
-organizer's **console** (step 6), so there is currently no screen showing who
-has answered. Responses ARE recorded and audited; they just have no viewer yet.
+**All six steps are in.** The feature is complete end to end: configure, invite,
+consent, and watch. It has not yet been used on a live event.
 
 ## The decision surface
 
@@ -118,12 +116,19 @@ Content → Abstracts:
   test whose assertion is the testable form of the invariant: **when the org
   cannot be resolved, the token is never looked up at all.** Reversing the two
   calls fails it. Do not reorder them.
-- **The console shows people who must not be emailed.** D7 lists every abstract
-  author including UAE and unknown, directly above a "remind everyone pending"
-  button. **That action must key off `status = PENDING` on existing rows, never
-  off the rendered list.** A UAE author has no row at all, so a correct
-  implementation cannot reach them; one written against the list would email
-  every one of them.
+- ✅ **The bulk-send guard is in place.** D7 lists every abstract author
+  including UAE and unknown, directly above a "remind everyone pending" button.
+  Recipients resolve from `TravelGrant where status = PENDING`, never from the
+  rendered list, and a named send re-checks eligibility so passing a UAE
+  speaker's id by hand still refuses. Both pinned by mutation-verified tests in
+  [travel-grants-console.test.ts](../__tests__/api/travel-grants-console.test.ts).
+- **The roster is a UNION of abstract authors and grant holders**, and that is
+  load-bearing rather than tidy. A grant can exist for someone with no current
+  non-draft abstract (the per-row send mints one for a corrected country before
+  they resubmit; an abstract can be withdrawn later). Building it from abstracts
+  alone made a consented author **invisible in the console**, found by running
+  it against real local data, not by a unit test, because a mocked-empty
+  abstract list hides it.
 - **The block must be failure-isolated.** A travel-grant error must never stop
   an abstract confirmation from being sent.
 - **Only `SUBMITTED` triggers it.** A draft is not a submission.

@@ -73,6 +73,7 @@ SWEPT_ROUTE_DIRS=(
   # opens no runWithTenant of its own, by design — not listed).
   "src/app/api/events/[eventId]/reimbursements"           # Reimbursement sweep — console (Aug 3, 2026)
   "src/app/api/public/events/[slug]/reimbursement"        # Reimbursement sweep — public token routes (Aug 3, 2026)
+  "src/app/api/events/[eventId]/travel-grants"            # Travel Grant — organizer console (Aug 25, 2026)
   "src/app/api/public/events/[slug]/travel-grant"         # Travel Grant — public token routes (Aug 25, 2026)
   # Comms-log sweep (Domain #18, Aug 3, 2026) — the EmailLog read surface
   # (entity Email History list + stored-body fetch), SESSION-org wraps.

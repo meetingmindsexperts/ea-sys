@@ -37,6 +37,7 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "survey-thankyou",
   "dinner-rsvp-invitation",
   "speaker-reimbursement-invitation",
+  "travel-grant-invitation",
   "speaker-reimbursement-received",
   "speaker-profile-form-request",
   "webinar-confirmation",
@@ -87,6 +88,7 @@ const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   // already hold a materialised row on it. A label moves no data; a slug is a key.
   "dinner-rsvp-invitation": "RSVP Invitation",
   "speaker-reimbursement-invitation": "Reimbursement Invitation",
+  "travel-grant-invitation": "Travel Grant Invitation",
   "speaker-reimbursement-received": "Reimbursement Received",
   "speaker-profile-form-request": "Speaker Profile Form Request",
   "webinar-reminder-1h": "Webinar Reminder (1h)",

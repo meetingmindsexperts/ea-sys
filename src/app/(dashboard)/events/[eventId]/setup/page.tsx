@@ -31,6 +31,7 @@ import {
   ArrowRight,
   Award,
   Banknote,
+  CalendarCheck,
   CheckCircle2,
   Circle,
   ClipboardList,
@@ -38,9 +39,9 @@ import {
   ImageIcon,
   Mail,
   PenLine,
+  Plane,
   Receipt,
   Ticket,
-  CalendarCheck,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -161,6 +162,15 @@ const SETUP_CARDS: SetupCardConfig[] = [
     colorClasses:
       "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     hoverBorder: "hover:border-orange-400",
+  },
+  {
+    slug: "travel-grants",
+    title: "Travel Grants",
+    description:
+      "Offer a travel grant to abstract authors based outside the UAE. The invitation rides inside their submission-confirmation email; this is where you watch who has replied.",
+    icon: Plane,
+    colorClasses: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+    hoverBorder: "hover:border-sky-400",
   },
   {
     slug: "reimbursements",

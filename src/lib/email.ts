@@ -1576,6 +1576,21 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
   ],
+  "travel-grant-invitation": [
+    { key: "speakerName", description: "Author name, with title prefix" },
+    { key: "firstName", description: "Author first name" },
+    { key: "lastName", description: "Author last name" },
+    { key: "eventName", description: "Event name" },
+    {
+      key: "travelGrantBlock",
+      description:
+        "The travel-grant message + CTA button. Same block the submission-confirmation email uses, so the two cannot drift. Renders as nothing for an author who is not eligible.",
+    },
+    { key: "travelGrantBlockText", description: "Plain-text version of the block" },
+    { key: "personalMessage", description: "Your optional note, typed in the send dialog" },
+    { key: "organizerName", description: "Name of the sender" },
+    { key: "organizerSignature", description: "Sender's saved email signature" },
+  ],
   "speaker-reimbursement-invitation": [
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
@@ -2685,6 +2700,39 @@ Best regards,
 {{organizerSignature}}`,
   },
 
+  {
+    slug: "travel-grant-invitation",
+    name: "Travel Grant Invitation",
+    // Sent from the Travel Grants console when an author needs their link
+    // outside the ordinary submission-confirmation flow: they lost the email,
+    // or their country was corrected after they submitted. The CTA is the
+    // SAME {{travelGrantBlock}} the confirmation email uses, so the button and
+    // the organizer's Content -> Abstracts message cannot drift between the
+    // two places an author might see them.
+    subject: "Travel grant — {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
+    <p>Thank you for submitting your abstract to <strong>{{eventName}}</strong>.</p>
+    {{personalMessage}}
+    {{travelGrantBlock}}
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Travel grant — {{eventName}}
+
+Dear {{speakerName}},
+
+Thank you for submitting your abstract to {{eventName}}.
+
+{{personalMessage}}
+
+{{travelGrantBlockText}}
+
+Best regards,
+{{organizerName}}
+
+{{organizerSignature}}`,
+  },
   {
     slug: "speaker-reimbursement-invitation",
     name: "Speaker Reimbursement Form",
