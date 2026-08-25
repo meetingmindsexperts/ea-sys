@@ -71,3 +71,51 @@ export const travelGrantSubmitSchema = z
   });
 
 export type TravelGrantSubmit = z.infer<typeof travelGrantSubmitSchema>;
+
+// ── Shared between the console page and the speaker-profile card ────────────
+// Both surfaces render the same three verdicts, the same four statuses and the
+// same public link. They were written twice and had already drifted ("UAE —
+// not eligible" against "UAE, not eligible") before either shipped, which is
+// exactly the cross-caller duplication this repo forbids.
+
+import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
+
+export type TravelGrantStatusValue = "PENDING" | "CONSENTED" | "DECLINED";
+
+/** One wording per verdict, so the console and the card cannot disagree. */
+export const RESIDENCY_LABEL: Record<ResidencyClass, string> = {
+  overseas: "Eligible",
+  uae: "UAE, not eligible",
+  unknown: "Country not recorded",
+};
+
+/** What an organizer sees in the Status column / row. */
+export const GRANT_STATUS_LABEL: Record<TravelGrantStatusValue, string> = {
+  PENDING: "Awaiting reply",
+  CONSENTED: "Confirmed",
+  DECLINED: "Declined",
+};
+
+/**
+ * Who may see and act on travel grants.
+ *
+ * Mirrors the server's `denyReviewer` gate on the console routes, and lives
+ * here as a NAMED predicate rather than an inline Set in each component: when a
+ * role is added to RESTRICTED_WRITE_ROLES (as WEBINARS was in Aug 2026) an
+ * inline copy drifts from the server silently, with no test and no type error
+ * to catch it.
+ *
+ * MEMBER is excluded deliberately, even though MEMBER is internal read-only
+ * staff: this is a list of who has asked to have their travel paid for, which
+ * is a financial-adjacent decision list rather than an operational one.
+ */
+const TRAVEL_GRANT_MANAGE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+
+export function canManageTravelGrants(role: string | null | undefined): boolean {
+  return !!role && TRAVEL_GRANT_MANAGE_ROLES.has(role);
+}
+
+/** The author's personal consent URL. One template, two callers. */
+export function publicTravelGrantUrl(origin: string, eventSlug: string, token: string): string {
+  return `${origin}/e/${eventSlug}/travel-grant/${token}`;
+}

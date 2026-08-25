@@ -20,21 +20,23 @@ import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertCircle,
-  Check,
   Copy,
   Download,
   Loader2,
   Plane,
   Send,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
+import {
+  GRANT_STATUS_LABEL,
+  RESIDENCY_LABEL,
+  publicTravelGrantUrl,
+} from "@/lib/travel-grant/constants";
+import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import { Input } from "@/components/ui/input";
 
-type Residency = "uae" | "overseas" | "unknown";
-type GrantStatus = "PENDING" | "CONSENTED" | "DECLINED";
 
 interface Row {
   speakerId: string;
@@ -42,11 +44,11 @@ interface Row {
   email: string | null;
   organization: string | null;
   country: string | null;
-  residency: Residency;
+  residency: ResidencyClass;
   abstractCount: number;
   grant: {
     id: string;
-    status: GrantStatus;
+    status: "PENDING" | "CONSENTED" | "DECLINED";
     token: string;
     invitedAt: string | null;
     submittedAt: string | null;
@@ -66,12 +68,6 @@ interface Payload {
     countryNotRecorded: number;
   };
 }
-
-const RESIDENCY_LABEL: Record<Residency, string> = {
-  overseas: "Eligible",
-  uae: "UAE — not eligible",
-  unknown: "Country not recorded",
-};
 
 export default function TravelGrantsPage() {
   const params = useParams<{ eventId: string }>();
@@ -140,7 +136,7 @@ export default function TravelGrantsPage() {
   const copyLink = useCallback(
     (row: Row) => {
       if (!row.grant || !data) return;
-      const url = `${window.location.origin}/e/${data.eventSlug}/travel-grant/${row.grant.token}`;
+      const url = publicTravelGrantUrl(window.location.origin, data.eventSlug, row.grant.token);
       void navigator.clipboard
         .writeText(url)
         .then(() => toast.success("Link copied"))
@@ -229,11 +225,11 @@ export default function TravelGrantsPage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Stat label="Confirmed" value={data.counts.consented} tone="emerald" />
-        <Stat label="Awaiting reply" value={data.counts.pending} tone="amber" />
-        <Stat label="Declined" value={data.counts.declined} />
-        <Stat label="UAE, not eligible" value={data.counts.notEligibleUae} />
-        <Stat label="Country not recorded" value={data.counts.countryNotRecorded} tone="rose" />
+        <Stat label={GRANT_STATUS_LABEL.CONSENTED} value={data.counts.consented} tone="emerald" />
+        <Stat label={GRANT_STATUS_LABEL.PENDING} value={data.counts.pending} tone="amber" />
+        <Stat label={GRANT_STATUS_LABEL.DECLINED} value={data.counts.declined} />
+        <Stat label={RESIDENCY_LABEL.uae} value={data.counts.notEligibleUae} />
+        <Stat label={RESIDENCY_LABEL.unknown} value={data.counts.countryNotRecorded} tone="rose" />
       </div>
 
       <Card>
@@ -277,7 +273,10 @@ export default function TravelGrantsPage() {
                         <ResidencyBadge residency={r.residency} />
                       </td>
                       <td className="px-4 py-3">
-                        <StatusCell row={r} />
+                        <GrantStatusLabel
+                          status={r.grant?.status ?? null}
+                          signedName={r.grant?.signedName}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
@@ -334,42 +333,4 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
-}
-
-function ResidencyBadge({ residency }: { residency: Residency }) {
-  if (residency === "overseas") {
-    return <Badge variant="outline" className="border-emerald-300 text-emerald-700">Eligible</Badge>;
-  }
-  if (residency === "uae") {
-    return <Badge variant="outline" className="text-muted-foreground">{RESIDENCY_LABEL.uae}</Badge>;
-  }
-  return (
-    <Badge variant="outline" className="border-rose-300 text-rose-700" title="Not emailed. Correct the country on their profile, then send their link.">
-      {RESIDENCY_LABEL.unknown}
-    </Badge>
-  );
-}
-
-function StatusCell({ row }: { row: Row }) {
-  if (!row.grant) return <span className="text-muted-foreground">Not invited</span>;
-  if (row.grant.status === "CONSENTED") {
-    return (
-      <span className="flex items-center gap-1.5 text-emerald-700">
-        <Check className="h-3.5 w-3.5" />
-        Confirmed
-        {row.grant.signedName && (
-          <span className="text-xs text-muted-foreground">({row.grant.signedName})</span>
-        )}
-      </span>
-    );
-  }
-  if (row.grant.status === "DECLINED") {
-    return (
-      <span className="flex items-center gap-1.5 text-muted-foreground">
-        <X className="h-3.5 w-3.5" />
-        Declined
-      </span>
-    );
-  }
-  return <span className="text-amber-700">Awaiting reply</span>;
 }

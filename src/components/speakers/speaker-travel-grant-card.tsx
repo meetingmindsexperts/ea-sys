@@ -22,32 +22,31 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Check, Copy, ExternalLink, Loader2, Plane, Send, X } from "lucide-react";
+import { Copy, ExternalLink, Loader2, Plane, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
+import { canManageTravelGrants, publicTravelGrantUrl } from "@/lib/travel-grant/constants";
+import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
+import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
+import { useEvent } from "@/hooks/use-api";
 
-type Residency = "uae" | "overseas" | "unknown";
-type GrantStatus = "PENDING" | "CONSENTED" | "DECLINED";
 
 interface Row {
   speakerId: string;
   name: string;
   email: string | null;
   country: string | null;
-  residency: Residency;
+  residency: ResidencyClass;
   grant: {
     id: string;
-    status: GrantStatus;
+    status: "PENDING" | "CONSENTED" | "DECLINED";
     token: string;
     invitedAt: string | null;
     submittedAt: string | null;
     signedName: string | null;
   } | null;
 }
-
-/** Mirrors the console's denyReviewer gate. */
-const ALLOWED = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 export function SpeakerTravelGrantCard({
   eventId,
@@ -67,6 +66,15 @@ export function SpeakerTravelGrantCard({
 }) {
   const { data: session } = useSession();
   const role = session?.user?.role;
+  // From the SHARED React Query cache the speaker page already populates, so
+  // this costs no request. Gating on it means a profile on an event with the
+  // feature off — the overwhelming majority — issues no travel-grant call at
+  // all, rather than a round-trip that runs auth + an event lookup + a join and
+  // then renders null.
+  const { data: event } = useEvent(eventId);
+  const featureOn = isTravelGrantEnabled(
+    (event as { settings?: unknown } | undefined)?.settings,
+  );
 
   const [row, setRow] = useState<Row | null>(null);
   const [eventSlug, setEventSlug] = useState<string>("");
@@ -110,12 +118,12 @@ export function SpeakerTravelGrantCard({
   }, [eventId, speakerId]);
 
   useEffect(() => {
-    if (!role || !ALLOWED.has(role)) {
+    if (!canManageTravelGrants(role) || !featureOn) {
       setLoading(false);
       return;
     }
     void load();
-  }, [role, load, speakerCountry]);
+  }, [role, featureOn, load, speakerCountry]);
 
   const send = useCallback(async () => {
     setSending(true);
@@ -148,12 +156,12 @@ export function SpeakerTravelGrantCard({
   const copy = useCallback(() => {
     if (!row?.grant || !eventSlug) return;
     void navigator.clipboard
-      .writeText(`${window.location.origin}/e/${eventSlug}/travel-grant/${row.grant.token}`)
+      .writeText(publicTravelGrantUrl(window.location.origin, eventSlug, row.grant.token))
       .then(() => toast.success("Link copied"))
       .catch(() => toast.error("Couldn't copy the link"));
   }, [row, eventSlug]);
 
-  if (!role || !ALLOWED.has(role)) return null;
+  if (!canManageTravelGrants(role) || !featureOn) return null;
   if (loading) return null;
   if (loadFailed) {
     return (
@@ -192,39 +200,13 @@ export function SpeakerTravelGrantCard({
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">Eligibility</span>
-          {eligible ? (
-            <Badge variant="outline" className="border-emerald-300 text-emerald-700">
-              Eligible
-            </Badge>
-          ) : row.residency === "uae" ? (
-            <Badge variant="outline" className="text-muted-foreground">
-              UAE, not eligible
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="border-rose-300 text-rose-700">
-              Country not recorded
-            </Badge>
-          )}
+          <ResidencyBadge residency={row.residency} />
         </div>
 
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">Status</span>
           <span className="text-sm">
-            {!row.grant ? (
-              <span className="text-muted-foreground">Not invited</span>
-            ) : row.grant.status === "CONSENTED" ? (
-              <span className="flex items-center gap-1.5 text-emerald-700">
-                <Check className="h-3.5 w-3.5" />
-                Confirmed
-              </span>
-            ) : row.grant.status === "DECLINED" ? (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <X className="h-3.5 w-3.5" />
-                Declined
-              </span>
-            ) : (
-              <span className="text-amber-700">Awaiting reply</span>
-            )}
+            <GrantStatusLabel status={row.grant?.status ?? null} />
           </span>
         </div>
 
