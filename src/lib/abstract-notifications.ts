@@ -1,4 +1,6 @@
 import { apiLogger } from "@/lib/logger";
+import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
+import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 import {
   sendEmail,
   getEventTemplate,
@@ -148,7 +150,16 @@ export async function sendAbstractSubmissionConfirmation(
     const details = await db.abstract
       .findUnique({
         where: { id: abstractId },
-        select: { presentationType: true, coAuthors: true, theme: { select: { name: true } } },
+        select: {
+          presentationType: true,
+          coAuthors: true,
+          theme: { select: { name: true } },
+          // Travel Grant rides on this SAME query rather than adding one: the
+          // switch and the organizer's copy live on the event, and eligibility
+          // reads exactly one field on the author (decision D6).
+          speaker: { select: { country: true } },
+          event: { select: { settings: true, travelGrantMessageHtml: true } },
+        },
       })
       .catch(() => null);
 
@@ -166,6 +177,23 @@ export async function sendAbstractSubmissionConfirmation(
       ...(params.organizerSignature ? { organizerSignature: params.organizerSignature } : {}),
     };
 
+    // Renders as "" for a UAE-based author, an unrecognised country, or an
+    // event with the feature off, so the substitution needs no branch and the
+    // email stays byte-identical to today for everyone who is not eligible.
+    // Never throws: a travel-grant failure must not stop this email.
+    const travelGrant = await resolveTravelGrantBlock({
+      eventId,
+      organizationId,
+      eventSlug,
+      speakerId: speaker.id,
+      speakerCountry: details?.speaker?.country ?? null,
+      messageHtml: details?.event?.travelGrantMessageHtml ?? null,
+      settings: details?.event?.settings,
+      abstractId,
+    });
+    vars.travelGrantBlock = travelGrant.html;
+    vars.travelGrantBlockText = travelGrant.text;
+
     const eventTpl = await getEventTemplate(eventId, "abstract-submission-confirmation");
     const tpl = eventTpl || getDefaultTemplate("abstract-submission-confirmation");
     if (!tpl) {
@@ -173,7 +201,24 @@ export async function sendAbstractSubmissionConfirmation(
       return false;
     }
     const branding = eventTpl?.branding || { eventName };
-    const rendered = renderAndWrap(tpl, vars, branding);
+
+    // THE SAVED-TEMPLATE TRAP. Events carry their OWN materialised copy of this
+    // template (the templates list auto-seeds system defaults as editable
+    // rows), so putting {{travelGrantBlock}} in the shipped default reaches
+    // none of them. Appending it when the resolved template lacks it is the
+    // fix that worked for the presenter quote block and for {{itemWord}}.
+    // Gated on there being something to show, so a template without the token
+    // is left exactly as the organizer wrote it for every ineligible author.
+    const tplForSend =
+      travelGrant.html && !templateUsesTravelGrantBlock(tpl.htmlContent, tpl.textContent, tpl.subject)
+        ? {
+            ...tpl,
+            htmlContent: `${tpl.htmlContent}\n{{travelGrantBlock}}`,
+            textContent: `${tpl.textContent}\n\n{{travelGrantBlockText}}`,
+          }
+        : tpl;
+
+    const rendered = renderAndWrap(tplForSend, vars, branding);
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
       cc: brandingCc(branding, [{ email: speaker.email }], [speaker.additionalEmail]),

@@ -996,6 +996,11 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Pre-rendered agreement CTA (our own markup + our own minted URL) —
   // see buildAgreementBlock() in speaker-agreement.ts.
   "agreementBlock",
+  // Pre-rendered travel-grant CTA (our own markup, our own minted URL, and
+  // the organizer's own message from Content -> Abstracts) — see
+  // buildTravelGrantBlock() in travel-grant/block.ts. Renders as NOTHING for
+  // an author who is not eligible, which is why it is safe in every template.
+  "travelGrantBlock",
   // Webinar enrichment in bulk-email.ts.
   "passcodeBlock",
   "recordingBlock",
@@ -1892,6 +1897,7 @@ We look forward to seeing you!
       <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
     <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Important:</strong> Save this email! The link above is your personal access link to manage your submission.</p>
+    {{travelGrantBlock}}
     {{organizerSignature}}
   </div>`,
     textContent: `Abstract Submitted - {{eventName}}
@@ -1908,6 +1914,8 @@ Submission Details:
 View Your Abstract: {{managementLink}}
 
 Important: Save this email! The link above is your personal access link to manage your submission.
+
+{{travelGrantBlockText}}
 
 {{organizerSignature}}`,
   },
@@ -3121,6 +3129,17 @@ export function getSamplePreviewVariables(
     agreementBlock:
       '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a></div></div>',
     agreementBlockText: "Review and accept the speaker agreement: #",
+    // Travel grant CTA on the abstract-submission confirmation. Deliberately
+    // shows the POPULATED shape: in the live send this renders as NOTHING for
+    // a UAE-based author, an unrecognised country, or an event with the
+    // feature off, and a preview of an empty string tells the organizer
+    // nothing about the copy they just wrote. The link stays a placeholder
+    // because minting a real per-author token for a preview would hand out a
+    // live credential (the agreementBlock rule, same reason).
+    travelGrantBlock:
+      '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><div style="margin: 0 0 16px 0; color: #374151; font-size: 14px;"><p>Your travel-grant message from Content &rarr; Abstracts appears here.</p></div><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Confirm your travel grant</a></div><p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p></div>',
+    travelGrantBlockText:
+      "Your travel-grant message from Content -> Abstracts appears here.\n\nConfirm your travel grant here (link unique to you): #",
     // Presenter fee on the abstract-submitter welcome (plan D2/D3). Renders as
     // NOTHING on an event with no presenter rates, which is every event until
     // an organizer configures one — the preview shows the populated shape.
