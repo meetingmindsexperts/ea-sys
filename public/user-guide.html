@@ -303,6 +303,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <a class="nav-a" href="#s6"><span class="nav-n">6</span>Accommodation &amp; Hotels</a>
     <div class="nav-lbl">Medical &amp; Scientific</div>
     <a class="nav-a" href="#s7"><span class="nav-n">7</span>Abstracts &amp; Reviews</a>
+    <a class="nav-a" href="#stravel">Travel Grants</a>
     <div class="nav-lbl">Finance &amp; Commercial</div>
     <a class="nav-a" href="#s8"><span class="nav-n">8</span>Finance &amp; Invoicing</a>
     <a class="nav-a" href="#sreimb">Speaker Reimbursements</a>
@@ -1192,6 +1193,73 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <div class="sub" id="s7-7">
         <div class="sub-title">Reviewer self-service portal</div>
         <p>Reviewers have their own portal at <code>/my-reviews</code> that lists every abstract assigned to them across all events. They submit scores from there. See <a href="#s13">Section 13</a>.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- STRAVEL: TRAVEL GRANTS -->
+    <div class="section" id="stravel">
+      <div class="sec-hd"><div class="sec-num">&#9992;</div><div class="sec-meta">
+        <div class="sec-title">Travel Grants</div>
+        <div class="sec-desc">Offer a travel grant to abstract authors travelling from outside the UAE &mdash; the invitation rides inside their submission-confirmation email, and they confirm on a short private form.</div>
+        <span class="sec-badge b-event">Abstracts &middot; Medical &amp; Scientific</span>
+      </div></div>
+
+      <div class="sub" id="stravel-0">
+        <div class="callout c-warn"><div class="c-icon">&#128679;</div><div class="c-body"><div class="c-title">Being built &mdash; what works today</div><div class="c-text">The <strong>setup</strong> described below is live: you can switch Travel Grant on and write both texts now. The <strong>invitation email, the consent form and the Travel Grants console are not deployed yet</strong> and arrive in a following release. Turning the switch on today changes nothing that your authors can see, so it is safe to configure in advance &mdash; which is in fact the recommended order.</div></div></div>
+      </div>
+
+      <div class="sub" id="stravel-1">
+        <p><strong>Travel Grants</strong> let you offer help with travel costs to the authors who have furthest to come. When an author submits an abstract, the system looks at the country on their profile. If it is <strong>not the UAE</strong>, their confirmation email carries a short message from you and a <strong>private link</strong>. That link opens a one-page form where they confirm they are not a UAE resident, that they would like to be considered, and accept your terms &mdash; signed with their typed name and stamped with the date.</p>
+        <p><strong>An author based in the UAE sees nothing at all.</strong> No extra paragraph, no empty heading, no dead link &mdash; their confirmation email is exactly what it is today.</p>
+        <div class="callout c-tip"><div class="c-icon">&#128161;</div><div class="c-body"><div class="c-title">It records interest, not money</div><div class="c-text">The form captures <strong>eligibility and intent only</strong>. There are no amounts, no flight details, no passport and no bank details on it &mdash; deliberately, so there is only ever <em>one</em> place to look for a person&rsquo;s payment information. When you decide who actually receives a grant, the money side is handled by <a href="#sreimb">Speaker Reimbursements</a>.</div></div></div>
+      </div>
+
+      <div class="sub" id="stravel-2">
+        <div class="sub-title">Setting it up &mdash; three things, in this order</div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Switch it on</strong> &mdash; <strong>Event &rarr; Settings &rarr; Abstracts &rarr; Travel Grant</strong>, then Save. It is off by default on every event.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Write the email message</strong> &mdash; <strong>Event &rarr; Content &rarr; Abstracts &rarr; Travel Grant &mdash; email message</strong>. This is the paragraph that appears in the confirmation email, above the button. A sentence or two: what you are offering, and roughly what it covers.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Write the consent-form terms</strong> &mdash; <strong>Event &rarr; Content &rarr; Abstracts &rarr; Travel Grant &mdash; consent form terms</strong>. This is what the author is actually agreeing to. Leave it blank to use the built-in default.</div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#9200;</div><div class="c-body"><div class="c-title">Switch it on BEFORE you open your call for abstracts</div><div class="c-text">The invitation is attached to the <strong>submission confirmation</strong>, so it only reaches authors who submit <em>after</em> you enable it. Authors who submitted earlier are not emailed retrospectively &mdash; you would have to send each of them a link by hand from the console. Enabling it first costs nothing and covers everyone automatically.</div></div></div>
+      </div>
+
+      <div class="sub" id="stravel-3">
+        <div class="sub-title">How eligibility is decided</div>
+        <p>Purely by the <strong>country on the author&rsquo;s profile</strong> &mdash; the one they chose when they created their submitter account. There is no separate residency question and no manual override at send time.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Country is the UAE</strong> &rarr; not eligible. Nothing is sent, nothing is created.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Country is any other recognised country</strong> &rarr; eligible. They get the message and their private link.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Country is blank or not recognised</strong> &rarr; <strong>nothing is sent</strong>, and they are listed separately in the console so you can decide by hand. The system will not guess.</div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#128269;</div><div class="c-body"><div class="c-title">Why blank means &ldquo;ask a human&rdquo; rather than &ldquo;assume overseas&rdquo;</div><div class="c-text">Country is typed text on some imported records, so values like &ldquo;Dubai&rdquo; turn up. Dubai <em>is</em> in the UAE, so treating anything unrecognised as overseas would email a grant offer to someone living twenty minutes from the venue. Listing them for you instead is recoverable; the email is not. In practice this is rare for abstract authors, because a country is <strong>required</strong> before anyone can submit an abstract at all.</div></div></div>
+      </div>
+
+      <div class="sub" id="stravel-4">
+        <div class="sub-title">Running it during the call for abstracts</div>
+        <p>Once it is on, there is nothing to do day to day. Each qualifying submission creates one record and sends one invitation, automatically. The <strong>Travel Grants console</strong> is where you watch it:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Everyone is listed</strong>, not only the invited &mdash; each abstract author with their country and whether they were eligible, so an author who picked the wrong country is visible rather than lost.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Per-row actions</strong> &mdash; copy the link, or send it again if someone deleted the email.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Remind everyone pending</strong> &mdash; one button that re-sends only to authors who were invited and have not yet responded. It never emails the people it is showing you for information.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Export CSV</strong> &mdash; the confirmed list, for whoever is deciding the awards.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="stravel-5">
+        <div class="sub-title">Common questions</div>
+        <div class="faq">
+          <p><strong>An author submitted three abstracts &mdash; do they get three invitations?</strong><br>No. One person, one link, one consent. The grant follows the traveller, and a person only travels once. Their later confirmation emails simply repeat the same link, or note that they have already confirmed.</p>
+          <p><strong>Someone tells me they should qualify but never received anything.</strong><br>Almost always the country on their profile. Open the console: they will be listed with the country we hold. Once it is corrected, use the per-row send button to give them their link.</p>
+          <p><strong>Can I turn it on halfway through the call for abstracts?</strong><br>Yes, but authors who already submitted will not be emailed. They appear in the console and you send their links individually. Turning it on before the call opens avoids this entirely.</p>
+          <p><strong>Does confirming mean they have been awarded a grant?</strong><br>No, and the terms should say so. Confirming records that they are eligible and interested. Deciding who receives a grant is yours, outside the system.</p>
+          <p><strong>An author declined. Will we keep asking?</strong><br>No. A decline is recorded, they drop out of the reminder list, and their later abstracts will not re-ask.</p>
+          <p><strong>Can I change the message after people have already confirmed?</strong><br>You can change both texts at any time. The <strong>email message</strong> simply applies from then on. The <strong>consent terms</strong> are different: a copy of the terms is stored against every confirmation, so editing them changes what future authors see and never rewrites what somebody already signed.</p>
+          <p><strong>What does the author actually have to do?</strong><br>Open the link, read the terms, tick that they are not a UAE resident and would like to be considered, type their name, submit. Under a minute, no account and no login needed.</p>
+          <p><strong>Who can see the confirmations?</strong><br>Admins and Organizers.</p>
+        </div>
       </div>
     </div>
 
