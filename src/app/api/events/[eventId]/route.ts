@@ -61,6 +61,12 @@ const updateEventSchema = z.object({
   sessionProposalWelcomeHtml: z.string().max(50000).nullable().optional(),
   abstractGuidelinesHtml: z.string().max(50000).nullable().optional(),
   abstractTermsHtml: z.string().max(50000).nullable().optional(),
+  // Travel Grant copy, edited under Content -> Abstracts. Two texts because
+  // they answer different questions: the message renders inside the abstract
+  // submission-confirmation email, the terms render on the consent form and
+  // are snapshotted onto the row at consent.
+  travelGrantMessageHtml: z.string().max(50000).nullable().optional(),
+  travelGrantTermsHtml: z.string().max(50000).nullable().optional(),
   abstractConfirmationHtml: z.string().max(50000).nullable().optional(),
   registrationConfirmationHtml: z.string().max(50000).nullable().optional(),
   speakerAgreementHtml: z.string().max(50000).nullable().optional(),
@@ -263,6 +269,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       sessionProposalWelcomeHtml,
       abstractGuidelinesHtml,
       abstractTermsHtml,
+      travelGrantMessageHtml,
+      travelGrantTermsHtml,
       abstractConfirmationHtml,
       registrationConfirmationHtml,
       speakerAgreementHtml,
@@ -558,6 +566,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(sessionProposalWelcomeHtml !== undefined && { sessionProposalWelcomeHtml }),
         ...(abstractGuidelinesHtml !== undefined && { abstractGuidelinesHtml }),
         ...(abstractTermsHtml !== undefined && { abstractTermsHtml }),
+        ...(travelGrantMessageHtml !== undefined && { travelGrantMessageHtml }),
+        ...(travelGrantTermsHtml !== undefined && { travelGrantTermsHtml }),
         ...(abstractConfirmationHtml !== undefined && { abstractConfirmationHtml }),
         ...(registrationConfirmationHtml !== undefined && { registrationConfirmationHtml }),
         ...(speakerAgreementHtml !== undefined && { speakerAgreementHtml }),

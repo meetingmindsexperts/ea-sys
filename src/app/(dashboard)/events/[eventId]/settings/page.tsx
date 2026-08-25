@@ -11,6 +11,7 @@ import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreem
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
+import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
   CONTENT_WORDS_CEILING,
@@ -259,6 +260,13 @@ export default function EventSettingsPage() {
   const [sessionProposalDeadline, setSessionProposalDeadline] = useState("");
 
   /**
+   * Travel Grant master switch. Defaults OFF and only an explicit boolean true
+   * enables it, because this flag decides whether we email people: see the
+   * fail-closed reasoning in lib/travel-grant/settings.ts.
+   */
+  const [travelGrantEnabled, setTravelGrantEnabled] = useState(false);
+
+  /**
    * Per-event abstract limits. Held as STRINGS so an organizer can clear a box
    * mid-edit without it snapping to 0; parsed on save, where an empty or
    * unparseable value falls back to the default rather than storing garbage.
@@ -390,6 +398,8 @@ export default function EventSettingsPage() {
         );
 
         setPresenterPayNow(readPresenterRegistrationSettings(settings).payNowEnabled);
+
+        setTravelGrantEnabled(readTravelGrantSettings(settings).enabled);
 
         const lim = readAbstractLimits(settings);
         setAbstractLimits({
@@ -548,6 +558,7 @@ export default function EventSettingsPage() {
                   : Number(abstractLimits.maxAbstractsPerSubmitter) || null,
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
+            travelGrant: { enabled: travelGrantEnabled },
             sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
           },
         }),
@@ -1585,6 +1596,40 @@ export default function EventSettingsPage() {
                   {saving ? "Saving..." : "Save Settings"}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Travel Grant</CardTitle>
+              <CardDescription>
+                Offer a travel grant to abstract authors based outside the UAE. When on,
+                a personal consent link rides inside the submission-confirmation email of
+                every author whose recorded country is not the UAE. Authors in the UAE
+                receive nothing extra.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Enable Travel Grant</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Applies to abstracts submitted from now on. Turn this on{" "}
+                    <strong>before</strong> your call for abstracts opens, so every author is
+                    covered automatically.
+                  </p>
+                </div>
+                <Switch checked={travelGrantEnabled} onCheckedChange={setTravelGrantEnabled} />
+              </div>
+
+              {travelGrantEnabled && (
+                <p className="text-sm text-muted-foreground">
+                  Write the email message and the consent-form terms under{" "}
+                  <strong>Content &rarr; Abstracts</strong>. Authors whose country is blank or
+                  unrecognised are <strong>not</strong> emailed, and are listed separately in the
+                  Travel Grants console so you can decide by hand.
+                </p>
+              )}
             </CardContent>
           </Card>
 

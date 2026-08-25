@@ -38,6 +38,8 @@ export default function ContentPage() {
     sessionProposalWelcomeHtml: "",
     abstractGuidelinesHtml: "",
     abstractTermsHtml: "",
+    travelGrantMessageHtml: "",
+    travelGrantTermsHtml: "",
     abstractConfirmationHtml: "",
     speakerAgreementHtml: "",
   });
@@ -73,6 +75,8 @@ export default function ContentPage() {
             // (the submission surfaces fall back to the same default anyway).
             abstractGuidelinesHtml: data.abstractGuidelinesHtml || DEFAULT_ABSTRACT_GUIDELINES_HTML,
             abstractTermsHtml: data.abstractTermsHtml || "",
+            travelGrantMessageHtml: data.travelGrantMessageHtml || "",
+            travelGrantTermsHtml: data.travelGrantTermsHtml || "",
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
             speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
@@ -113,6 +117,8 @@ export default function ContentPage() {
           sessionProposalWelcomeHtml: content.sessionProposalWelcomeHtml || null,
           abstractGuidelinesHtml: content.abstractGuidelinesHtml || null,
           abstractTermsHtml: content.abstractTermsHtml || null,
+          travelGrantMessageHtml: content.travelGrantMessageHtml || null,
+          travelGrantTermsHtml: content.travelGrantTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
           speakerAgreementHtml: content.speakerAgreementHtml || null,
           // Partial settings merge — the PUT preserves other settings keys.
@@ -314,6 +320,54 @@ export default function ContentPage() {
                   content={content.abstractTermsHtml}
                   onChange={(html) => setContent({ ...content, abstractTermsHtml: html })}
                   placeholder="Leave blank to use the built-in default Presenter Agreement..."
+                />
+              </CardContent>
+            </Card>
+
+            {/* Travel Grant. Two texts because they answer different questions:
+                the message says WHY you are receiving this and renders inside
+                the abstract submission-confirmation email; the terms say WHAT
+                you are agreeing to, render on the consent form, and are
+                snapshotted onto the row at consent so a later edit here cannot
+                rewrite what somebody already signed. Both are inert until the
+                feature is switched on under Settings -> Abstracts. */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Travel Grant &mdash; email message</CardTitle>
+                <CardDescription>
+                  Shown inside the abstract submission-confirmation email, above the
+                  &ldquo;Confirm your travel grant&rdquo; button, to authors based{" "}
+                  <strong>outside the UAE</strong>. Authors in the UAE never see it and
+                  receive no extra content at all. Only takes effect once Travel Grant is
+                  enabled under <strong>Settings &rarr; Abstracts</strong>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TiptapEditor
+                  content={content.travelGrantMessageHtml}
+                  onChange={(html) => setContent({ ...content, travelGrantMessageHtml: html })}
+                  placeholder="e.g. We offer a limited number of travel grants to authors travelling from outside the UAE..."
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Travel Grant &mdash; consent form terms</CardTitle>
+                <CardDescription>
+                  Shown on the consent form itself, and what the author is agreeing to when
+                  they sign. <strong>A copy is stored against each consent</strong>, so
+                  editing this later changes what future authors see but never rewrites
+                  what somebody has already signed. Leave blank to use the built-in
+                  default. State plainly that the author&apos;s own declaration governs
+                  eligibility, since their recorded country is only a proxy for residency.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TiptapEditor
+                  content={content.travelGrantTermsHtml}
+                  onChange={(html) => setContent({ ...content, travelGrantTermsHtml: html })}
+                  placeholder="Leave blank to use the built-in default terms..."
                 />
               </CardContent>
             </Card>
