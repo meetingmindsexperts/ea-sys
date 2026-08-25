@@ -30,6 +30,10 @@ writes the message and the terms under **Content → Abstracts**.
 | **D3** | Delivery | **A block inside the existing `abstract-submission-confirmation` email**, not a separate send. One email. |
 | **D4** | Unknown or unrecognised country | **Do not send, and flag it in the console.** An offer sent to a Dubai resident who is then refused costs more than a missing one, because a missing one is chaseable. |
 | **D5** | Which events it applies to | **Going forward only, on events where the toggle is on.** No bulk retroactive sweep over abstracts that arrived before the toggle was enabled, and nothing at all for past events. Owner instruction, 2026-08-25. See §6d for why this is safe rather than merely cheap. |
+| **D6** | How residency is determined | **The country selection on the submitting author's profile**, and nothing else. No separate residency question, no employer-country field, no manual override at send time. Owner instruction, 2026-08-25. The consent tick on the form is the author's own declaration and is the backstop; the country field is what does the routing. |
+| **D7** | What the console lists | **Every abstract author, with their residency class** (eligible / UAE / country not recorded), not only the invited ones. One list, one per-row send button, covering a D4 refusal, a mis-picked country and a lost email with the same affordance. See the guard in §6d, because this deliberately puts people who must not be emailed in the same table as a bulk send. |
+| **D8** | Trigger timing | **Submission only.** The block does not go on the abstract acceptance email. Interest is captured early so the size of the ask is known before budgeting. Closes §11 Q2. |
+| **D9** | Chasing | **Yes, a "remind everyone pending" action**, matching Dinner RSVP's Remind pending. **This is not in tension with D5**: D5 refused a sweep over abstracts that were never invited, which would have to scan the Abstract table; this re-sends to rows that already exist in `TravelGrant` with `status = PENDING`. Bounded, and cheap for that reason. Closes §11 Q3. |
 
 ## 3. Live state on production (read-only, 2026-08-25)
 
@@ -238,8 +242,30 @@ Setup hub, rendered only when the feature is enabled.
 - Status tiles: invited, consented, declined, **plus "country not recorded"**,
   which is where D4's refusals surface. That tile is the whole reason D4 is safe:
   the people we deliberately did not email are visible rather than lost.
-- Table: author, country, status, consented-at, **copy link, send link**, reopen.
+- Table: **every abstract author on this event** (D7), with author, country,
+  **residency class**, status, consented-at, **copy link, send link**, reopen.
+- **Remind everyone pending** (D9), scoped as described in the guard below.
 - CSV export, audited via `recordExport` like every other PII export.
+
+> ### The guard D7 and D9 create together
+>
+> **D7 puts people who must not be emailed into the same table as a bulk send
+> button.** A UAE-based author and an author with no country recorded both appear
+> in that list by design, so that a mis-picked country is recoverable. Directly
+> above them sits Remind everyone pending.
+>
+> **So the remind action must key off `TravelGrant.status = PENDING` on rows that
+> already exist, never off the rows the table happens to be showing.** A UAE
+> author has no `TravelGrant` row at all, so a correctly-written action cannot
+> reach them; an action written against the rendered list would email every one
+> of them. The confirm dialog states the exact recipient count before sending,
+> and the count comes from the same query that does the sending, so the number
+> shown and the number emailed cannot disagree.
+>
+> Pinned by a test that seeds a UAE author and an unknown-country author
+> alongside two pending eligible ones and asserts the action sends exactly two.
+> **Mutation to verify against:** sourcing the recipients from the list query
+> instead of the status query, which must fail that test.
 
 > **No bulk retroactive sweep in v1 (D5).** The feature applies going forward, on
 > events where the toggle is on. An earlier draft of this plan built a
@@ -335,15 +361,23 @@ the author.
 
 ## 11. Open questions worth answering before the build starts
 
-1. **Is "not a UAE resident" really the rule, or is it "not employed in the
-   UAE"?** We match on the address country recorded at submitter registration.
-   A UAE-resident doctor who registered with a home address abroad would be
-   classified as overseas, and vice versa. The field is a proxy; the plan should
-   say so out loud in the terms text so the author self-declares rather than
-   relying on our inference alone. The required tick already does this, which is
-   why D1's wording matters.
-2. **Should the block also appear on the abstract acceptance email?** Today the
-   trigger is submission. If most grants are decided after acceptance, the
-   acceptance email is arguably the better moment, or the second moment.
-3. **Does a declined or non-consenting author need chasing?** If yes, the console
-   needs a "chase pending" action rather than only "send invitations".
+1. ✅ **CLOSED 2026-08-25 by D6: residency is the country selection, full stop.**
+   Recorded here because the consequence should stay visible rather than be
+   forgotten. The country field is a proxy for residency, so a UAE-based doctor
+   who registered with a home address abroad reads as overseas, and an overseas
+   author who picked the wrong country reads as UAE. **The two errors are not
+   symmetric.** The first is self-correcting, because that person is asked to
+   tick "I am not a UAE resident" and can simply decline. **The second is silent
+   and invisible to both sides:** no block renders, no email mentions it, no
+   record is created, and the author has no way to know an offer existed. This
+   is why §6d lists every abstract author with their residency class rather than
+   only the eligible ones. The terms text should also state plainly that the
+   author's own declaration governs, so the tick is doing real work and is not
+   decoration on top of our inference.
+2. ✅ **CLOSED 2026-08-25 by D8: submission only.** The abstract acceptance
+   email is untouched. If grants later turn out to be decided only after review
+   outcomes, adding the same block to `abstract-status-update` is a small change,
+   and the block already knows not to re-ask somebody who has consented.
+3. ✅ **CLOSED 2026-08-25 by D9: yes, a remind-pending action.**
+
+**No open questions remain. The plan is ready to build on an explicit go-ahead.**
