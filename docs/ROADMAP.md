@@ -241,6 +241,17 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Session revocation — deliberate carry-overs (Aug 25, 2026)
+
+Web and mobile session revocation both work now (see SESSION_ARCHITECTURE §6).
+These are the two things sized and deliberately not built.
+
+| # | Sev | Finding |
+|---|-----|---------|
+| S-1 | MED | **Rotating `NEXTAUTH_SECRET` irreversibly breaks every outstanding hashed token.** `hashVerificationToken` peppers with that secret and the resulting hashes are **stored**, so a rotation invalidates every live password-reset, email-verification, team-invitation, survey, RSVP, speaker-agreement, presenter-agreement and reimbursement link with no way to re-derive them. `NEXTAUTH_SECRET_FALLBACK` exists but is only honoured by `eventsair-client.ts` for credential *decryption*, not here. **Sized and declined:** the fix is a `verificationTokenHashCandidates(raw): string[]` helper returning `[primary]` or `[primary, fallback]`, consumed as `{ tokenHash: { in: candidates } }` so it stays one query — but that is ~13 call sites across 8 files, for a once-ever break-glass action whose consequence is "everyone with a live link needs a new one", which is recoverable and arguably expected after a master-secret rotation. **Build it only if a zero-disruption rotation is ever a requirement.** Until then the consequence belongs in the rotation runbook, not in code. |
+| S-2 | LOW | **A stolen mobile ACCESS token stays usable for its full 24h.** `api-auth.ts` verifies it by signature alone with no database read, so deactivation and revocation do not reach it. Accepted deliberately and marked with a `ponytail:` comment naming the ceiling: it runs on every mobile API call, and a per-request user lookup to shorten a bounded window is the wrong trade. The window is bounded because both doors that could *extend* it now check. Upgrade paths, in order of cheapness: shorten `ACCESS_TOKEN_MAX_AGE` (one constant, more refresh traffic, but it would break a client that assumes 24h), or put the lookup behind a short in-process cache (the `lobby-status` 3s pattern). Zero mobile logins on prod ever, so there is no live exposure today. |
+| S-3 | LOW | **Token theft leaves no trace in Sign-in Activity.** `LoginEvent` records sign-in *attempts*; a stolen token skips login entirely, so the one view built for "is someone in my account" cannot show it. What would show it is `lastSeenAt` activity at implausible hours and the audit trail of actions taken. Worth a line in the incident runbook; a real fix means recording token *use*, not just token issue, which is a different and much noisier dataset. |
+
 ### Contacts inbound import — deferred review findings (Aug 18, 2026)
 
 Three-lens adversarial review of the inbound `contacts_centralv1` import, the

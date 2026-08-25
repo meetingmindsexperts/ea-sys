@@ -9,6 +9,7 @@ import {
   createMobileRefreshToken,
 } from "@/lib/mobile-jwt";
 import { touchLastSeen } from "@/lib/active-users";
+import { decideSessionValidity } from "@/lib/session-validity";
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
@@ -50,7 +51,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Re-validate user still exists and fetch current role
+    // Re-validate the account and fetch its current role.
+    //
+    // This used to check only that the user still EXISTED, which meant a
+    // stolen refresh token kept minting fresh 24h access tokens for its full
+    // 30-day life, and deactivating the account did nothing to stop it. Only
+    // deleting the account closed it. It now asks the same question the web
+    // JWT callback asks, through the same function, so the two cannot drift:
+    // deleted, deactivated, or explicitly revoked all end the session here.
     const user = await db.user.findUnique({
       where: { id: decoded.userId },
       select: {
@@ -59,14 +67,22 @@ export async function POST(req: Request) {
         firstName: true,
         lastName: true,
         role: true,
+        deactivatedAt: true,
+        tokenVersion: true,
         organizationId: true,
         organization: { select: { name: true } },
       },
     });
 
-    if (!user) {
+    const decision = decideSessionValidity(user, decoded.tokenVersion);
+    if (decision.action === "invalidate" || !user) {
+      apiLogger.warn({
+        msg: "auth/mobile-refresh:session-invalidated",
+        reason: decision.action === "invalidate" ? decision.reason : "user-deleted",
+        userId: decoded.userId,
+      });
       return NextResponse.json(
-        { error: "User no longer exists" },
+        { error: "Session is no longer valid. Please sign in again." },
         { status: 401 }
       );
     }
@@ -77,6 +93,7 @@ export async function POST(req: Request) {
       role: user.role,
       organizationId: user.organizationId ?? null,
       organizationName: user.organization?.name ?? null,
+      tokenVersion: user.tokenVersion,
       firstName: user.firstName,
       lastName: user.lastName,
     };

@@ -10,6 +10,18 @@ interface MobileTokenPayload {
   organizationName: string | null;
   firstName: string;
   lastName: string;
+  /**
+   * Session revocation counter, mirroring the web JWT's claim of the same
+   * name. REQUIRED rather than optional on purpose: a mint site that forgets
+   * it would produce a token that can never be revoked, and it would fail
+   * silently. Making the compiler ask is the whole point.
+   *
+   * Tokens minted before Aug 25 2026 carry no such claim, so it arrives
+   * `undefined` when decoded. `decideSessionValidity` treats undefined as 0,
+   * which matches the column default, so this ships without signing anyone
+   * out (verified: all 129 production users are at tokenVersion 0).
+   */
+  tokenVersion: number;
 }
 
 interface DecodedMobileToken extends MobileTokenPayload {

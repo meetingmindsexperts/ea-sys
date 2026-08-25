@@ -232,13 +232,37 @@ Three properties worth keeping in mind:
    not eject them.
 3. **Latency is up to 5 minutes**, the re-validation interval, not instant.
 
-**Still open: the mobile token path.** [mobile-jwt.ts](../src/lib/mobile-jwt.ts)
+**The mobile token path (CLOSED 2026-08-25).** [mobile-jwt.ts](../src/lib/mobile-jwt.ts)
 is a separate token system, not NextAuth, with a 24h access token and a **30-day
-refresh token**. `mobile-refresh` does re-read the user, so a *deleted* account
-is refused there, but it does not check `tokenVersion`, so an explicit
-revocation (password reset) does not reach a mobile session. Entirely
-theoretical today: prod has **0 device tokens and 0 mobile logins, ever**. The
-fix is the same three lines in `mobile-refresh` plus the claim in the payload.
+refresh token**. It was worse than the note here recorded. `mobile-refresh` did
+re-read the user, so a *deleted* account was refused, but it never checked
+`tokenVersion` **and `mobile-login` had no deactivation check at all** — so a
+deactivated account could sign in on mobile and collect a fresh pair. That made
+"deactivate the account" a complete answer on web and a false one on mobile,
+which is the worst kind of control: one an operator reasonably believes they
+have used.
+
+Both doors now ask the same question through the same function:
+
+- `mobile-login` refuses a deactivated account, after the password compare so
+  there is no account-state oracle, and emits `BLOCKED_DEACTIVATED` like the
+  web path.
+- `mobile-refresh` calls `decideSessionValidity`, so deleted, deactivated and
+  revoked all end the session.
+- The payload carries `tokenVersion`, stamped from the **row** on both mint
+  sites, so a bump landing mid-session propagates into the reissued pair rather
+  than being laundered forward from the presented token.
+
+Shipped with **0 device tokens and 0 mobile logins, ever** on prod, and all 129
+users at `tokenVersion` 0, so it changed nothing for anyone.
+
+**Deliberately still open: the access path.** [api-auth.ts](../src/lib/api-auth.ts)
+verifies a mobile access token by signature alone with no database read, so a
+stolen one stays usable for its full 24h. Accepted: it runs on every mobile API
+call, and a per-request lookup to shorten a bounded window is the wrong trade.
+What makes the window bounded is that both doors which could *extend* it now
+check. Marked with a `ponytail:` comment naming the ceiling and its two upgrade
+paths.
 
 ---
 
@@ -375,6 +399,7 @@ the missing half.
 | 2026-08-11 | Shipped `tokenVersion` + the missing `else` | Closed the gap above. Rides the query the 5-min block already runs, so marginal cost is one column in an existing `select`. Additive migration, and a missing claim reads as 0, so the deploy signs nobody out |
 | 2026-08-11 | `deactivatedAt` as a flag, not a `DEACTIVATED` role | A role would overwrite the real one, would have to be handled in ~10 predicates where a miss fails OPEN, and would break every exhaustive role map. As a flag it is one check, ahead of role, and cannot fail open |
 | 2026-08-11 | Deactivation is per-request for staff, periodic for everyone else | Instant where it is expected, free where the volume is. One policy for both populations is what would have made it expensive |
+| 2026-08-25 | Mobile doors honour revocation | `mobile-login` refused nothing (a deactivated account could sign in) and `mobile-refresh` checked only existence, so a stolen refresh token minted access tokens for 30 days. Both now route through `decideSessionValidity`; the access path keeps its 24h ceiling by choice, documented rather than implicit |
 | 2026-08-11 | **Stay hybrid; do not migrate to database sessions yet** | On a clean build I would pick stateful for a monolith with one database: it deletes `roleCheckedAt`, `lastSeenAt` and `tokenVersion` outright. Deferred on SEQUENCING, not merit: PLATFORM_DECISIONS item 6 (identity model, "email unique per tenant") reopens auth anyway, and migrating first means doing it twice, the second time under a constraint not yet chosen. **Revisit trigger: when the identity decision lands.** |
 
 ## 9. See also

@@ -59,6 +59,8 @@ export async function POST(req: Request) {
           firstName: true,
           lastName: true,
           role: true,
+          deactivatedAt: true,
+          tokenVersion: true,
           organizationId: true,
           organization: {
             select: { name: true },
@@ -141,6 +143,41 @@ export async function POST(req: Request) {
       );
     }
 
+    // Deactivation must close EVERY door, and until Aug 25 2026 this one was
+    // wide open: the mobile login had no such check, so a deactivated account
+    // could sign in here and collect a fresh 24h access token plus a 30-day
+    // refresh token. Checked after the password compare, matching the web
+    // path, so a wrong password on a deactivated account still answers
+    // "invalid credentials" rather than confirming the account exists.
+    // Deactivation must close EVERY door, and until Aug 25 2026 this one was
+    // wide open: the mobile login had no such check, so a deactivated account
+    // could sign in here and collect a fresh 24h access token plus a 30-day
+    // refresh token. Checked after the password compare, matching the web
+    // path, so a wrong password on a deactivated account still answers
+    // "invalid credentials" rather than confirming the account exists.
+    if (user.deactivatedAt) {
+      apiLogger.warn({
+        msg: "auth/mobile-login:deactivated",
+        email,
+        ip,
+        userId: user.id,
+        deactivatedAt: user.deactivatedAt.toISOString(),
+      });
+      void recordLoginEvent({
+        email,
+        outcome: "BLOCKED_DEACTIVATED",
+        surface: "MOBILE",
+        userId: user.id,
+        organizationId: user.organizationId,
+        ipAddress: ip,
+        userAgent,
+      });
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
+
     clearLoginFailures(email);
     void recordLoginEvent({
       email,
@@ -161,6 +198,7 @@ export async function POST(req: Request) {
       organizationName: user.organization?.name ?? null,
       firstName: user.firstName,
       lastName: user.lastName,
+      tokenVersion: user.tokenVersion,
     };
 
     const accessToken = createMobileAccessToken(tokenPayload);

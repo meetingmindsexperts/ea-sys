@@ -47,6 +47,20 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
   const bearerToken = authHeader?.replace(/^Bearer\s+/i, "").trim() ?? null;
 
   // 2a. Try mobile JWT first (mobile JWTs contain a dot-separated structure)
+  //
+  // ponytail: signature-only, no database read. The ceiling is that a stolen
+  // ACCESS token stays usable for its full 24h even after the account is
+  // deactivated or revoked, because nothing here asks the database. Accepted
+  // deliberately: this runs on every mobile API call, and a per-request user
+  // lookup to shorten a bounded 24h window is the wrong trade. What makes the
+  // window bounded is that the two doors which can EXTEND it both check now —
+  // mobile-login refuses a deactivated account, and mobile-refresh runs
+  // `decideSessionValidity` — so a compromised session cannot outlive the
+  // access token it was stolen with.
+  //
+  // Upgrade path if 24h is ever too long: shorten ACCESS_TOKEN_MAX_AGE in
+  // mobile-jwt.ts (one constant, costs more refresh traffic), or add the
+  // lookup behind a short in-process cache, the `lobby-status` 3s pattern.
   if (bearerToken && bearerToken.split(".").length === 3) {
     const decoded = verifyMobileToken(bearerToken);
     if (decoded && decoded.type === "access" && decoded.organizationId) {
