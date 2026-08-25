@@ -3947,3 +3947,67 @@ fixed in-band** (`8a1c...`); these are the rest, none of which blocks anything.
 Also deferred from the plan itself (§6.2, §7.4): country (needs a self-hosted
 MaxMind database to avoid adding a third party), the org-level cross-event view,
 and publishing `src/analytics/core/` as a package.
+
+---
+
+## `noUncheckedIndexedAccess`: measured, deliberately NOT flipped yet (Aug 25, 2026)
+
+**Why it is on the list.** It would have caught a production outage at compile
+time. The Travel Grants card was added to the Setup hub without a matching key
+in the `statuses` map; `StatusPill` dereferenced `undefined` and the whole page
+died with a Server Components render error, live. The compiler believed
+`statuses["travel-grants"]` was a `SetupStatus` because indexing a
+`Record<string, V>` is typed as always-present while this flag is off.
+
+**Measured, not estimated** (flag on, `tsc --noEmit`, flag restored):
+
+| Scope | Errors | Files |
+|---|---|---|
+| **Everything** | **1,527** | **272** |
+| `__tests__/**` | 1,060 (69%) |, |
+| **Shipped code** (`src/`, `worker/`, `scripts/`) | **~430** | ~180 |
+
+By kind: 804 × TS2532 and 315 × TS18048 (both "possibly undefined") are the
+class this is about; the remaining ~400 are knock-on assignability errors.
+Worst single files: `speaker-agreement-pdf.test.ts` (110),
+`speaker-agreement.ts` (54), `import/registrations/route.ts` (37).
+
+### The recommendation: do NOT flip it globally right now
+
+Three reasons, in order of weight:
+
+1. **A rushed sweep would reinstate the bug with worse syntax.** Most of the 430
+   are `arr[0]` where the author knows the array is non-empty. The mechanical
+   fix is `!`, and 430 new non-null assertions is a codebase that has *told the
+   compiler to shut up in 430 places* rather than one that is safer. The value
+   only lands if each site is actually thought about, which is the expensive
+   part and cannot be batched.
+2. **Production is live.** A 430-site diff across the API surface, the services
+   layer and the CRM carries real regression risk for a benefit that is
+   preventative rather than corrective.
+3. **69% of the noise is in tests**, where the bug class does not matter: a test
+   indexing an array it constructed three lines earlier is not a hazard.
+
+### The cheaper path, in cost order
+
+1. **Class-specific guards where the class actually bites.** The Setup-hub
+   coverage test (`setup-hub-status-coverage.test.ts`) is the template: compare
+   the two lists in both directions, and make the runtime degrade rather than
+   throw. Cheap, targeted, and it fixes the instance rather than the language.
+2. **An app-only tsconfig as a NON-GATING CI job.** `tsconfig.strict.json`
+   extending the base with the flag on and including only `src/`, reported but
+   not blocking. That surfaces the ~430 number on every push so it can be burned
+   down opportunistically, and it follows the precedent this repo already set
+   with the tenancy job: non-gating first, promote to gating after enough
+   consecutive green runs.
+3. **Flip it globally** once (2) is at or near zero.
+
+**Do not start (2) or (3) without an owner call.** (1) should just happen
+whenever the class shows up.
+
+### The narrower lesson, which applies regardless
+
+`Record<string, V>` is the wrong type for a map that is *supposed* to be
+exhaustive over a known key set. `Record<SlugUnion, V>` makes a missing key a
+compile error today, with the flag off, and is a per-site change rather than a
+project. Prefer it whenever the keys are known.
