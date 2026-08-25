@@ -1,6 +1,7 @@
 # Security & privacy posture — client questionnaire responses
 
-**Status:** working answers, verified against the running system on 2026-08-19.
+**Status:** working answers, verified against the running system on
+2026-08-19; the encryption-in-transit answers in §3 re-verified 2026-08-24.
 **Trigger:** Emirates Health Services vendor assessment.
 **Audience:** MM Group, for completing client security questionnaires.
 
@@ -127,10 +128,39 @@ instead of in a mailbox.
 
 ## 3. Encryption
 
-**In transit — yes, throughout.**
-- All web and API traffic over HTTPS/TLS, certificates issued and auto-renewed via Let's Encrypt.
-- Database connections require SSL.
-- All third-party integrations (Stripe, Zoom, SES, Supabase, Anthropic) over TLS.
+**In transit: yes for everything carrying personal data, with two qualifications
+stated openly below.** Verified against the running system on 2026-08-24.
+
+| Path | Encrypted | Detail |
+|---|---|---|
+| Web and API traffic (every attendee and staff request) | **Yes** | HTTPS/TLS, certificate issued and auto-renewed by Let's Encrypt. Plain HTTP is redirected to HTTPS, and the application sends HSTS with a two-year lifetime, so a browser that has connected once will refuse an unencrypted connection afterwards. |
+| Application to database | **Yes in practice, but not enforced by us** | TLS is negotiated and the database provider terminates it, so live traffic is encrypted. What is missing is that the client is not configured to *require* it, and does not verify the server certificate. See open item 1. |
+| Third-party integrations (Stripe, Zoom, AWS SES, Supabase, Anthropic) | **Yes** | HTTPS, enforced by each vendor's own API. |
+| Between components inside the server | **No, and it does not need to be** | The web container, the background worker and the media server communicate over an internal network that never leaves the host. |
+| **Live-stream ingest (RTMP)** | **No** | See open item 2. Used only for internal tests to date, never for a real audience. |
+
+**Open item 1: the database connection does not *require* TLS.** The connection
+string sets no `sslmode`, so the client defaults to "prefer", meaning it uses TLS
+when the server offers it and would fall back to an unencrypted connection,
+without warning, if the server ever did not. The provider does offer TLS, so
+every real connection today is encrypted. What is absent is the guarantee that it
+always will be, plus verification of the server's certificate. **The fix is one
+configuration value and a redeploy**, with no code or schema change. This is
+recorded rather than glossed over because "encrypted in practice" and "encryption
+enforced" are different answers to the same question, and only the second one
+survives an audit.
+
+**Open item 2: live-stream ingest is unencrypted.** A webinar can optionally be
+broadcast through a media server we run ourselves instead of through Zoom. In
+that mode the presenter's software pushes video to us over **RTMP, a protocol
+with no encryption**, so both the video and the key that authorises the broadcast
+cross the internet in the clear. **Verified 2026-08-24: this path has only ever
+been used on two internal test events, on 8 and 15 April 2026, and has never
+carried a real audience.** It is a gap that would become real the first time a
+live event used it. The fix is either to enable the encrypted variant of the
+protocol (RTMPS) or to leave the feature off until it is needed. The second is in
+effect today by default, because every production webinar so far has run through
+Zoom, which encrypts its own traffic.
 
 **At rest — partially. This is the honest position:**
 
@@ -306,16 +336,18 @@ The date is an *input*, so rotation cannot fail to happen: there is no scheduled
 
 ## 9. Suggested remediation order
 
-If EHS asks what will change and by when, this is a defensible sequence. Items 1 to 4 are days of work; item 5 is a project.
+If EHS asks what will change and by when, this is a defensible sequence, listed cheapest-first. Items 0 to 7 are configuration or days of work; item 8 is a project.
 
-0. **Enable default EBS encryption on the account** (§3). Free, instant, no downtime. Does not fix the existing volume, but every future volume is encrypted and it is the account setting an assessor checks. Do this today.
-1. **Move uploaded documents to encrypted object storage** (§3, route 2). The code is already written, tested and deployed; what remains is creating the bucket and changing a setting. No downtime. This is the route that specifically covers passport scans and bank details, and it adds recoverability of a deleted document.
-2. ✅ **DONE 2026-08-21. Encrypt the server disk** (§0.2, route 1). Removes the last "no" on encryption at rest. Took **7 minutes 45 seconds** of planned downtime; see MAINT-001 for the method that made it that short.
-3. **Enable multi-factor authentication** for administrative accounts (§0.3).
-4. **Write the privacy policy, data-processing agreement and breach-notification procedure** (§7, §8). Documentation only, no engineering.
-5. **Automate dependency scanning** and publish a response-time commitment (§8).
-6. **Data residency** (§0.1). Only if EHS requires it, and **not to AWS UAE**, which is not operational. Options are a non-AWS UAE provider, or waiting for the region to recover, at which point moving uploaded documents is a configuration change rather than a project.
+0. ✅ **DONE 2026-08-20. Enable default EBS encryption on the account.** Free, instant, no downtime. It did not fix the volume that already existed (item 3 did that), but every future volume and snapshot is now encrypted, in both the primary and disaster-recovery regions. This is the account setting an assessor checks.
+1. **Require TLS on the database connection** (§3, open item 1). One configuration value plus a redeploy. No downtime, no code change, and it converts "encrypted in practice" into "encryption enforced". **This is now the cheapest remaining item.**
+2. **Move uploaded documents to encrypted object storage** (§3, route 2). The code is already written, tested and deployed; what remains is creating the bucket and changing a setting. No downtime. This is the route that specifically covers passport scans and bank details, and it adds recoverability of a deleted document.
+3. ✅ **DONE 2026-08-21. Encrypt the server disk** (§0.2, route 1). Removes the last "no" on encryption at rest. Took **7 minutes 45 seconds** of planned downtime; see MAINT-001 for the method that made it that short.
+4. **Settle the live-stream position** (§3, open item 2). Either enable the encrypted variant of the protocol, or leave the feature off until a live event actually needs it. Configuration only, and it currently affects no production event.
+5. **Enable multi-factor authentication** for administrative accounts (§0.3).
+6. **Write the privacy policy, data-processing agreement and breach-notification procedure** (§7, §8). Documentation only, no engineering.
+7. **Automate dependency scanning** and publish a response-time commitment (§8).
+8. **Data residency** (§0.1). Only if EHS requires it, and **not to AWS UAE**, which is not operational. Options are a non-AWS UAE provider, or waiting for the region to recover, at which point moving uploaded documents is a configuration change rather than a project.
 
 Independently worth doing: a defined retention period for uploaded documents, and a written data-subject-request procedure (§5).
 
-**Note on ordering.** Items 0 to 2 all address the same finding by different means and are listed cheapest-first. Item 0 costs nothing and should not wait for a decision about the others.
+**Note on ordering.** Items 0, 2 and 3 all address encryption at rest by different means, and were done or listed cheapest-first. Items 1 and 4 are the two remaining encryption-in-transit items from §3; both are configuration rather than engineering, and neither blocks anything else.
