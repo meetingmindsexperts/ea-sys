@@ -18,16 +18,18 @@ import { apiLogger } from "@/lib/logger";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode";
 import { mapWithConcurrency } from "@/lib/concurrency";
-import { badgeScale, resolveBadgeOrigin, type BadgeLayout } from "@/lib/badge-layout";
+import {
+  BASE_MARGIN,
+  badgeScale,
+  resolveBadgeOrigin,
+  type BadgeLayout,
+} from "@/lib/badge-layout";
 
 /**
  * Max simultaneous CPU-bound barcode rasterizations — keeps the event loop
  * responsive for latency-critical requests (check-in, webhooks) during a print.
  */
 const BARCODE_RENDER_CONCURRENCY = 8;
-
-/** Interior padding at the base size. Scales with the badge. */
-const BASE_MARGIN = 20;
 
 export interface BadgeRegistration {
   id: string;

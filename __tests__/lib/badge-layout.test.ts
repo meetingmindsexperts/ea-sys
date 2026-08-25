@@ -14,11 +14,15 @@ import {
   BASE_BADGE_W,
   BASE_TOP_MARGIN,
   DEFAULT_BADGE_LAYOUT,
+  BASE_MARGIN,
   badgeScale,
+  barcodeTooNarrow,
+  barcodeWidthPt,
   mmToPt,
   ptToMm,
   readBadgeLayout,
   resolveBadgeOrigin,
+  type BadgeLayout,
 } from "@/lib/badge-layout";
 
 describe("defaults reproduce the old hardcoded badge exactly", () => {
@@ -205,5 +209,43 @@ describe("the settings form round-trip preserves exactness", () => {
       },
     });
     expect(badgeScale(layout)).toEqual({ sx: 1, sy: 1, sf: 1 });
+  });
+});
+
+describe("barcode scannability warning", () => {
+  // Desk staff scan the BADGE for attendance, so the barcode is the credential
+  // and an unreadable one is a queue at the door. Shrinking the badge shrinks
+  // the bars with it, and nothing used to say so.
+  const at = (widthPt: number, barcode = true): BadgeLayout => ({
+    ...DEFAULT_BADGE_LAYOUT,
+    widthPt,
+    fields: { ...DEFAULT_BADGE_LAYOUT.fields, barcode },
+  });
+
+  it("reads the same width the renderer actually draws", () => {
+    // Derived from the renderer's own expression, not re-estimated. If these
+    // drift, the warning starts lying in one direction or the other.
+    const w = barcodeWidthPt(DEFAULT_BADGE_LAYOUT);
+    expect(w).toBe(BASE_BADGE_W - BASE_MARGIN * 2 - 20);
+    expect(ptToMm(w)).toBeCloseTo(80.4, 1);
+  });
+
+  it("does not warn on the default 4-inch badge", () => {
+    expect(barcodeTooNarrow(DEFAULT_BADGE_LAYOUT)).toBe(false);
+  });
+
+  it("warns once the badge is too narrow to carry readable bars", () => {
+    expect(barcodeTooNarrow(at(180))).toBe(true);
+  });
+
+  it("never warns when the barcode is switched off", () => {
+    // An overprinted badge with no barcode has nothing to be unreadable.
+    expect(barcodeTooNarrow(at(120, false))).toBe(false);
+  });
+
+  it("the threshold sits below the smallest common stock, not above it", () => {
+    // 3.5" x 2.25" is a real badge size an organiser can pick from the
+    // presets. If the warning fired on a preset it would be noise.
+    expect(barcodeTooNarrow(at(mmToPt(88.9)))).toBe(false);
   });
 });

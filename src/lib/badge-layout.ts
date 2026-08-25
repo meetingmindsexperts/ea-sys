@@ -39,6 +39,9 @@ export const A4_H = 841.89;
 /** Default distance from the top of the sheet, before the organiser's nudge. */
 export const BASE_TOP_MARGIN = 36; // 0.5 inch
 
+/** Interior padding at the base size. Scales with the badge. */
+export const BASE_MARGIN = 20;
+
 export type BadgeAlign = "left" | "center" | "right";
 
 /**
@@ -247,3 +250,36 @@ export const ptToMm = (pt: number): number => pt * 0.352777778;
  * 0.01pt is 0.0035mm, far below what any printer resolves.
  */
 export const mmToPt = (mm: number): number => Math.round((mm / 0.352777778) * 100) / 100;
+
+/**
+ * Printed width of the entry barcode, in points.
+ *
+ * Derived from the SAME expression the renderer draws with (see the barcode
+ * block in badge-pdf.ts) rather than re-estimated here, or the warning and the
+ * reality would drift and the warning would be worse than none.
+ */
+export function barcodeWidthPt(layout: BadgeLayout): number {
+  const { sx, sf } = badgeScale(layout);
+  const contentW = layout.widthPt - BASE_MARGIN * sf * 2;
+  return contentW - 20 * sx;
+}
+
+/**
+ * Below roughly 60mm the bars get too fine for a desk scanner to read
+ * reliably.
+ *
+ * The reasoning, so the number is arguable rather than magic: the encoded
+ * value is `{qrCode}-{serial}`, around 18 characters, which is about 233
+ * Code 128 modules once you count the start, checksum and stop patterns. The
+ * usual guidance for a reliable X-dimension is 0.25mm per module, and
+ * 233 x 0.25mm is about 58mm. The default 4" badge gives about 80mm, so it
+ * has comfortable headroom; a badge much under 76mm wide does not.
+ *
+ * This is a WARNING, never a block. An organiser who prints a test badge and
+ * finds it scans fine on their hardware knows more than this constant does.
+ */
+export const MIN_SCANNABLE_BARCODE_PT = 170; // ~60mm
+
+export function barcodeTooNarrow(layout: BadgeLayout): boolean {
+  return layout.fields.barcode && barcodeWidthPt(layout) < MIN_SCANNABLE_BARCODE_PT;
+}

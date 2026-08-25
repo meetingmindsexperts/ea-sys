@@ -69,6 +69,8 @@ import {
   mmToPt,
   ptToMm,
   readBadgeLayout,
+  barcodeTooNarrow,
+  barcodeWidthPt,
   DEFAULT_BADGE_FIELDS,
   type BadgeAlign,
 } from "@/lib/badge-layout";
@@ -583,6 +585,24 @@ export default function EventSettingsPage() {
     offsetXPt: "0",
     offsetYPt: "0",
     fields: DEFAULT_BADGE_FIELDS,
+  });
+
+  /**
+   * The layout as the form currently describes it, resolved through the same
+   * reader the renderer uses. Shared by the preview link and the scannability
+   * warning so the two can never describe different badges.
+   */
+  const previewBadgeLayout = readBadgeLayout({
+    settings: {
+      badge: {
+        widthPt: mmToPt(Number(badgeLayout.widthMm) || ptToMm(BASE_BADGE_W)),
+        heightPt: mmToPt(Number(badgeLayout.heightMm) || ptToMm(BASE_BADGE_H)),
+        align: badgeLayout.align,
+        offsetXPt: Number(badgeLayout.offsetXPt) || 0,
+        offsetYPt: Number(badgeLayout.offsetYPt) || 0,
+        fields: badgeLayout.fields,
+      },
+    },
   });
 
   const badgePreviewUrl = () => {
@@ -1656,6 +1676,24 @@ export default function EventSettingsPage() {
                     Organisation and country share the line under the name, so
                     turning organisation on hides country.
                   </p>
+                  {/* Desk staff scan the BADGE for attendance, so the barcode
+                      is the credential and an unreadable one is a queue at the
+                      door. Shrinking the badge shrinks the bars with it, and
+                      nothing used to say so. A warning, never a block — an
+                      organiser who test-prints and finds it scans on their
+                      hardware knows more than our constant does. */}
+                  {barcodeTooNarrow(previewBadgeLayout) && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                      <span className="font-medium">
+                        This badge may be too narrow to scan.
+                      </span>{" "}
+                      The barcode gets about{" "}
+                      {Math.round(ptToMm(barcodeWidthPt(previewBadgeLayout)))}mm here,
+                      and desk scanners want roughly 60mm or more. Widen the
+                      badge, or print one and test it on your scanner before
+                      the event.
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6">
