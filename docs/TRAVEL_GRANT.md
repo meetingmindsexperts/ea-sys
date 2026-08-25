@@ -18,13 +18,14 @@ be duplicated here. Operator-facing instructions are user-guide § Travel Grants
 | 1 | Residency predicate + tests | ✅ shipped |
 | 2 | Schema, migration, RLS policy, harness test | ✅ shipped |
 | 3 | Settings toggle + the two Content editors | ✅ shipped |
-| 4 | `buildTravelGrantBlock` + the confirmation-email wiring | ⬜ not built |
+| 4 | `buildTravelGrantBlock` + the confirmation-email wiring | ✅ shipped |
 | 5 | Public consent form + its routes | ⬜ not built |
 | 6 | Organizer console | ⬜ not built |
 | 7 | Docs | ✅ this file + the user guide |
 
-**Nothing an author can see exists yet.** Enabling the toggle today is inert,
-which is why the user guide tells organizers to configure it in advance.
+**An eligible author now receives the message and a link.** What is still
+missing is the page that link opens (step 5) and the console (step 6), so do
+not enable this on a live event until those land.
 
 ## The decision surface
 
@@ -106,11 +107,11 @@ Content → Abstracts:
 
 ## Gotchas for whoever builds steps 4 to 6
 
-- **The saved-template trap.** 24 events already hold a materialised
-  `abstract-submission-confirmation` row. Adding `{{travelGrantBlock}}` to the
-  shipped default reaches **none** of them. Append the block when the resolved
-  template lacks the token. This has already bitten the presenter quote block
-  and the RSVP `{{itemWord}}` token.
+- ✅ **The saved-template trap is handled** in `sendAbstractSubmissionConfirmation`
+  and pinned by [travel-grant-saved-template.test.ts](../__tests__/lib/travel-grant-saved-template.test.ts).
+  24 events hold a materialised `abstract-submission-confirmation` row, so the
+  shipped default reaches none of them; the block is appended when the resolved
+  template lacks the token. Do not "simplify" that away.
 - **Resolve the org before the token lookup.** `token` is globally unique and
   plaintext, so under RLS a `findUnique({ token })` in the wrong lane returns
   nothing. The public route must bootstrap the org from the Event by host+slug
