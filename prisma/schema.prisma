@@ -346,6 +346,13 @@ model Event {
   sessionProposalWelcomeHtml       String?     @db.Text
   abstractGuidelinesHtml           String?     @db.Text
   abstractTermsHtml                String?     @db.Text
+  /// Travel Grant (see docs/TRAVEL_GRANT_PLAN.md). Two texts, not one,
+  /// because they answer different questions: the message says WHY you are
+  /// receiving this and renders inside the abstract-submission confirmation
+  /// email; the terms say WHAT you are agreeing to and render on the consent
+  /// form itself, where they are snapshotted onto the row at consent.
+  travelGrantMessageHtml           String?     @db.Text
+  travelGrantTermsHtml             String?     @db.Text
   abstractConfirmationHtml         String?     @db.Text
   registrationConfirmationHtml     String?     @db.Text
   speakerAgreementHtml             String?     @db.Text
@@ -462,6 +469,7 @@ model Event {
   rsvpItems                    RsvpItem[]
   rsvpInvites                  RsvpInvite[]
   speakerReimbursements        SpeakerReimbursement[]
+  travelGrants                 TravelGrant[]
   speakerProfileForms          SpeakerProfileForm[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
@@ -1436,6 +1444,7 @@ model Speaker {
   certificateIssueRunItems CertificateIssueRunItem[]
   documents                SpeakerDocument[]
   reimbursement            SpeakerReimbursement?
+  travelGrant              TravelGrant?
   profileForm              SpeakerProfileForm?
   sessionProposals         SessionProposal[]
 
@@ -4429,4 +4438,77 @@ model CrmDealContact {
   @@unique([dealId, crmContactId])
   @@index([crmContactId])
   @@index([organizationId])
+}
+
+// ── Travel Grant (Aug 25, 2026) ────────────────────────────────────────────
+// An abstract author based OUTSIDE the UAE is offered a travel grant. The
+// offer rides as a block inside the abstract-submission confirmation email
+// (D3) and lands on a token-gated consent form, where the author confirms they
+// are not a UAE resident and wish to be considered. A UAE-based author sees
+// nothing at all: no email block, no link, no row.
+//
+// Plan + the eight locked decisions: docs/TRAVEL_GRANT_PLAN.md.
+//
+// Deliberately NOT a financial record. It captures eligibility and interest
+// only (D1). Amounts, flights, passports and bank details belong to
+// SpeakerReimbursement, and duplicating any of them here would create two
+// places to look for the same person's money.
+model TravelGrant {
+  id             String            @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy: denormalized tenant key (nullable, no FK), stamped from
+  /// the Event at create. Backs prisma/rls/travelgrant.sql (platform-only).
+  organizationId String?
+  /// D2: one grant per person per event. Enforced by a GLOBAL unique here
+  /// rather than a composite on (eventId, speakerId), because Speaker is
+  /// itself event-scoped (@@unique([eventId, email])), so one Speaker row IS
+  /// one person at one event. A composite would add a second index that can
+  /// never bind differently. Same shape as SpeakerReimbursement.speakerId.
+  /// Consequence under RLS: a cross-tenant findUnique({ speakerId }) must miss.
+  speakerId      String            @unique
+  /// Plaintext and GLOBALLY unique, like SpeakerReimbursement.token, because
+  /// the organizer copies the link out of the console. Consequence under RLS:
+  /// the public route MUST resolve the org from the Event by host+slug BEFORE
+  /// this findUnique, or every link fail-closes to "invalid".
+  token          String            @unique
+  status         TravelGrantStatus @default(PENDING)
+
+  /// Snapshotted at consent, never re-derived. Speaker.country and the terms
+  /// text are both editable afterwards, and a later edit must not rewrite what
+  /// somebody signed. Same rule as Speaker.agreementTextSnapshot.
+  countryAtConsent String?
+  fullName         String?
+  institution      String?
+  termsSnapshot    String? @db.Text
+
+  /// Typed-name e-signature, matching the speaker-agreement acceptance trail.
+  signedName  String?
+  submittedAt DateTime?
+  submittedIp String?
+
+  /// When the link was last put in front of this author. Distinct from
+  /// createdAt because the console can re-send.
+  invitedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  /// An author with three abstracts gets one link and one consent (D2): the
+  /// grant follows the traveller, and a person only travels once. See the
+  /// speakerId comment above for where that is actually enforced.
+  @@index([eventId, status])
+  @@index([organizationId])
+}
+
+enum TravelGrantStatus {
+  /// Invited. The link has been sent; the author has not submitted the form.
+  PENDING
+  /// Confirmed they are not a UAE resident and wish to be considered.
+  CONSENTED
+  /// Opened the form and declined. Recorded so the organizer stops chasing,
+  /// and so the email block does not re-ask on their next abstract.
+  DECLINED
 }
