@@ -168,6 +168,44 @@ relationship (a refusal log carrying its `route`), a CI gate once the shape recu
 (`scripts/check-*.sh`), and **running it as each role**, because a server test proves the API
 refuses while only the browser proves the client stopped asking.
 
+### 10. Climb the ladder before you write
+Adopted from [Ponytail](https://github.com/DietrichGebert/ponytail) (`.agents/rules/ponytail.md`),
+amended below. Kept in this file rather than as its own, because the rule's own advice is "fewest
+files possible."
+
+Before writing code, stop at the first rung that holds:
+
+1. Does this need to be built at all?
+2. Does it already exist in this codebase? Reuse the helper or pattern that is already here.
+3. Does the standard library do this?
+4. Does a native platform feature cover it?
+5. Does an already-installed dependency solve it?
+6. Can this be one line?
+7. Only then: write the minimum that works.
+
+**The ladder runs after you understand the problem, not instead of it.** The smallest change in the
+wrong place is a second bug, not laziness. And a bug fix means the root cause: grep every caller and
+fix the shared function once (which is rule 1 restated).
+
+**Why this is here, in this repo's own evidence:** a **449-line** certificate resend route with zero
+callers, deleted in the July review. `storedFileExists`, shipped and imported by nothing. Two
+notification switches that saved correctly and were **read by nothing for months** while an event
+with both set to `false` kept sending. And on Aug 25, a seven-entry guard list in
+`src/lib/session-expiry.ts` where six entries defended paths that cannot produce the error at all.
+
+**Not lazy about** (their list): understanding the problem, input validation at trust boundaries,
+error handling that prevents data loss, security, accessibility, anything explicitly requested, and
+leaving one runnable check behind for non-trivial logic.
+
+**Not lazy about** (added here, because their list omits both and this repo runs on them):
+
+- **Every failure path still logs.** Rule 2 is absolute and outranks a shorter diff. A silent
+  refusal is how a bug stays invisible for months.
+- **The comment recording why a guard exists.** Their `ponytail:` marker names a known ceiling and
+  its upgrade path; keep that. But also keep the comment naming the incident that produced a guard.
+  A 40-line file that is half explanation is not over-built, it is the reason one person can still
+  maintain this. Volume rules target code, never the reasoning.
+
 ---
 
 ## Roles and visibility
