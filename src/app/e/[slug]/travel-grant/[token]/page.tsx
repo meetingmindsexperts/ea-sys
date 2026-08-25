@@ -17,11 +17,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { AlertCircle, CalendarDays, Check, Loader2, MapPin, Plane } from "lucide-react";
+import { formatEventDateRange } from "@/lib/event-time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBanner } from "@/components/public/event-banner";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 interface LoadedGrant {
   status: "PENDING" | "CONSENTED" | "DECLINED";
@@ -139,7 +141,15 @@ export default function TravelGrantPage() {
   }
 
   const already = done ?? (data.status === "PENDING" ? null : data.status);
-  const dateLine = formatEventDates(data.event.startDate, data.event.endDate);
+  // In the EVENT's timezone, not the viewer's. A Dubai event starting 02:00
+  // local is 22:00Z the previous day, so a viewer-local render shows an author
+  // in New York the wrong date entirely. Same helper the public agenda and
+  // session pages were swept onto in Aug 2026.
+  const dateLine = formatEventDateRange(
+    new Date(data.event.startDate),
+    new Date(data.event.endDate),
+    data.event.timezone ?? "Asia/Dubai",
+  );
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -209,7 +219,7 @@ export default function TravelGrantPage() {
             <>
               <div
                 className="prose prose-sm max-w-none [&>*]:mb-4"
-                dangerouslySetInnerHTML={{ __html: data.termsHtml }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.termsHtml) }}
               />
 
               <div className="mt-6 space-y-5 border-t pt-6">
@@ -284,19 +294,4 @@ export default function TravelGrantPage() {
       </div>
     </div>
   );
-}
-
-/** Short, unambiguous, and collapsed when the event is a single day. */
-function formatEventDates(start: string, end: string): string {
-  try {
-    const s = new Date(start);
-    const e = new Date(end);
-    const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", year: "numeric" };
-    const sameDay = s.toDateString() === e.toDateString();
-    return sameDay
-      ? s.toLocaleDateString("en-GB", opts)
-      : `${s.toLocaleDateString("en-GB", { day: "numeric", month: "long" })} – ${e.toLocaleDateString("en-GB", opts)}`;
-  } catch {
-    return "";
-  }
 }

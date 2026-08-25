@@ -212,7 +212,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       if (consenting) {
         notifyEventAdmins(row.eventId, {
-          type: "ABSTRACT",
+          // Its own type: filing this as ABSTRACT made a travel-grant consent
+          // render under the abstract icon, the same mistake corrected on
+          // Aug 17 2026 when "Session Created" was filed as REGISTRATION.
+          type: "TRAVEL_GRANT",
           title: "Travel grant request",
           message: `${[row.speaker.firstName, row.speaker.lastName].filter(Boolean).join(" ")} has requested a travel grant.`,
           link: `/events/${row.eventId}/travel-grants`,

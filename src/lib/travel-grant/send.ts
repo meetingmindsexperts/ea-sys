@@ -57,18 +57,32 @@ export interface SendTravelGrantResult {
   failed: number;
   /** Named speakers we refused to email because they are not eligible. */
   skippedNotEligible: number;
-  /** Named speakers with no email address on file. */
+  /** Speakers with no email address on file. Counted on BOTH paths. */
   skippedNoEmail: number;
+  /**
+   * Speakers who have already consented or declined. "Resend link" has no link
+   * to send them: the block renders an acknowledgement or nothing at all, so
+   * sending would deliver an empty email and report it as a link. Re-asking
+   * somebody who declined should be a deliberate act, not a side effect of a
+   * resend, and no such action exists yet.
+   */
+  skippedAlreadyAnswered: number;
 }
 
 export async function sendTravelGrantInvitations(
   args: SendTravelGrantArgs,
 ): Promise<SendTravelGrantResult> {
   const { event } = args;
-  const result: SendTravelGrantResult = { sent: 0, failed: 0, skippedNotEligible: 0, skippedNoEmail: 0 };
+  const result: SendTravelGrantResult = {
+    sent: 0,
+    failed: 0,
+    skippedNotEligible: 0,
+    skippedNoEmail: 0,
+    skippedAlreadyAnswered: 0,
+  };
 
   const recipients = args.pendingOnly
-    ? await resolvePending(event.id)
+    ? await resolvePending(event.id, result)
     : await resolveNamed(event, args.speakerIds ?? [], result);
 
   if (recipients.length === 0) return result;
@@ -159,8 +173,16 @@ interface Recipient {
   lastName: string | null;
 }
 
-/** D9. Sourced from the grant table, so it cannot reach an uninvited author. */
-async function resolvePending(eventId: string): Promise<Recipient[]> {
+/**
+ * D9. Sourced from the grant table, so it cannot reach an uninvited author.
+ *
+ * This IS the guard the module docblock describes; there is deliberately no
+ * second copy of this query elsewhere.
+ */
+async function resolvePending(
+  eventId: string,
+  result: SendTravelGrantResult,
+): Promise<Recipient[]> {
   const rows = await db.travelGrant.findMany({
     where: { eventId, status: "PENDING" },
     select: {
@@ -171,8 +193,19 @@ async function resolvePending(eventId: string): Promise<Recipient[]> {
       speaker: { select: { title: true, firstName: true, lastName: true, email: true } },
     },
   });
-  return rows
-    .filter((r) => !!r.speaker?.email)
+  const withEmail = rows.filter((r) => !!r.speaker?.email);
+  const missing = rows.length - withEmail.length;
+  if (missing > 0) {
+    // Counted and logged rather than silently dropped: otherwise "Remind 5
+    // pending" reports "Sent 3" with nothing anywhere explaining the other two,
+    // and the organizer keeps chasing people who were never emailed.
+    result.skippedNoEmail += missing;
+    apiLogger.warn(
+      { eventId, skippedNoEmail: missing },
+      "travel-grant-send:pending-without-email",
+    );
+  }
+  return withEmail
     .map((r) => ({
       grantId: r.id,
       speakerId: r.speakerId,
@@ -225,18 +258,50 @@ async function resolveNamed(
       );
       continue;
     }
+    // Already answered: there is no link to resend. A CONSENTED author's block
+    // renders an acknowledgement and a DECLINED author's renders nothing, so
+    // sending would deliver an empty email and count it as a link sent.
+    if (sp.travelGrant && sp.travelGrant.status !== "PENDING") {
+      result.skippedAlreadyAnswered += 1;
+      continue;
+    }
+
     let grant = sp.travelGrant;
     if (!grant) {
-      grant = await db.travelGrant.create({
-        data: {
-          eventId: event.id,
-          organizationId: event.organizationId,
-          speakerId: sp.id,
-          token: generateTravelGrantToken(),
-          invitedAt: new Date(),
-        },
-        select: { id: true, token: true, status: true },
-      });
+      try {
+        grant = await db.travelGrant.create({
+          data: {
+            eventId: event.id,
+            organizationId: event.organizationId,
+            speakerId: sp.id,
+            token: generateTravelGrantToken(),
+            invitedAt: new Date(),
+          },
+          select: { id: true, token: true, status: true },
+        });
+      } catch {
+        // speakerId is globally unique, so an author submitting another
+        // abstract at this exact moment mints the row first and this create
+        // loses with P2002. Re-read rather than throw: an unhandled reject here
+        // escapes the per-recipient try/catch below and 500s the whole request,
+        // leaving every OTHER named speaker in the batch unemailed.
+        grant = await db.travelGrant.findUnique({
+          where: { speakerId: sp.id },
+          select: { id: true, token: true, status: true },
+        });
+        if (!grant) {
+          result.failed += 1;
+          apiLogger.error(
+            { eventId: event.id, speakerId: sp.id },
+            "travel-grant-send:mint-failed",
+          );
+          continue;
+        }
+        if (grant.status !== "PENDING") {
+          result.skippedAlreadyAnswered += 1;
+          continue;
+        }
+      }
     }
     out.push({
       grantId: grant.id,

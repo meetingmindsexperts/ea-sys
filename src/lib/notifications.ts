@@ -16,7 +16,8 @@ interface CreateNotificationParams {
     | "REVIEW"
     | "CHECK_IN"
     | "SIGNUP"
-    | "SESSION";
+    | "SESSION"
+    | "TRAVEL_GRANT";
   title: string;
   message: string;
   link?: string;

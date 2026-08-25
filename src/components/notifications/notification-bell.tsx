@@ -4,13 +4,14 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
   Bell,
-  UserPlus,
-  CreditCard,
-  FileText,
-  Star,
-  LogIn,
   CalendarClock,
   CheckCheck,
+  CreditCard,
+  FileText,
+  LogIn,
+  Plane,
+  Star,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +32,7 @@ const typeIcons: Record<string, React.ElementType> = {
   REVIEW: Star,
   CHECK_IN: LogIn,
   SESSION: CalendarClock,
+  TRAVEL_GRANT: Plane,
 };
 
 export function NotificationBell() {

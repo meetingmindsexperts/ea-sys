@@ -19,8 +19,8 @@
  * This deliberately puts people who must NOT be emailed into the same table as
  * a bulk send button. The remind action therefore keys off
  * `TravelGrant.status = PENDING` on rows that already exist -- see
- * `findPendingTravelGrants` below -- and never off the rows this function
- * returns. A UAE author has no `TravelGrant` row at all, so a correct
+ * `resolvePending` in travel-grant/send.ts, which is the ONLY implementation of
+ * that query -- and never off the rows this function returns. A UAE author has no `TravelGrant` row at all, so a correct
  * implementation cannot reach them; one written against this roster would email
  * every one of them.
  */
@@ -167,21 +167,67 @@ export async function buildTravelGrantRoster(eventId: string): Promise<TravelGra
 }
 
 /**
- * The recipients of a "remind everyone pending" action.
+ * One speaker's row, for the card on their profile page.
  *
- * **Sourced from the grant table, never from the roster.** A UAE-based author
- * and an author with no country recorded both appear in the roster by design so
- * that a mis-classified person is recoverable, and neither has a grant row, so
- * this query structurally cannot return them. Writing the reminder against the
- * rendered list would email every one of them.
+ * Deliberately NOT `buildTravelGrantRoster(...).find(...)`. The roster is built
+ * from abstract authors, so a speaker with no abstract and no grant is simply
+ * absent from it -- and the profile card still has to say something about them
+ * ("eligible, not invited", or "UAE, not eligible"). Reusing the roster here
+ * would render an empty card for exactly the speakers an organizer is most
+ * likely to be looking at when they open the profile.
  */
-export async function findPendingTravelGrants(eventId: string) {
-  return db.travelGrant.findMany({
-    where: { eventId, status: "PENDING" },
+export async function getTravelGrantForSpeaker(
+  eventId: string,
+  speakerId: string,
+): Promise<TravelGrantRosterRow | null> {
+  const sp = await db.speaker.findFirst({
+    // eventId is load-bearing, not decorative: without it an organizer of event
+    // A could read another event's speaker by id, including the grant `token`
+    // that the public consent URL is built from.
+    where: { id: speakerId, eventId },
     select: {
       id: true,
-      token: true,
-      speaker: { select: { id: true, firstName: true, lastName: true, email: true } },
+      firstName: true,
+      lastName: true,
+      email: true,
+      organization: true,
+      country: true,
+      // FILTERED to match the contract on TravelGrantRosterRow.abstractCount and
+      // what buildTravelGrantRoster counts. An unfiltered _count includes DRAFTs,
+      // so the same person would report a different number depending on which
+      // caller asked, and a draft-only author would show "1 abstract" here while
+      // being absent from the console entirely.
+      _count: { select: { abstracts: { where: { status: { not: "DRAFT" } } } } },
+      travelGrant: {
+        select: {
+          id: true,
+          status: true,
+          token: true,
+          invitedAt: true,
+          submittedAt: true,
+          signedName: true,
+        },
+      },
     },
   });
+  if (!sp) return null;
+  return {
+    speakerId: sp.id,
+    name: [sp.firstName, sp.lastName].filter(Boolean).join(" ").trim(),
+    email: sp.email ?? null,
+    organization: sp.organization ?? null,
+    country: sp.country ?? null,
+    residency: classifyResidency(sp.country),
+    abstractCount: sp._count.abstracts,
+    grant: sp.travelGrant
+      ? {
+          id: sp.travelGrant.id,
+          status: sp.travelGrant.status as "PENDING" | "CONSENTED" | "DECLINED",
+          token: sp.travelGrant.token,
+          invitedAt: sp.travelGrant.invitedAt,
+          submittedAt: sp.travelGrant.submittedAt,
+          signedName: sp.travelGrant.signedName,
+        }
+      : null,
+  };
 }

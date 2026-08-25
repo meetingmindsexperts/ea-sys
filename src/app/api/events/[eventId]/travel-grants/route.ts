@@ -26,7 +26,7 @@ import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
 import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
-import { buildTravelGrantRoster } from "@/lib/travel-grant/console";
+import { buildTravelGrantRoster, getTravelGrantForSpeaker } from "@/lib/travel-grant/console";
 import { sendTravelGrantInvitations } from "@/lib/travel-grant/send";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -65,8 +65,27 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(event.organizationId, async () => {
-      const roster = await buildTravelGrantRoster(eventId);
       const url = new URL(req.url);
+
+      // Single-speaker mode, for the card on a speaker's profile page. Uses its
+      // own lookup rather than filtering the roster, because a speaker with no
+      // abstract is absent from the roster and the card still has to describe
+      // them. See getTravelGrantForSpeaker.
+      const speakerId = url.searchParams.get("speakerId");
+      if (speakerId) {
+        const row = await getTravelGrantForSpeaker(eventId, speakerId);
+        if (!row) {
+          apiLogger.warn({ eventId, speakerId }, "travel-grants:speaker-not-found");
+          return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+        }
+        return NextResponse.json({
+          enabled: isTravelGrantEnabled(event.settings),
+          eventSlug: event.slug,
+          row,
+        });
+      }
+
+      const roster = await buildTravelGrantRoster(eventId);
 
       if (url.searchParams.get("export") === "csv") {
         recordExport(req, {

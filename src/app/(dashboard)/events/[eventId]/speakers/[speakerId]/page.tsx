@@ -80,6 +80,7 @@ import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-ca
 import { SpeakerProfileFormCard } from "@/components/speakers/speaker-profile-form-card";
 import { GrantRegistrationDialog } from "@/components/speakers/grant-registration-dialog";
 import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimbursement-card";
+import { SpeakerTravelGrantCard } from "@/components/speakers/speaker-travel-grant-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { cn, formatPersonName, formatDateTime } from "@/lib/utils";
@@ -1260,6 +1261,11 @@ export default function SpeakerDetailPage() {
 
           {/* Reimbursement (wire-transfer claim) — self-hides for roles
               outside the SUPER_ADMIN/ADMIN/ORGANIZER boundary. */}
+          <SpeakerTravelGrantCard
+            eventId={eventId}
+            speakerId={speakerId}
+            speakerCountry={speaker?.country}
+          />
           <SpeakerReimbursementCard eventId={eventId} speakerId={speakerId} />
 
           {/* Registration (attendee facet) — the linked companion (or
