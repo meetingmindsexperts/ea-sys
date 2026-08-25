@@ -255,6 +255,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       db.invoice.count({ where: { eventId } }),
       db.rsvpCampaign.count({ where: { eventId } }),
       db.speakerReimbursement.count({ where: { eventId } }),
+      db.travelGrant.count({ where: { eventId, status: "CONSENTED" } }),
     ]);
   } catch (err) {
     apiLogger.error({ err, msg: "setup-hub:load-failed", eventId });
@@ -273,6 +274,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
     invoiceCount,
     campaignCount,
     reimbursementCount,
+    travelGrantCount,
   ] = result;
   if (!event) notFound();
 
@@ -335,6 +337,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
       configured: reimbursementCount > 0,
       count: reimbursementCount,
     },
+    "travel-grants": {
+      configured: travelGrantCount > 0,
+      count: travelGrantCount,
+    },
     invoices: {
       configured: true,
       labelOverride: `${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`,
@@ -386,7 +392,8 @@ function SetupCard({
   eventId,
 }: {
   card: SetupCardConfig;
-  status: SetupStatus;
+  /** Optional on purpose: a card with no status entry degrades, never throws. */
+  status?: SetupStatus;
   eventId: string;
 }) {
   const Icon = card.icon;
@@ -426,8 +433,15 @@ function SetupCard({
   );
 }
 
-function StatusPill({ status }: { status: SetupStatus }) {
-  if (status.unavailable) {
+function StatusPill({ status }: { status?: SetupStatus }) {
+  // A card whose slug has no entry in the status map renders as unavailable
+  // rather than throwing. Without this, ADDING A CARD and forgetting its status
+  // key takes the entire Setup page down with a Server Components render error
+  // — which is exactly what happened when the Travel Grants card was added on
+  // Aug 25, 2026. tsc cannot catch it because `noUncheckedIndexedAccess` is off,
+  // so `Record<string, SetupStatus>` indexing is typed as always present, and
+  // the page is dynamic so the build never renders it either.
+  if (!status || status.unavailable) {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
         <Circle className="h-3 w-3" />
