@@ -2,6 +2,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api-fetch";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -13,8 +14,18 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   }
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(error.error || "Request failed");
+    // ApiError, not a bare Error, so the failure carries its HTTP status.
+    // `ApiError extends Error` with the same `message`, so every existing
+    // `catch (e) { toast.error(e.message) }` is untouched — but the global
+    // handler in providers.tsx can now recognise a 401 from THIS fetcher too.
+    // Without this the session-expiry redirect would have covered the CRM
+    // (which uses api-fetch.ts) and silently missed the whole core dashboard.
+    const data = (await res
+      .json()
+      .catch(() => ({}))) as Record<string, unknown>;
+    const message =
+      (typeof data.error === "string" && data.error) || "Request failed";
+    throw new ApiError(message, res.status, data);
   }
   return res.json();
 }

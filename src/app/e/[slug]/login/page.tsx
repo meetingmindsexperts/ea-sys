@@ -60,6 +60,8 @@ function EventLoginForm() {
   const searchParams = useSearchParams();
   const slug = params.slug as string;
   const redirectParam = searchParams.get("redirect"); // "registration" | "abstracts" | "session-proposals" | a safe internal path | null
+  // Set by the global session-expiry redirect (src/lib/session-expiry.ts).
+  const sessionExpired = searchParams.get("reason") === "expired";
 
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
@@ -245,6 +247,12 @@ function EventLoginForm() {
 
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {sessionExpired && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Your session expired, so you were signed out. Sign in again
+                    and we&apos;ll take you back to where you were.
+                  </div>
+                )}
                 <FormField control={form.control} name="email"
                   render={({ field }) => (
                     <FormItem>

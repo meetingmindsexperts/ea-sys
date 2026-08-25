@@ -39,6 +39,9 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  // Set by the global session-expiry redirect (src/lib/session-expiry.ts).
+  // Without it, being bounced here from a working page reads as a fault.
+  const sessionExpired = searchParams.get("reason") === "expired";
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginForm>({
@@ -94,6 +97,12 @@ function LoginForm() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
+            {sessionExpired && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                Your session expired, so you were signed out. Sign in again and
+                we&apos;ll take you straight back to where you were.
+              </div>
+            )}
             <FormField
               control={form.control}
               name="email"

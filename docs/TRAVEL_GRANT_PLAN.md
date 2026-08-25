@@ -29,6 +29,7 @@ writes the message and the terms under **Content → Abstracts**.
 | **D2** | Scope | **One grant record per person per event**, not per abstract. Three abstracts from one author is one link and one consent. The grant follows the traveller, and a person only travels once. |
 | **D3** | Delivery | **A block inside the existing `abstract-submission-confirmation` email**, not a separate send. One email. |
 | **D4** | Unknown or unrecognised country | **Do not send, and flag it in the console.** An offer sent to a Dubai resident who is then refused costs more than a missing one, because a missing one is chaseable. |
+| **D5** | Which events it applies to | **Going forward only, on events where the toggle is on.** No bulk retroactive sweep over abstracts that arrived before the toggle was enabled, and nothing at all for past events. Owner instruction, 2026-08-25. See §6d for why this is safe rather than merely cheap. |
 
 ## 3. Live state on production (read-only, 2026-08-25)
 
@@ -38,6 +39,8 @@ writes the message and the terms under **Content → Abstracts**.
 | Of those, author outside the UAE | **2** | The eligible population today is two people. |
 | Of those, author with no country recorded | **0** | D4 governs no existing rows. It is a rule for the future, not a backfill. |
 | Speakers with a country recorded | 59 UAE, 12 Oman, then Egypt / Qatar / Saudi / Kuwait / Bahrain / Syria | Real distribution: the UAE is the majority, so the feature will usually be quiet. |
+| Upcoming events with **zero** submitted abstracts | **15 of 17** | This is what makes D5 safe. Enable the toggle before a call for abstracts opens and every author is covered by the submission trigger, with nothing left behind. |
+| Upcoming events that already hold abstracts | HEMNET 2026 (3, one overseas), Middle East Heart Failure 2027 (2, one overseas) | The entire retroactive exposure is **one person per event**, and only if the grant is wanted on one of these two. |
 
 **Nothing named travel grant exists in the codebase today.** This is greenfield.
 
@@ -235,16 +238,26 @@ Setup hub, rendered only when the feature is enabled.
 - Status tiles: invited, consented, declined, **plus "country not recorded"**,
   which is where D4's refusals surface. That tile is the whole reason D4 is safe:
   the people we deliberately did not email are visible rather than lost.
-- Table: author, country, status, consented-at, link copy, resend, reopen.
-- **Send invitations** action, for the retroactive case below.
+- Table: author, country, status, consented-at, **copy link, send link**, reopen.
 - CSV export, audited via `recordExport` like every other PII export.
 
-> **The retroactive case matters and is built in v1, not deferred.** An organizer
-> who enables the toggle *after* abstracts have already come in reaches nobody,
-> because the trigger is the confirmation email. The console's send action covers
-> them. This is the same limitation the survey-gated certificate work shipped
-> with and had to document as a footgun ("flag before surveys go out"); there is
-> no reason to repeat it.
+> **No bulk retroactive sweep in v1 (D5).** The feature applies going forward, on
+> events where the toggle is on. An earlier draft of this plan built a
+> send-to-everyone-already-submitted action, on the grounds that enabling the
+> toggle late would otherwise reach nobody. **Checked against production and that
+> concern is nearly empty:** of the 17 upcoming events, **15 have zero submitted
+> abstracts**, so enabling the toggle before a call for abstracts opens covers
+> every author automatically.
+>
+> The two exceptions, if the grant is ever wanted on them, are **HEMNET 2026**
+> (3 submitted, 1 overseas) and **Middle East Heart Failure Conference 2027**
+> (2 submitted, 1 overseas). **That is one person each**, handled with the
+> per-row send button rather than a bulk action.
+>
+> **The per-row send stays regardless**, because it is needed anyway for the
+> ordinary "I deleted the email" support case, and it costs one button on a
+> console that already lists the people and already holds their tokens. It is
+> not extra scope; the bulk sweep was.
 
 ### 6e. Settings and content
 
@@ -297,7 +310,7 @@ the author.
 4. `buildTravelGrantBlock` + the wiring in `sendAbstractSubmissionConfirmation`,
    including the saved-template append.
 5. Public form + routes.
-6. Organizer console, including the retroactive send.
+6. Organizer console, with the per-row copy-link and send-link actions.
 7. Docs: a section in the user guide so the help assistant can answer it, and a
    `CLAUDE.md` entry.
 
@@ -315,6 +328,10 @@ the author.
   Co-authors carry an optional country and are not considered.
 - **MCP tools.** A read-only `list_travel_grants` is an obvious fast-follow; it
   is not needed to make the feature work.
+- **A bulk retroactive send** over abstracts submitted before the toggle was
+  enabled (D5). The per-row send covers the handful of cases that exist, and §6d
+  records the production numbers behind that call so the decision can be
+  re-examined rather than re-argued.
 
 ## 11. Open questions worth answering before the build starts
 
