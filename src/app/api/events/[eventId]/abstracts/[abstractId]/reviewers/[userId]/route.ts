@@ -40,7 +40,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers/[userId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers/[userId]:DELETE" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

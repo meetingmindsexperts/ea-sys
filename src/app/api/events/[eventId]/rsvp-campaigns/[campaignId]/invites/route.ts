@@ -64,7 +64,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     //
     // The token stays in the payload — the console's copy-link button needs it —
     // but only the roles that actually run the RSVP can see it.
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:GET" });
     if (denied) return denied;
 
     const event = await loadRsvpEvent(session.user, eventId);
@@ -190,7 +190,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:POST" });
     if (denied) return denied;
 
     const limit = checkRateLimit({

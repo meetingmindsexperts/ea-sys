@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/tags:GET" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

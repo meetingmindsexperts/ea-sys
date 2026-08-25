@@ -50,7 +50,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     eventId = p.eventId;
     runId = p.runId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/runs/[runId]/download:GET" });
     if (denied) return denied;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-run-download:no-org", userId: session.user.id, eventId, runId });

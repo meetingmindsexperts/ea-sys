@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/survey/share-link:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/survey/share-link:POST" });
     if (denied) return denied;
 
     const rl = checkRateLimit({
@@ -127,7 +127,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/survey/share-link:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/survey/share-link:DELETE" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

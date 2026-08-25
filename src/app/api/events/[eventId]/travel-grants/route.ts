@@ -49,7 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/travel-grants:GET" });
     if (denied) {
       apiLogger.warn({ eventId, role: session.user.role }, "travel-grants:role-refused");
       return denied;
@@ -156,7 +156,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/travel-grants:POST" });
     if (denied) {
       apiLogger.warn({ eventId, role: session.user.role }, "travel-grants:role-refused");
       return denied;

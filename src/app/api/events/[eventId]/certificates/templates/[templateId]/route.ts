@@ -67,7 +67,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates/[templateId]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/[templateId]:PATCH" });
     if (denied) return denied;
 
     // Combined lookup binds event to org + template to event in one query.
@@ -154,7 +154,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates/[templateId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/[templateId]:DELETE" });
     if (denied) return denied;
 
     // tenancy: swept CertificateTemplate read runs inside the session org.

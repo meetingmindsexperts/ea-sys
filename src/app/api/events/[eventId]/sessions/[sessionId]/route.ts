@@ -106,7 +106,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]:PUT" });
     if (denied) return denied;
 
     // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
@@ -211,7 +211,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]:DELETE" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

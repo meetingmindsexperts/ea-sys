@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "invoices:GET" });
     if (noFinance) return noFinance;
     // Finance-capable ≠ org-ledger access: WEBINARS sees payment amounts on
     // its own events, never the org-wide invoice book (review H-1).

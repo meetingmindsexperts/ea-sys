@@ -76,7 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // The REGISTRANT branch above stays exempt — viewing your own quote
       // is the whole point of the registrant portal. Audit-hardening HIGH
       // from May 18 review, closed Core Stability Pass #1 (June 2026).
-      const noFinance = denyFinance(session);
+      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/quote:GET" });
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/quote:denyFinance",

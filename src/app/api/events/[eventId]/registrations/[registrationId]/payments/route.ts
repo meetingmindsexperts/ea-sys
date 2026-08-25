@@ -112,7 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Registration-desk roles (ONSITE + MEMBER) can record a payment.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/payments:POST" });
     if (denied) return denied;
 
     // The widest money-write population of any endpoint (desk temps included)

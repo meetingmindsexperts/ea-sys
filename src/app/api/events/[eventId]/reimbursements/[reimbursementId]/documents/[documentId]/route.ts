@@ -34,7 +34,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId, documentId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]/documents/[documentId]:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/[registrationId]/email:POST" });
     if (denied) return denied;
 
     const emailLimit = checkRateLimit({
@@ -487,7 +487,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/[registrationId]/email:PATCH" });
     if (denied) return denied;
 
     const changeLimit = checkRateLimit({

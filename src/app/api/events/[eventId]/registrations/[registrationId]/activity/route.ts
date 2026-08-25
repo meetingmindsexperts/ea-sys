@@ -30,7 +30,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // team-only (MEMBER/ONSITE included; REVIEWER/SUBMITTER/REGISTRANT are
     // org-null, so an org ternary here would drop the org filter entirely
     // and open a cross-tenant read).
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/activity:GET" });
     if (denied) {
       apiLogger.warn({
         msg: "registration-activity:role-denied",

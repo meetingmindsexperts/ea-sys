@@ -31,7 +31,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     // Same guard as the roster GET: a campaign list exposes audience sizes,
     // so it is staff-only (R2 M4 alignment).
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns:GET" });
     if (denied) return denied;
 
     const event = await loadRsvpEvent(session.user, eventId);
@@ -87,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns:POST" });
     if (denied) return denied;
 
     const limit = checkRateLimit({

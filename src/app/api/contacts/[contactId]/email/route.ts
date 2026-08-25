@@ -30,7 +30,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
     // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]/email:PATCH" });
     if (denied) return denied;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

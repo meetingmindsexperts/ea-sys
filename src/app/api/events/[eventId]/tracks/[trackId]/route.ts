@@ -133,7 +133,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tracks/[trackId]:PUT" });
     if (denied) return denied;
 
     const access = await validateEventAccess(eventId, session.user);
@@ -221,7 +221,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tracks/[trackId]:DELETE" });
     if (denied) return denied;
 
     const access = await validateEventAccess(eventId, session.user);

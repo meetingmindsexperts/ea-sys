@@ -22,7 +22,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:send:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/invoices/[invoiceId]/send:POST" });
     if (denied) return denied;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:send", userId: session.user.id }, async () => {

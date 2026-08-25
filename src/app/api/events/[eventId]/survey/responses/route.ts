@@ -60,7 +60,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/survey/responses:GET" });
     if (denied) return denied;
 
     const queryParsed = querySchema.safeParse(

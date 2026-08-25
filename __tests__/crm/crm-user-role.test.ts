@@ -40,7 +40,9 @@ describe("CRM_USER is walled off from everything outside the CRM", () => {
   it("is blocked from non-CRM writes by denyReviewer", () => {
     // /api/crm/* uses its own requireCrmWrite; denyReviewer guards the REST of the
     // app, and must block CRM_USER there.
-    const denied = denyReviewer({ user: { role: "CRM_USER" } } as never);
+    const denied = denyReviewer({ user: { role: "CRM_USER" } } as never, {
+      route: "test",
+    });
     expect(denied).not.toBeNull();
     expect(denied!.status).toBe(403);
   });

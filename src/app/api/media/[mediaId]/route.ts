@@ -23,7 +23,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "media/[mediaId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "media/[mediaId]:DELETE" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

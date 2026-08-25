@@ -66,7 +66,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Same population as the print route: desk staff calibrate too, and they
     // cannot reach Settings to read the saved numbers.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/badges/preview:GET" });
     if (denied) return denied;
 
     // Each preview rasterizes a barcode, so it is CPU-bound on the box that

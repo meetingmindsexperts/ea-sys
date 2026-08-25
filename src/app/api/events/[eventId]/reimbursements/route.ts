@@ -65,7 +65,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     // Read-gate too: this payload carries passport numbers, bank details and
     // the impersonation token (the copy-link button needs it).
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -182,7 +182,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements:POST" });
     if (denied) return denied;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({

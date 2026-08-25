@@ -184,7 +184,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]:PUT" });
     if (denied) return denied;
 
     // Verify event belongs to user's organization (use select for minimal data)
@@ -705,7 +705,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const deniedDel = denyReviewer(session);
+    const deniedDel = denyReviewer(session, { route: "events/[eventId]:DELETE" });
     if (deniedDel) return deniedDel;
 
     // Require explicit confirmation to prevent accidental deletion

@@ -24,7 +24,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/agreement:PATCH" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

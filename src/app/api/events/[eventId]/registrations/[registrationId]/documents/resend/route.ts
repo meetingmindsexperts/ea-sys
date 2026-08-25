@@ -31,7 +31,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/documents/resend:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/documents/resend:POST" });
     if (denied) return denied;
 
     const rl = checkRateLimit({ key: `resend-documents:${session.user.id}`, limit: 30, windowMs: 60 * 60 * 1000 });

@@ -128,7 +128,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]/rooms/[roomId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/hotels/[hotelId]/rooms/[roomId]:PUT" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -285,7 +285,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]/rooms/[roomId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/hotels/[hotelId]/rooms/[roomId]:DELETE" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

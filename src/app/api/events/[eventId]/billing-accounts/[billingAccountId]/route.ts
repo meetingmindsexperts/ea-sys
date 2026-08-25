@@ -39,9 +39,9 @@ async function authGuard(params: RouteParams["params"]) {
   if (!session?.user) {
     return { err: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) } as const;
   }
-  const denied = denyReviewer(session);
+  const denied = denyReviewer(session, { route: "events/[eventId]/billing-accounts/[billingAccountId]:gate" });
   if (denied) return { err: denied } as const;
-  const noFinance = denyFinance(session);
+  const noFinance = denyFinance(session, { route: "events/[eventId]/billing-accounts/[billingAccountId]:gate" });
   if (noFinance) return { err: noFinance } as const;
   return {
     ok: true as const,

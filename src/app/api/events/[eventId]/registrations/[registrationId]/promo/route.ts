@@ -49,9 +49,9 @@ async function authorize(eventId: string) {
   const session = await auth();
   if (!session?.user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
 
-  const denied = denyReviewer(session);
+  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/promo:gate" });
   if (denied) return { error: denied };
-  const financeDenied = denyFinance(session);
+  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/promo:gate" });
   if (financeDenied) return { error: financeDenied };
 
   const event = await db.event.findFirst({

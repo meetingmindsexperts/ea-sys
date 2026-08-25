@@ -49,7 +49,7 @@ export async function GET(req: Request) {
     const orgGuard = requireOrgId(session, { route: "media:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "media:GET" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
     const orgGuard = requireOrgId(session, { route: "media:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "media:POST" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

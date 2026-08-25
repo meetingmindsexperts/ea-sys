@@ -35,7 +35,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -72,7 +72,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:POST" });
     if (denied) return denied;
 
     const parsed = assignSchema.safeParse(body);
@@ -140,7 +140,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:DELETE" });
     if (denied) return denied;
 
     const userId = new URL(req.url).searchParams.get("userId");

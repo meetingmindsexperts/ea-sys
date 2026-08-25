@@ -306,7 +306,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Registration-desk roles (ONSITE + MEMBER) can edit a registration (incl.
     // payment status). DELETE stays admin/organizer-only (see below).
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]:PUT" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -475,7 +475,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // deliberately NOT allowed (review L-4, owner-acked): the role is blocked
     // from refunds/credit-notes, and deleting a PAID registration destroys
     // the row with no money movement. Cancellation/refund is an admin action.
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]:DELETE" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

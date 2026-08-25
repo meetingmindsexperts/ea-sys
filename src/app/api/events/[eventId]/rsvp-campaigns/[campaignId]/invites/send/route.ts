@@ -73,7 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites/send:POST" });
     if (denied) return denied;
 
     const limit = checkRateLimit({ key: `rsvp-send:${eventId}`, limit: 10, windowMs: 3600_000 });

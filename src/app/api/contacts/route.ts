@@ -137,7 +137,7 @@ export async function POST(req: Request) {
     // The old inline REVIEWER||SUBMITTER check let read-only MEMBER and
     // REGISTRANT write/delete org contacts. API-key auth (role null →
     // undefined) is admin-equivalent and passes, as before.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts:POST" });
     if (denied) return denied;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

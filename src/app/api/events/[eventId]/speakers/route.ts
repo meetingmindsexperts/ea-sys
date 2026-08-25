@@ -212,7 +212,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers:POST" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

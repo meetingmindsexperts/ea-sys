@@ -49,7 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // Invoice list carries amounts/totals — gate MEMBER. REGISTRANT
       // branch is owner-scoped and stays exempt. See sibling /quote
       // route for the same reasoning. Closed Pass #1 (June 2026).
-      const noFinance = denyFinance(session);
+      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/invoices:GET" });
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/invoices:denyFinance",

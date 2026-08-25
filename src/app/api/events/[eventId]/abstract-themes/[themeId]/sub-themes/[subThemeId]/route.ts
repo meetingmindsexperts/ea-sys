@@ -45,7 +45,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:PUT" });
     if (denied) return denied;
 
     const body = await req.json().catch(() => null);
@@ -101,7 +101,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:DELETE" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

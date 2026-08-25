@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Restricted roles (REVIEWER/SUBMITTER/REGISTRANT/MEMBER/ONSITE) must not
     // rewrite tags — tags drive bulk-email cohorts and certificate eligibility.
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/bulk-tags:PATCH" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

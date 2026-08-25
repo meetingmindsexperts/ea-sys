@@ -26,7 +26,7 @@ const RESTRICTED_ROLES = ["REVIEWER", "SUBMITTER"] as const;
 describe("RBAC Layer 1: API guard (denyReviewer)", () => {
   describe("blocks restricted roles from write operations", () => {
     it.each([...RESTRICTED_ROLES])("%s is blocked with 403", async (role) => {
-      const result = denyReviewer({ user: { role } });
+      const result = denyReviewer({ user: { role } }, { route: "test" });
       expect(result).not.toBeNull();
       expect(result!.status).toBe(403);
       const body = await result!.json();
@@ -36,25 +36,25 @@ describe("RBAC Layer 1: API guard (denyReviewer)", () => {
 
   describe("allows privileged roles", () => {
     it.each([...PRIVILEGED_ROLES])("%s is allowed (returns null)", (role) => {
-      expect(denyReviewer({ user: { role } })).toBeNull();
+      expect(denyReviewer({ user: { role } }, { route: "test" })).toBeNull();
     });
   });
 
   describe("handles edge cases", () => {
     it("null session returns null (auth check runs first)", () => {
-      expect(denyReviewer(null)).toBeNull();
+      expect(denyReviewer(null, { route: "test" })).toBeNull();
     });
 
     it("session with no user returns null", () => {
-      expect(denyReviewer({})).toBeNull();
+      expect(denyReviewer({}, { route: "test" })).toBeNull();
     });
 
     it("session with user but no role returns null", () => {
-      expect(denyReviewer({ user: {} })).toBeNull();
+      expect(denyReviewer({ user: {} }, { route: "test" })).toBeNull();
     });
 
     it("unknown role returns null (not blocked)", () => {
-      expect(denyReviewer({ user: { role: "UNKNOWN" } })).toBeNull();
+      expect(denyReviewer({ user: { role: "UNKNOWN" } }, { route: "test" })).toBeNull();
     });
   });
 
@@ -80,7 +80,7 @@ describe("RBAC Layer 1: API guard (denyReviewer)", () => {
       "REVIEWER blocked from writing to %s",
       (resource) => {
         // Simulates what each route handler does
-        const result = denyReviewer({ user: { role: "REVIEWER" } });
+        const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
         expect(result).not.toBeNull();
         expect(result!.status).toBe(403);
         // Verify the resource name is in our protected list
@@ -91,7 +91,7 @@ describe("RBAC Layer 1: API guard (denyReviewer)", () => {
     it.each(protectedResources)(
       "SUBMITTER blocked from writing to %s",
       (resource) => {
-        const result = denyReviewer({ user: { role: "SUBMITTER" } });
+        const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
         expect(result).not.toBeNull();
         expect(result!.status).toBe(403);
         expect(protectedResources).toContain(resource);

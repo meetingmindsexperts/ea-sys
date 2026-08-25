@@ -20,7 +20,7 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "organization/onsite-staff:GET" });
     if (denied) return denied;
 
     const orgId = session.user.organizationId;

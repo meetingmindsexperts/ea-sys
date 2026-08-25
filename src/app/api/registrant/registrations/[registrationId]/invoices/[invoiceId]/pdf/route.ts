@@ -50,7 +50,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // MEMBER (org-bound read-only viewer) must not see it. REGISTRANT
       // branch stays exempt as the legitimate self-view path. Closed
       // Pass #1 (June 2026).
-      const noFinance = denyFinance(session);
+      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf:GET" });
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/invoice-pdf:denyFinance",

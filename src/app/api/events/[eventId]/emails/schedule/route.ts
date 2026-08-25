@@ -39,7 +39,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule:POST" });
     if (denied) return denied;
 
     // Share the same rate limit bucket as immediate sends — 20/hr per event
@@ -225,7 +225,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // event surface; ONSITE desk temps; read-only MEMBER) could pull every
     // scheduled campaign's subject, body and filters for any event in the
     // org. Matches the guard on the POST/PATCH/DELETE/retry siblings.
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

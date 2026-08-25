@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "contacts/import-eventsair:POST" });
     if (denied) return denied;
 
     // Captured as a const so the guard's narrowing survives into the closure.

@@ -21,7 +21,7 @@ export async function GET() {
   try {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "organization/oauth-clients:GET" });
     if (denied) return denied;
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Only admins can view OAuth clients" }, { status: 403 });

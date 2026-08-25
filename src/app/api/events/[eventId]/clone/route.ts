@@ -17,7 +17,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/clone:POST" });
     if (denied) return denied;
 
     // Tenancy sweep: clone is a staff route, so the org comes from the session

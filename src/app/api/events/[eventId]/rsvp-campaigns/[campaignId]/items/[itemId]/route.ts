@@ -43,7 +43,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/items/[itemId]:PUT" });
     if (denied) return denied;
 
     const parsed = rsvpItemInputSchema.partial().safeParse(body);
@@ -129,7 +129,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, campaignId, itemId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/items/[itemId]:DELETE" });
     if (denied) return denied;
 
     const event = await loadRsvpEvent(session.user, eventId);

@@ -51,13 +51,13 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const denied = denyReviewer(session);
+  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/refund:POST" });
   if (denied) return denied;
   // Guard parity with credit-notes + cancel (review M7): refunds move money
   // through Stripe — explicitly finance-gated, not just write-gated, so a
   // future `{ allow: … }` refactor on denyReviewer can't open Stripe refunds
   // to desk staff by accident.
-  const noFinance = denyFinance(session);
+  const noFinance = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/refund:POST" });
   if (noFinance) return noFinance;
 
   // The endpoint fires stripe.refunds.create — cap a compromised session

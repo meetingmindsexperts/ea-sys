@@ -154,23 +154,23 @@ describe("Speaker: schema validation", () => {
 
 describe("Speaker: role restrictions", () => {
   it("blocks REVIEWER from adding speakers", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } });
+    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("blocks SUBMITTER from adding speakers", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } });
+    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("allows ADMIN to add speakers", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
   });
 
   it("allows ORGANIZER to add speakers", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
   });
 });
 

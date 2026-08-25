@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
 
     // Restricted roles must not rewrite tags (drive email cohorts + cert eligibility).
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/bulk-tags:PATCH" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

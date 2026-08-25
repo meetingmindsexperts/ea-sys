@@ -23,7 +23,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:detail:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices/[invoiceId]:GET" });
     if (noFinance) return noFinance;
 
     return await runWithTenantLane(session.user.organizationId, { route: "events:invoices", userId: session.user.id }, async () => {
@@ -75,7 +75,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:detail:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/invoices/[invoiceId]:PUT" });
     if (denied) return denied;
 
     const validated = updateSchema.safeParse(body);

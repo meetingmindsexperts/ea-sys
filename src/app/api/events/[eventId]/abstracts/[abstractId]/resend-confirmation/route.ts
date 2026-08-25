@@ -37,7 +37,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/resend-confirmation:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/resend-confirmation:POST" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

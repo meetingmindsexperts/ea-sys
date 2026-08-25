@@ -22,7 +22,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:pdf:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices/[invoiceId]/pdf:GET" });
     if (noFinance) return noFinance;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:pdf", userId: session.user.id }, async () => {

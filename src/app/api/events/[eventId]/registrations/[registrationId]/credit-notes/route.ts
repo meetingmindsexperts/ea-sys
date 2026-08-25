@@ -48,9 +48,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.warn({ msg: "credit-notes:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const denied = denyReviewer(session);
+  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/credit-notes:POST" });
   if (denied) return denied;
-  const financeDenied = denyFinance(session);
+  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/credit-notes:POST" });
   if (financeDenied) return financeDenied;
 
   const rl = checkRateLimit({ key: `credit-note-issue:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });

@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/items:GET" });
     if (denied) return denied;
 
     const event = await loadRsvpEvent(session.user, eventId);
@@ -72,7 +72,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/items:POST" });
     if (denied) return denied;
 
     const limit = checkRateLimit({

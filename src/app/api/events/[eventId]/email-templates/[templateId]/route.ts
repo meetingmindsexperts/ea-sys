@@ -63,7 +63,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:PUT" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -113,7 +113,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:DELETE" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -163,7 +163,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:POST" });
     if (denied) return denied;
 
     const [template, event, previewUser, realOverrides] = await Promise.all([
@@ -300,7 +300,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:PATCH" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

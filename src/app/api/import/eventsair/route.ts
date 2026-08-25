@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "import/eventsair:POST" });
     if (denied) return denied;
 
     const validated = importSchema.safeParse(body);

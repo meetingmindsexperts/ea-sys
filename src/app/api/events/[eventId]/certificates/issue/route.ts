@@ -90,7 +90,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/issue:POST" });
     if (denied) return denied;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-issue:no-org", userId: session.user.id, eventId });

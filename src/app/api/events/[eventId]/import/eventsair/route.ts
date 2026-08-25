@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the per-row transaction closure below.
     const organizationId = session.user.organizationId;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/import/eventsair:POST" });
     if (denied) return denied;
 
     return await runWithTenant(organizationId, async () => {

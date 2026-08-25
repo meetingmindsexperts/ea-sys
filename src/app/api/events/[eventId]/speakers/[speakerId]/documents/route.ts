@@ -90,7 +90,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // surface; MEMBER — the org-bound read-only viewer — may read. The
     // org-null attendee roles (SUBMITTER could reach the event via their own
     // speaker linkage) must not browse other speakers' files.
-    const denied = denyReviewer(session, { allow: ["MEMBER"] });
+    const denied = denyReviewer(session, { allow: ["MEMBER"], route: "events/[eventId]/speakers/[speakerId]/documents:GET" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -122,7 +122,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/documents:POST" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

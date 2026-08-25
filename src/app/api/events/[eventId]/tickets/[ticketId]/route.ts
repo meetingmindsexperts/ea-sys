@@ -97,7 +97,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tickets/[ticketId]:PUT" });
     if (denied) return denied;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
@@ -222,7 +222,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tickets/[ticketId]:DELETE" });
     if (denied) return denied;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.

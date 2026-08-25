@@ -51,7 +51,7 @@ export async function GET(
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/media:GET" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -111,7 +111,7 @@ export async function POST(
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/media:POST" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

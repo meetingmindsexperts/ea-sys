@@ -43,9 +43,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "billing-accounts/[billingAccountId]/merge:POST" });
     if (denied) return denied;
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]/merge:POST" });
     if (noFinance) return noFinance;
 
     const orgId = session.user.organizationId!; // capture before the closure

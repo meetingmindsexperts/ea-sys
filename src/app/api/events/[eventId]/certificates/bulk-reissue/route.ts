@@ -56,7 +56,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [session, p] = await Promise.all([auth(), params]);
     eventId = p.eventId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/bulk-reissue:POST" });
     if (denied) return denied;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-bulk-reissue:no-org", userId: session.user.id, eventId });

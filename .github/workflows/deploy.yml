@@ -127,6 +127,13 @@ jobs:
       - name: datetime-local round-trip guard
         run: bash scripts/check-datetime-local.sh
 
+      # A refusal that does not say WHICH route refused is close to useless,
+      # and that is the log line you read when someone says "it doesn't work
+      # for me". `route` was optional and 3 of 226 call sites passed it; this
+      # pins that it stays required and that the labels stay real.
+      - name: Guard refusals name their route
+        run: bash scripts/check-guard-route.sh
+
       # next/font/google downloads .woff2 at BUILD time, so a Google CDN
       # rotation can block a hotfix (run 1309). Fonts are vendored; this keeps
       # it that way, because reintroducing one builds fine every day until the

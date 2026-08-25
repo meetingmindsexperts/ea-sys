@@ -68,7 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -112,7 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates:POST" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

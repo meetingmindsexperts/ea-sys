@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to print badges.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/badges:POST" });
     if (denied) return denied;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:badges", userId: session.user.id }, async () => {

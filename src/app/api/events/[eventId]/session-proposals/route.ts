@@ -118,7 +118,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (wantsCsv) {
       // Export is a NARROWER boundary than read (house rule): org staff only.
-      const denied = denyReviewer(session);
+      const denied = denyReviewer(session, { route: "events/[eventId]/session-proposals:GET" });
       if (denied) return denied;
     }
 
@@ -201,7 +201,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Org staff + SUBMITTER may propose; every other restricted role
     // (REVIEWER / REGISTRANT / MEMBER / ONSITE / CRM_USER) is refused.
-    const denied = denyReviewer(session, { allow: ["SUBMITTER"] });
+    const denied = denyReviewer(session, { allow: ["SUBMITTER"], route: "events/[eventId]/session-proposals:POST" });
     if (denied) return denied;
 
     const validated = createProposalSchema.safeParse(body);

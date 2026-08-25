@@ -57,7 +57,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -104,7 +104,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:PATCH" });
     if (denied) return denied;
 
     const parsed = patchSchema.safeParse(body);
@@ -161,7 +161,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:DELETE" });
     if (denied) return denied;
 
     const loaded = await loadInEvent(session.user, eventId, reimbursementId);

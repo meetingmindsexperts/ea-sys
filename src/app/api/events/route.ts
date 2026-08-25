@@ -126,7 +126,7 @@ export async function POST(req: Request) {
     const orgGuard = requireOrgId(session, { route: "events:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events:POST" });
     if (denied) return denied;
 
     const body = await req.json();

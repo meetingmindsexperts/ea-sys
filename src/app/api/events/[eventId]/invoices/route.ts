@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices:GET" });
     if (noFinance) return noFinance;
 
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -108,7 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/invoices:POST" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

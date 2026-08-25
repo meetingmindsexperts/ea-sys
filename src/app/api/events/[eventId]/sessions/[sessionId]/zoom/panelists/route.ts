@@ -22,7 +22,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom/panelists:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]/zoom/panelists:POST" });
     if (denied) return denied;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
@@ -142,7 +142,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom/panelists:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]/zoom/panelists:DELETE" });
     if (denied) return denied;
 
     const url = new URL(req.url);

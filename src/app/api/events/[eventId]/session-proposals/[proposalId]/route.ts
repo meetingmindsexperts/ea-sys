@@ -121,7 +121,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: ["SUBMITTER"] });
+    const denied = denyReviewer(session, { allow: ["SUBMITTER"], route: "events/[eventId]/session-proposals/[proposalId]:PUT" });
     if (denied) return denied;
 
     const validated = updateProposalSchema.safeParse(body);
@@ -292,7 +292,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Delete is organizer-only — a submitter withdraws by asking the
     // organizer (their edit lock already applies after submit).
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposals/[proposalId]:DELETE" });
     if (denied) return denied;
 
     // Event (+ resource org) first, un-wrapped; its org is the lane for the

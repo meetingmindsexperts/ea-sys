@@ -125,24 +125,36 @@ void _assignableCoversTeamRoles;
  *   const denied = denyReviewer(session, { allow: ["ONSITE"] }); // …but let ONSITE write here
  *   if (denied) return denied;
  *
- * PASS `route` ON ANY ROUTE A RESTRICTED ROLE CAN REACH:
+ * `route` IS REQUIRED. The refusal is logged here, and without it the line
+ * records WHO was refused but not WHAT they were refused:
  *
- *   denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tags:list", eventId })
+ *   denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tags:POST", eventId })
  *
- * The refusal is logged here, and without `route` the line records WHO was
- * refused but not WHAT they were refused. On Aug 10, 2026 that cost a five-step
- * deduction (grep the page's hooks, cross-reference which of them carry which
- * guard) to place 51 warnings that a single field would have named outright.
  * Same `{ route, eventId }` shape as requireOrgId, deliberately, so the two
- * read alike in /logs.
+ * read alike in /logs. Label format is the API path with the HTTP method,
+ * `events/[eventId]/speakers:POST`, which is derivable from the file so it
+ * cannot be wrong or go stale. A per-file gate helper shared by several verbs
+ * uses `:gate` instead of a method.
  *
- * Most of the ~212 call sites do not pass it and do not need to: a route no
- * restricted role can reach never logs. Add it when you touch a route that
- * can, rather than sweeping all of them.
+ * WHY REQUIRED, reversing the earlier note here (Aug 25, 2026). That note said
+ * most call sites "do not need to: a route no restricted role can reach never
+ * logs", and to add it only when touching a route that can. The argument has a
+ * hole: it assumes you already know which routes a restricted role can reach,
+ * and being WRONG about that is the whole bug class.
+ *
+ * On Aug 24 the abstract-reviewers GET turned out to be reachable by MEMBER and
+ * ONSITE, which nobody had thought possible, and tracing it meant grepping a
+ * page's React hooks to work out which endpoint had refused. On Aug 10, 51
+ * warnings in three hours cost the same five-step deduction. Both are cases
+ * where the route was believed unreachable, so under the old rule neither
+ * would have carried a label.
+ *
+ * Optional meant 3 of 226 sites passed it. Required means the compiler asks,
+ * once, at the only moment anyone knows the answer.
  */
 export function denyReviewer(
   session: { user?: { id?: string; role?: string } } | null,
-  opts?: { allow?: readonly string[]; route?: string; eventId?: string },
+  opts: { allow?: readonly string[]; route: string; eventId?: string },
 ) {
   const role = session?.user?.role;
   if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {
@@ -180,11 +192,11 @@ export function denyReviewer(
  */
 export function denyFinance(
   session: { user?: { id?: string; role?: string } } | null,
-  ctx?: { route?: string; eventId?: string },
+  ctx: { route: string; eventId?: string },
 ) {
   if (!canViewFinance(session?.user?.role)) {
     // Logged HERE so no call site can forget (payments review M12).
-    // `route` optional, same reasoning as denyReviewer above.
+    // `route` required, same reasoning as denyReviewer above.
     apiLogger.warn({
       msg: "auth-guard:finance-denied",
       role: session?.user?.role ?? null,

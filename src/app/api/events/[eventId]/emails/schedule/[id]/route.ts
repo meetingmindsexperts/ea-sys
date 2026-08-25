@@ -55,7 +55,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule/[id]:PATCH" });
     if (denied) return denied;
 
     const validated = updateSchema.safeParse(body);
@@ -161,7 +161,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule/[id]:DELETE" });
     if (denied) return denied;
 
     // Tenancy (Domain #18): swept ScheduledEmail cancel rides the org lane.

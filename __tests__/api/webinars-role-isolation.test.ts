@@ -112,15 +112,15 @@ describe("denyReviewer — WEBINARS opt-in matrix", () => {
   const session = { user: { id: "web1", role: "WEBINARS" } };
 
   it("blocked by default (fails closed on unswept routes)", () => {
-    expect(denyReviewer(session)).not.toBeNull();
+    expect(denyReviewer(session, { route: "test" })).not.toBeNull();
   });
 
   it("allowed via WEBINAR_STAFF_ALLOW (full-control routes)", () => {
-    expect(denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW })).toBeNull();
+    expect(denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "test" })).toBeNull();
   });
 
   it("allowed via REGISTRATION_DESK_ALLOW (desk routes)", () => {
-    expect(denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW })).toBeNull();
+    expect(denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "test" })).toBeNull();
   });
 
   it("is an org team role (Settings → Users list + invite)", () => {

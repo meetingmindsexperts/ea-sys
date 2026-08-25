@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]/retry:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule/[id]/retry:POST" });
     if (denied) return denied;
 
     // Tenancy (Domain #18): swept ScheduledEmail retry rides the org lane.

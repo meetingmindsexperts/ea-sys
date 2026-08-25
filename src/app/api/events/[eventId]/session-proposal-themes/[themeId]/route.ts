@@ -30,7 +30,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT" });
     if (denied) return denied;
 
     // Event first, un-wrapped (bound to the session org); its org is the lane
@@ -89,7 +89,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE" });
     if (denied) return denied;
 
     // Event first, un-wrapped (bound to the session org); its org is the lane

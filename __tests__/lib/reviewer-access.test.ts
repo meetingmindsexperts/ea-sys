@@ -80,23 +80,23 @@ describe("Reviewer: add reviewer schema", () => {
 
 describe("Reviewer: role restrictions", () => {
   it("blocks REVIEWER from adding other reviewers", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } });
+    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("blocks SUBMITTER from adding reviewers", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } });
+    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("allows ADMIN to manage reviewers", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
   });
 
   it("allows ORGANIZER to manage reviewers", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
   });
 });
 
@@ -249,7 +249,7 @@ describe("Reviewer: existing user role handling", () => {
 
 describe("Reviewer: abstracts-only access", () => {
   it("reviewer is blocked from write operations by denyReviewer", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } });
+    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });

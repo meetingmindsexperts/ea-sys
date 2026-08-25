@@ -51,9 +51,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/billing-accounts:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/billing-accounts:POST" });
     if (denied) return denied;
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "events/[eventId]/billing-accounts:POST" });
     if (noFinance) return noFinance;
 
     const orgId = orgGuard.orgId; // capture before the closure

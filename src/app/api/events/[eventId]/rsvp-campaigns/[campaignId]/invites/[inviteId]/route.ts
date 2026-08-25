@@ -21,7 +21,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, campaignId, inviteId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites/[inviteId]:DELETE" });
     if (denied) return denied;
 
     const event = await loadRsvpEvent(session.user, eventId);

@@ -49,7 +49,7 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "invoices/export:GET" });
     if (noFinance) return noFinance;
     // WEBINARS is finance-capable for desk duties only — the org-wide invoice
     // export is an org-level surface it's blocked from (review H-1).

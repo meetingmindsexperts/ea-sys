@@ -23,7 +23,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/panelists/sync-speakers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists/sync-speakers:POST" });
     if (denied) return denied;
 
     // Share the existing panelist-add rate-limit bucket so a user can't

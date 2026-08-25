@@ -47,9 +47,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.warn({ msg: "cancel:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const denied = denyReviewer(session);
+  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/cancel:POST" });
   if (denied) return denied;
-  const financeDenied = denyFinance(session);
+  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/cancel:POST" });
   if (financeDenied) return financeDenied;
 
   // Cancel-with-refund fires stripe.refunds.create — cap a compromised

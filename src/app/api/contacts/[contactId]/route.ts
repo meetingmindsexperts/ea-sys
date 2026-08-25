@@ -143,7 +143,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
     // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]:PUT" });
     if (denied) return denied;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -239,7 +239,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
     // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]:DELETE" });
     if (denied) return denied;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

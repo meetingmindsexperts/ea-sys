@@ -120,7 +120,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:PUT" });
     if (denied) return denied;
 
     const parsed = updatePromoCodeSchema.safeParse(body);
@@ -248,7 +248,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:DELETE" });
     if (denied) return denied;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.

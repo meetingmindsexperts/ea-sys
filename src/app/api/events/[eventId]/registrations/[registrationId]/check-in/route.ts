@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:POST" });
     if (denied) return denied;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
@@ -146,7 +146,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:PUT" });
     if (denied) return denied;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
@@ -259,7 +259,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) may undo a check-in they made.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:DELETE" });
     if (denied) return denied;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {

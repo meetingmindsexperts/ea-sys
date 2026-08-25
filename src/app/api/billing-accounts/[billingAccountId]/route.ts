@@ -36,7 +36,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]:GET" });
     if (noFinance) return noFinance;
 
     const orgId = session.user.organizationId!; // capture before the closure
@@ -162,9 +162,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "billing-accounts/[billingAccountId]:PATCH" });
     if (denied) return denied;
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]:PATCH" });
     if (noFinance) return noFinance;
 
     const orgId = session.user.organizationId!; // capture before the closure

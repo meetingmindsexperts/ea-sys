@@ -49,7 +49,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     //
     // denyReviewer first (it owns the refusal logging for the restricted set),
     // then the narrower predicate for the roles it would otherwise admit.
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/supporting-document:GET" });
     if (denied) return denied;
     if (!canViewSupportingDocument(session.user.role)) {
       apiLogger.warn(

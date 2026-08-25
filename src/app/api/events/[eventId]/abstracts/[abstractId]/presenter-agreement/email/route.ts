@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/presenter-agreement/email:POST" });
     if (denied) return denied;
 
     const limit = checkRateLimit({

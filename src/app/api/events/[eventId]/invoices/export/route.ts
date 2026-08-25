@@ -38,7 +38,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:export:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session);
+    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices/export:GET" });
     if (noFinance) return noFinance;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:export", userId: session.user.id }, async () => {

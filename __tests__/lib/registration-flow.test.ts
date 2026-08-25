@@ -250,22 +250,22 @@ describe("Registration: barcode generation", () => {
 
 describe("Registration: role restrictions", () => {
   it("blocks REVIEWER from creating registrations", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } });
+    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("blocks SUBMITTER from creating registrations", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } });
+    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   it("allows ADMIN to create registrations", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
   });
 
   it("allows ORGANIZER to create registrations", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } })).toBeNull();
+    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
   });
 });

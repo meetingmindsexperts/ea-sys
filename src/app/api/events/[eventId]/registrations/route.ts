@@ -664,7 +664,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
 
     // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations:POST" });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {

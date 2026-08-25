@@ -89,7 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Granting free entry is an organizer decision — ADMIN/ORGANIZER only
     // (default denyReviewer set: no MEMBER/ONSITE/REVIEWER/SUBMITTER/REGISTRANT).
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/grant-companion:POST" });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).

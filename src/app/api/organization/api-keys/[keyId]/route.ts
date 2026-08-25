@@ -12,7 +12,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const [session, { keyId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "organization/api-keys/[keyId]:DELETE" });
     if (denied) return denied;
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Only admins can manage API keys" }, { status: 403 });

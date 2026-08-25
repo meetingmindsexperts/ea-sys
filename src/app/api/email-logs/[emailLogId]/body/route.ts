@@ -37,7 +37,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const [session, p] = await Promise.all([auth(), params]);
     emailLogId = p.emailLogId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "email-logs/[emailLogId]/body:GET" });
     if (denied) return denied;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "email-log-body:no-org", userId: session.user.id, emailLogId });

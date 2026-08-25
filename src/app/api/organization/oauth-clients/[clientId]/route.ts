@@ -33,7 +33,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
     ]);
 
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { route: "organization/oauth-clients/[clientId]:PATCH" });
     if (denied) return denied;
 
     if (session.user.role !== "SUPER_ADMIN") {
