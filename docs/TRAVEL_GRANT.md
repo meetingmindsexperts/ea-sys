@@ -19,13 +19,14 @@ be duplicated here. Operator-facing instructions are user-guide § Travel Grants
 | 2 | Schema, migration, RLS policy, harness test | ✅ shipped |
 | 3 | Settings toggle + the two Content editors | ✅ shipped |
 | 4 | `buildTravelGrantBlock` + the confirmation-email wiring | ✅ shipped |
-| 5 | Public consent form + its routes | ⬜ not built |
+| 5 | Public consent form + its routes | ✅ shipped |
 | 6 | Organizer console | ⬜ not built |
 | 7 | Docs | ✅ this file + the user guide |
 
-**An eligible author now receives the message and a link.** What is still
-missing is the page that link opens (step 5) and the console (step 6), so do
-not enable this on a live event until those land.
+**The author-facing flow is complete**: an eligible author receives the
+message, opens their link, and confirms or declines. What is missing is the
+organizer's **console** (step 6), so there is currently no screen showing who
+has answered. Responses ARE recorded and audited; they just have no viewer yet.
 
 ## The decision surface
 
@@ -112,12 +113,11 @@ Content → Abstracts:
   24 events hold a materialised `abstract-submission-confirmation` row, so the
   shipped default reaches none of them; the block is appended when the resolved
   template lacks the token. Do not "simplify" that away.
-- **Resolve the org before the token lookup.** `token` is globally unique and
-  plaintext, so under RLS a `findUnique({ token })` in the wrong lane returns
-  nothing. The public route must bootstrap the org from the Event by host+slug
-  first, exactly as `resolveReimbursementEventOrg` does. Get it backwards and
-  every link fail-closes on the platform while passing every test on master,
-  where RLS is off.
+- ✅ **The org-before-token ordering is handled** in
+  [lib/travel-grant/public.ts](../src/lib/travel-grant/public.ts) and pinned by a
+  test whose assertion is the testable form of the invariant: **when the org
+  cannot be resolved, the token is never looked up at all.** Reversing the two
+  calls fails it. Do not reorder them.
 - **The console shows people who must not be emailed.** D7 lists every abstract
   author including UAE and unknown, directly above a "remind everyone pending"
   button. **That action must key off `status = PENDING` on existing rows, never
