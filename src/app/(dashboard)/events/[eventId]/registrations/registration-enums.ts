@@ -114,4 +114,79 @@ assertCovers(REGISTRATION_STATUS_DISPLAY_ORDER, ALL_REGISTRATION_STATUSES, "Regi
 // (value access) is preferred over `"UNASSIGNED"` (string literal) when the
 // target type is the enum — Prisma's generated type doesn't always widen
 // the plain string literal correctly at assignment sites.
+// ── Badge type ─────────────────────────────────────────────────────────────
+//
+// Not a Prisma enum: `Registration.badgeType` is free text, because the label
+// on the card is whatever an event decides to print ("Faculty", "Chairman",
+// "Industry Partner"). These are the presets the picker offers, not a closed
+// set.
+
+export const BADGE_TYPE_PRESETS: readonly string[] = [
+  "Delegate",
+  "Faculty",
+  "Exhibitor",
+  "Committee",
+  "Chairman",
+  "Co-Chairman",
+];
+
+/** Sentinel the Select carries when the value is not one of the presets. */
+export const CUSTOM_BADGE_TYPE = "Custom";
+
+/**
+ * What the badge renderer prints when `badgeType` is null, so the picker shows
+ * the same thing rather than an empty control that implies nothing prints.
+ */
+export const BADGE_TYPE_FALLBACK = "Delegate";
+
+export interface BadgeTypeField {
+  /** Value for the Select. A preset, or `CUSTOM_BADGE_TYPE`. */
+  selectValue: string;
+  /** Whether the free-text input should render at all. */
+  isCustom: boolean;
+  /** What that input shows. Empty unless `isCustom`. */
+  customValue: string;
+}
+
+/**
+ * Resolve how the Badge Type control should render.
+ *
+ * WHY THIS IS A FUNCTION AND NOT AN INLINE TERNARY. It used to be inline, and
+ * it had a bug that read to the organiser as "the custom badge type is not
+ * saving". The value saved fine; the control hid it. `isCustom` was derived in
+ * VIEW mode too, so a saved "VIP Guest" made the Select carry the sentinel and
+ * the trigger rendered the literal word "Custom..." — while the free-text
+ * input holding the actual text was gated on `isEditing` and therefore did not
+ * render. You typed a value, saved, dropped out of edit mode, and the field
+ * showed a dropdown label with your text nowhere on screen.
+ *
+ * So: `customValue` is returned for BOTH modes and the caller renders the
+ * input disabled rather than hidden, which is how the Select beside it already
+ * behaves in view mode.
+ *
+ * `customOpen` is the one genuinely stateful bit — picking "Custom…" sets the
+ * value to "", which is indistinguishable from "nothing set", so the caller
+ * has to remember that the user chose it. It is honoured ONLY while editing,
+ * so a stale flag can never make view mode claim a value it does not have.
+ */
+export function resolveBadgeTypeField(args: {
+  stored: string | null | undefined;
+  isEditing: boolean;
+  customOpen: boolean;
+}): BadgeTypeField {
+  const value = args.stored ?? "";
+  const isPreset = BADGE_TYPE_PRESETS.includes(value);
+  const isCustom = (args.isEditing && args.customOpen) || (value !== "" && !isPreset);
+
+  return {
+    isCustom,
+    selectValue: isCustom
+      ? CUSTOM_BADGE_TYPE
+      : isPreset
+        ? value
+        : BADGE_TYPE_FALLBACK,
+    customValue: isCustom ? value : "",
+  };
+}
+
 export { PaymentStatus, RegistrationStatus };

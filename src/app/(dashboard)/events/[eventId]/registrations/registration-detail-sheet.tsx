@@ -110,12 +110,15 @@ import {
   apiPutJson,
 } from "@/lib/api-fetch";
 import {
+  BADGE_TYPE_PRESETS,
+  CUSTOM_BADGE_TYPE,
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
   REGISTRATION_STATUS_COLORS,
   REGISTRATION_STATUS_DISPLAY_ORDER,
   REGISTRATION_STATUS_LABELS,
+  resolveBadgeTypeField,
 } from "./registration-enums";
 
 const EMAIL_TYPE_LABELS: Record<string, string> = {
@@ -1487,17 +1490,21 @@ export function RegistrationDetailSheet({
                   <div className="space-y-2">
                     <Label>Badge Type</Label>
                     {(() => {
-                      const BADGE_TYPES = ["Delegate", "Faculty", "Exhibitor", "Committee", "Chairman", "Co-Chairman"];
                       // Staged in the edit form (no auto-save). Source from editData
-                      // while editing, from the row while viewing (read-only).
-                      const rawBadge = (isEditing ? editData.badgeType : selectedRegistration.badgeType) || "Delegate";
-                      const isCustom = badgeCustomOpen || (rawBadge !== "" && !BADGE_TYPES.includes(rawBadge));
+                      // while editing, from the row while viewing.
+                      // Derivation lives in resolveBadgeTypeField — see its
+                      // docblock for why this is not an inline ternary any more.
+                      const badge = resolveBadgeTypeField({
+                        stored: isEditing ? editData.badgeType : selectedRegistration.badgeType,
+                        isEditing,
+                        customOpen: badgeCustomOpen,
+                      });
                       return (
                         <>
                           <Select
-                            value={isCustom ? "Custom" : rawBadge}
+                            value={badge.selectValue}
                             onValueChange={(value) => {
-                              if (value === "Custom") {
+                              if (value === CUSTOM_BADGE_TYPE) {
                                 setBadgeCustomOpen(true);
                                 setEditData((p) => ({ ...p, badgeType: "" }));
                               } else {
@@ -1511,17 +1518,22 @@ export function RegistrationDetailSheet({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {BADGE_TYPES.map((bt) => (
+                              {BADGE_TYPE_PRESETS.map((bt) => (
                                 <SelectItem key={bt} value={bt}>{bt}</SelectItem>
                               ))}
-                              <SelectItem value="Custom">Custom...</SelectItem>
+                              <SelectItem value={CUSTOM_BADGE_TYPE}>Custom...</SelectItem>
                             </SelectContent>
                           </Select>
-                          {isEditing && isCustom && (
+                          {/* Rendered in BOTH modes, disabled rather than hidden
+                              (the Select above already behaves that way). Hiding
+                              it in view mode is what made a saved custom value
+                              look like it had not saved. */}
+                          {badge.isCustom && (
                             <Input
                               placeholder="Enter custom badge type"
-                              value={editData.badgeType}
+                              value={badge.customValue}
                               onChange={(e) => setEditData((p) => ({ ...p, badgeType: e.target.value }))}
+                              disabled={!isEditing || updateRegistration.isPending}
                             />
                           )}
                         </>

@@ -73,6 +73,7 @@ import {
   barcodeWidthPt,
   DEFAULT_BADGE_FIELDS,
   type BadgeAlign,
+  type BadgeBarcodeArrangement,
 } from "@/lib/badge-layout";
 
 /** Common conference badge stock. Width x height in millimetres. */
@@ -387,6 +388,7 @@ export default function EventSettingsPage() {
           align: resolvedBadge.align,
           offsetXPt: String(resolvedBadge.offsetXPt),
           offsetYPt: String(resolvedBadge.offsetYPt),
+          barcodeArrangement: resolvedBadge.barcodeArrangement,
           fields: resolvedBadge.fields,
         });
 
@@ -584,6 +586,7 @@ export default function EventSettingsPage() {
     align: "center" as BadgeAlign,
     offsetXPt: "0",
     offsetYPt: "0",
+    barcodeArrangement: "stacked" as BadgeBarcodeArrangement,
     fields: DEFAULT_BADGE_FIELDS,
   });
 
@@ -600,6 +603,7 @@ export default function EventSettingsPage() {
         align: badgeLayout.align,
         offsetXPt: Number(badgeLayout.offsetXPt) || 0,
         offsetYPt: Number(badgeLayout.offsetYPt) || 0,
+        barcodeArrangement: badgeLayout.barcodeArrangement,
         fields: badgeLayout.fields,
       },
     },
@@ -612,6 +616,7 @@ export default function EventSettingsPage() {
       align: badgeLayout.align,
       ox: String(Number(badgeLayout.offsetXPt) || 0),
       oy: String(Number(badgeLayout.offsetYPt) || 0),
+      arr: badgeLayout.barcodeArrangement,
       // Enabled keys only. The preview has to show the switches as they sit on
       // screen, not as they were last saved, or it is not a calibration tool.
       fields: Object.entries(badgeLayout.fields)
@@ -667,6 +672,7 @@ export default function EventSettingsPage() {
               align: badgeLayout.align,
               offsetXPt: Number(badgeLayout.offsetXPt) || 0,
               offsetYPt: Number(badgeLayout.offsetYPt) || 0,
+              barcodeArrangement: badgeLayout.barcodeArrangement,
               fields: badgeLayout.fields,
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
@@ -1676,22 +1682,65 @@ export default function EventSettingsPage() {
                     Organisation and country share the line under the name, so
                     turning organisation on hides country.
                   </p>
+                </div>
+
+                {/* Barcode vs compliance QR placement. Only bites on a
+                    DTCM-flagged event, because the QR is the only one on the
+                    badge — the copy below says so rather than hiding the
+                    control, so turning DTCM on later does not send the
+                    organiser back here to discover a setting they never saw. */}
+                <div className="mt-6 space-y-3">
+                  <Label>Barcode and compliance QR</Label>
+                  <div className="flex gap-2">
+                    {([
+                      { value: "stacked" as const, label: "One below the other" },
+                      { value: "side-by-side" as const, label: "Side by side" },
+                    ]).map((opt) => (
+                      <Button
+                        key={opt.value}
+                        type="button"
+                        variant={badgeLayout.barcodeArrangement === opt.value ? "default" : "outline"}
+                        size="sm"
+                        onClick={() =>
+                          setBadgeLayout({ ...badgeLayout, barcodeArrangement: opt.value })
+                        }
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {generalFormData.requiresDtcmBarcode
+                      ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
+                      : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
+                  </p>
                   {/* Desk staff scan the BADGE for attendance, so the barcode
                       is the credential and an unreadable one is a queue at the
                       door. Shrinking the badge shrinks the bars with it, and
                       nothing used to say so. A warning, never a block — an
                       organiser who test-prints and finds it scans on their
                       hardware knows more than our constant does. */}
-                  {barcodeTooNarrow(previewBadgeLayout) && (
+                  {/* `hasDtcm` is the EVENT's flag, so the warning predicts the
+                      width a real badge gets. Passing it unconditionally would
+                      cry wolf on an event that prints no QR at all, and a
+                      warning that fires when it should not is one an organiser
+                      learns to scroll past. */}
+                  {barcodeTooNarrow(previewBadgeLayout, generalFormData.requiresDtcmBarcode) && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
                       <span className="font-medium">
                         This badge may be too narrow to scan.
                       </span>{" "}
                       The barcode gets about{" "}
-                      {Math.round(ptToMm(barcodeWidthPt(previewBadgeLayout)))}mm here,
-                      and desk scanners want roughly 60mm or more. Widen the
-                      badge, or print one and test it on your scanner before
-                      the event.
+                      {Math.round(
+                        ptToMm(
+                          barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode),
+                        ),
+                      )}
+                      mm here, and desk scanners want roughly 60mm or more.{" "}
+                      {generalFormData.requiresDtcmBarcode &&
+                      badgeLayout.barcodeArrangement === "side-by-side"
+                        ? "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge."
+                        : "Widen the badge, or print one and test it on your scanner before the event."}
                     </div>
                   )}
                 </div>

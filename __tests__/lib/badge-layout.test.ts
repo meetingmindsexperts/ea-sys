@@ -22,6 +22,7 @@ import {
   ptToMm,
   readBadgeLayout,
   resolveBadgeOrigin,
+  resolveBarcodeRow,
   type BadgeLayout,
 } from "@/lib/badge-layout";
 
@@ -247,5 +248,107 @@ describe("barcode scannability warning", () => {
     // 3.5" x 2.25" is a real badge size an organiser can pick from the
     // presets. If the warning fired on a preset it would be noise.
     expect(barcodeTooNarrow(at(mmToPt(88.9)))).toBe(false);
+  });
+});
+
+describe("barcode / DTCM QR arrangement", () => {
+  const sideBySide: BadgeLayout = {
+    ...DEFAULT_BADGE_LAYOUT,
+    barcodeArrangement: "side-by-side",
+  };
+
+  it("defaults to the historical stacked layout", () => {
+    // Anything else would silently re-print every existing event's badge the
+    // moment this shipped.
+    expect(DEFAULT_BADGE_LAYOUT.barcodeArrangement).toBe("stacked");
+    expect(readBadgeLayout({}).barcodeArrangement).toBe("stacked");
+  });
+
+  it("a corrupt or unknown value falls back to stacked, not to nothing", () => {
+    // Same direction as every other reader here: a badge that prints as it
+    // always did is recoverable; one that rearranges itself is a reprint.
+    for (const bad of ["sidebyside", "", 1, null, {}, ["side-by-side"]]) {
+      expect(
+        readBadgeLayout({ settings: { badge: { barcodeArrangement: bad } } })
+          .barcodeArrangement,
+      ).toBe("stacked");
+    }
+  });
+
+  it("round-trips a valid arrangement off the settings blob", () => {
+    expect(
+      readBadgeLayout({ settings: { badge: { barcodeArrangement: "side-by-side" } } })
+        .barcodeArrangement,
+    ).toBe("side-by-side");
+  });
+
+  it("stacked draws the QR in its own band BELOW the barcode", () => {
+    const row = resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true);
+    expect(row.qrDy).toBeGreaterThan(row.barcodeDy + row.barcodeH);
+    // Full content width — the QR is not in the barcode's way.
+    expect(row.barcodeW).toBe(BASE_BADGE_W - BASE_MARGIN * 2 - 20);
+  });
+
+  it("side-by-side puts them on ONE row and narrows the barcode", () => {
+    const row = resolveBarcodeRow(sideBySide, true);
+    const stacked = resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true);
+
+    // Vertically overlapping, i.e. actually beside each other.
+    expect(row.qrDy).toBeGreaterThanOrEqual(row.barcodeDy);
+    expect(row.qrDy).toBeLessThan(row.barcodeDy + row.barcodeH);
+    // And the barcode gave up exactly the QR plus the gap.
+    expect(row.barcodeW).toBeLessThan(stacked.barcodeW);
+    expect(stacked.barcodeW - row.barcodeW).toBe(row.qrSize + 8);
+    // Never overlapping horizontally.
+    expect(row.barcodeDx + row.barcodeW).toBeLessThanOrEqual(row.qrDx);
+  });
+
+  it("side-by-side changes NOTHING when no QR will be drawn", () => {
+    // A flagged event still prints full-width bars for a registration whose
+    // code was never imported, or whose QR failed to rasterise. Narrowing the
+    // barcode to reserve empty space would cost scannability for nothing.
+    expect(resolveBarcodeRow(sideBySide, false)).toEqual(
+      resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, false),
+    );
+  });
+
+  it("the QR sits flush right in BOTH arrangements", () => {
+    // So it does not appear to jump sideways when the setting is flipped.
+    expect(resolveBarcodeRow(sideBySide, true).qrDx).toBe(
+      resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true).qrDx,
+    );
+  });
+
+  it("costs the barcode the QR plus the gap, NOT half the width", () => {
+    // Worth stating as a number, because "side by side halves the barcode" is
+    // the intuitive guess and it is wrong: the QR is 40pt square, so a default
+    // 4in badge goes from ~80mm of bars to ~64mm, which is still above the
+    // ~60mm a desk scanner wants. The cost is real but small.
+    expect(ptToMm(barcodeWidthPt(DEFAULT_BADGE_LAYOUT, true))).toBeCloseTo(80.4, 1);
+    expect(ptToMm(barcodeWidthPt(sideBySide, true))).toBeCloseTo(63.5, 1);
+  });
+
+  it("the width warning follows the arrangement", () => {
+    // The default 4in badge survives side-by-side with ~3mm to spare. The
+    // arrangement matters at sizes where stacked is still fine and side by
+    // side is not — that band is exactly what the warning exists to catch.
+    const narrow = (l: BadgeLayout): BadgeLayout => ({ ...l, widthPt: mmToPt(95) });
+
+    expect(barcodeTooNarrow(DEFAULT_BADGE_LAYOUT, true)).toBe(false);
+    expect(barcodeTooNarrow(sideBySide, true)).toBe(false);
+
+    expect(barcodeTooNarrow(narrow(DEFAULT_BADGE_LAYOUT), true)).toBe(false);
+    expect(barcodeTooNarrow(narrow(sideBySide), true)).toBe(true);
+  });
+
+  it("the warning does NOT fire on an event that prints no QR", () => {
+    // A warning that fires when it should not is one an organiser learns to
+    // scroll past.
+    expect(barcodeTooNarrow(sideBySide, false)).toBe(false);
+  });
+
+  it("a badge too narrow to hold both clamps the barcode at zero", () => {
+    const tiny: BadgeLayout = { ...sideBySide, widthPt: 80 };
+    expect(resolveBarcodeRow(tiny, true).barcodeW).toBeGreaterThanOrEqual(0);
   });
 });

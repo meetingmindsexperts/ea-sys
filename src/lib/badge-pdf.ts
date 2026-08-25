@@ -8,10 +8,16 @@
  *
  * Interior geometry is laid out against absolute offsets from the badge's
  * top-left corner (name at +30, country +72, barcode +95, the bottom row
- * +145, the DTCM band +172), tuned for the original 288x216pt card. Now that
- * the size is organiser-controlled, every one of those is multiplied through
- * `badgeScale`. At the default size all three factors are exactly 1, so the
- * output is byte-identical to what this event has always printed.
+ * +145), tuned for the original 288x216pt card. Now that the size is
+ * organiser-controlled, every one of those is multiplied through `badgeScale`.
+ * At the default size all three factors are exactly 1, so the output is
+ * byte-identical to what this event has always printed.
+ *
+ * The barcode row is the exception: its offsets come from `resolveBarcodeRow`
+ * in badge-layout.ts, because the organiser can put the DTCM QR either in its
+ * own band below the bottom row (the historical +172) or beside the bars, and
+ * the settings card's "too narrow to scan" warning has to predict the same
+ * widths this file draws.
  */
 import PDFDocument from "pdfkit";
 import { apiLogger } from "@/lib/logger";
@@ -22,6 +28,7 @@ import {
   BASE_MARGIN,
   badgeScale,
   resolveBadgeOrigin,
+  resolveBarcodeRow,
   type BadgeLayout,
 } from "@/lib/badge-layout";
 
@@ -193,15 +200,26 @@ function drawBadge(
     });
   }
 
-  // ── Barcode (centered, using pre-rendered buffer) ──
+  // ── Entry barcode + DTCM QR ──
+  // Geometry comes from `resolveBarcodeRow`, the SAME function the settings
+  // card's "too narrow to scan" warning predicts with, so the warning and the
+  // print cannot disagree.
+  //
+  // `hasDtcm` is resolved from the pre-rendered BUFFER, not from
+  // `reg.dtcmBarcode`: if the QR failed to rasterise there is no symbol to make
+  // room for, and narrowing the bars for it would cost scannability to reserve
+  // empty space.
+  const dtcmPng = reg.dtcmBarcode ? dtcmQrBuffers.get(reg.dtcmBarcode) : undefined;
+  const row = resolveBarcodeRow(layout, !!dtcmPng);
+
   // qrCode only — see the pre-render loop above. Same serial-suffixed value
   // as the pre-render dedup key, or the buffer lookup would miss.
   const barcodeText = f.barcode && reg.qrCode ? entryBarcodeValue(reg.qrCode, reg.serialId) : null;
   if (barcodeText) {
     const png = barcodeBuffers.get(barcodeText);
     if (png) {
-      doc.image(png, x + margin + 10 * sx, y + 95 * sy, {
-        fit: [contentW - 20 * sx, 40 * sy],
+      doc.image(png, x + row.barcodeDx, y + row.barcodeDy, {
+        fit: [row.barcodeW, row.barcodeH],
         align: "center",
       });
     }
@@ -243,12 +261,11 @@ function drawBadge(
   // The trade this accepts: the human-readable line existed so an inspector
   // could read the value out if a scan failed. That fallback is now the
   // registration detail sheet, which is where the value lives anyway.
-  const dtcmPng = reg.dtcmBarcode ? dtcmQrBuffers.get(reg.dtcmBarcode) : undefined;
+  // In `stacked` this is the band below the bottom row, exactly where it has
+  // always printed. In `side-by-side` it shares the barcode's row. Both
+  // positions come from `resolveBarcodeRow` above.
   if (dtcmPng) {
-    const qrSize = 40 * sf; // ≈14mm at base — QR v3 modules ~0.48mm, scannable
-    const qrX = x + W - margin - qrSize;
-    const qrY = y + 172 * sy;
-    doc.image(dtcmPng, qrX, qrY, { fit: [qrSize, qrSize] });
+    doc.image(dtcmPng, x + row.qrDx, y + row.qrDy, { fit: [row.qrSize, row.qrSize] });
   }
 
   doc.restore();

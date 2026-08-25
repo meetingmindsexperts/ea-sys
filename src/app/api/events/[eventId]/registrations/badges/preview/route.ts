@@ -7,7 +7,12 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { rateLimited } from "@/lib/api-errors";
-import { readBadgeLayout, type BadgeAlign, type BadgeLayout } from "@/lib/badge-layout";
+import {
+  readBadgeLayout,
+  type BadgeAlign,
+  type BadgeBarcodeArrangement,
+  type BadgeLayout,
+} from "@/lib/badge-layout";
 import { generateBadgePDF, type BadgeRegistration } from "@/lib/badge-pdf";
 
 /**
@@ -115,6 +120,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         // instead would be a second set of bounds to drift from.
         const { searchParams } = new URL(req.url);
         const align = searchParams.get("align");
+        const arrangement = searchParams.get("arr");
 
         // `fields` is a comma-separated list of the ENABLED keys. Presence is
         // checked with `has`, not truthiness, because "everything off" is a
@@ -137,6 +143,8 @@ export async function GET(req: Request, { params }: RouteParams) {
               align: (align as BadgeAlign) ?? saved.align,
               offsetXPt: numParam(searchParams.get("ox")) ?? saved.offsetXPt,
               offsetYPt: numParam(searchParams.get("oy")) ?? saved.offsetYPt,
+              barcodeArrangement:
+                (arrangement as BadgeBarcodeArrangement) ?? saved.barcodeArrangement,
               fields,
             },
           },
