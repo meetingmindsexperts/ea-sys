@@ -221,8 +221,18 @@ export default function TravelGrantPage() {
                     className="mt-0.5"
                   />
                   <Label htmlFor="confirm" className="text-sm font-normal leading-relaxed">
-                    I confirm that I am <strong>not a resident of the United Arab Emirates</strong>,
-                    and I would like to be considered for a travel grant.
+                    {/* ONE child on purpose. `Label` is `flex items-center gap-2`, so
+                        separate text nodes and a <strong> become separate FLEX ITEMS
+                        with an 8px gap between each — which renders as
+                        "Emirates , and" with a stray space before the comma. Wrapping
+                        the sentence in a span makes it a single flex item and inline
+                        formatting behaves normally. Same class as needing `min-w-0`
+                        for `truncate` to work inside a flex row. */}
+                    <span>
+                      I confirm that I am{" "}
+                      <strong>not a resident of the United Arab Emirates</strong>, and I
+                      would like to be considered for a travel grant.
+                    </span>
                   </Label>
                 </div>
 
