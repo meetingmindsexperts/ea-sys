@@ -656,8 +656,18 @@ export default function EventSettingsPage() {
     };
   };
 
-  /** One Save for the whole Registration tab: columns and settings together. */
-  const handleSaveRegistrationTab = () => handleSaveGeneral(buildSettingsPayload());
+  /**
+   * One Save for a whole tab: event columns and the settings blob together.
+   *
+   * Used by every tab that mixes the two. On Registration the cards genuinely
+   * mix payloads — maxAttendees and requiresDtcmBarcode are columns while the
+   * switches beside them are settings keys — so a per-card Save cannot be
+   * scoped correctly there. On General the two cards DO split cleanly, but a
+   * per-card Save still means editing the event name, scrolling down and
+   * pressing "Save Notifications" loses the name with no warning. Same class
+   * of silent loss, just better signposted.
+   */
+  const handleSaveTab = () => handleSaveGeneral(buildSettingsPayload());
 
   const handleSaveSettings = async () => {
     setSaving(true);
@@ -1058,12 +1068,6 @@ export default function EventSettingsPage() {
                 <p className="text-xs text-muted-foreground">Shown on public registration forms for attendee inquiries</p>
               </div>
 
-              <div className="flex justify-end">
-                <Button onClick={() => handleSaveGeneral()} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
-              </div>
             </CardContent>
           </Card>
 
@@ -1098,14 +1102,16 @@ export default function EventSettingsPage() {
                 </div>
               ))}
 
-              <div className="flex justify-end">
-                <Button onClick={handleSaveSettings} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Notifications"}
-                </Button>
-              </div>
             </CardContent>
           </Card>
+
+          {/* One Save for the tab — see handleSaveTab. */}
+          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <Button onClick={handleSaveTab} disabled={saving} size="lg">
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving..." : "Save general settings"}
+            </Button>
+          </div>
         </TabsContent>
 
         {/* Registration Settings */}
@@ -1674,7 +1680,7 @@ export default function EventSettingsPage() {
               change. Both halves PUT to the same endpoint, so this sends them
               together in one request. */}
           <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <Button onClick={handleSaveRegistrationTab} disabled={saving} size="lg">
+            <Button onClick={handleSaveTab} disabled={saving} size="lg">
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save registration settings"}
             </Button>
