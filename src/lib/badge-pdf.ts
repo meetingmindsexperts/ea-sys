@@ -7,8 +7,9 @@
  * their calibration is right when it is not.
  *
  * Interior geometry is laid out against absolute offsets from the badge's
- * top-left corner (name at +30, country +72, barcode +95, the bottom row
- * +145), tuned for the original 288x216pt card. Now that the size is
+ * top-left corner (name at +30, registration number +58, organisation or
+ * country +72, barcode +95, the role row +145), tuned for the original
+ * 288x216pt card. Now that the size is
  * organiser-controlled, every one of those is multiplied through `badgeScale`.
  * At the default size all three factors are exactly 1, so the output is
  * byte-identical to what this event has always printed.
@@ -27,6 +28,7 @@ import { mapWithConcurrency } from "@/lib/concurrency";
 import {
   BASE_MARGIN,
   badgeScale,
+  badgeSerialTop,
   resolveBadgeOrigin,
   resolveBarcodeRow,
   type BadgeLayout,
@@ -146,7 +148,7 @@ function drawBadge(
   dtcmQrBuffers: Map<string, Buffer>,
 ) {
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
-  const { sx, sy, sf } = badgeScale(layout);
+  const { sy, sf } = badgeScale(layout);
   const f = layout.fields;
   const W = layout.widthPt;
   const H = layout.heightPt;
@@ -174,6 +176,19 @@ function drawBadge(
     height: 48 * sy,
     ellipsis: true,
   });
+  }
+
+  // ── Registration number (directly under the name) ──
+  // Moved up from the bottom row (owner, Aug 25 2026): it identifies the
+  // person, so it belongs with their name rather than flush-left in the
+  // footer opposite the role. Centred, matching the column above and below it.
+  if (f.registrationNumber) {
+    doc.font("Helvetica-BoldOblique").fontSize(10 * sf).fillColor("#000000");
+    doc.text(formatSerialId(reg.serialId), x + margin, y + badgeSerialTop(sy), {
+      width: contentW,
+      align: "center",
+      lineBreak: false,
+    });
   }
 
   // ── Organisation (below the name) ──
@@ -225,18 +240,10 @@ function drawBadge(
     }
   }
 
-  // ── Bottom row: Registration # (left) | Badge type (center) ──
+  // ── Bottom row: Badge type ──
+  // The registration number used to sit flush left on this row; it now prints
+  // under the name, so the role has the row to itself and stays centred.
   const bottomY = y + 145 * sy;
-
-  // Registration number (left, italic)
-  if (f.registrationNumber) {
-    doc.font("Helvetica-BoldOblique").fontSize(10 * sf).fillColor("#000000");
-    doc.text(formatSerialId(reg.serialId), x + margin, bottomY + 4 * sy, {
-      width: 50 * sx,
-      align: "left",
-      lineBreak: false,
-    });
-  }
 
   // Badge type (large, bold, center)
   if (f.badgeType) {

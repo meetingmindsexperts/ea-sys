@@ -72,6 +72,7 @@ import {
   Receipt,
   Radar,
   StickyNote,
+  RotateCcw,
 } from "lucide-react";
 import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
@@ -588,7 +589,11 @@ export function RegistrationDetailSheet({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Badge generation failed");
+        // The payment refusal is an INSTRUCTION ("record the payment, then
+        // print"), not a status line, so it needs long enough to read.
+        toast.error(data.error || "Badge generation failed", {
+          duration: data.code === "BADGE_PAYMENT_REQUIRED" ? 10000 : undefined,
+        });
         return;
       }
       const blob = await res.blob();
@@ -926,13 +931,22 @@ export function RegistrationDetailSheet({
                           </Button>
                         )}
                       {selectedRegistration.status === "CHECKED_IN" && (
+                        // `variant="outline"` renders INVISIBLE here: it sets
+                        // `bg-background` (white) but no text colour, so it
+                        // inherited the gradient header's `text-white` and gave
+                        // white text on a white button. Every sibling in this
+                        // header states its own colour — Check In is white on
+                        // green, Delete is red on secondary — so this does too.
+                        // The icon changes with it: CheckCircle was the same
+                        // glyph as the Check In button directly beside it.
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="secondary"
+                          className="text-amber-700 hover:text-amber-800"
                           onClick={() => undoCheckInRegistration.mutate(selectedRegistration.id)}
                           disabled={undoCheckInRegistration.isPending}
                         >
-                          <CheckCircle className="mr-2 h-4 w-4" />
+                          <RotateCcw className="mr-2 h-4 w-4" />
                           Undo Check-in
                         </Button>
                       )}

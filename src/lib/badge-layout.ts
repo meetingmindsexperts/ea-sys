@@ -66,6 +66,9 @@ export type BadgeAlign = "left" | "center" | "right";
  */
 export type BadgeBarcodeArrangement = "stacked" | "side-by-side";
 
+/** Where the registration number prints, as an offset from the badge's top. */
+export const badgeSerialTop = (sy: number): number => SERIAL_TOP * sy;
+
 /**
  * Interior geometry for the barcode row, in BASE points (288x216).
  *
@@ -77,6 +80,16 @@ const BARCODE_BAND_TOP = 95;
 const BARCODE_BAND_H = 40;
 /** Inset the barcode gets on each side, inside the content width. */
 const BARCODE_INSET = 10;
+/**
+ * Registration number, directly under the name (owner, Aug 25 2026).
+ *
+ * It used to share the bottom row with the role, sitting flush left while the
+ * role was centred. It reads as part of the person's identity, not as a
+ * footnote, so it moved up under the name. An 18pt name occupies roughly
+ * 30..52, which leaves a comfortable gap before the organisation / country
+ * band at +72.
+ */
+const SERIAL_TOP = 58;
 /** Top of the QR band in `stacked` — below the bottom row, so nothing moves. */
 const DTCM_BAND_TOP = 172;
 /** Square. approx 14mm at base size: QR v3 modules approx 0.48mm, scannable. */
@@ -348,9 +361,6 @@ export function resolveBarcodeRow(
   const fullW = contentW - BARCODE_INSET * 2 * sx;
 
   const qrSize = DTCM_QR_SIDE * sf;
-  // Flush to the right edge of the content area in BOTH arrangements, so the
-  // QR does not appear to jump sideways when the organiser flips the setting.
-  const qrDx = layout.widthPt - margin - qrSize;
 
   if (layout.barcodeArrangement !== "side-by-side" || !hasDtcm) {
     return {
@@ -358,11 +368,20 @@ export function resolveBarcodeRow(
       barcodeDy,
       barcodeW: fullW,
       barcodeH,
-      qrDx,
+      // CENTRED (owner, Aug 25 2026). It used to flush right, and my argument
+      // for that was that the QR should not appear to jump sideways when the
+      // arrangement is flipped. That does not survive contact with the two
+      // layouts: stacked is a column of centred symbols, so a QR hanging off
+      // one edge reads as misaligned rather than as deliberate. Side by side
+      // keeps it right, because there it is one end of a row.
+      qrDx: (layout.widthPt - qrSize) / 2,
       qrDy: DTCM_BAND_TOP * sy,
       qrSize,
     };
   }
+
+  // One end of a row, so flush to the content area's right edge.
+  const qrDx = layout.widthPt - margin - qrSize;
 
   return {
     barcodeDx,
@@ -414,4 +433,48 @@ export function barcodeTooNarrow(layout: BadgeLayout, hasDtcm = false): boolean 
     layout.fields.barcode &&
     barcodeWidthPt(layout, hasDtcm) < MIN_SCANNABLE_BARCODE_PT
   );
+}
+
+/**
+ * Badge POLICY, as opposed to badge geometry.
+ *
+ * Deliberately its own type and its own reader rather than a field on
+ * `BadgeLayout`: the layout object is handed to the PDF renderer, and the
+ * renderer has no business knowing whether an attendee may reprint. They share
+ * the `settings.badge` blob because that is where an organiser looks for
+ * anything about badges, but they are read separately.
+ */
+export interface BadgePolicy {
+  /**
+   * May an attendee reprint their own badge at the self-service kiosk?
+   *
+   * Defaults to FALSE (owner, Aug 25 2026), so an attendee prints once and a
+   * second copy is a deliberate, staffed action. This REVERSES the original
+   * kiosk behaviour, which reprinted on an already-checked-in scan as
+   * lost-badge self-service, soft-capped at 3 per hour. The cap was a guard
+   * against a photographed barcode farming badges; off-by-default removes the
+   * hole rather than bounding it, and the desk remains the escape hatch.
+   *
+   * The direction is the strict one for the same reason every other
+   * credential-adjacent flag here is strict: an absent key, a corrupt blob or
+   * a string "true" must all resolve to "no reprint". Handing out a second
+   * physical credential because a JSON blob was malformed is not recoverable
+   * by fixing the blob afterwards.
+   */
+  allowKioskReprint: boolean;
+}
+
+export const DEFAULT_BADGE_POLICY: BadgePolicy = { allowKioskReprint: false };
+
+export function readBadgePolicy(settings: unknown): BadgePolicy {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return DEFAULT_BADGE_POLICY;
+  }
+  const raw = (settings as Record<string, unknown>).badge;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return DEFAULT_BADGE_POLICY;
+  }
+  return {
+    allowKioskReprint: (raw as Record<string, unknown>).allowKioskReprint === true,
+  };
 }

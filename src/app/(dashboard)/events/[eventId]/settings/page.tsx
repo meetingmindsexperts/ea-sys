@@ -69,6 +69,7 @@ import {
   mmToPt,
   ptToMm,
   readBadgeLayout,
+  readBadgePolicy,
   barcodeTooNarrow,
   barcodeWidthPt,
   DEFAULT_BADGE_FIELDS,
@@ -389,6 +390,7 @@ export default function EventSettingsPage() {
           offsetXPt: String(resolvedBadge.offsetXPt),
           offsetYPt: String(resolvedBadge.offsetYPt),
           barcodeArrangement: resolvedBadge.barcodeArrangement,
+          allowKioskReprint: readBadgePolicy(settings).allowKioskReprint,
           fields: resolvedBadge.fields,
         });
 
@@ -587,6 +589,9 @@ export default function EventSettingsPage() {
     offsetXPt: "0",
     offsetYPt: "0",
     barcodeArrangement: "stacked" as BadgeBarcodeArrangement,
+    // Policy, not geometry — it rides in this form's state because it is one
+    // card and one Save, but it is read back through readBadgePolicy.
+    allowKioskReprint: false,
     fields: DEFAULT_BADGE_FIELDS,
   });
 
@@ -673,6 +678,7 @@ export default function EventSettingsPage() {
               offsetXPt: Number(badgeLayout.offsetXPt) || 0,
               offsetYPt: Number(badgeLayout.offsetYPt) || 0,
               barcodeArrangement: badgeLayout.barcodeArrangement,
+              allowKioskReprint: badgeLayout.allowKioskReprint,
               fields: badgeLayout.fields,
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
@@ -1743,6 +1749,27 @@ export default function EventSettingsPage() {
                         : "Widen the badge, or print one and test it on your scanner before the event."}
                     </div>
                   )}
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  <Label>Self-service kiosk</Label>
+                  <label className="flex items-start gap-3 text-sm">
+                    <Switch
+                      checked={badgeLayout.allowKioskReprint}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({ ...badgeLayout, allowKioskReprint: v })
+                      }
+                    />
+                    <span>
+                      Let attendees reprint their own badge at the kiosk
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Off by default: an attendee prints once, and a second copy is a
+                        staffed action at the desk. Switch on for a lost-badge
+                        self-service &mdash; scanning an already-checked-in badge reprints
+                        it, capped at 3 per person per hour.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <div className="mt-6">

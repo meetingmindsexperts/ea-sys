@@ -23,6 +23,9 @@ import {
   readBadgeLayout,
   resolveBadgeOrigin,
   resolveBarcodeRow,
+  badgeSerialTop,
+  readBadgePolicy,
+  DEFAULT_BADGE_POLICY,
   type BadgeLayout,
 } from "@/lib/badge-layout";
 
@@ -312,11 +315,25 @@ describe("barcode / DTCM QR arrangement", () => {
     );
   });
 
-  it("the QR sits flush right in BOTH arrangements", () => {
-    // So it does not appear to jump sideways when the setting is flipped.
-    expect(resolveBarcodeRow(sideBySide, true).qrDx).toBe(
-      resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true).qrDx,
-    );
+  it("stacked CENTRES the QR; side-by-side flushes it right", () => {
+    // Owner, Aug 25 2026, superseding this file's original assertion that the
+    // QR sits flush right in BOTH arrangements. That was defended on the
+    // grounds that it should not appear to jump when the setting is flipped,
+    // which does not survive contact with the two layouts: stacked is a column
+    // of centred symbols, so a QR hanging off one edge reads as misaligned.
+    const stacked = resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true);
+    const centre = (BASE_BADGE_W - stacked.qrSize) / 2;
+    expect(stacked.qrDx).toBeCloseTo(centre, 5);
+
+    const beside = resolveBarcodeRow(sideBySide, true);
+    expect(beside.qrDx).toBe(BASE_BADGE_W - BASE_MARGIN - beside.qrSize);
+    expect(beside.qrDx).toBeGreaterThan(stacked.qrDx);
+  });
+
+  it("the stacked barcode and QR share the same centre line", () => {
+    // The point of the change: the column reads as a column.
+    const row = resolveBarcodeRow(DEFAULT_BADGE_LAYOUT, true);
+    expect(row.barcodeDx + row.barcodeW / 2).toBeCloseTo(row.qrDx + row.qrSize / 2, 5);
   });
 
   it("costs the barcode the QR plus the gap, NOT half the width", () => {
@@ -350,5 +367,51 @@ describe("barcode / DTCM QR arrangement", () => {
   it("a badge too narrow to hold both clamps the barcode at zero", () => {
     const tiny: BadgeLayout = { ...sideBySide, widthPt: 80 };
     expect(resolveBarcodeRow(tiny, true).barcodeW).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("registration number moved under the name", () => {
+  it("prints between the name and the organisation / country band", () => {
+    // Owner, Aug 25 2026. It used to sit flush left on the bottom row opposite
+    // the role; it identifies the person, so it belongs with their name.
+    // The name occupies roughly 30..52 at 18pt and the org/country band is at
+    // +72, so it has to land between them or it collides with one of them.
+    const top = badgeSerialTop(1);
+    expect(top).toBeGreaterThan(52);
+    expect(top + 10).toBeLessThan(72);
+  });
+
+  it("scales with the badge like every other interior offset", () => {
+    expect(badgeSerialTop(2)).toBe(badgeSerialTop(1) * 2);
+    // Exactly 1 at the default size, so the multiply is a no-op there.
+    expect(badgeSerialTop(1)).toBe(58);
+  });
+});
+
+describe("badge policy — kiosk reprint", () => {
+  it("is OFF unless explicitly and correctly set to boolean true", () => {
+    // Strict for the same reason every credential-adjacent flag here is
+    // strict: handing out a second physical badge because a JSON blob was
+    // malformed is not recoverable by fixing the blob afterwards.
+    expect(readBadgePolicy(undefined).allowKioskReprint).toBe(false);
+    expect(readBadgePolicy(null).allowKioskReprint).toBe(false);
+    expect(readBadgePolicy({}).allowKioskReprint).toBe(false);
+    expect(readBadgePolicy({ badge: {} }).allowKioskReprint).toBe(false);
+    expect(readBadgePolicy({ badge: null }).allowKioskReprint).toBe(false);
+    expect(readBadgePolicy([]).allowKioskReprint).toBe(false);
+    for (const truthy of ["true", 1, "yes", {}]) {
+      expect(readBadgePolicy({ badge: { allowKioskReprint: truthy } }).allowKioskReprint).toBe(false);
+    }
+  });
+
+  it("reads a real opt-in", () => {
+    expect(readBadgePolicy({ badge: { allowKioskReprint: true } }).allowKioskReprint).toBe(true);
+  });
+
+  it("is read separately from the geometry", () => {
+    // Deliberately not a field on BadgeLayout: that object goes to the PDF
+    // renderer, which has no business knowing about reprints.
+    expect("allowKioskReprint" in DEFAULT_BADGE_LAYOUT).toBe(false);
+    expect(DEFAULT_BADGE_POLICY).toEqual({ allowKioskReprint: false });
   });
 });

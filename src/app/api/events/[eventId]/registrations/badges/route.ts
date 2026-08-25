@@ -91,16 +91,47 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
 
     if (registrations.length === 0) {
+      // Distinguish "you selected people who owe money" from "your selection
+      // matched nobody at all". The first is the common case and it has a
+      // REMEDY, which the old message did not name.
+      //
+      // It is also the dead end behind the desk's payment override: the
+      // override sets status + checkedInAt and deliberately never touches
+      // `paymentStatus`, so an admitted attendee is still filtered out here.
+      // The operator got a bare refusal with no next step. Recording the
+      // payment is the action that clears both, so the message says so.
+      const droppedForPayment = allRegistrations.length;
       apiLogger.warn(
-        { msg: "badges:no-eligible-registrations", eventId, requested: all ? "all" : (registrationIds?.length ?? 0) },
+        {
+          msg: "badges:no-eligible-registrations",
+          eventId,
+          requested: all ? "all" : (registrationIds?.length ?? 0),
+          matched: droppedForPayment,
+          droppedForPayment,
+        },
         "No badge-eligible registrations",
       );
+
+      if (droppedForPayment === 0) {
+        return NextResponse.json(
+          {
+            error: "No registrations matched. Check the selection and try again.",
+            code: "BADGE_NO_MATCH",
+          },
+          { status: 400 },
+        );
+      }
+
       return NextResponse.json(
         {
           error:
-            "No badge-eligible registrations found. Registrations that still owe payment (unpaid or pending) are excluded.",
+            droppedForPayment === 1
+              ? "This registration still owes payment, so its badge can't be printed. Record the payment under Billing & Payments, or set the payment status to Complimentary, then print."
+              : `None of the ${droppedForPayment} selected registrations can be badged — they all still owe payment (unpaid or pending). Record their payment, or set them to Complimentary, then print.`,
+          code: "BADGE_PAYMENT_REQUIRED",
+          blocked: droppedForPayment,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

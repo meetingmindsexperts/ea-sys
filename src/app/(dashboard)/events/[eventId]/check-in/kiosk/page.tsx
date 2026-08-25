@@ -47,6 +47,7 @@ import {
   Delete,
 } from "lucide-react";
 import { useEvent } from "@/hooks/use-api";
+import { readBadgePolicy } from "@/lib/badge-layout";
 import { formatPersonName } from "@/lib/utils";
 import { playBeep } from "@/lib/scan-feedback";
 import { readKioskExitPin } from "@/lib/kiosk-exit-pin";
@@ -163,6 +164,14 @@ export default function KioskCheckInPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { data: event } = useEvent(eventId);
+  // Reprint is OFF unless the organiser switched it on for this event
+  // (Settings -> Registration -> Badge). Read through the shared reader so the
+  // kiosk and the settings form cannot disagree about what the blob means.
+  const allowReprint = readBadgePolicy(event?.settings).allowKioskReprint;
+  // Read through a ref so the scan handler is not re-created (and its debounce
+  // state reset) every time the event query refetches.
+  const allowReprintRef = useRef(allowReprint);
+  allowReprintRef.current = allowReprint;
 
   const [state, setState] = useState<KioskState>({ kind: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -335,8 +344,20 @@ export default function KioskCheckInPage() {
         }
 
         if (data.code === "ALREADY_CHECKED_IN") {
-          // Owner decision: lost-badge self-service — reprint, don't refuse.
-          // Soft-capped (M3) so a photographed barcode can't farm badges.
+          // Reprint is opt-in per event (owner, Aug 25 2026). Off by default:
+          // an attendee prints once, and a second copy is a staffed action.
+          // When it IS on, the original lost-badge self-service applies, still
+          // soft-capped (M3) so a photographed barcode cannot farm badges.
+          if (!allowReprintRef.current) {
+            playBeep(false);
+            setState({
+              kind: "denied",
+              title: "Already checked in",
+              detail: "You're already checked in. For a badge reprint, please visit the registration desk.",
+            });
+            scheduleReset(RESET_MS.denied);
+            return;
+          }
           if (!data.registration) {
             // L1: a shape regression upstream must not read as "bad code".
             playBeep(false);
