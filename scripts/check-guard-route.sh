@@ -32,13 +32,31 @@ fi
 #
 # Comments are stripped first. An earlier gate in this repo failed on a comment
 # that explained its own rule, which is a guard that cannot tell prose from code.
+#
+# Comments are stripped so prose about the rule cannot satisfy the rule.
+#
+# This is the SAME strip that scripts/check-tenant-als.sh uses, deliberately:
+# it is already proven on the Ubuntu runner. Keep them in step if either
+# changes. `perl -0777` with a non-greedy match handles multi-line blocks and
+# cannot over-delete.
+#
+# The first version of this script rolled its own with sed, and it passed on
+# macOS and failed the first CI run. It deleted `*`-prefixed lines BEFORE a
+# `/\*/,/\*\//d` range, so on GNU sed (which honours `\s`, unlike BSD) it
+# removed the closing ` */` — the range's own terminator — and the range then
+# ran to end of file, taking both function signatures with it. The gate
+# reported the contract had been loosened when nothing had changed.
+#
+# Lesson worth more than the fix: a line-range delete that can lose its own
+# terminator fails OPEN in one direction and CLOSED in the other, and which
+# one you get depends on the platform.
 code_only() {
-  sed -E 's;//.*;;' "$1" | sed -E '/^\s*\*/d' | sed -E '/\/\*/,/\*\//d'
+  sed -e 's|//.*$||' "$1" | perl -0777 -pe 's{/\*.*?\*/}{}gs'
 }
 
 guards_code=$(code_only "$GUARDS_FILE")
 
-if echo "$guards_code" | grep -qE 'route\?:\s*string'; then
+if echo "$guards_code" | grep -qE 'route\?:[[:space:]]*string'; then
   say_fail "$GUARDS_FILE declares 'route?: string'. It must stay REQUIRED on
    denyReviewer and denyFinance. Making it optional is how it drifted to 3 of
    226 call sites the first time, and the refusal log is the line you read when
@@ -46,7 +64,7 @@ if echo "$guards_code" | grep -qE 'route\?:\s*string'; then
 fi
 
 for guard in denyReviewer denyFinance; do
-  if ! echo "$guards_code" | grep -qE "route:\s*string"; then
+  if ! echo "$guards_code" | grep -qE "route:[[:space:]]*string"; then
     say_fail "$guard no longer requires 'route: string'."
   fi
 done
@@ -60,7 +78,7 @@ while IFS= read -r hit; do
 done < <(
   grep -rn -E 'deny(Reviewer|Finance)\(' src --include="*.ts" \
     | grep -v "$GUARDS_FILE" \
-    | grep -E 'route:\s*("(\s*|test|TODO|xxx)")' || true
+    | grep -E 'route:[[:space:]]*("([[:space:]]*|test|TODO|xxx)")' || true
 )
 
 # ── 3. Every call in src actually carries one ──
@@ -81,7 +99,7 @@ while IFS= read -r file; do
     fi
   done < <(
     grep -n -E 'deny(Reviewer|Finance)\(' "$file" \
-      | grep -vE ':\s*(\*|//)' \
+      | grep -vE ':[[:space:]]*(\*|//)' \
       | cut -d: -f1 || true
   )
 done < <(grep -rl -E 'deny(Reviewer|Finance)\(' src --include="*.ts" | grep -v "$GUARDS_FILE" || true)
