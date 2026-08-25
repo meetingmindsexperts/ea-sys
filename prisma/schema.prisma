@@ -470,6 +470,7 @@ model Event {
   rsvpInvites                  RsvpInvite[]
   speakerReimbursements        SpeakerReimbursement[]
   travelGrants                 TravelGrant[]
+  dtcmCodes                    DtcmCode[]
   speakerProfileForms          SpeakerProfileForm[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
@@ -4511,4 +4512,44 @@ enum TravelGrantStatus {
   /// Opened the form and declined. Recorded so the organizer stops chasing,
   /// and so the email block does not re-ask on their next abstract.
   DECLINED
+}
+
+/// A DTCM compliance code the organiser holds but has not handed to anyone yet.
+///
+/// WHY A TABLE. `Registration.dtcmBarcode` can only hold a code that already
+/// belongs to somebody. DTCM issues a BLOCK of codes a day or two before the
+/// event, and the ones left over after the pre-event CSV import are what the
+/// desk hands to walk-ups on the day. A spare has no registration to hang on,
+/// so it needs somewhere to live.
+///
+/// WHAT THIS IS NOT: it is not the record of who holds which code. That stays
+/// `Registration.dtcmBarcode`, which is what the badge renders and what the
+/// door scans. A pool row says only "we were issued this code".
+///
+/// AVAILABILITY IS DERIVED, NEVER STORED. A code is spare iff no registration
+/// on this event holds it. There is deliberately no `assignedRegistrationId`
+/// column: a second copy of "who has this" would drift the moment somebody
+/// typed a code into the detail sheet or re-ran the CSV import, and a pool
+/// that believes a code is spare when an attendee is already wearing it hands
+/// the same compliance credential to two people. One source of truth costs a
+/// second query and cannot be wrong.
+model DtcmCode {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy: denormalized tenant key (nullable, no FK), stamped from
+  /// the Event at create. Backs prisma/rls/dtcmcode.sql (platform-only).
+  organizationId String?
+  /// The externally-issued value, verbatim. NOT globally unique here: global
+  /// uniqueness lives on `Registration.dtcmBarcode`, which is what actually
+  /// grants entry. Two events legitimately hold the same code in their pools
+  /// if the organiser imports one block twice; only one can ever assign it,
+  /// and the assign path surfaces that rather than the import.
+  code           String
+  importedAt     DateTime @default(now())
+  importedById   String?
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, code])
+  @@index([eventId])
+  @@index([organizationId])
 }

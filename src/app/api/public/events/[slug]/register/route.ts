@@ -16,6 +16,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { claimEventSeats } from "@/lib/registration-seat-db";
+import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import {
   SUPPORTING_DOCUMENT_PATH_PREFIX,
@@ -190,6 +191,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       select: {
         id: true,
+        // Drives the DTCM spare-code claim after the registration commits.
+        requiresDtcmBarcode: true,
         name: true,
         eventType: true,
         startDate: true,
@@ -728,6 +731,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       memberId: memberId || null,
       studentId: studentId || null,
       studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
+    });
+
+    // Hand this registration a spare DTCM code, if the event is a Dubai one and
+    // the organiser has imported a pool. Awaited (the confirmation email and the
+    // badge both want it present) but structurally unable to fail the
+    // registration — see claimSpareDtcmCode's contract.
+    await claimSpareDtcmCode({
+      eventId: event.id,
+      registrationId: registration.id,
+      requiresDtcm: !!event.requiresDtcmBarcode,
     });
 
     // Refresh denormalized event stats (fire-and-forget)

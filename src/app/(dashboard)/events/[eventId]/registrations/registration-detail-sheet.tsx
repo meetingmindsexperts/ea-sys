@@ -93,6 +93,7 @@ import { ActivityTimelineCard } from "@/components/activity/activity-timeline-ca
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
+import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { displayRegistrationType } from "@/lib/faculty-filter";
@@ -187,6 +188,12 @@ export function RegistrationDetailSheet({
   const queryClient = useQueryClient();
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  // Whether this role may hold a door credential. The SERVER is the authority
+  // (the dtcm-pool route refuses the same set); this only avoids offering a
+  // button that 403s. It matters more than usual here: a role that cannot see
+  // barcodes has its payload redacted, so every row looks code-less and the
+  // button would otherwise be offered on all of them.
+  const canSeeBarcodes = canViewEntryBarcode(userSession?.user?.role);
   // ONSITE + MEMBER are registration-desk operators: they can edit, check in,
   // record payment, and print badges — but NOT delete or email a registration
   // (those stay admin/organizer; the API enforces it too).
@@ -578,6 +585,46 @@ export function RegistrationDetailSheet({
   // print there. Uses raw fetch because the response is a PDF blob — the
   // apiFetch helper expects JSON. Stays inline-style here so the URL
   // revocation timer + window.open lifecycle is obvious in one place.
+  /**
+   * Hand this registration the next spare DTCM code.
+   *
+   * Refreshes the row on success so the QR renders immediately — the desk's
+   * next action is Print Badge, and a stale row would print without the
+   * compliance code that was just assigned.
+   */
+  const [assigningDtcm, setAssigningDtcm] = useState(false);
+  const handleAssignDtcmCode = async () => {
+    if (!selectedRegistration) return;
+    setAssigningDtcm(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/dtcm-pool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: selectedRegistration.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // The pool-empty message is an instruction ("import more"), so give it
+        // time to read.
+        toast.error(data.error || "Could not assign a code", {
+          duration: data.code === "pool-empty" ? 10000 : undefined,
+        });
+        return;
+      }
+      toast.success(
+        data.status === "already-has-code"
+          ? "This registration already had a code."
+          : "DTCM code assigned.",
+      );
+      await refreshSelectedRegistration(selectedRegistration.id);
+    } catch (error) {
+      console.error("[dtcm] assign failed", error);
+      toast.error("Could not assign a code");
+    } finally {
+      setAssigningDtcm(false);
+    }
+  };
+
   const handlePrintBadge = async () => {
     if (!selectedRegistration) return;
     setPrintingBadge(true);
@@ -2632,7 +2679,33 @@ export function RegistrationDetailSheet({
                               <p className="font-mono text-xs break-all">{selectedRegistration.dtcmBarcode}</p>
                             </>
                           ) : (
-                            <p className="text-sm text-muted-foreground italic">Not set — usually CSV-imported</p>
+                            <>
+                              <p className="text-sm text-muted-foreground italic">
+                                Not set &mdash; usually CSV-imported
+                              </p>
+                              {/* The walk-up path: someone registered at the
+                                  counter after the pre-event CSV ran, so their
+                                  code comes from the leftovers of the block.
+                                  Gated on the BARCODE boundary, not the desk
+                                  one: assigning a DTCM code hands over a door
+                                  credential, and MEMBER staffs the desk but is
+                                  deliberately outside that set. */}
+                              {canSeeBarcodes && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={handleAssignDtcmCode}
+                                disabled={assigningDtcm}
+                              >
+                                {assigningDtcm ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Barcode className="mr-2 h-4 w-4" />
+                                )}
+                                Assign a spare code
+                              </Button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>

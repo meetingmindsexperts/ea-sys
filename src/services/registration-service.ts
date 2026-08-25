@@ -29,6 +29,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { claimSpareDtcmCode, type ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
@@ -419,6 +420,15 @@ export type CreateRegistrationResult =
   | {
       ok: true;
       registration: RegistrationWithRelations;
+      /**
+       * Outcome of the DTCM spare-code claim.
+       *
+       * Surfaced rather than swallowed so the desk can be told "registered, but
+       * the compliance codes have run out" while the person is still standing
+       * there — which is the only moment it is cheap to fix. `not-applicable`
+       * on every non-Dubai event and every virtual attendee.
+       */
+      dtcm: ClaimDtcmOutcome;
     }
   | {
       ok: false;
@@ -529,6 +539,9 @@ export async function createRegistration(
         bankDetails: true,
         supportEmail: true,
         settings: true,
+        // Drives the DTCM spare-code claim in the post-commit fan-out. Free —
+        // same row the confirmation email already needs.
+        requiresDtcmBarcode: true,
         organizationId: true,
         organization: {
           select: {
@@ -967,6 +980,22 @@ export async function createRegistration(
     studentIdExpiry,
   });
 
+  // Hand this registration a spare DTCM code, if the event is a Dubai one and
+  // the organiser has imported a pool.
+  //
+  // AWAITED, not fire-and-forget: the desk prints a badge seconds after the
+  // registration lands, and a code that arrives after the print is a badge with
+  // no compliance QR on it. It is two indexed reads and one guarded write.
+  //
+  // It cannot fail the registration — `claimSpareDtcmCode` never throws and
+  // resolves an empty pool to an outcome. A walk-up whose registration
+  // succeeded must not be rolled back because a compliance block ran out.
+  const dtcm = await claimSpareDtcmCode({
+    eventId,
+    registrationId: registration.id,
+    requiresDtcm: !!event.requiresDtcmBarcode,
+  });
+
   // Refresh denormalized event stats (fire-and-forget).
   refreshEventStats(eventId);
 
@@ -1044,7 +1073,11 @@ export async function createRegistration(
     });
   }
 
-  return { ok: true, registration };
+  // `registration` was read before the claim, so reflect the code onto the row
+  // the caller receives rather than making them re-fetch to see it.
+  if (dtcm.status === "assigned") registration.dtcmBarcode = dtcm.code;
+
+  return { ok: true, registration, dtcm };
 }
 
 // ── Internal sentinel for transaction rollback ───────────────────────────────

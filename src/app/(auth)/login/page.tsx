@@ -134,7 +134,10 @@ function LoginForm() {
               )}
             />
           </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
+          {/* pt-4 on top of Card's own gap-6 — the password field is the last
+              thing in CardContent, and 24px read as one continuous block with
+              the submit button rather than a separate action. */}
+          <CardFooter className="flex flex-col space-y-4 pt-4">
             <div className="w-full space-y-2">
               <Button type="submit" className="w-full btn-gradient" disabled={isLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

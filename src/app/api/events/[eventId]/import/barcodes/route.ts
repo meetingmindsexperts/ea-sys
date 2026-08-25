@@ -8,6 +8,7 @@ import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { parseCSV, getField } from "@/lib/csv-parser";
 import { runWithTenant } from "@/lib/tenant-context";
+import { importDtcmCodes } from "@/lib/dtcm-pool";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -97,6 +98,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // throwing row (e.g. a P2002 unique-collision racing another import)
     // aborted the WHOLE request with a generic 500 and DISCARDED the report —
     // leaving a partially-applied import with no record of which rows landed.
+    /** Ownerless rows — spares for the pool (see the branch below). */
+    const poolCodes: string[] = [];
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const rowNum = i + 2; // 1-indexed + header row
@@ -107,6 +111,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
         if (!barcode) {
           skipped++;
+          continue;
+        }
+
+        // A row with a code and NO owner at all is a SPARE — one of the
+        // leftovers from the DTCM block that the desk hands to walk-ups on the
+        // day. It goes to the pool instead of erroring.
+        //
+        // The distinction is deliberately "no owner value", not "no match": a
+        // row naming an email that does not resolve is still an ERROR below.
+        // A typo'd address must never quietly become a spare code, because the
+        // person it was meant for would then arrive with none and nothing would
+        // have said so.
+        if (!registrationId && !email) {
+          poolCodes.push(barcode);
           continue;
         }
 
@@ -192,12 +210,26 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Spares last, so a file that mixes assignments and leftovers applies the
+    // assignments first — a code claimed by a named person is never also
+    // offered to the desk as spare.
+    const pool = poolCodes.length
+      ? await importDtcmCodes({
+          eventId,
+          organizationId: orgGuard.orgId,
+          codes: poolCodes,
+          importedById: session.user.id,
+        })
+      : { imported: 0, duplicates: 0 };
+
     apiLogger.info({
       msg: "Barcode CSV import completed",
       eventId,
       imported,
       skipped,
       errors: errors.length,
+      pooled: pool.imported,
+      poolDuplicates: pool.duplicates,
     });
 
     recordImport(req, {
@@ -206,14 +238,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       organizationId: session.user.organizationId,
       userId: session.user.id,
       role: session.user.role,
-      totalProcessed: imported + skipped + errors.length,
+      totalProcessed: imported + skipped + errors.length + poolCodes.length,
       updated: imported,
+      created: pool.imported,
       skipped,
       errors: errors.length,
       format: "csv",
     });
 
-    return NextResponse.json({ imported, skipped, errors });
+    return NextResponse.json({
+      imported,
+      skipped,
+      errors,
+      pooled: pool.imported,
+      poolDuplicates: pool.duplicates,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing barcodes" });

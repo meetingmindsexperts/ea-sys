@@ -46,7 +46,7 @@ import {
   ShieldAlert,
   Delete,
 } from "lucide-react";
-import { useEvent } from "@/hooks/use-api";
+import { useEvent, useOrgBranding } from "@/hooks/use-api";
 import { readBadgePolicy } from "@/lib/badge-layout";
 import { formatPersonName } from "@/lib/utils";
 import { playBeep } from "@/lib/scan-feedback";
@@ -164,6 +164,12 @@ export default function KioskCheckInPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { data: event } = useEvent(eventId);
+  // Organiser branding. The kiosk is the most public-facing screen in the whole
+  // dashboard — it stands in a hotel lobby facing a queue — and it was the one
+  // surface still hardcoded to EA-SYS's own cerulean, so a customer's event ran
+  // under our colours. `useOrgBranding` is the same source the sidebar and the
+  // public event pages read, so the three cannot show different marks.
+  const { data: branding } = useOrgBranding();
   // Reprint is OFF unless the organiser switched it on for this event
   // (Settings -> Registration -> Badge). Read through the shared reader so the
   // kiosk and the settings form cannot disagree about what the blob means.
@@ -489,7 +495,22 @@ export default function KioskCheckInPage() {
   const pinConfigured = exitOpen && readKioskExitPin().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-[#00aade] via-[#0088c9] to-[#005f9e] text-white select-none">
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center text-white select-none"
+      /* Derived from --primary, which OrgTheme has already set to the
+         organisation's brand colour further up the tree. An org that has set no
+         colour keeps the app default, so this reproduces the previous cerulean
+         exactly rather than changing it for everyone. Inline rather than a
+         Tailwind class because the stops are computed from a CSS variable. */
+      style={{
+        backgroundImage: [
+          "linear-gradient(to bottom right,",
+          "var(--primary),",
+          "color-mix(in oklch, var(--primary) 82%, black),",
+          "color-mix(in oklch, var(--primary) 58%, black))",
+        ].join(" "),
+      }}
+    >
       {/* Keyboard-wedge target — visually hidden, always focused */}
       <form
         onSubmit={(e) => {
@@ -507,9 +528,23 @@ export default function KioskCheckInPage() {
         />
       </form>
 
-      {/* Event name */}
-      <div className="absolute top-10 inset-x-0 text-center px-8">
-        <p className="text-2xl font-semibold text-white/90 truncate">{event?.name ?? ""}</p>
+      {/* Organiser mark + event name */}
+      <div className="absolute top-8 inset-x-0 flex flex-col items-center gap-3 px-8">
+        {branding?.logo && (
+          /* On a white chip, not bare: a logo is supplied on the assumption of
+             a light background, and a dark mark laid straight onto the brand
+             gradient disappears. eslint-disable for the same reason the sidebar
+             does — these are organiser-uploaded paths, not build-time assets. */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={branding.logo}
+            alt={branding.name ?? "Organiser"}
+            className="h-16 w-auto max-w-[320px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
+          />
+        )}
+        <p className="text-2xl font-semibold text-white/90 truncate max-w-full">
+          {event?.name ?? ""}
+        </p>
       </div>
 
       {state.kind === "idle" && (

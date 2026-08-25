@@ -154,6 +154,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/import/registrations/send-completion-emails/route.ts"   # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/import/eventsair/route.ts"                              # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/import/barcodes/route.ts"                               # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/dtcm-pool/route.ts"                                     # DTCM spare-code pool (Aug 25, 2026)
   # Registration-core sweep — the PUBLIC registration routes (org via
   # publicEventWhere / token; wrap after the event/row resolution).
   "src/app/api/public/events/[slug]/register/route.ts"                                 # Reg-core (July 29, 2026)
