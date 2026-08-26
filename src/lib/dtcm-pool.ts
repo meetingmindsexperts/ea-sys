@@ -23,9 +23,14 @@
  * compliance credential to two people. That is not a display bug; it is the
  * failure the whole feature exists to avoid.
  *
- * Deriving it costs one extra indexed read per assignment and cannot be wrong.
- * At event scale (hundreds to a few thousand codes, a handful of walk-ups a
- * minute) that trade is not close.
+ * Deriving it cannot go stale, which is the property that matters. Be honest
+ * about what it costs, though: it is TWO reads that scan every pool row and
+ * every coded registration on the event, not one indexed lookup, and it runs on
+ * the public register path. At event scale — hundreds to a few thousand codes,
+ * a handful of walk-ups a minute — that is comfortably cheap, and the trade is
+ * not close. It would stop being cheap at a scale this feature does not have,
+ * and the fix then is a covering index plus a windowed read, NOT a stored flag:
+ * the flag's failure mode does not improve with scale, it gets worse.
  *
  * ## Why the claim retries rather than locks
  *

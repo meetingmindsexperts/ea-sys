@@ -113,6 +113,7 @@ export const queryKeys = {
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
   eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
+  dtcmPool: (eventId: string) => ["events", eventId, "dtcm-pool"] as const,
   issuedCertificates: (
     eventId: string,
     args: { registrationId?: string; speakerId?: string },
@@ -323,6 +324,37 @@ export function useEventTags(eventId: string, enabled = true) {
   return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
     queryKey: queryKeys.eventTags(eventId),
     queryFn: () => fetchApi(`/api/events/${eventId}/tags`),
+    enabled: !!eventId && enabled,
+  });
+}
+
+export interface DtcmPoolCounts {
+  /** Codes imported into this event's pool. */
+  total: number;
+  /** Pool codes a registration on this event currently holds. */
+  assigned: number;
+  /** Pool codes nobody holds — what the desk can still hand out. */
+  spare: number;
+  /**
+   * Registrations holding a DTCM code that never passed through the pool.
+   * The ordinary pre-event path, surfaced only so the numbers add up on screen
+   * instead of looking like codes went missing.
+   */
+  assignedOutsidePool: number;
+}
+
+/**
+ * The DTCM spare-code pool for a Dubai event.
+ *
+ * The route refuses any role outside `BARCODE_ROLES` with a 403, so callers
+ * MUST gate the mount on `canViewEntryBarcode` rather than relying on the
+ * `enabled` flag alone — otherwise a MEMBER's dashboard fires a request that
+ * can only ever fail.
+ */
+export function useDtcmPool(eventId: string, enabled = true) {
+  return useQuery<{ enabled: boolean; counts: DtcmPoolCounts | null }>({
+    queryKey: queryKeys.dtcmPool(eventId),
+    queryFn: () => fetchApi(`/api/events/${eventId}/dtcm-pool`),
     enabled: !!eventId && enabled,
   });
 }

@@ -89,6 +89,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
+import { DtcmPoolCard } from "./dtcm-pool-card";
+import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { BadgeDialog } from "./badge-dialog";
 import { resolvePastedIds } from "./resolve-pasted-ids";
 
@@ -140,6 +142,10 @@ export default function RegistrationsPage() {
   // safe desk-limited view rather than a flash of organizer chrome.
   const isDeskOperator =
     isOnsite || isMember || (roleName === "WEBINARS" && event?.eventType !== "WEBINAR");
+  // NOT `!isDeskOperator`: that set includes MEMBER (excluded from barcodes)
+  // and excludes ONSITE (the desk, who must see them). The two boundaries
+  // genuinely disagree, which is why barcode visibility has its own predicate.
+  const canSeeBarcodes = canViewEntryBarcode(roleName);
   const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {
@@ -485,6 +491,12 @@ export default function RegistrationsPage() {
           )}
         </div>
       </div>
+
+      {/* The spare DTCM pool, next to the button that consumes it. Dubai
+          events only, and only for roles that may hold a door credential. */}
+      {event?.requiresDtcmBarcode && (
+        <DtcmPoolCard eventId={eventId} enabled={canSeeBarcodes} />
+      )}
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && !isDeskOperator && (

@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/select";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
-import { useTickets, useBillingAccounts, useEventTags, useEvent } from "@/hooks/use-api";
+import { queryKeys, useTickets, useBillingAccounts, useEventTags, useEvent } from "@/hooks/use-api";
+import { dtcmWalkupWarning } from "@/lib/dtcm-walkup";
+import { useQueryClient } from "@tanstack/react-query";
 import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -64,6 +66,7 @@ export default function NewRegistrationPage() {
   // existing tags across all entry points.
   const tagsQuery = useEventTags(eventId);
   const { data: eventData } = useEvent(eventId);
+  const queryClient = useQueryClient();
   const isHybridEvent = (eventData as { eventType?: string } | undefined)?.eventType === "HYBRID";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +197,21 @@ export default function NewRegistrationPage() {
 
       if (res.ok) {
         toast.success("Registration created successfully");
+        // Said at the counter, while it can still be fixed. An empty pool is
+        // otherwise invisible until a badge prints with no compliance QR.
+        const created = await res.json().catch(() => null);
+        const dtcmWarning = dtcmWalkupWarning({
+          requiresDtcm: eventData?.requiresDtcmBarcode,
+          attendanceMode: created?.attendanceMode,
+          dtcmBarcode: created?.dtcmBarcode,
+        });
+        if (dtcmWarning) toast.warning(dtcmWarning, { duration: 12000 });
+        // The page we are about to land on shows the spare count, and a
+        // successful claim just spent one. Without this it would render the
+        // cached number for up to the 5-minute staleTime.
+        if (eventData?.requiresDtcmBarcode) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+        }
         router.push(`/events/${eventId}/registrations`);
       } else {
         const data = await res.json();

@@ -616,6 +616,11 @@ export function RegistrationDetailSheet({
           ? "This registration already had a code."
           : "DTCM code assigned.",
       );
+      // The pool strip on the registrations page just lost a spare — refresh it
+      // so the desk's "how many left" number stays honest between walk-ups.
+      if (data.status === "assigned") {
+        queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+      }
       await refreshSelectedRegistration(selectedRegistration.id);
     } catch (error) {
       console.error("[dtcm] assign failed", error);

@@ -241,6 +241,23 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### DTCM spare pool — deferred findings (Aug 26, 2026)
+
+The pool is complete end to end: codes can be imported, are claimed
+automatically on every ordinary create path, the level is visible above the
+registrations list, and an empty pool warns at the counter. These are the
+findings from the build review that were recorded rather than fixed. **None
+blocks a Dubai event**, and each is independently shippable.
+
+| # | Sev | Finding |
+|---|-----|---------|
+| D-1 | HIGH | **Three create paths never ask for a code.** `claimSpareDtcmCode` is wired into `registration-service` (REST + MCP single-create) and the public register route. It is NOT wired into **group registration**, **MCP `create_registrations_bulk`**, or the **speaker-companion** helper. So a company registering 12 people on a Dubai event, an agent-driven bulk import, and every faculty member get no compliance code and their badges print without a QR — silently, because the walk-up warning only fires on the two paths that were wired. The claim is one awaited call that never throws, so each is a small edit; the reason to think before doing all three at once is that bulk paths want ONE pool read for N registrations rather than N reads, which is the same work as D-3. |
+| D-2 | MED | **Only the first 10 spares are attempted, and every caller starts at `spares[0]`.** `MAX_CLAIM_ATTEMPTS = 10` bounds the P2002 retry loop, but the candidate list is ordered deterministically (oldest import, then code) and every concurrent claimant walks it from the same end — so under real desk contention several stations collide on the same first codes rather than spreading out. Two stations is fine; four at 8am on day one would start burning attempts. Cheapest fix is to start each caller at a random offset into the spare list, which costs nothing and makes collisions rare instead of systematic. |
+| D-3 | MED | **The availability read is two full scans, on the public register hot path.** Deriving availability is the right call (see the module docblock for why a stored flag is worse), but the implementation reads EVERY pool row and EVERY coded registration on the event, twice per claim, and the public register route is one of the callers. At current scale — a few thousand codes, a handful of registrations a minute — this is comfortably cheap and measurably so. It stops being cheap at a scale this feature does not have. The fix when it matters is a covering index plus a windowed read (`take` a page of candidates rather than the whole set), **not** a stored flag. |
+| D-4 | MED | **A cancelled registration holds its code forever.** Cancelling releases the seat and the promo usage; it does not release the DTCM code, so the pool counts it as assigned permanently. On an event with heavy churn that quietly shrinks the spare pool with no way to reclaim. Deliberately not automatic: the code may already be printed on a badge in someone's pocket, and reclaiming it would hand a live credential to a second person. The right shape is an organiser-visible "N codes held by cancelled registrations — release them?" action, not a cascade. |
+| D-5 | LOW | **The pool-empty warn is unlatched.** Every walk-up against an empty pool logs `dtcm-pool:empty` at warn, so a busy morning with no codes left writes one line per registration into `SystemLog` and feeds the SES alert path. Same class as the analytics no-secret alarm latched on Aug 20: the thousandth copy of a sentence adds nothing and buries `/logs`. Latch it per event per container. |
+| D-6 | LOW | **Nothing surfaces the pool outside the registrations page.** The check-in page and the kiosk both consume codes indirectly and show nothing; an organiser looking at the event dashboard cannot see the level at all. Low value while the desk lives on the registrations page, worth revisiting if the check-in page becomes the day-one home screen. |
+
 ### Session revocation — deliberate carry-overs (Aug 25, 2026)
 
 Web and mobile session revocation both work now (see SESSION_ARCHITECTURE §6).

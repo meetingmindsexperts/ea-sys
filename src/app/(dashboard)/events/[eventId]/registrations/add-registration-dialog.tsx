@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { Plus } from "lucide-react";
-import { queryKeys, useEventTags } from "@/hooks/use-api";
+import { queryKeys, useEventTags, useEvent } from "@/hooks/use-api";
+import { dtcmWalkupWarning } from "@/lib/dtcm-walkup";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { TicketType } from "./types";
@@ -73,6 +74,8 @@ const initialFormData: {
 
 export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationDialogProps) {
   const queryClient = useQueryClient();
+  // Cached by the registrations page behind this dialog, so no extra fetch.
+  const { data: event } = useEvent(eventId);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState(initialFormData);
@@ -123,13 +126,27 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
       setDialogOpen(false);
       setFormData(initialFormData);
       setFormError(null);
       toast.success("Registration created successfully");
+      // Same warning the full-page form gives, from the same helper: an empty
+      // DTCM pool is invisible until a badge prints without its compliance QR.
+      const dtcmWarning = dtcmWalkupWarning({
+        requiresDtcm: event?.requiresDtcmBarcode,
+        attendanceMode: created?.attendanceMode,
+        dtcmBarcode: created?.dtcmBarcode,
+      });
+      if (dtcmWarning) toast.warning(dtcmWarning, { duration: 12000 });
+      // Invalidate on ANY DTCM event, not just the warning path: the common
+      // case is that a spare WAS consumed, which is precisely when the strip's
+      // number is stale.
+      if (event?.requiresDtcmBarcode) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+      }
     },
     onError: (error: Error) => {
       setFormError(error.message);

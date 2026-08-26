@@ -60,6 +60,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    // DECLARED, never inferred. A file of assignments and a file of leftover
+    // codes are indistinguishable to a header sniffer the moment somebody's
+    // column is called `attendee_email` — and inferring "these are spares"
+    // there would turn every intended assignment into an unclaimed code with
+    // nothing said about it. Same rule the Freshsales importer settled on for
+    // date order: a guess that is usually right is exactly the failure mode.
+    const mode: "assign" | "spares" = formData.get("mode") === "spares" ? "spares" : "assign";
 
     if (!file) {
       apiLogger.warn({ msg: "barcode-import:no-file", eventId, userId: session.user.id });
@@ -84,9 +91,30 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "CSV must have a 'barcode' column" }, { status: 400 });
     }
 
-    if (regIdCol < 0 && emailCol < 0) {
-      apiLogger.warn({ msg: "barcode-import:missing-id-column", eventId, userId: session.user.id });
-      return NextResponse.json({ error: "CSV must have a 'registrationId' or 'email' column" }, { status: 400 });
+    // Only in assign mode. Without an owner column EVERY row falls through to
+    // the spares branch below, so a mistyped header would silently convert a
+    // whole file of assignments into unclaimed codes — and the people they were
+    // meant for would arrive with none. In spares mode the operator has already
+    // said the file is leftovers, so no owner column is expected.
+    if (mode === "assign" && regIdCol < 0 && emailCol < 0) {
+      apiLogger.warn({
+        msg: "barcode-import:missing-id-column",
+        eventId,
+        userId: session.user.id,
+        // Column names, not data — safe to log, and the first thing anyone
+        // debugging "why was my file rejected?" wants to see.
+        headers,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This file has no 'registrationId' or 'email' column, so there is nobody to assign the codes to. " +
+            `Columns found: ${headers.join(", ") || "(none)"}. ` +
+            'If these are leftover codes for the desk to hand out, choose "Spare codes for the desk" and upload it again.',
+          code: "MISSING_OWNER_COLUMN",
+        },
+        { status: 400 },
+      );
     }
 
     let imported = 0;
@@ -225,6 +253,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({
       msg: "Barcode CSV import completed",
       eventId,
+      mode,
       imported,
       skipped,
       errors: errors.length,
