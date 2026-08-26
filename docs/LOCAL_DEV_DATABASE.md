@@ -82,6 +82,7 @@ docker compose up -d postgres-prod-local   # if not already running
 npm run dev                                 # localhost:3113, on the local DB
 npm run db:refresh                          # pull fresh prod-like data anytime
 npm run db:migrate                          # apply new migrations to local (safe, additive)
+npm run db:snapshot                         # bank the current state before anything risky
 ```
 
 - **`npm run db:refresh`** ([scripts/dev-db-refresh.sh](../scripts/dev-db-refresh.sh))
@@ -91,6 +92,52 @@ npm run db:migrate                          # apply new migrations to local (saf
 - **`npm run db:migrate`** = `prisma migrate deploy` — applies pending migrations
   to whatever `DATABASE_URL` points at (local). Not guarded (deploy is never
   destructive).
+
+---
+
+## Undo — local snapshots
+
+```bash
+npm run db:snapshot                        # bank the current local state
+npm run db:snapshot -- --list              # what is on hand
+npm run db:restore                         # roll back to the newest snapshot
+npm run db:restore -- 20260826-141530.dump # or a specific one
+```
+
+`npm run db:push` takes one automatically, so ordinary schema work is already
+covered. Take one by hand before anything you are unsure about.
+
+Snapshots are `pg_dump -Fc` files in `.local-snapshots/` (gitignored — they hold
+real attendee data). The newest 10 are kept and older ones pruned; each is about
+a megabyte.
+
+**Why this is not just `db:refresh`.** `db:refresh` rebuilds from the S3 DR dump,
+so it gives you **prod's** state, not **yours** — every test registration and
+half-finished scenario you were working through is gone. A snapshot is your
+local state, and restoring is a file copy rather than a network round trip.
+
+Two properties worth knowing, both pinned by tests:
+
+- **`db:push` fails closed.** If the snapshot cannot be taken (container down,
+  disk full) the push is refused rather than run without an undo point. A
+  seatbelt that silently is not there on the one day you need it is worse than
+  no seatbelt, because you drove differently believing in it.
+  `SKIP_LOCAL_SNAPSHOT=1` overrides deliberately.
+- **Restore snapshots first.** Restoring replaces whatever is in the database
+  now, so picking the wrong file would otherwise be a second, unrecoverable
+  mistake on top of the first. There is no way to lose data through these two
+  scripts at all.
+
+Both scripts address the container **by name** and never read `DATABASE_URL`.
+That is the design, not an implementation detail: a script that read a URL could
+be aimed at production by an environment variable (INC-002's exact shape), and
+these structurally cannot be, so there is no check to write and nothing to get
+wrong.
+
+`npm run db:reset` is refused outright — `prisma migrate reset` is the command
+that wiped production, and locally it buys nothing `db:refresh` or `db:restore`
+does not. Data-loss flags (`--accept-data-loss`, `--force-reset`) need an
+explicit `LOCAL_DATA_LOSS_OK=1`.
 
 ---
 
@@ -155,8 +202,13 @@ Three layers, so a mistake can't reach prod:
    `DATABASE_URL`/`DIRECT_URL` resolve to the prod project ref **and**
    `NODE_ENV !== "production"`. Covers the app AND every `tsx` script that imports
    `db`. Inert on the box (`NODE_ENV=production`).
-3. **npm preflight** — [scripts/guard-db-target.sh](../scripts/guard-db-target.sh)
-   runs before `npm run db:push` / `npm run db:reset` and refuses a prod target.
+3. **npm preflight** — [scripts/db-local-op.sh](../scripts/db-local-op.sh) wraps
+   `npm run db:push` / `npm run db:reset` and runs four gates in order: refuse a
+   prod target ([guard-db-target.sh](../scripts/guard-db-target.sh)), refuse
+   `migrate reset` outright, require `LOCAL_DATA_LOSS_OK=1` for a data-loss flag,
+   then snapshot — failing closed if it cannot. The prod check is deliberately
+   first: a prod target must be refused before anything else happens, including
+   a snapshot that addresses the local container and would be misleading there.
    `db:migrate` (deploy) is intentionally unguarded so the box/CI deploy path is
    unaffected.
 
@@ -166,6 +218,29 @@ Three layers, so a mistake can't reach prod:
 > A *direct* `npx prisma db push` bypasses the npm preflight — layer 1 (local
 > creds) is what protects you there, and **rotating the prod password** is the
 > ultimate backstop (INC-002 action item 1).
+
+---
+
+### The trap the guards do not catch
+
+`--shadow-database-url` names a scratch database and **Prisma resets it**:
+
+```bash
+# DO NOT — this EMPTIES whatever it points at
+npx prisma migrate diff --from-migrations prisma/migrations \
+  --to-schema-datamodel prisma/schema.prisma \
+  --shadow-database-url "$DIRECT_URL"     # ← DIRECT_URL is your local dev DB
+```
+
+That is what emptied the local prod copy on 2026-08-25. Nothing above stops it:
+it is a direct `npx` call, so the npm preflight never runs, and the destructive
+behaviour is implied by a **noun** rather than announced by a flag like
+`--accept-data-loss`. No list of forbidden commands catches the ones nobody has
+thought of yet, which is the whole argument for a snapshot over a rule.
+
+To check a migration against the schema without a live target: `npx prisma
+validate`, then apply the migration SQL to local with `psql -v ON_ERROR_STOP=1
+-f` and re-run it to prove idempotency, then read `\d "TableName"`.
 
 ---
 

@@ -395,6 +395,28 @@ runs and `npm run db:migrate` wraps. Do not confuse the two command families.
 Migrations themselves stay additive + idempotent, and are never squashed/deleted
 (owner, July 20).
 
+**RULE — never pass a real database to `--shadow-database-url`.** A shadow
+database is scratch space and Prisma **resets** it. On 2026-08-25 a
+`prisma migrate diff --shadow-database-url "$DIRECT_URL"` emptied the whole local
+prod copy, because locally `DIRECT_URL` and `DATABASE_URL` are the same database.
+It is the same family as the `migrate dev` footgun with one difference that makes
+it worse: the destructive behaviour is implied by a **noun**, not announced by a
+flag like `--accept-data-loss`, so it does not look dangerous. To check a
+migration against the schema, use `prisma validate` + apply the SQL to local with
+`psql -v ON_ERROR_STOP=1 -f` and re-run for idempotency.
+
+**Local work has an undo: `npm run db:snapshot` / `npm run db:restore`**
+([db-snapshot.sh](scripts/db-snapshot.sh) / [db-restore.sh](scripts/db-restore.sh),
+Aug 26 2026). `pg_dump -Fc` into the gitignored `.local-snapshots/`, newest 10
+kept. `db:push` takes one automatically and **fails closed** if it cannot; restore
+snapshots the current state first, so neither script can lose data. Both address
+the container **by name and never read a URL**, so unlike a URL-driven script they
+cannot be aimed at prod — pinned by a source assertion. `db:reset` is now refused
+outright (it runs the forbidden `migrate reset`); data-loss flags need
+`LOCAL_DATA_LOSS_OK=1`. The point is a seatbelt rather than a longer list of
+forbidden commands: a snapshot covers the footguns nobody has thought of yet,
+which is exactly the class the shadow-database one fell into.
+
 ## Rate Limits
 
 Every write endpoint that calls `checkRateLimit` returns HTTP `429` (or a tool-level error with `code: "RATE_LIMITED"` inside the MCP JSON-RPC envelope) with:

@@ -103,6 +103,10 @@ Prod shares one DB across a blue-green swap, so **both the old and new container
 schema simultaneously.** `ADD COLUMN IF NOT EXISTS`, nullable, no destructive `ALTER`. A non-additive
 migration is a decision to escalate, not to make quietly.
 
+Locally, `npm run db:push` snapshots first and **fails closed** if it cannot, so schema work is
+undoable via `npm run db:restore`. That seatbelt exists because a list of forbidden commands only
+covers the footguns someone already met.
+
 ### 5. Verify before you push
 ```bash
 npx tsc --noEmit && npm run lint && npm run test && npm run build
@@ -285,8 +289,16 @@ npm run test:e2e       # playwright (stop the dev server first)
 npm run worker:dev     # the background worker tier
 
 npx prisma studio      # DB browser
-npx prisma migrate dev # new migration — additive only, see rule 4
+npm run db:migrate     # apply migrations to local (= migrate deploy, non-destructive)
+npm run db:snapshot    # bank local DB state; db:restore rolls back
+npm run db:refresh     # rebuild local from the latest prod DR dump
 ```
+
+**Never `prisma migrate dev` or `prisma migrate reset`** — a `migrate dev` reset prompt wiped
+production on 2026-07-30 (INC-002). Author migration SQL by hand (or `migrate dev --create-only`,
+which writes the file and never touches a database), then apply it with `npm run db:migrate`.
+**Never pass a real database to `--shadow-database-url`** — Prisma resets it; that emptied the local
+prod copy on 2026-08-25. See rule 4 and `docs/LOCAL_DEV_DATABASE.md`.
 
 **Deploys** go through `scripts/deploy.sh` on the box (blue-green, health-checked, ~25s).
 Never run raw `docker compose` in `/home/ubuntu/ea-sys` — it kills prod. Rollback is

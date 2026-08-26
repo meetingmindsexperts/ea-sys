@@ -102,3 +102,7 @@ contacts-quarantine*.json
 
 # Archived quarantine batches (PII from --purge-blocked runs)
 .quarantine-archive/
+
+# Local dev-DB snapshots (scripts/db-snapshot.sh) — pg_dumps of the LOCAL
+# prod copy, so real attendee data. Never commit them.
+.local-snapshots/
