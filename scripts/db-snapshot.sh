@@ -41,7 +41,15 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --label) LABEL="${2:-}"; shift 2 ;;
     --list)  LIST=1; shift ;;
-    *) echo "db-snapshot: unknown argument: $1" >&2; exit 2 ;;
+    *)
+      # Name what is accepted rather than only what was rejected: the usual way
+      # to land here is a typo or a shell comment that zsh did not strip
+      # (interactive_comments is off by default), and a bare refusal sends you
+      # to the source to find out why.
+      echo "db-snapshot: unknown argument: $1" >&2
+      echo "usage: npm run db:snapshot [-- --label <name>] [-- --list]" >&2
+      exit 2
+      ;;
   esac
 done
 

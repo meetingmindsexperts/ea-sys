@@ -169,6 +169,24 @@ echo "== restore refuses when there is nothing to restore"
 reset; out=$(run bash "$ROOT/scripts/db-restore.sh")
 contains "points at db:refresh" "db:refresh" "$out"
 
+echo "== an unknown argument is refused with a usage line, not guessed"
+reset
+out=$(run bash "$SNAP" '#'); rc=$?
+check "exit 2" 2 "$rc"
+contains "shows usage" "usage: npm run db:snapshot" "$out"
+check "nothing written" 0 "$(snap_count)"
+
+echo "== --list works on restore too, and restores nothing"
+reset; run bash "$SNAP" --label listable >/dev/null
+out=$(run bash "$ROOT/scripts/db-restore.sh" --list)
+contains "lists the snapshot" "listable" "$out"
+check "no pre-restore snapshot taken" 1 "$(snap_count)"
+
+echo "== an unknown option on restore is refused rather than treated as a filename"
+reset; out=$(run bash "$ROOT/scripts/db-restore.sh" --newest); rc=$?
+check "exit 2" 2 "$rc"
+contains "shows usage" "usage: npm run db:restore" "$out"
+
 echo "== the snapshot tools read no database URL at all (structural, not checked)"
 for f in "$SNAP" "$ROOT/scripts/db-restore.sh"; do
   # Strip comments first: the header explains the rule and would otherwise

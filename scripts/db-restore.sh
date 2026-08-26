@@ -27,6 +27,17 @@ DOCKER="${DOCKER_BIN:-docker}"
 
 WANT="${1:-}"
 
+# --list is delegated rather than duplicated: it is the same listing, and this is
+# where people reach for it (you list in order to pick what to restore).
+case "$WANT" in
+  --list) exec bash "$ROOT/scripts/db-snapshot.sh" --list ;;
+  --*)
+    echo "db-restore: unknown option: $WANT" >&2
+    echo "usage: npm run db:restore [-- <snapshot.dump>] [-- --list]" >&2
+    exit 2
+    ;;
+esac
+
 if ! "$DOCKER" ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
   echo "✋ ${CONTAINER} is not running."
   echo "   Start it:  docker compose up -d postgres-prod-local"
