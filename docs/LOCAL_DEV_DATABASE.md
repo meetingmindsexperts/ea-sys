@@ -270,9 +270,21 @@ npm run prod:psql                                   # interactive psql, READ-ONL
 npm run prod:psql -- -c 'SELECT count(*) FROM "Event"'
 ```
 
-[scripts/prod-psql.sh](../scripts/prod-psql.sh) reads `DIRECT_URL` from `.env.prod`
-and opens the session with `default_transaction_read_only=on`, so a stray
-write errors. It's a guardrail, not a vault — don't turn read-only off.
+[scripts/prod-psql.sh](../scripts/prod-psql.sh) reads `DIRECT_URL` from `.env.prod`,
+sets the session read-only with SQL, **verifies it took effect, and refuses to
+open the session if it did not**. It's a guardrail, not a vault — don't turn
+read-only off, and note a real read-only DB role would be the actual fix.
+
+> **It did not work from July 30 to Aug 26, 2026.** It used `PGOPTIONS`, and
+> `DIRECT_URL` points at a Supavisor pooler, which does not forward libpq
+> startup options — so every session that printed "READ-ONLY" was read-write.
+> Nothing failed and nothing logged; it was found by running a write through it
+> expecting a refusal and getting `UPDATE 1`. **Treat any "read-only" prod
+> session before Aug 26 as having been capable of writing.** The lesson is
+> bigger than the mechanism: a guard that announces itself and does nothing is
+> worse than no guard, because you take risks on the strength of it — which is
+> why the fix verifies rather than assumes, the same shape as
+> [rls-assert.ts](../src/lib/tenant/rls-assert.ts).
 
 For a **write** to prod (rare — a data fix, a migration outside deploy): do it
 deliberately with an explicit URL, e.g.
