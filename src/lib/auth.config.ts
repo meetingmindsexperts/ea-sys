@@ -51,12 +51,22 @@ export const SESSION_CONFIG = {
    * 48h ROLLING (idle) timeout, NOT a hard cap from login. Every session read
    * re-signs the JWT with `exp = now + maxAge` and re-sets the cookie, so the
    * window slides forward on use; only a full 48h of INACTIVITY signs someone
-   * out. There is no refresh token, just one signed JWT cookie.
+   * out. There is no refresh token, just the one cookie.
+   *
+   * That cookie is ENCRYPTED, not merely signed: Auth.js v5 issues a JWE
+   * (A256CBC-HS512, key derived from `NEXTAUTH_SECRET`), so someone holding it
+   * cannot read the role, email or org id out of it. Worth stating because the
+   * MOBILE token in `src/lib/mobile-jwt.ts` is the other thing — a hand-rolled
+   * HS256 HMAC whose payload is plain base64url and fully readable to anyone
+   * holding it. Signed and encrypted are not the same guarantee, and the two
+   * tokens in this codebase differ on exactly that.
    *
    * 48h and not 24h because staff live in this daily and a one-day window
    * re-prompts constantly; 48h and not a week because this account can move
-   * money and we still cannot force a sign-out except by bumping
-   * `User.tokenVersion`. Note it deliberately does NOT carry a weekend: a
+   * money and the only way to end a live session is to bump
+   * `User.tokenVersion` (deactivate, a completed password reset, or the
+   * Settings -> Users "sign out everywhere" action). Note it deliberately does
+   * NOT carry a weekend: a
    * Friday-evening finish is ~63h from Monday morning, so Monday is a fresh
    * login. Raise to 72h if that is ever unwanted.
    * See docs/HANDOVER.md §4 "Session lifetime".

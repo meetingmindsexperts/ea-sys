@@ -57,6 +57,7 @@ import {
   X as XIcon,
   UserX,
   UserCheck,
+  LogOut,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -363,6 +364,43 @@ export default function SettingsPage() {
       toast.error("An error occurred. Please try again.");
     } finally {
       setIsSubmittingUser(false);
+    }
+  };
+
+  /**
+   * Sign someone out of every device without locking them out.
+   *
+   * The sharp counterpart to Deactivate: until Aug 26 2026 deactivation was
+   * the ONLY thing an admin could reach for when a laptop went missing or a
+   * token leaked, and it also stopped the legitimate owner signing back in.
+   */
+  const handleRevokeSessions = async (user: User) => {
+    const isSelf = user.id === session?.user?.id;
+    const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
+    if (
+      !confirm(
+        isSelf
+          ? `Sign yourself out everywhere?\n\nThis device included — you will need to sign in again. Your password and role do not change.`
+          : `Sign ${name} out everywhere?\n\nEvery browser session ends and they can sign straight back in with the same password. Use this if a laptop went missing or a session was left open somewhere.\n\nTo stop them signing in at all, deactivate the account instead. A mobile app already signed in can keep working for up to 24 hours.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/organization/users/${user.id}/revoke-sessions`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(body?.error || "Couldn't sign this user out");
+        return;
+      }
+      toast.success(
+        isSelf ? "Signed out everywhere — sign in again to continue" : `${name} signed out everywhere`,
+      );
+    } catch (error) {
+      console.error("Error revoking sessions:", error);
+      toast.error("Couldn't sign this user out");
     }
   };
 
@@ -1058,6 +1096,21 @@ export default function SettingsPage() {
                               onClick={() => openEditUserDialog(user)}
                             >
                               <Edit className="h-4 w-4" />
+                            </Button>
+                            {/* Shown for yourself too, unlike Deactivate and
+                                Delete: signing yourself out is reversible by
+                                signing back in, locking yourself out is not. */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={
+                                user.id === session?.user?.id
+                                  ? "Sign yourself out on every device"
+                                  : "Sign out everywhere: ends their sessions, they can sign back in"
+                              }
+                              onClick={() => handleRevokeSessions(user)}
+                            >
+                              <LogOut className="h-4 w-4" />
                             </Button>
                             {user.id !== session?.user?.id && (
                               <Button
