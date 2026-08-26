@@ -216,7 +216,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const grantSettings = readTravelGrantSettings(event.settings);
     if (!grantSettings.enabled) {
       apiLogger.warn(
-        { eventId, misconfigured: grantSettings.misconfigured },
+        { eventId, switchedOn: grantSettings.switchedOn },
         "travel-grants:feature-disabled",
       );
       return NextResponse.json(

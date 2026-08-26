@@ -27,7 +27,7 @@ import {
   DEFAULT_TRAVEL_GRANT_TERMS_HTML,
   travelGrantSubmitSchema,
 } from "@/lib/travel-grant/constants";
-import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
+import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { loadTravelGrantForSlug, resolveTravelGrantEventOrg } from "@/lib/travel-grant/public";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
@@ -63,7 +63,15 @@ export async function GET(req: Request, { params }: RouteParams) {
 
       // The organizer can switch the feature off after links have gone out.
       // Refuse rather than accept an answer nobody will read.
-      if (!isTravelGrantEnabled(row.event.settings)) {
+      //
+      // Gated on `switchedOn`, NOT `enabled`. `enabled` is additionally false
+      // while the home-country list is empty, and emptying it is what an
+      // organizer does halfway through CHANGING it — which would kill every
+      // outstanding link mid-edit, and show the author the same "invalid or
+      // already used" message as a forged token. Residency was decided when
+      // this grant was minted; reading or answering the form does not depend on
+      // the exempt list. Only an explicit switch-off is a withdrawal.
+      if (!readTravelGrantSettings(row.event.settings).switchedOn) {
         apiLogger.warn(
           { slug, eventId: row.eventId, stage: "load-disabled" },
           "travel-grant-public:feature-disabled",
@@ -145,7 +153,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ slug, stage: "submit-load" }, "travel-grant-public:invalid-token");
         return NextResponse.json({ error: INVALID }, { status: 404 });
       }
-      if (!isTravelGrantEnabled(row.event.settings)) {
+      // Same rule as the load path above: an explicit switch-off withdraws the
+      // offer; a half-edited country list does not.
+      if (!readTravelGrantSettings(row.event.settings).switchedOn) {
         apiLogger.warn(
           { slug, eventId: row.eventId, stage: "submit-disabled" },
           "travel-grant-public:feature-disabled",

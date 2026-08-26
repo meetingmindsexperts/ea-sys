@@ -451,11 +451,11 @@ export default function EventSettingsPage() {
 
         {
           const tg = readTravelGrantSettings(settings);
-          // `enabled` is the EFFECTIVE value and is false when no country is
-          // set, so the switch would silently flip itself off on load. The
-          // switch shows what the organizer chose; the amber note below tells
-          // them it is not in force yet.
-          setTravelGrantEnabled(tg.enabled || tg.misconfigured);
+          // The switch shows what the organizer CHOSE, not whether it is in
+          // force: `enabled` is false while no country is set, so binding the
+          // switch to it would make it silently flip itself off on load. The
+          // amber note below is what says it is not running yet.
+          setTravelGrantEnabled(tg.switchedOn);
           setTravelGrantHomeCountries(tg.homeCountries);
         }
 

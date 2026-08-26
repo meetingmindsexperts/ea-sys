@@ -126,7 +126,7 @@ describe("remind everyone pending (D9)", () => {
         token: "tok1",
         status: "PENDING",
         speakerId: "sp1",
-        speaker: { title: null, firstName: "Ana", lastName: "Silva", email: "ana@x.com" },
+        speaker: { title: null, firstName: "Ana", lastName: "Silva", email: "ana@x.com", country: "Oman" },
       },
     ]);
 
@@ -143,6 +143,30 @@ describe("remind everyone pending (D9)", () => {
     expect(sendEmail.mock.calls[0][0].to[0].email).toBe("ana@x.com");
   });
 
+  it("does NOT chase an author the event now treats as local", async () => {
+    // The organizer changed the home countries after this grant was minted, so
+    // the console beside this button already renders them "Local, not eligible".
+    // resolveNamed re-checked residency and resolvePending did not, which is the
+    // defect: two resolvers in one function disagreeing about who is eligible.
+    grantFindMany.mockResolvedValue([
+      {
+        id: "g1", token: "t", status: "PENDING", speakerId: "sp1",
+        speaker: { title: null, firstName: "Omar", lastName: "H", email: "o@x.com", country: "United Arab Emirates" },
+      },
+      {
+        id: "g2", token: "t2", status: "PENDING", speakerId: "sp2",
+        speaker: { title: null, firstName: "Ana", lastName: "S", email: "a@x.com", country: "Oman" },
+      },
+    ]);
+    const j = await (await POST(req({ target: "pending" }), { params })).json();
+    expect(j.sent).toBe(1);
+    // Counted, not silently dropped: "Remind 2" reporting "Sent 1" with nothing
+    // explaining the other is how an organizer keeps chasing a ghost.
+    expect(j.skippedNotEligible).toBe(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].to[0].email).toBe("a@x.com");
+  });
+
   it("sends to nobody when nothing is pending", async () => {
     grantFindMany.mockResolvedValue([]);
     const res = await POST(req({ target: "pending" }), { params });
@@ -152,7 +176,7 @@ describe("remind everyone pending (D9)", () => {
 
   it("skips a pending grant whose author has no email, rather than throwing", async () => {
     grantFindMany.mockResolvedValue([
-      { id: "g1", token: "t", status: "PENDING", speakerId: "sp1", speaker: { title: null, firstName: "A", lastName: "B", email: null } },
+      { id: "g1", token: "t", status: "PENDING", speakerId: "sp1", speaker: { title: null, firstName: "A", lastName: "B", email: null, country: "Oman" } },
     ]);
     const res = await POST(req({ target: "pending" }), { params });
     expect((await res.json()).sent).toBe(0);
@@ -365,9 +389,9 @@ describe("resend semantics and the mint race", () => {
   it("counts and logs pending grants whose author has no email", async () => {
     grantFindMany.mockResolvedValue([
       { id: "g1", token: "t", status: "PENDING", speakerId: "sp1",
-        speaker: { title: null, firstName: "A", lastName: "B", email: null } },
+        speaker: { title: null, firstName: "A", lastName: "B", email: null, country: "Oman" } },
       { id: "g2", token: "t2", status: "PENDING", speakerId: "sp2",
-        speaker: { title: null, firstName: "C", lastName: "D", email: "c@x.com" } },
+        speaker: { title: null, firstName: "C", lastName: "D", email: "c@x.com", country: "Oman" } },
     ]);
     const j = await (await POST(req({ target: "pending" }), { params })).json();
     expect(j.sent).toBe(1);

@@ -90,7 +90,7 @@ export async function sendTravelGrantInvitations(
   };
 
   const recipients = args.pendingOnly
-    ? await resolvePending(event.id, result)
+    ? await resolvePending(event.id, event.homeCountries, result)
     : await resolveNamed(event, args.speakerIds ?? [], result);
 
   if (recipients.length === 0) return result;
@@ -189,6 +189,7 @@ interface Recipient {
  */
 async function resolvePending(
   eventId: string,
+  homeCountries: readonly string[],
   result: SendTravelGrantResult,
 ): Promise<Recipient[]> {
   const rows = await db.travelGrant.findMany({
@@ -198,11 +199,35 @@ async function resolvePending(
       token: true,
       status: true,
       speakerId: true,
-      speaker: { select: { title: true, firstName: true, lastName: true, email: true } },
+      speaker: {
+        select: { title: true, firstName: true, lastName: true, email: true, country: true },
+      },
     },
   });
-  const withEmail = rows.filter((r) => !!r.speaker?.email);
-  const missing = rows.length - withEmail.length;
+
+  // Re-check residency against the CURRENT home countries, which resolveNamed
+  // already did. The two resolvers disagreeing about who is eligible was the
+  // actual defect: once the organizer can change the geography, a grant minted
+  // last week can belong to someone the event now treats as local, and
+  // "Remind 3 pending" would chase them while the console beside it renders
+  // them "Local, not eligible". Skipped, counted and logged rather than
+  // silently dropped.
+  //
+  // Their link stays live on purpose. We invited them; withdrawing an offer
+  // already made is a human decision, and the console shows the mismatch so a
+  // human can make it.
+  const eligible = rows.filter((r) => {
+    if (classifyResidency(r.speaker?.country, homeCountries) === "overseas") return true;
+    result.skippedNotEligible += 1;
+    apiLogger.warn(
+      { eventId, speakerId: r.speakerId, country: r.speaker?.country ?? null },
+      "travel-grant-send:pending-no-longer-eligible",
+    );
+    return false;
+  });
+
+  const withEmail = eligible.filter((r) => !!r.speaker?.email);
+  const missing = eligible.length - withEmail.length;
   if (missing > 0) {
     // Counted and logged rather than silently dropped: otherwise "Remind 5
     // pending" reports "Sent 3" with nothing anywhere explaining the other two,

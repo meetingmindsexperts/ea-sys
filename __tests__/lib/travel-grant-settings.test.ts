@@ -27,7 +27,7 @@ describe("readTravelGrantSettings", () => {
     expect(readTravelGrantSettings(AE)).toEqual({
       enabled: true,
       homeCountries: ["AE"],
-      misconfigured: false,
+      switchedOn: true,
     });
   });
 
@@ -65,15 +65,20 @@ describe("readTravelGrantSettings", () => {
       const s = readTravelGrantSettings(settings);
       expect(s.enabled).toBe(false);
       // Not merely off: off BECAUSE it is half-configured. The settings card
-      // renders that difference, since a switch that is on and does nothing,
-      // with nothing explaining why, is worse than a switch that is off.
-      expect(s.misconfigured).toBe(true);
+      // renders that difference (switchedOn && !enabled), since a switch that is
+      // on and does nothing, with nothing explaining why, is worse than a switch
+      // that is off. The public consent route reads the same distinction the
+      // other way: a half-edited list must not kill a live link.
+      expect(s.switchedOn).toBe(true);
       expect(s.homeCountries).toEqual([]);
     });
 
-    it("does not claim misconfiguration when the switch is simply off", () => {
-      expect(readTravelGrantSettings({ travelGrant: { enabled: false } }).misconfigured).toBe(false);
-      expect(readTravelGrantSettings(null).misconfigured).toBe(false);
+    it("distinguishes 'switched off' from 'switched on but unusable'", () => {
+      expect(readTravelGrantSettings({ travelGrant: { enabled: false } }).switchedOn).toBe(false);
+      expect(readTravelGrantSettings(null).switchedOn).toBe(false);
+      // The pair the consent route depends on: intent yes, effect no.
+      const mid = readTravelGrantSettings({ travelGrant: { enabled: true } });
+      expect([mid.switchedOn, mid.enabled]).toEqual([true, false]);
     });
   });
 

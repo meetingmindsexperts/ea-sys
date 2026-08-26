@@ -126,6 +126,20 @@ describe("GET", () => {
     expect(res.status).toBe(404);
   });
 
+  it("still works while the organizer is mid-edit on the country list", async () => {
+    // enabled:true with no homeCountries reads as DISABLED everywhere that
+    // MINTS a grant — correctly, since an empty exempt set would offer one to
+    // every local author. But it is also what an organizer's settings look like
+    // halfway through CHANGING the country, and killing every outstanding link
+    // there would show the author the same "invalid or already used" message as
+    // a forged token. Residency was decided when this grant was minted.
+    loadRow.mockResolvedValue({
+      ...ROW,
+      event: { ...ROW.event, settings: { travelGrant: { enabled: true } } },
+    });
+    expect((await GET(req(), { params })).status).toBe(200);
+  });
+
   it("429s when rate limited, with Retry-After", async () => {
     checkRateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 60 });
     const res = await GET(req(), { params });

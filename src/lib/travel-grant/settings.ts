@@ -48,18 +48,30 @@ export interface TravelGrantSettings {
    */
   homeCountries: string[];
   /**
-   * The switch is on but no usable home country is set, so the feature is off.
-   * Exists so the settings card can say that out loud. A flag that is displayed
-   * but not enforced is worse than no flag; so is one that is enforced but
-   * never explains itself.
+   * What the organizer ASKED for, ignoring whether it is usable. Distinct from
+   * `enabled` on purpose, and the distinction is load-bearing in exactly one
+   * place: an outstanding consent link must keep working while the organizer is
+   * mid-edit on the country list.
+   *
+   * Residency only matters when a grant is MINTED — by the time a row exists,
+   * that author was already judged eligible, and reading or answering their
+   * form does not depend on the exempt list at all. So gating the public
+   * consent route on `enabled` was too tight: emptying the list to change it
+   * would kill every live link, and the author would see the same "invalid or
+   * already used" message as a forged token, i.e. would conclude the offer had
+   * been withdrawn. Refuse only when the organizer actually switched it OFF.
+   *
+   * The settings card's "on but doing nothing" warning is `switchedOn &&
+   * !enabled` — derived at the one place that needs it rather than carried as a
+   * third boolean.
    */
-  misconfigured: boolean;
+  switchedOn: boolean;
 }
 
 export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = {
   enabled: false,
   homeCountries: [],
-  misconfigured: false,
+  switchedOn: false,
 };
 
 /**
@@ -78,7 +90,7 @@ export function readTravelGrantSettings(settings: unknown): TravelGrantSettings 
     return TRAVEL_GRANT_SETTINGS_DEFAULT;
   }
   const blob = raw as Record<string, unknown>;
-  const requested = blob.enabled === true;
+  const switchedOn = blob.enabled === true;
 
   const homeCountries = Array.isArray(blob.homeCountries)
     ? [
@@ -96,9 +108,9 @@ export function readTravelGrantSettings(settings: unknown): TravelGrantSettings 
   // the feature would mail a grant offer to every local author, which is the
   // exact mistake it exists to prevent. On-but-unconfigured therefore means OFF.
   return {
-    enabled: requested && homeCountries.length > 0,
+    enabled: switchedOn && homeCountries.length > 0,
     homeCountries,
-    misconfigured: requested && homeCountries.length === 0,
+    switchedOn,
   };
 }
 

@@ -20,6 +20,15 @@ plan below is kept as the reasoning; deviations from it are recorded here.
   was also moved BELOW the Travel Grant card: it sat at the foot of Submissions,
   which left the only button that persists the picker scrolled off above it.
   Found by opening the page, which is what step 5 asked for.
+- **Two review findings decided (owner: proceed):** a half-edited country list
+  no longer kills outstanding consent links — the public route gates on
+  `switchedOn` (did the organizer switch it off?) rather than `enabled` (is it
+  usable?), because residency is decided when a grant is MINTED and answering
+  the form does not depend on the exempt list. And "remind everyone pending"
+  now re-checks residency against the CURRENT countries, which the named-send
+  path already did; the two resolvers disagreeing was the real defect. Skipped
+  authors are counted and logged, and keep a live link on purpose: withdrawing
+  an offer already made is a human decision, and the console shows the mismatch.
 - **Deferred:** informal aliases cover `uae`/`uk`/`usa`/`ksa` and the UAE's
   alpha-3 `are`; alpha-3 is not supported generally because `countries.ts`
   carries no alpha-3 column.
