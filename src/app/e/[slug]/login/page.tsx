@@ -275,8 +275,9 @@ function EventLoginForm() {
                     </FormItem>
                   )} />
 
-                {/* mt-6 on top of the form's space-y-4, matching the staff
-                    /login page so the two sign-in screens share one rhythm. */}
+                {/* mt-6 on top of the form's space-y-4. Measured at 24px
+                    computed / 40px visual; the staff /login page is tuned to
+                    land in the same range through a different structure. */}
                 <Button type="submit" className="w-full btn-gradient font-semibold h-11 text-base mt-6" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in…</>

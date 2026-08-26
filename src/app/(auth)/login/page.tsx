@@ -137,7 +137,13 @@ function LoginForm() {
           {/* pt-4 on top of Card's own gap-6 — the password field is the last
               thing in CardContent, and 24px read as one continuous block with
               the submit button rather than a separate action. */}
-          <CardFooter className="flex flex-col space-y-4 pt-4">
+          {/* pt-8 measured, not guessed: the event sign-in at /e/{slug}/login
+                puts 40px between the password field and its button, and this
+                screen sat at 16px — tighter than its own field rhythm, so the
+                primary action read as cramped. The two structures differ
+                (CardFooter here, a form sibling there), so the number that
+                matches is not the same class. */}
+          <CardFooter className="flex flex-col space-y-4 pt-8">
             <div className="w-full space-y-2">
               <Button type="submit" className="w-full btn-gradient" disabled={isLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
