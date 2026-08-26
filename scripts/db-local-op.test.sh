@@ -44,7 +44,10 @@ if [ "$1" = "exec" ]; then
   shift 2  # drop "exec" + container
   case "$1" in
     psql) echo "7" ;;   # any count query answers 7
-    *) : ;;             # pg_dump / pg_restore / rm all succeed silently
+    pg_restore)
+      if [ -n "${PG_RESTORE_ERR:-}" ]; then printf '%s\n' "$PG_RESTORE_ERR" >&2; exit 1; fi
+      ;;
+    *) : ;;             # pg_dump / rm succeed silently
   esac
   exit 0
 fi
@@ -65,7 +68,7 @@ reset() { rm -rf "$TMP/snaps" "$TMP/prisma-calls"; mkdir -p "$TMP/snaps"; }
 # depend on whatever .env happens to hold on this machine.
 run() {
   env DOCKER_BIN="$FAKE/docker" PRISMA_BIN="$FAKE/prisma" \
-      LOCAL_SNAPSHOT_DIR="$TMP/snaps" \
+      LOCAL_SNAPSHOT_DIR="$TMP/snaps" RESTORE_ERR_FILE="$TMP/restore.err" \
       DATABASE_URL="postgresql://postgres:postgres@localhost:54322/ea_sys_prod_local" \
       DIRECT_URL="postgresql://postgres:postgres@localhost:54322/ea_sys_prod_local" \
       "$@" 2>&1
@@ -169,6 +172,19 @@ echo "== restore refuses when there is nothing to restore"
 reset; out=$(run bash "$ROOT/scripts/db-restore.sh")
 contains "points at db:refresh" "db:refresh" "$out"
 
+echo "== the expected schema collision is reported as a clean restore"
+reset; run bash "$SNAP" --label a >/dev/null
+out=$(run PG_RESTORE_ERR='pg_restore: error: could not execute query: ERROR:  schema "public" already exists' \
+          bash "$ROOT/scripts/db-restore.sh")
+contains "reads as OK" "restore OK (ignored" "$out"
+
+echo "== a real restore error is surfaced, not waved through as benign"
+reset; run bash "$SNAP" --label a >/dev/null
+out=$(run PG_RESTORE_ERR='pg_restore: error: could not execute query: ERROR:  relation "Event" does not exist' \
+          bash "$ROOT/scripts/db-restore.sh")
+contains "tells you to read it" "read these" "$out"
+contains "shows the error" "relation .Event. does not exist" "$out"
+
 echo "== an unknown argument is refused with a usage line, not guessed"
 reset
 out=$(run bash "$SNAP" '#'); rc=$?
@@ -188,7 +204,7 @@ check "exit 2" 2 "$rc"
 contains "shows usage" "usage: npm run db:restore" "$out"
 
 echo "== the snapshot tools read no database URL at all (structural, not checked)"
-for f in "$SNAP" "$ROOT/scripts/db-restore.sh"; do
+for f in "$SNAP" "$ROOT/scripts/db-restore.sh" "$ROOT/scripts/db-restore-into-local.sh"; do
   # Strip comments first: the header explains the rule and would otherwise
   # trip a guard written to enforce it (the check-datetime-local lesson).
   code=$(grep -v '^\s*#' "$f")

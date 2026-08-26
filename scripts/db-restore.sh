@@ -73,19 +73,7 @@ else
 fi
 
 echo "-- resetting public schema + restoring (this drops all LOCAL data) --"
-"$DOCKER" cp "$SRC" "${CONTAINER}:/tmp/restore.dump"
-"$DOCKER" exec "$CONTAINER" psql -U postgres -d "$DB" -q \
-  -c 'DROP SCHEMA IF EXISTS public CASCADE;' -c 'CREATE SCHEMA public;'
-# Owner/ACL warnings are expected on a --no-owner restore, so don't --exit-on-error.
-set +e
-"$DOCKER" exec "$CONTAINER" pg_restore -U postgres --no-owner --no-privileges -d "$DB" /tmp/restore.dump 2>/tmp/local-restore.err
-RC=$?
-set -e
-"$DOCKER" exec "$CONTAINER" rm -f /tmp/restore.dump
-if [ "$RC" -ne 0 ]; then
-  echo "   pg_restore exit=${RC} (benign owner/ACL warnings are expected):"
-  tail -4 /tmp/local-restore.err 2>/dev/null || true
-fi
+bash "$ROOT/scripts/db-restore-into-local.sh" "$SRC"
 
 count() {
   "$DOCKER" exec "$CONTAINER" psql -U postgres -d "$DB" -Atc "SELECT count(*) FROM \"$1\"" 2>/dev/null || echo "?"

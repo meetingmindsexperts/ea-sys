@@ -50,22 +50,8 @@ fi
 
 # 4. Reset the public schema + restore inside the container (PG17 tools).
 echo "-- resetting public schema + restoring (this drops all LOCAL data) --"
-docker cp "$TMP_DUMP" "${CONTAINER}:/tmp/d.dump"
-docker exec "$CONTAINER" psql -U postgres -d "$DB" -q \
-  -c 'DROP SCHEMA IF EXISTS public CASCADE;' -c 'CREATE SCHEMA public;'
-# --no-owner/--no-privileges drops role/ACL noise; one "schema public already
-# exists" style warning is expected and harmless, so don't --exit-on-error.
-set +e
-docker exec "$CONTAINER" pg_restore -U postgres --no-owner --no-privileges -d "$DB" /tmp/d.dump 2>/tmp/dr-restore.err
-RC=$?
-set -e
-if [ "$RC" -eq 0 ]; then
-  echo "   restore OK"
-else
-  echo "   pg_restore exit=${RC} (benign owner/ACL/schema warnings are expected):"
-  tail -4 /tmp/dr-restore.err 2>/dev/null || true
-fi
-docker exec "$CONTAINER" rm -f /tmp/d.dump
+RESTORE_ERR_FILE=/tmp/dr-restore.err \
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/db-restore-into-local.sh" "$TMP_DUMP"
 
 # 5. Verify.
 echo "-- verify (LOCAL ${DB}) --"

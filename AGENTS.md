@@ -103,9 +103,11 @@ Prod shares one DB across a blue-green swap, so **both the old and new container
 schema simultaneously.** `ADD COLUMN IF NOT EXISTS`, nullable, no destructive `ALTER`. A non-additive
 migration is a decision to escalate, not to make quietly.
 
-Locally, `npm run db:push` snapshots first and **fails closed** if it cannot, so schema work is
-undoable via `npm run db:restore`. That seatbelt exists because a list of forbidden commands only
-covers the footguns someone already met.
+Author the SQL by hand and apply it with `npm run db:migrate`. **`npm run db:push` cannot succeed
+against the local DB** — it is a restore of prod, which carries partial unique indexes Prisma cannot
+represent, so every push dies on a name collision (CLAUDE.md has the detail). Local destructive work
+snapshots first and **fails closed** if it cannot, so it is undoable via `npm run db:restore`; that
+seatbelt exists because a list of forbidden commands only covers the footguns someone already met.
 
 ### 5. Verify before you push
 ```bash

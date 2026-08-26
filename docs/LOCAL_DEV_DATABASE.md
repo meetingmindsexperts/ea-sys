@@ -104,8 +104,9 @@ npm run db:restore                         # roll back to the newest snapshot
 npm run db:restore -- 20260826-141530.dump # or a specific one
 ```
 
-`npm run db:push` takes one automatically, so ordinary schema work is already
-covered. Take one by hand before anything you are unsure about.
+`npm run db:push` takes one automatically. Take one by hand before anything you
+are unsure about — that is the whole point, since the next footgun will not be
+on any list.
 
 Snapshots are `pg_dump -Fc` files in `.local-snapshots/` (gitignored — they hold
 real attendee data). The newest 10 are kept and older ones pruned; each is about
@@ -133,6 +134,24 @@ That is the design, not an implementation detail: a script that read a URL could
 be aimed at production by an environment variable (INC-002's exact shape), and
 these structurally cannot be, so there is no check to write and nothing to get
 wrong.
+
+### `db:push` does not work here, and that is not your schema edit
+
+```
+Error: ERROR: relation "CertificateIssueRunItem_runId_registrationId_key" already exists
+```
+
+Migration `20260602100000` created that table's two recipient uniques as
+**partial** indexes (`WHERE "registrationId" IS NOT NULL`). Prisma cannot express
+a partial unique, so `schema.prisma` declares a plain `@@unique`, and the
+July-22 chain-sync migration swaps partial→full **only when building a database
+from scratch** — prod deliberately keeps the partial pair. Your local DB is a
+restore of a prod dump, so it has the partial pair, and `prisma db push` will
+always try to create the full index and collide on the name.
+
+Use the flow CLAUDE.md already prescribes: hand-author the migration SQL (or
+`prisma migrate dev --create-only`, which writes the file and never touches a
+database), make it additive + idempotent, then `npm run db:migrate`.
 
 `npm run db:reset` is refused outright — `prisma migrate reset` is the command
 that wiped production, and locally it buys nothing `db:refresh` or `db:restore`

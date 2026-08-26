@@ -363,7 +363,7 @@ npm run lint         # Run ESLint
 npx prisma generate  # Generate Prisma client
 npm run db:refresh   # Reset the local test DB from the latest live DR dump
 npm run uploads:refresh  # Pull the uploaded FILES those rows point at (photos/banners/certs)
-npm run db:push      # Sync schema.prisma → LOCAL test DB (guarded; local only)
+npm run db:push      # Sync schema.prisma → LOCAL test DB (guarded; see the caveat below)
 npx prisma studio    # Open Prisma Studio
 npx tsc --noEmit     # Type check
 ```
@@ -388,7 +388,7 @@ Counts + the what-is-NOT-in-the-bucket note: docs/LOCAL_DEV_DATABASE.md.
 **RULE — never run `prisma migrate dev` or `prisma migrate reset` anywhere.**
 Those are the [INC-002](docs/INCIDENTS.md) footgun — an interactive `migrate dev`
 "reset the database?" prompt wiped all of prod on 2026-07-30. For local schema
-work use `npm run db:push` (guarded → local) or `npm run db:refresh`. The **only**
+work use `npm run db:migrate` (see the caveat below) or `npm run db:refresh`. The **only**
 sanctioned `prisma migrate` invocation is `prisma migrate deploy` (non-destructive;
 applies the committed `prisma/migrations/*` to prod), which the box/CI deploy path
 runs and `npm run db:migrate` wraps. Do not confuse the two command families.
@@ -416,6 +416,23 @@ outright (it runs the forbidden `migrate reset`); data-loss flags need
 `LOCAL_DATA_LOSS_OK=1`. The point is a seatbelt rather than a longer list of
 forbidden commands: a snapshot covers the footguns nobody has thought of yet,
 which is exactly the class the shadow-database one fell into.
+
+**CAVEAT — `npm run db:push` cannot succeed against the local DB, and this is
+structural** (found Aug 26 2026 while verifying the snapshot work). Migration
+`20260602100000` created `CertificateIssueRunItem`'s two recipient uniques as
+**PARTIAL** indexes (`WHERE "registrationId" IS NOT NULL`), which Prisma cannot
+represent, so `schema.prisma` declares plain `@@unique`. The July-22 chain-sync
+migration swaps them partial→full **only on the fresh-DB path** and deliberately
+leaves prod on the partial pair. The local DB is a restore of a prod dump, so it
+has the partial pair too, and every `db:push` tries to create the full index and
+dies on the name collision. Nothing is wrong with your schema edit. Use the
+documented flow instead: hand-author the migration SQL (or `migrate dev
+--create-only`, which writes the file and never touches a database), then
+`npm run db:migrate`. **Consequence worth knowing for the platform instance:**
+it will be built from the chain, so it gets the FULL indexes while master keeps
+the PARTIAL ones. Functionally identical (Postgres treats NULLs as distinct in a
+composite unique), but the two databases genuinely differ, and `db:push` will
+behave differently on each.
 
 ## Rate Limits
 
