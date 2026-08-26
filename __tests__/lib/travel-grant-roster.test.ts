@@ -44,14 +44,14 @@ beforeEach(() => {
 });
 
 describe("buildTravelGrantRoster", () => {
-  it("lists UAE and unknown-country authors too, so a mis-classified person is recoverable (D7)", async () => {
+  it("lists local and unknown-country authors too, so a mis-classified person is recoverable (D7)", async () => {
     abstractFindMany.mockResolvedValue([
       { speaker: speaker("sp1", "Oman") },
       { speaker: speaker("sp2", "United Arab Emirates") },
       { speaker: speaker("sp3", null) },
     ]);
-    const rows = await buildTravelGrantRoster("ev1");
-    expect(rows.map((r) => r.residency).sort()).toEqual(["overseas", "uae", "unknown"]);
+    const rows = await buildTravelGrantRoster("ev1", ["AE"]);
+    expect(rows.map((r) => r.residency).sort()).toEqual(["home", "overseas", "unknown"]);
   });
 
   it("shows one row per PERSON, not per abstract (D2)", async () => {
@@ -60,7 +60,7 @@ describe("buildTravelGrantRoster", () => {
       { speaker: speaker("sp1", "Oman") },
       { speaker: speaker("sp1", "Oman") },
     ]);
-    const rows = await buildTravelGrantRoster("ev1");
+    const rows = await buildTravelGrantRoster("ev1", ["AE"]);
     expect(rows).toHaveLength(1);
     expect(rows[0].abstractCount).toBe(3);
   });
@@ -82,7 +82,7 @@ describe("buildTravelGrantRoster", () => {
         speaker: speaker("sp9", "Oman", "Ana", "Silva"),
       },
     ]);
-    const rows = await buildTravelGrantRoster("ev1");
+    const rows = await buildTravelGrantRoster("ev1", ["AE"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ speakerId: "sp9", abstractCount: 0 });
     expect(rows[0].grant?.status).toBe("CONSENTED");
@@ -102,7 +102,7 @@ describe("buildTravelGrantRoster", () => {
         speaker: speaker("sp1", "Oman"),
       },
     ]);
-    const rows = await buildTravelGrantRoster("ev1");
+    const rows = await buildTravelGrantRoster("ev1", ["AE"]);
     expect(rows).toHaveLength(1);
     expect(rows[0].grant?.id).toBe("g1");
     expect(rows[0].abstractCount).toBe(1);
@@ -118,12 +118,12 @@ describe("buildTravelGrantRoster", () => {
       { id: "g2", speakerId: "sp2", status: "PENDING", token: "t", invitedAt: null, submittedAt: null, signedName: null, speaker: speaker("sp2", "Oman", "Yan") },
       { id: "g3", speakerId: "sp3", status: "CONSENTED", token: "t2", invitedAt: null, submittedAt: new Date(), signedName: "Xu", speaker: speaker("sp3", "Egypt", "Xu") },
     ]);
-    const rows = await buildTravelGrantRoster("ev1");
+    const rows = await buildTravelGrantRoster("ev1", ["AE"]);
     expect(rows.map((r) => r.grant?.status ?? "NONE")).toEqual(["CONSENTED", "PENDING", "NONE"]);
   });
 
   it("excludes draft-only authors: a draft is not a submission", async () => {
-    await buildTravelGrantRoster("ev1");
+    await buildTravelGrantRoster("ev1", ["AE"]);
     expect(abstractFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { eventId: "ev1", status: { not: "DRAFT" } } }),
     );

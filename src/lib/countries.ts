@@ -1,4 +1,4 @@
-// ISO 3166-1 country codes with display names
+// ISO 3166-1 country codes with display names (196 entries)
 export const countries = [
   { code: "AF", name: "Afghanistan" },
   { code: "AL", name: "Albania" },

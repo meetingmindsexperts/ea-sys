@@ -15,7 +15,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  RESIDENCY_LABEL,
+  RESIDENCY_LABEL_FIXED,
+  residencyLabel,
   GRANT_STATUS_LABEL,
   canManageTravelGrants,
   publicTravelGrantUrl,
@@ -31,7 +32,13 @@ const SURFACES: [string, string][] = [
 
 describe("the shared vocabulary", () => {
   it("covers every residency class and every status", () => {
-    expect(Object.keys(RESIDENCY_LABEL).sort()).toEqual(["overseas", "uae", "unknown"]);
+    // residencyLabel is an exhaustive switch, so a fourth ResidencyClass fails
+    // to COMPILE rather than failing here — a better guard than the Object.keys
+    // check this replaced. What is still worth asserting at runtime is that no
+    // verdict renders empty, which a switch cannot catch.
+    for (const r of ["overseas", "home", "unknown"] as const) {
+      expect(residencyLabel(r, ["United Arab Emirates"])).not.toBe("");
+    }
     expect(Object.keys(GRANT_STATUS_LABEL).sort()).toEqual(["CONSENTED", "DECLINED", "PENDING"]);
   });
 
@@ -56,7 +63,15 @@ describe("the shared vocabulary", () => {
 });
 
 describe("neither surface re-declares what the shared module owns", () => {
-  const labels = [...Object.values(RESIDENCY_LABEL), ...Object.values(GRANT_STATUS_LABEL)];
+  // The `home` wording now depends on the event's configuration, so both forms
+  // are listed: a surface hardcoding either one has stopped using the shared
+  // label and will drift the moment the wording changes.
+  const labels = [
+    ...Object.values(RESIDENCY_LABEL_FIXED),
+    residencyLabel("home", ["United Arab Emirates"]),
+    residencyLabel("home", ["United Arab Emirates", "Saudi Arabia"]),
+    ...Object.values(GRANT_STATUS_LABEL),
+  ];
 
   it.each(SURFACES)("%s contains no hardcoded verdict or status label", (_name, src) => {
     // Strip comments first: the card's docblock legitimately QUOTES a label

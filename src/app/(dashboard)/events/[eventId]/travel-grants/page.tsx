@@ -31,7 +31,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
 import {
   GRANT_STATUS_LABEL,
-  RESIDENCY_LABEL,
+  RESIDENCY_LABEL_FIXED,
+  residencyLabel,
   publicTravelGrantUrl,
 } from "@/lib/travel-grant/constants";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
@@ -58,13 +59,23 @@ interface Row {
 
 interface Payload {
   enabled: boolean;
+  /**
+   * Display names of the countries this event treats as local.
+   *
+   * OPTIONAL on purpose. A response is not a type: a new bundle can reach an
+   * older container during a deploy swap, and `undefined.length` here is a
+   * white page on the console an organizer opens to chase people. The speaker
+   * card already coerced this; the page did not, which is the inconsistency
+   * that made it worth typing honestly rather than guarding at each use.
+   */
+  homeCountries?: string[];
   eventSlug: string;
   rows: Row[];
   counts: {
     consented: number;
     pending: number;
     declined: number;
-    notEligibleUae: number;
+    notEligibleHome: number;
     countryNotRecorded: number;
   };
 }
@@ -177,6 +188,10 @@ export default function TravelGrantsPage() {
     );
   }
 
+  // Coerced ONCE, so no render path below can reach an absent field. Guarding at
+  // each use invites the next use to forget.
+  const homeCountries = Array.isArray(data.homeCountries) ? data.homeCountries : [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -228,8 +243,18 @@ export default function TravelGrantsPage() {
         <Stat label={GRANT_STATUS_LABEL.CONSENTED} value={data.counts.consented} tone="emerald" />
         <Stat label={GRANT_STATUS_LABEL.PENDING} value={data.counts.pending} tone="amber" />
         <Stat label={GRANT_STATUS_LABEL.DECLINED} value={data.counts.declined} />
-        <Stat label={RESIDENCY_LABEL.uae} value={data.counts.notEligibleUae} />
-        <Stat label={RESIDENCY_LABEL.unknown} value={data.counts.countryNotRecorded} tone="rose" />
+        <Stat
+          label={residencyLabel("home", homeCountries)}
+          value={data.counts.notEligibleHome}
+          // The badge shortens a 2+ list to "Local"; the tile names them all,
+          // which is the owner's decision on where the full list belongs.
+          hint={homeCountries.length > 1 ? homeCountries.join(", ") : undefined}
+        />
+        <Stat
+          label={RESIDENCY_LABEL_FIXED.unknown}
+          value={data.counts.countryNotRecorded}
+          tone="rose"
+        />
       </div>
 
       <Card>
@@ -270,7 +295,7 @@ export default function TravelGrantsPage() {
                         {r.country ?? <span className="text-muted-foreground">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <ResidencyBadge residency={r.residency} />
+                        <ResidencyBadge residency={r.residency} homeCountries={homeCountries} />
                       </td>
                       <td className="px-4 py-3">
                         <GrantStatusLabel
@@ -318,7 +343,18 @@ export default function TravelGrantsPage() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: number;
+  tone?: string;
+  /** Shown on hover when the label had to shorten a list. */
+  hint?: string;
+}) {
   const colour =
     tone === "emerald"
       ? "text-emerald-600"
@@ -328,7 +364,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
           ? "text-rose-600"
           : "text-foreground";
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg border bg-card p-4" title={hint}>
       <div className={`text-2xl font-semibold tabular-nums ${colour}`}>{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>

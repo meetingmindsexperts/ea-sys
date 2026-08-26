@@ -79,6 +79,8 @@ export function SpeakerTravelGrantCard({
   const [row, setRow] = useState<Row | null>(null);
   const [eventSlug, setEventSlug] = useState<string>("");
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  /** Display names of this event's local countries, from the same GET. */
+  const [homeCountries, setHomeCountries] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   /** Distinct from `enabled === false`: a failure must not look like "switched off". */
@@ -104,6 +106,7 @@ export function SpeakerTravelGrantCard({
       setLoadFailed(false);
       setEnabled(Boolean(json.enabled));
       setEventSlug(json.eventSlug ?? "");
+      setHomeCountries(Array.isArray(json.homeCountries) ? json.homeCountries : []);
       setRow(json.row ?? null);
     } catch (err) {
       // Without this the card silently VANISHES after a successful send, because
@@ -200,7 +203,7 @@ export function SpeakerTravelGrantCard({
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">Eligibility</span>
-          <ResidencyBadge residency={row.residency} />
+          <ResidencyBadge residency={row.residency} homeCountries={homeCountries} />
         </div>
 
         <div className="flex items-center justify-between gap-3">
@@ -219,8 +222,10 @@ export function SpeakerTravelGrantCard({
 
         {!eligible && (
           <p className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-            {row.residency === "uae"
-              ? "Travel grants are for authors based outside the UAE. If the country above is wrong, correct it on this profile and the send button becomes available."
+            {row.residency === "home"
+              ? `Travel grants are for authors based outside ${
+                  homeCountries.length > 0 ? homeCountries.join(" and ") : "the event's own country"
+                }. If the country above is wrong, correct it on this profile and the send button becomes available.`
               : "No country is recorded for this author, so they were not invited. Add their country above, then send their link."}
           </p>
         )}

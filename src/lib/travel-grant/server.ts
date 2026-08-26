@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { classifyResidency } from "@/lib/travel-grant/eligibility";
-import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
+import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
 
 /**
@@ -59,11 +59,14 @@ export async function resolveTravelGrantBlock(
   const { eventId, organizationId, eventSlug, speakerId, abstractId } = input;
 
   try {
-    if (!isTravelGrantEnabled(input.settings)) return empty;
+    // Read once: `enabled` already folds in "a home country is configured",
+    // so a blob that switched the feature on without naming one returns here.
+    const grantSettings = readTravelGrantSettings(input.settings);
+    if (!grantSettings.enabled) return empty;
 
-    const residency = classifyResidency(input.speakerCountry);
+    const residency = classifyResidency(input.speakerCountry, grantSettings.homeCountries);
 
-    if (residency === "uae") return empty;
+    if (residency === "home") return empty;
 
     if (residency === "unknown") {
       // D4: do not send, but leave a trace. A refusal that logs nothing is

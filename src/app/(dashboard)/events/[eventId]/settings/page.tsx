@@ -12,6 +12,8 @@ import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
 import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import { countryNamesFor, resolveCountryCode } from "@/lib/travel-grant/eligibility";
+import { CountrySelect } from "@/components/ui/country-select";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
   CONTENT_WORDS_CEILING,
@@ -99,7 +101,7 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
 import { toast } from "sonner";
-import { Loader2, Pencil, Plus } from "lucide-react";
+import { Loader2, Pencil, Plus, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 const TiptapEditor = dynamic(
@@ -287,6 +289,8 @@ export default function EventSettingsPage() {
    * fail-closed reasoning in lib/travel-grant/settings.ts.
    */
   const [travelGrantEnabled, setTravelGrantEnabled] = useState(false);
+  /** ISO alpha-2 codes. Names are for display only; the code is what is stored. */
+  const [travelGrantHomeCountries, setTravelGrantHomeCountries] = useState<string[]>([]);
 
   /**
    * Per-event abstract limits. Held as STRINGS so an organizer can clear a box
@@ -445,7 +449,15 @@ export default function EventSettingsPage() {
 
         setPresenterPayNow(readPresenterRegistrationSettings(settings).payNowEnabled);
 
-        setTravelGrantEnabled(readTravelGrantSettings(settings).enabled);
+        {
+          const tg = readTravelGrantSettings(settings);
+          // `enabled` is the EFFECTIVE value and is false when no country is
+          // set, so the switch would silently flip itself off on load. The
+          // switch shows what the organizer chose; the amber note below tells
+          // them it is not in force yet.
+          setTravelGrantEnabled(tg.enabled || tg.misconfigured);
+          setTravelGrantHomeCountries(tg.homeCountries);
+        }
 
         const lim = readAbstractLimits(settings);
         setAbstractLimits({
@@ -713,7 +725,10 @@ export default function EventSettingsPage() {
               fontSizes: badgeFontSizesPt(),
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
-            travelGrant: { enabled: travelGrantEnabled },
+            travelGrant: {
+              enabled: travelGrantEnabled,
+              homeCountries: travelGrantHomeCountries,
+            },
         sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
       },
     };
@@ -2124,13 +2139,6 @@ export default function EventSettingsPage() {
                   </p>
                 </div>
               </div>
-
-              <div className="flex justify-end">
-                <Button onClick={handleSaveSettings} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Settings"}
-                </Button>
-              </div>
             </CardContent>
           </Card>
 
@@ -2138,10 +2146,10 @@ export default function EventSettingsPage() {
             <CardHeader>
               <CardTitle>Travel Grant</CardTitle>
               <CardDescription>
-                Offer a travel grant to abstract authors based outside the UAE. When on,
-                a personal consent link rides inside the submission-confirmation email of
-                every author whose recorded country is not the UAE. Authors in the UAE
-                receive nothing extra.
+                Offer a travel grant to abstract authors based outside the countries you
+                pick below &mdash; usually the one your venue is in. When on, a personal
+                consent link rides inside the submission-confirmation email of every author
+                recorded elsewhere. Authors in those countries receive nothing extra.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2158,15 +2166,89 @@ export default function EventSettingsPage() {
               </div>
 
               {travelGrantEnabled && (
-                <p className="text-sm text-muted-foreground">
-                  Write the email message and the consent-form terms under{" "}
-                  <strong>Content &rarr; Abstracts</strong>. Authors whose country is blank or
-                  unrecognised are <strong>not</strong> emailed, and are listed separately in the
-                  Travel Grants console so you can decide by hand.
-                </p>
+                <div className="space-y-3 border-t pt-4">
+                  <div className="space-y-0.5">
+                    <Label>
+                      Countries treated as local <span className="text-destructive">*</span>
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Authors recorded in these countries are <strong>not</strong> offered a
+                      grant. Usually just the one your venue is in; add more if a neighbouring
+                      country is a short trip.
+                    </p>
+                  </div>
+
+                  {travelGrantHomeCountries.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {countryNamesFor(travelGrantHomeCountries).map((name, i) => (
+                        <Badge key={travelGrantHomeCountries[i]} variant="secondary" className="gap-1 pr-1">
+                          {name}
+                          <button
+                            type="button"
+                            aria-label={`Remove ${name}`}
+                            className="rounded-sm p-0.5 hover:bg-muted"
+                            onClick={() =>
+                              setTravelGrantHomeCountries((prev) =>
+                                prev.filter((c) => c !== travelGrantHomeCountries[i]),
+                              )
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <CountrySelect
+                    value={null}
+                    placeholder="Add a country"
+                    onChange={(name) => {
+                      // The picker hands back a display NAME; we store the ISO
+                      // code, so a legacy row holding "AE" and a fresh one
+                      // holding "United Arab Emirates" compare equal.
+                      const code = resolveCountryCode(name);
+                      if (!code) return;
+                      setTravelGrantHomeCountries((prev) =>
+                        prev.includes(code) ? prev : [...prev, code],
+                      );
+                    }}
+                  />
+
+                  {travelGrantHomeCountries.length === 0 && (
+                    <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                      Pick at least one country, or Travel Grant stays <strong>off</strong>. With
+                      none set, every recognised country would count as overseas and every author
+                      would be offered a grant &mdash; so the feature refuses to run instead.
+                    </p>
+                  )}
+
+                  <p className="text-sm text-muted-foreground">
+                    Write the email message and the consent-form terms under{" "}
+                    <strong>Content &rarr; Abstracts</strong>. Authors whose country is blank or
+                    unrecognised are <strong>not</strong> emailed, and are listed separately in the
+                    Travel Grants console so you can decide by hand.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>
+
+          {/*
+            One Save for the whole tab (see handleSaveTab), positioned AFTER the
+            last card it saves rather than inside the first. It used to sit at the
+            foot of Submissions, with Travel Grant below it — so an organizer who
+            switched Travel Grant on and picked their countries had the only
+            button that persists them scrolled off ABOVE. Found by opening the
+            page, not by reading it. Themes and Review Criteria below save
+            themselves through their own APIs, so they are correctly outside this.
+          */}
+          <div className="flex justify-end">
+            <Button onClick={handleSaveSettings} disabled={saving}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving..." : "Save Settings"}
+            </Button>
+          </div>
 
           <Card>
             <CardHeader>

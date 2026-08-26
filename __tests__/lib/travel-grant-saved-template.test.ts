@@ -68,7 +68,7 @@ const params = {
   speaker: { id: "sp1", firstName: "Ana", lastName: "Silva", email: "ana@x.com", additionalEmail: null, title: null },
 };
 
-function abstractRow(country: string | null, settings: unknown = { travelGrant: { enabled: true } }) {
+function abstractRow(country: string | null, settings: unknown = { travelGrant: { enabled: true, homeCountries: ["AE"] } }) {
   return {
     presentationType: "ORAL",
     coAuthors: null,

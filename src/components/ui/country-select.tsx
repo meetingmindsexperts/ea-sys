@@ -10,7 +10,7 @@ interface CountrySelectProps {
   placeholder?: string;
 }
 
-/** Searchable country picker (ISO 3166-1, 249 countries). Stores the country
+/** Searchable country picker (ISO 3166-1, 196 countries). Stores the country
  *  NAME (legacy rows may hold a code — resolved for display either way). */
 export function CountrySelect({
   value,

@@ -55,7 +55,17 @@ export interface TravelGrantRosterRow {
  * not entered the process and listing them would make the chase list longer
  * than the work.
  */
-export async function buildTravelGrantRoster(eventId: string): Promise<TravelGrantRosterRow[]> {
+export async function buildTravelGrantRoster(
+  eventId: string,
+  /**
+   * ISO alpha-2 codes this event treats as local, from
+   * `readTravelGrantSettings(event.settings).homeCountries`. A parameter rather
+   * than a lookup in here: every caller already holds the event for its own
+   * access check, so passing it costs no query, and a pure function is what
+   * lets the classification be tested without a database.
+   */
+  homeCountries: readonly string[],
+): Promise<TravelGrantRosterRow[]> {
   const [abstracts, grants] = await Promise.all([
     db.abstract.findMany({
       where: { eventId, status: { not: "DRAFT" } },
@@ -117,7 +127,7 @@ export async function buildTravelGrantRoster(eventId: string): Promise<TravelGra
       email: sp.email ?? null,
       organization: sp.organization ?? null,
       country: sp.country ?? null,
-      residency: classifyResidency(sp.country),
+      residency: classifyResidency(sp.country, homeCountries),
       abstractCount: 1,
       grant: g
         ? {
@@ -146,7 +156,7 @@ export async function buildTravelGrantRoster(eventId: string): Promise<TravelGra
       email: g.speaker.email ?? null,
       organization: g.speaker.organization ?? null,
       country: g.speaker.country ?? null,
-      residency: classifyResidency(g.speaker.country),
+      residency: classifyResidency(g.speaker.country, homeCountries),
       abstractCount: 0,
       grant: {
         id: g.id,
@@ -172,13 +182,14 @@ export async function buildTravelGrantRoster(eventId: string): Promise<TravelGra
  * Deliberately NOT `buildTravelGrantRoster(...).find(...)`. The roster is built
  * from abstract authors, so a speaker with no abstract and no grant is simply
  * absent from it -- and the profile card still has to say something about them
- * ("eligible, not invited", or "UAE, not eligible"). Reusing the roster here
+ * ("eligible, not invited", or "not eligible"). Reusing the roster here
  * would render an empty card for exactly the speakers an organizer is most
  * likely to be looking at when they open the profile.
  */
 export async function getTravelGrantForSpeaker(
   eventId: string,
   speakerId: string,
+  homeCountries: readonly string[],
 ): Promise<TravelGrantRosterRow | null> {
   const sp = await db.speaker.findFirst({
     // eventId is load-bearing, not decorative: without it an organizer of event
@@ -217,7 +228,7 @@ export async function getTravelGrantForSpeaker(
     email: sp.email ?? null,
     organization: sp.organization ?? null,
     country: sp.country ?? null,
-    residency: classifyResidency(sp.country),
+    residency: classifyResidency(sp.country, homeCountries),
     abstractCount: sp._count.abstracts,
     grant: sp.travelGrant
       ? {

@@ -25,7 +25,8 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
-import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
+import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import { countryNamesFor } from "@/lib/travel-grant/eligibility";
 import { buildTravelGrantRoster, getTravelGrantForSpeaker } from "@/lib/travel-grant/console";
 import { sendTravelGrantInvitations } from "@/lib/travel-grant/send";
 
@@ -71,21 +72,27 @@ export async function GET(req: Request, { params }: RouteParams) {
       // own lookup rather than filtering the roster, because a speaker with no
       // abstract is absent from the roster and the card still has to describe
       // them. See getTravelGrantForSpeaker.
+      // Read once and reuse: `enabled` already folds in "a home country is
+      // configured", and both the classifier and the label need the same set.
+      const grantSettings = readTravelGrantSettings(event.settings);
+      const homeCountryNames = countryNamesFor(grantSettings.homeCountries);
+
       const speakerId = url.searchParams.get("speakerId");
       if (speakerId) {
-        const row = await getTravelGrantForSpeaker(eventId, speakerId);
+        const row = await getTravelGrantForSpeaker(eventId, speakerId, grantSettings.homeCountries);
         if (!row) {
           apiLogger.warn({ eventId, speakerId }, "travel-grants:speaker-not-found");
           return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
         }
         return NextResponse.json({
-          enabled: isTravelGrantEnabled(event.settings),
+          enabled: grantSettings.enabled,
+          homeCountries: homeCountryNames,
           eventSlug: event.slug,
           row,
         });
       }
 
-      const roster = await buildTravelGrantRoster(eventId);
+      const roster = await buildTravelGrantRoster(eventId, grantSettings.homeCountries);
 
       if (url.searchParams.get("export") === "csv") {
         recordExport(req, {
@@ -130,7 +137,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       }
 
       return NextResponse.json({
-        enabled: isTravelGrantEnabled(event.settings),
+        enabled: grantSettings.enabled,
+        // Display names, so the console can print the tile and badge wording
+        // without re-deriving it from codes and drifting from the shared label.
+        homeCountries: homeCountryNames,
         // The console builds each author's public link from this + their token.
         eventSlug: event.slug,
         rows: roster,
@@ -138,7 +148,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           consented: roster.filter((r) => r.grant?.status === "CONSENTED").length,
           pending: roster.filter((r) => r.grant?.status === "PENDING").length,
           declined: roster.filter((r) => r.grant?.status === "DECLINED").length,
-          notEligibleUae: roster.filter((r) => r.residency === "uae").length,
+          notEligibleHome: roster.filter((r) => r.residency === "home").length,
           countryNotRecorded: roster.filter((r) => r.residency === "unknown").length,
         },
       });
@@ -203,8 +213,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId, userId: session.user.id }, "travel-grants:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    if (!isTravelGrantEnabled(event.settings)) {
-      apiLogger.warn({ eventId }, "travel-grants:feature-disabled");
+    const grantSettings = readTravelGrantSettings(event.settings);
+    if (!grantSettings.enabled) {
+      apiLogger.warn(
+        { eventId, misconfigured: grantSettings.misconfigured },
+        "travel-grants:feature-disabled",
+      );
       return NextResponse.json(
         { error: "Travel Grant is switched off for this event.", code: "FEATURE_DISABLED" },
         { status: 400 },
@@ -213,11 +227,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(event.organizationId, async () => {
       const result = await sendTravelGrantInvitations({
-        event,
+        event: { ...event, homeCountries: grantSettings.homeCountries },
         speakerIds: parsed.data.speakerIds,
         // D9: "remind everyone pending" resolves from the GRANT table, never
         // from the roster the console is rendering. The roster deliberately
-        // contains UAE-based and unknown-country authors so a mis-classified
+        // contains locally-based and unknown-country authors so a mis-classified
         // person is recoverable, and none of them has a grant row — so this
         // query structurally cannot reach them.
         pendingOnly: parsed.data.target === "pending",

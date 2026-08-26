@@ -1,8 +1,28 @@
 # Travel Grant: the organizer picks the home country / countries
 
-**Status: PLANNED, NOT BUILT.** Written 2026-08-25, immediately after the
-Travel Grant feature shipped and before it has run on a single real event.
-Do not start without an explicit go-ahead.
+**Status: BUILT, 2026-08-26.** Written 2026-08-25 and built the next day. The
+plan below is kept as the reasoning; deviations from it are recorded here.
+
+- **D6 answered (owner):** two or more home countries render as
+  `"Local, not eligible"` in the badge, with the full list in the settings card,
+  the console tile's hover text and the badge's own `title`. One country names
+  itself.
+- **Open question 3 answered:** exactly ONE event on prod had the feature
+  enabled (`printing-test-event`), with zero `TravelGrant` rows ever. Migration
+  `20260826120000` backfills `homeCountries: ["AE"]` for any such event, so the
+  change is behaviour-preserving rather than merely harmless.
+- **Open question 4 answered:** `countries.ts` holds 196 entries. The "249" in
+  `countries.ts`, `country-select.tsx` and CLAUDE.md was wrong and is corrected.
+- **Deviation from step 5:** Save is NOT blocked when the switch is on with no
+  country. One Save covers the whole tab, so blocking would stop unrelated
+  settings from saving — the same class of bug as the M9 deadline guard. The
+  reader fails closed and an amber panel explains it instead. The Save button
+  was also moved BELOW the Travel Grant card: it sat at the foot of Submissions,
+  which left the only button that persists the picker scrolled off above it.
+  Found by opening the page, which is what step 5 asked for.
+- **Deferred:** informal aliases cover `uae`/`uk`/`usa`/`ksa` and the UAE's
+  alpha-3 `are`; alpha-3 is not supported generally because `countries.ts`
+  carries no alpha-3 column.
 
 Companion to [TRAVEL_GRANT.md](TRAVEL_GRANT.md) (what is built) and
 [TRAVEL_GRANT_PLAN.md](TRAVEL_GRANT_PLAN.md) (the nine decisions behind it).

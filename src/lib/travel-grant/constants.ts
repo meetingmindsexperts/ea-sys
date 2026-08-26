@@ -82,12 +82,40 @@ import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 
 export type TravelGrantStatusValue = "PENDING" | "CONSENTED" | "DECLINED";
 
-/** One wording per verdict, so the console and the card cannot disagree. */
-export const RESIDENCY_LABEL: Record<ResidencyClass, string> = {
-  overseas: "Eligible",
-  uae: "UAE, not eligible",
-  unknown: "Country not recorded",
-};
+/**
+ * One wording per verdict, so the console and the card cannot disagree.
+ *
+ * A function rather than a `Record` since Aug 26 2026, because the "not
+ * eligible" verdict has to name the actual country now that the organizer picks
+ * it. The exhaustive `switch` does the job the old `Object.keys` test did: add a
+ * fourth `ResidencyClass` and this stops compiling.
+ */
+export function residencyLabel(
+  residency: ResidencyClass,
+  homeCountryNames: readonly string[],
+): string {
+  switch (residency) {
+    case "overseas":
+      return "Eligible";
+    case "unknown":
+      return "Country not recorded";
+    case "home":
+      // One country names itself, which is the most useful thing a badge can
+      // say and covers nearly every event. Two or more would grow the badge
+      // until it wraps or truncates in the console table, so it says "Local"
+      // and the full list lives in the settings card and the console's help
+      // text (owner decision, Aug 26 2026).
+      return homeCountryNames.length === 1
+        ? `${homeCountryNames[0]}, not eligible`
+        : "Local, not eligible";
+  }
+}
+
+/** The two verdicts whose wording does not depend on the event's configuration. */
+export const RESIDENCY_LABEL_FIXED = {
+  overseas: residencyLabel("overseas", []),
+  unknown: residencyLabel("unknown", []),
+} as const;
 
 /** What an organizer sees in the Status column / row. */
 export const GRANT_STATUS_LABEL: Record<TravelGrantStatusValue, string> = {

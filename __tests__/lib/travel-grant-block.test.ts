@@ -33,7 +33,10 @@ vi.mock("@/lib/tenant-context", () => ({
 import { buildTravelGrantBlock, templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 
-const ENABLED = { travelGrant: { enabled: true } };
+// homeCountries is part of the switch: `{ enabled: true }` alone reads as
+// misconfigured and therefore OFF, so a fixture without it silently tests the
+// disabled path. See travel-grant-settings.test.ts.
+const ENABLED = { travelGrant: { enabled: true, homeCountries: ["AE"] } };
 const base = {
   eventId: "ev1",
   organizationId: "org1",

@@ -85,7 +85,7 @@ const EVENT = {
   slug: "medcon",
   name: "MedCon",
   organizationId: "org1",
-  settings: { travelGrant: { enabled: true } },
+  settings: { travelGrant: { enabled: true, homeCountries: ["AE"] } },
   travelGrantMessageHtml: "<p>msg</p>",
 };
 
@@ -267,7 +267,7 @@ describe("single-speaker mode (the card on a speaker's profile)", () => {
     expect(j.eventSlug).toBe("medcon");
   });
 
-  it("reports a UAE speaker as not eligible instead of hiding them", async () => {
+  it("reports a locally-based speaker as not eligible instead of hiding them", async () => {
     speakerFindFirst.mockResolvedValue({
       id: "sp6", firstName: "Omar", lastName: "Hassan", email: "o@x.com",
       organization: null, country: "United Arab Emirates",
@@ -276,7 +276,11 @@ describe("single-speaker mode (the card on a speaker's profile)", () => {
     const j = await (
       await GET(new Request("https://x/api/events/ev1/travel-grants?speakerId=sp6"), { params })
     ).json();
-    expect(j.row.residency).toBe("uae");
+    expect(j.row.residency).toBe("home");
+    // The card needs the NAMES to render "United Arab Emirates, not eligible";
+    // without them it would fall back to the two-or-more wording on an event
+    // that exempts exactly one country.
+    expect(j.homeCountries).toEqual(["United Arab Emirates"]);
   });
 
   it("BINDS eventId in the lookup, so a foreign speakerId cannot be read", async () => {

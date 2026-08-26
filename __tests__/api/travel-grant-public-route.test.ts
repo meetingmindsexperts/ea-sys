@@ -83,7 +83,7 @@ const ROW = {
     timezone: "Asia/Dubai",
     venue: "Hall A",
     city: "Dubai",
-    settings: { travelGrant: { enabled: true } },
+    settings: { travelGrant: { enabled: true, homeCountries: ["AE"] } },
     travelGrantTermsHtml: "<p>Our terms.</p>",
     organization: { name: "MM Group" },
   },

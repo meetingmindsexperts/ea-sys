@@ -1,9 +1,10 @@
 # Travel Grant
 
-An abstract author based **outside the UAE** is offered a travel grant. The offer
+An abstract author based **outside the countries the organizer marks as local**
+(Settings → Abstracts, usually the one the venue is in) is offered a travel grant. The offer
 rides as a block inside their submission-confirmation email and lands on a
-token-gated consent form where they confirm they are not a UAE resident, that
-they wish to be considered, and accept the event's terms. A UAE-based author sees
+token-gated consent form where they confirm they are not a local resident, that
+they wish to be considered, and accept the event's terms. A locally-based author sees
 nothing at all.
 
 **This file is the reference: what exists and where it lives.** The decisions and
@@ -57,16 +58,23 @@ Nine decisions are locked in the plan's §2. The four that shape the code:
 
 Three properties, each pinned by a mutation-verified test:
 
-1. **The UAE alias set is an explicit enumeration.** `Speaker.country` holds a
+0. **The home countries are the organizer's, not ours** (Aug 26, 2026). They are
+   ISO alpha-2 codes in `settings.travelGrant.homeCountries`, and an empty set
+   reads as the feature being OFF — because an empty exempt set would classify
+   every recognised country as overseas and offer a grant to every local author.
+   That is the one place here where the intuitive reading fails open.
+
+1. **Country matching is an explicit enumeration.** `Speaker.country` holds a
    display name (`"United Arab Emirates"`), but `CountrySelect` resolves stored
    values on either code or name and the CSV importers write the column as raw
    free text, so `"AE"` and `"ARE"` are reachable. A
    `country !== "United Arab Emirates"` check classifies those as overseas and
    mails a Dubai resident a grant offer.
 2. **A substring match is not acceptable.** `includes("ae")` classifies Israel as
-   the UAE.
+   a home country.
 3. **Unrecognised input is `unknown`, never `overseas`.** This is the load-bearing
-   one. `"Dubai"` is a reachable free-text value and **Dubai is in the UAE**.
+   one. `"Dubai"` is a reachable free-text value and **Dubai is in the UAE** — and
+   the trap multiplies once the home country is configurable (`"Riyadh"`, `"Doha"`).
    Emirate and city names are deliberately not enumerated: adding `dubai` invites
    an endless list whose gaps fail OPEN, while falling through to `unknown`
    covers all of them and fails CLOSED.
@@ -117,9 +125,9 @@ Content → Abstracts:
   cannot be resolved, the token is never looked up at all.** Reversing the two
   calls fails it. Do not reorder them.
 - ✅ **The bulk-send guard is in place.** D7 lists every abstract author
-  including UAE and unknown, directly above a "remind everyone pending" button.
+  including local and unknown, directly above a "remind everyone pending" button.
   Recipients resolve from `TravelGrant where status = PENDING`, never from the
-  rendered list, and a named send re-checks eligibility so passing a UAE
+  rendered list, and a named send re-checks eligibility so passing a local
   speaker's id by hand still refuses. Both pinned by mutation-verified tests in
   [travel-grants-console.test.ts](../__tests__/api/travel-grants-console.test.ts).
 - **The roster is a UNION of abstract authors and grant holders**, and that is

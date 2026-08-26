@@ -15,22 +15,40 @@ import { Badge } from "@/components/ui/badge";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import {
   GRANT_STATUS_LABEL,
-  RESIDENCY_LABEL,
+  residencyLabel,
   type TravelGrantStatusValue,
 } from "@/lib/travel-grant/constants";
 
-export function ResidencyBadge({ residency }: { residency: ResidencyClass }) {
+export function ResidencyBadge({
+  residency,
+  /**
+   * Display names of the countries this event treats as local. Required rather
+   * than defaulted: the label for `home` reads "United Arab Emirates, not
+   * eligible", and a default of `[]` would silently print the two-or-more
+   * wording on an event that has exactly one.
+   */
+  homeCountries,
+}: {
+  residency: ResidencyClass;
+  homeCountries: readonly string[];
+}) {
+  const label = residencyLabel(residency, homeCountries);
   if (residency === "overseas") {
     return (
       <Badge variant="outline" className="border-emerald-300 text-emerald-700">
-        {RESIDENCY_LABEL.overseas}
+        {label}
       </Badge>
     );
   }
-  if (residency === "uae") {
+  if (residency === "home") {
     return (
-      <Badge variant="outline" className="text-muted-foreground">
-        {RESIDENCY_LABEL.uae}
+      <Badge
+        variant="outline"
+        className="text-muted-foreground"
+        // Names the full list on hover when the badge had to shorten it.
+        title={homeCountries.length > 1 ? homeCountries.join(", ") : undefined}
+      >
+        {label}
       </Badge>
     );
   }
@@ -40,7 +58,7 @@ export function ResidencyBadge({ residency }: { residency: ResidencyClass }) {
       className="border-rose-300 text-rose-700"
       title="Not emailed. Correct the country on their profile, then send their link."
     >
-      {RESIDENCY_LABEL.unknown}
+      {label}
     </Badge>
   );
 }

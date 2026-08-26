@@ -25,14 +25,42 @@
  * missing key there would close registration on every existing event. The
  * direction is chosen per flag by asking which mistake is cheaper, not by
  * habit.
+ *
+ * THE HOME COUNTRY IS PART OF THE SWITCH. `enabled: true` with no usable
+ * `homeCountries` resolves to disabled, because an empty exempt set makes every
+ * recognised country count as overseas — the feature would then offer a grant to
+ * every local author. See `misconfigured` below.
  */
 
+import { resolveCountryCode } from "@/lib/travel-grant/eligibility";
+
 export interface TravelGrantSettings {
-  /** Master switch. Off unless explicitly and correctly set to boolean true. */
+  /**
+   * EFFECTIVE switch: does the feature actually run? False unless the organizer
+   * set it to boolean true AND named at least one home country.
+   */
   enabled: boolean;
+  /**
+   * ISO alpha-2 codes of the countries whose residents are NOT eligible —
+   * usually the one the venue is in. Validated against the same country list
+   * the picker renders, uppercased and deduplicated; anything unrecognised is
+   * dropped rather than stored.
+   */
+  homeCountries: string[];
+  /**
+   * The switch is on but no usable home country is set, so the feature is off.
+   * Exists so the settings card can say that out loud. A flag that is displayed
+   * but not enforced is worse than no flag; so is one that is enforced but
+   * never explains itself.
+   */
+  misconfigured: boolean;
 }
 
-export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = { enabled: false };
+export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = {
+  enabled: false,
+  homeCountries: [],
+  misconfigured: false,
+};
 
 /**
  * Read the travel-grant config off an event's `settings` JSON.
@@ -49,7 +77,29 @@ export function readTravelGrantSettings(settings: unknown): TravelGrantSettings 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return TRAVEL_GRANT_SETTINGS_DEFAULT;
   }
-  return { enabled: (raw as Record<string, unknown>).enabled === true };
+  const blob = raw as Record<string, unknown>;
+  const requested = blob.enabled === true;
+
+  const homeCountries = Array.isArray(blob.homeCountries)
+    ? [
+        ...new Set(
+          blob.homeCountries
+            .map((v) => (typeof v === "string" ? resolveCountryCode(v) : null))
+            .filter((code): code is string => !!code),
+        ),
+      ]
+    : [];
+
+  // §3.4 of the plan, and the ONE place here where the intuitive reading fails
+  // OPEN. "Switched on, no country named" looks like it should mean "on", but
+  // an empty exempt set classifies every recognised country as overseas — so
+  // the feature would mail a grant offer to every local author, which is the
+  // exact mistake it exists to prevent. On-but-unconfigured therefore means OFF.
+  return {
+    enabled: requested && homeCountries.length > 0,
+    homeCountries,
+    misconfigured: requested && homeCountries.length === 0,
+  };
 }
 
 /** Convenience for the many call sites that only need the boolean. */

@@ -44,6 +44,14 @@ export interface SendTravelGrantArgs {
     name: string;
     organizationId: string;
     travelGrantMessageHtml: string | null;
+    /**
+     * ISO alpha-2 codes this event treats as local, from
+     * `readTravelGrantSettings(event.settings).homeCountries`. On the event
+     * object rather than a separate argument because it IS a property of the
+     * event, and because the re-check below must use the same set the caller
+     * gated on — a second source could disagree with it.
+     */
+    homeCountries: readonly string[];
   };
   speakerIds?: string[];
   pendingOnly?: boolean;
@@ -221,7 +229,7 @@ async function resolvePending(
 /**
  * Named speakers. Mints a grant row when the speaker does not have one, which
  * is the recovery path for a corrected country — but ONLY after re-checking
- * eligibility, so passing a UAE-based speaker's id still refuses.
+ * eligibility, so passing a locally-based speaker's id still refuses.
  */
 async function resolveNamed(
   event: SendTravelGrantArgs["event"],
@@ -250,7 +258,7 @@ async function resolveNamed(
     }
     // Re-checked here and not only in the UI: an organizer can pass any id, and
     // the whole point of D4 is that we do not email someone we cannot place.
-    if (classifyResidency(sp.country) !== "overseas") {
+    if (classifyResidency(sp.country, event.homeCountries) !== "overseas") {
       result.skippedNotEligible += 1;
       apiLogger.warn(
         { eventId: event.id, speakerId: sp.id, country: sp.country ?? null },
