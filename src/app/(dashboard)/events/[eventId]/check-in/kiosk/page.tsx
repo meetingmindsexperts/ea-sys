@@ -51,6 +51,7 @@ import { readBadgePolicy } from "@/lib/badge-layout";
 import { formatPersonName } from "@/lib/utils";
 import { playBeep } from "@/lib/scan-feedback";
 import { readKioskExitPin } from "@/lib/kiosk-exit-pin";
+import { shouldTrapKioskTab } from "@/lib/kiosk-focus";
 
 /** Max self-service badge REPRINTS per registration per rolling hour. */
 const KIOSK_REPRINT_CAP = 3;
@@ -231,6 +232,29 @@ export default function KioskCheckInPage() {
       if (!exitOpenRef.current) inputRef.current?.focus();
     };
     document.addEventListener("click", refocus);
+    // Tab must not leave the kiosk.
+    //
+    // This page renders INSIDE the (dashboard) route group, so the sidebar is
+    // still in the DOM behind the full-screen overlay — invisible, but its
+    // links are focusable. Tab a few times and focus lands on /dashboard or
+    // /events/{id}/registrations; Enter follows it, and an attendee is looking
+    // at the full delegate list with payment status and entry barcodes.
+    //
+    // That is not a way around the exit PIN, it is a way past it: the PIN
+    // guards the on-screen 5-tap gesture, and this route never touches it. It
+    // matters here specifically BECAUSE the kiosk has a keyboard attached by
+    // design — the barcode scanner is a keyboard wedge, so the hardware needed
+    // to do it is already plugged in and pointed at the attendee.
+    //
+    // Capture phase, so it runs before anything else can act on the key. The
+    // 1s reclaim below already pulls focus back, but a second is far longer
+    // than Tab-then-Enter takes.
+    const trapTab = (event: KeyboardEvent) => {
+      if (!shouldTrapKioskTab({ key: event.key, exitPadOpen: exitOpenRef.current })) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+    };
+    document.addEventListener("keydown", trapTab, true);
     // 1s belt-and-braces: if ANYTHING steals focus the window where a scan
     // silently vanishes stays under a second. Uses the forced blur→focus
     // cycle (frame-focus reclaim), but ONLY while the input is empty — never
@@ -248,6 +272,7 @@ export default function KioskCheckInPage() {
     }, 1000);
     return () => {
       document.removeEventListener("click", refocus);
+      document.removeEventListener("keydown", trapTab, true);
       clearInterval(interval);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       if (exitCloseTimerRef.current) clearTimeout(exitCloseTimerRef.current);
