@@ -146,6 +146,14 @@ export async function GET(req: Request, { params }: RouteParams) {
               barcodeArrangement:
                 (arrangement as BadgeBarcodeArrangement) ?? saved.barcodeArrangement,
               fields,
+              // Type sizes fall back per FIELD, matching every other override
+              // here: a blank name box while the organiser is mid-typing must
+              // not silently resize the role line too.
+              fontSizes: {
+                name: numParam(searchParams.get("fname")) ?? saved.fontSizes.name,
+                detail: numParam(searchParams.get("fdetail")) ?? saved.fontSizes.detail,
+                badgeType: numParam(searchParams.get("frole")) ?? saved.fontSizes.badgeType,
+              },
             },
           },
         });

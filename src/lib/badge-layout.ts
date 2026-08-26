@@ -81,15 +81,45 @@ const BARCODE_BAND_H = 40;
 /** Inset the barcode gets on each side, inside the content width. */
 const BARCODE_INSET = 10;
 /**
- * Registration number, directly under the name (owner, Aug 25 2026).
+ * Registration number, in its own band ABOVE the name (owner, Aug 26 2026).
  *
- * It used to share the bottom row with the role, sitting flush left while the
- * role was centred. It reads as part of the person's identity, not as a
- * footnote, so it moved up under the name. An 18pt name occupies roughly
- * 30..52, which leaves a comfortable gap before the organisation / country
- * band at +72.
+ * Two previous homes, and the reason it moved twice is worth keeping. It began
+ * flush left on the bottom row opposite the role; on Aug 25 it moved directly
+ * under the name at +58, because it identifies the person and belongs with
+ * their name. That put it inside the name's own band: the name is allowed to
+ * WRAP, and a name that wrapped printed its second line straight through the
+ * number. The preview's deliberately long sample name showed it immediately.
+ *
+ * Above the name is the fix, and it is better than a smaller name: the number
+ * stops competing for the name's vertical space entirely, which is what buys
+ * the name a genuine second line (30..72, two 18pt lines fit). Centred rather
+ * than in a corner, because the real workflow is OVERPRINTING a blank window
+ * on pre-printed stock, and a corner is the part most likely to fall outside
+ * that window.
  */
-const SERIAL_TOP = 58;
+const SERIAL_TOP = 14;
+
+/**
+ * The name's band, and the organisation / country line beneath it.
+ *
+ * NAME_BAND_H is DERIVED, not a literal: it is exactly the space between the
+ * name's top and the line below it, so the name can spend its budget however
+ * the organiser's chosen font size implies (one large line, or two smaller
+ * ones) and can never spill past it. pdfkit ellipsises at the boundary.
+ *
+ * That derivation is the actual guard. Before it the name was given a fixed
+ * 48pt of height inside a 42pt gap, which is how a wrapped line ended up on
+ * top of its neighbours.
+ */
+const NAME_TOP = 30;
+const DETAIL_TOP = 72;
+const NAME_BAND_H = DETAIL_TOP - NAME_TOP;
+
+/** Where the name starts, and how much vertical space it may occupy. */
+export const badgeNameTop = (sy: number): number => NAME_TOP * sy;
+export const badgeNameBandH = (sy: number): number => NAME_BAND_H * sy;
+/** The organisation / country line. */
+export const badgeDetailTop = (sy: number): number => DETAIL_TOP * sy;
 /** Top of the QR band in `stacked` — below the bottom row, so nothing moves. */
 const DTCM_BAND_TOP = 172;
 /** Square. approx 14mm at base size: QR v3 modules approx 0.48mm, scannable. */
@@ -138,6 +168,44 @@ export const DEFAULT_BADGE_FIELDS: BadgeFields = {
   badgeType: true,
 };
 
+/**
+ * Type sizes, in points at the BASE badge size. Scaled by `sf` at render time
+ * like every other font on the badge.
+ *
+ * Organiser-controlled (owner, Aug 26 2026) rather than auto-fitted. The
+ * alternative considered was shrinking a long name until it fit one line,
+ * which is what a badge designer does by hand — but it takes the decision away
+ * from the person holding the printed stock, and the trade between "one big
+ * line, truncated" and "two smaller lines, complete" is theirs to make. The
+ * band derivation above means either choice stays inside its space.
+ *
+ * `detail` is ONE size because organisation and country now share one line.
+ * It defaults to 10, the size country has always printed at, so every event
+ * that never touched these settings prints exactly what it printed before.
+ * (Organisation used to draw at 12; one event has it enabled, and it now has
+ * a control to put that back.)
+ *
+ * The registration number is deliberately NOT here. It is a small corner-style
+ * marker in its own band, not a design element, and a control for it would be
+ * a fourth input on a card that already has plenty.
+ */
+export interface BadgeFontSizes {
+  name: number;
+  /** The organisation / country line under the name. */
+  detail: number;
+  badgeType: number;
+}
+
+export const DEFAULT_BADGE_FONT_SIZES: BadgeFontSizes = {
+  name: 18,
+  detail: 10,
+  badgeType: 20,
+};
+
+/** Below 6pt nothing is legible in print; above 48 nothing fits the band. */
+const MIN_FONT_PT = 6;
+const MAX_FONT_PT = 48;
+
 export interface BadgeLayout {
   widthPt: number;
   heightPt: number;
@@ -148,6 +216,7 @@ export interface BadgeLayout {
   /** Entry barcode vs DTCM QR placement. Defaults to the historical layout. */
   barcodeArrangement: BadgeBarcodeArrangement;
   fields: BadgeFields;
+  fontSizes: BadgeFontSizes;
 }
 
 export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
@@ -160,6 +229,7 @@ export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
   // existing event's badge the moment this shipped.
   barcodeArrangement: "stacked",
   fields: DEFAULT_BADGE_FIELDS,
+  fontSizes: DEFAULT_BADGE_FONT_SIZES,
 };
 
 /** Per-field read, so one bad key cannot switch off the whole badge. */
@@ -180,6 +250,21 @@ function readFields(raw: unknown): BadgeFields {
     registrationNumber: flag("registrationNumber"),
     badgeType: flag("badgeType"),
   };
+}
+
+/** Per-field read, matching readFields: one bad number cannot resize the rest. */
+function readFontSizes(raw: unknown): BadgeFontSizes {
+  const blob =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const size = (k: keyof BadgeFontSizes): number => {
+    const v = blob[k];
+    return typeof v === "number" && Number.isFinite(v)
+      ? clamp(v, MIN_FONT_PT, MAX_FONT_PT)
+      : DEFAULT_BADGE_FONT_SIZES[k];
+  };
+  return { name: size("name"), detail: size("detail"), badgeType: size("badgeType") };
 }
 
 /**
@@ -251,6 +336,7 @@ export function readBadgeLayout(event: {
     ),
     barcodeArrangement,
     fields: readFields(blob.fields),
+    fontSizes: readFontSizes(blob.fontSizes),
   };
 }
 

@@ -7,12 +7,16 @@
  * their calibration is right when it is not.
  *
  * Interior geometry is laid out against absolute offsets from the badge's
- * top-left corner (name at +30, registration number +58, organisation or
+ * top-left corner (registration number at +14, name +30, organisation and
  * country +72, barcode +95, the role row +145), tuned for the original
- * 288x216pt card. Now that the size is
- * organiser-controlled, every one of those is multiplied through `badgeScale`.
- * At the default size all three factors are exactly 1, so the output is
- * byte-identical to what this event has always printed.
+ * 288x216pt card. Now that the size is organiser-controlled, every one of
+ * those is multiplied through `badgeScale`. At the default size all three
+ * factors are exactly 1, so the output is byte-identical to what this event
+ * has always printed.
+ *
+ * The name's band is DERIVED (badgeNameBandH = detail top - name top) rather
+ * than given a fixed allowance, so a name at any organiser-chosen size wraps
+ * and ellipsises inside its own space instead of over the line below it.
  *
  * The barcode row is the exception: its offsets come from `resolveBarcodeRow`
  * in badge-layout.ts, because the organiser can put the DTCM QR either in its
@@ -27,6 +31,9 @@ import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode"
 import { mapWithConcurrency } from "@/lib/concurrency";
 import {
   BASE_MARGIN,
+  badgeDetailTop,
+  badgeNameBandH,
+  badgeNameTop,
   badgeScale,
   badgeSerialTop,
   resolveBadgeOrigin,
@@ -150,6 +157,7 @@ function drawBadge(
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
   const { sy, sf } = badgeScale(layout);
   const f = layout.fields;
+  const fonts = layout.fontSizes;
   const W = layout.widthPt;
   const H = layout.heightPt;
   const margin = BASE_MARGIN * sf;
@@ -165,23 +173,11 @@ function drawBadge(
 
   const contentW = W - margin * 2;
 
-  // ── Name (large, bold, centered) ──
-  const fullName = `${reg.attendee.firstName} ${reg.attendee.lastName}`;
-  if (f.name) {
-  doc.font("Helvetica-Bold").fontSize(18 * sf).fillColor("#000000");
-  doc.text(fullName, x + margin, y + 30 * sy, {
-    width: contentW,
-    align: "center",
-    lineBreak: true,
-    height: 48 * sy,
-    ellipsis: true,
-  });
-  }
-
-  // ── Registration number (directly under the name) ──
-  // Moved up from the bottom row (owner, Aug 25 2026): it identifies the
-  // person, so it belongs with their name rather than flush-left in the
-  // footer opposite the role. Centred, matching the column above and below it.
+  // ── Registration number (its own band, ABOVE the name) ──
+  // It sat directly under the name until Aug 26 2026, which put it inside the
+  // name's own band — and the name is allowed to wrap, so a long name printed
+  // its second line straight through the number. Moving it above is what frees
+  // the name's full 30..72 for a real second line. See SERIAL_TOP.
   if (f.registrationNumber) {
     doc.font("Helvetica-BoldOblique").fontSize(10 * sf).fillColor("#000000");
     doc.text(formatSerialId(reg.serialId), x + margin, y + badgeSerialTop(sy), {
@@ -191,27 +187,45 @@ function drawBadge(
     });
   }
 
-  // ── Organisation (below the name) ──
-  // New. Never rendered before, so it defaults OFF — see DEFAULT_BADGE_FIELDS.
-  if (f.organization && reg.attendee.organization) {
-    doc.font("Helvetica").fontSize(12 * sf).fillColor("#000000");
-    doc.text(reg.attendee.organization, x + margin, y + 72 * sy, {
+  // ── Name (large, bold, centered) ──
+  // `height` is the band, not a generous allowance: pdfkit wraps within it and
+  // ellipsises at its boundary, so whatever size the organiser picks, the name
+  // cannot reach the line below. At 18pt that is two full lines.
+  const fullName = `${reg.attendee.firstName} ${reg.attendee.lastName}`;
+  if (f.name) {
+    doc.font("Helvetica-Bold").fontSize(fonts.name * sf).fillColor("#000000");
+    doc.text(fullName, x + margin, y + badgeNameTop(sy), {
       width: contentW,
       align: "center",
-      lineBreak: false,
+      lineBreak: true,
+      height: badgeNameBandH(sy),
       ellipsis: true,
     });
   }
 
-  // ── Country (below name, smaller) ──
-  // Shares the organisation's band: a badge showing both would collide, and
-  // the settings copy says so.
-  if (f.country && !f.organization && reg.attendee.country) {
-    doc.font("Helvetica").fontSize(10 * sf).fillColor("#000000");
-    doc.text(reg.attendee.country, x + margin, y + 72 * sy, {
+  // ── Organisation and country, one line ──
+  // They used to be mutually exclusive, organisation winning, because both
+  // wanted the same band and drawing both would collide. That left a Country
+  // switch that was on and printed nothing, which is worse than not offering
+  // it. Joined with a middot instead (owner, Aug 26 2026): either one alone
+  // still renders alone, and the pair costs no extra vertical space.
+  //
+  // U+00B7 is in WinAnsi, so Helvetica encodes it without the substitution
+  // sweep the agreement renderer needs for arbitrary pasted text.
+  const detail = [
+    f.organization ? reg.attendee.organization : null,
+    f.country ? reg.attendee.country : null,
+  ]
+    .filter((v): v is string => !!v && v.trim() !== "")
+    .join(" \u00B7 ");
+
+  if (detail) {
+    doc.font("Helvetica").fontSize(fonts.detail * sf).fillColor("#000000");
+    doc.text(detail, x + margin, y + badgeDetailTop(sy), {
       width: contentW,
       align: "center",
       lineBreak: false,
+      ellipsis: true,
     });
   }
 
@@ -247,7 +261,7 @@ function drawBadge(
 
   // Badge type (large, bold, center)
   if (f.badgeType) {
-    doc.font("Helvetica-Bold").fontSize(20 * sf).fillColor("#000000");
+    doc.font("Helvetica-Bold").fontSize(fonts.badgeType * sf).fillColor("#000000");
     doc.text(badgeType, x + margin, bottomY, {
       width: contentW,
       align: "center",

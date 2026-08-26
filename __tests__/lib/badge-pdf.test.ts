@@ -265,11 +265,27 @@ describe("field visibility, for overprinting pre-printed stock", () => {
     expect(find("007")).toBeUndefined();
   });
 
-  it("organisation displaces country rather than colliding with it", async () => {
-    // Both occupy the band under the name. Drawing both would overlap.
+  it("prints organisation and country on ONE line, joined by a middot", async () => {
+    // They used to be mutually exclusive, organisation winning, because both
+    // wanted the same band. That left a Country switch that was on and printed
+    // nothing (owner spotted it in the preview, Aug 26 2026).
     await render(only({ organization: true }));
-    expect(find("Meeting Minds Experts")).toBeDefined();
-    expect(find("United Arab Emirates")).toBeUndefined();
+    const line = find("Meeting Minds Experts");
+    expect(line).toBeDefined();
+    expect(line!.str).toBe("Meeting Minds Experts \u00B7 United Arab Emirates");
+    // One draw call, not two stacked on the same coordinate.
+    expect(textCalls.filter((c) => c.str.includes("United Arab Emirates")).length).toBe(1);
+  });
+
+  it("either one alone still prints alone, with no stray separator", async () => {
+    await render(only({ organization: true, country: false }));
+    expect(find("Meeting Minds Experts")!.str).toBe("Meeting Minds Experts");
+    expect(find("\u00B7")).toBeUndefined();
+
+    textCalls = [];
+    await render(only({ organization: false, country: true }));
+    expect(find("United Arab Emirates")!.str).toBe("United Arab Emirates");
+    expect(find("\u00B7")).toBeUndefined();
   });
 
   it("turning the barcode off skips the RASTERIZATION, not just the draw", async () => {
@@ -324,5 +340,78 @@ describe("the DTCM compliance code prints as a QR only", () => {
     await generateBadgePDF([withDtcm], DEFAULT_BADGE_LAYOUT, true);
     expect(find("Jane Doe")).toBeDefined();
     expect(find("DELEGATE")).toBeDefined();
+  });
+});
+
+describe("a long name cannot collide with its neighbours", () => {
+  /**
+   * THE REGRESSION, from the settings preview on Aug 26 2026. The registration
+   * number sat at +58, directly under the name, and the name is allowed to
+   * wrap — so this exact sample printed its second line straight through the
+   * number.
+   *
+   * These assert the drawn ORDER rather than the coordinates, so they survive
+   * the bands being re-tuned but fail the moment two of them share space.
+   */
+  const LONG: BadgeRegistration = {
+    ...REG,
+    attendee: { ...REG.attendee, firstName: "Abdulrahman", lastName: "Al-Muhairi-Sample" },
+  };
+
+  it("draws the registration number ABOVE the name", async () => {
+    await render(DEFAULT_BADGE_LAYOUT, LONG);
+    const serial = find("007")!;
+    const name = find("Abdulrahman")!;
+    expect(serial).toBeDefined();
+    expect(name).toBeDefined();
+    expect(serial.y).toBeLessThan(name.y);
+    // And with a full line box of clearance, not merely one point.
+    expect(name.y - serial.y).toBeGreaterThanOrEqual(12);
+  });
+
+  it("keeps the name above the organisation / country line", async () => {
+    await render(
+      { ...DEFAULT_BADGE_LAYOUT, fields: { ...DEFAULT_BADGE_LAYOUT.fields, organization: true } },
+      LONG,
+    );
+    expect(find("Abdulrahman")!.y).toBeLessThan(find("United Arab Emirates")!.y);
+  });
+
+  it("holds at a raised name size, where the name can no longer wrap", async () => {
+    // pdfkit ellipsises at the band boundary, so the guarantee is that nothing
+    // MOVES: the number and the detail line stay exactly where they were.
+    const big: BadgeLayout = {
+      ...DEFAULT_BADGE_LAYOUT,
+      fontSizes: { ...DEFAULT_BADGE_LAYOUT.fontSizes, name: 30 },
+    };
+    await render(big, LONG);
+    const serial = find("007")!;
+    expect(serial.y).toBeCloseTo(BASE_TOP_MARGIN + 14, 10);
+    expect(find("United Arab Emirates")!.y).toBeCloseTo(BASE_TOP_MARGIN + 72, 10);
+    expect(fontSizes).toContain(30);
+  });
+});
+
+describe("the organiser controls the type sizes", () => {
+  it("uses the saved sizes rather than the historical constants", async () => {
+    await render({
+      ...DEFAULT_BADGE_LAYOUT,
+      fontSizes: { name: 22, detail: 13, badgeType: 16 },
+    });
+    expect(fontSizes).toContain(22);
+    expect(fontSizes).toContain(13);
+    expect(fontSizes).toContain(16);
+    // The registration number is deliberately not organiser-controlled.
+    expect(fontSizes).toContain(10);
+  });
+
+  it("scales the chosen sizes with the badge, like the defaults", async () => {
+    await render({
+      ...DEFAULT_BADGE_LAYOUT,
+      widthPt: BASE_BADGE_W / 2,
+      heightPt: BASE_BADGE_H / 2,
+      fontSizes: { ...DEFAULT_BADGE_LAYOUT.fontSizes, name: 22 },
+    });
+    expect(fontSizes).toContain(11); // 22 * 0.5
   });
 });

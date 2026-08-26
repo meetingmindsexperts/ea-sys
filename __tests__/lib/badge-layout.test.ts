@@ -8,6 +8,7 @@
  * their calibration.
  */
 import { describe, it, expect } from "vitest";
+import PDFDocument from "pdfkit";
 import {
   A4_W,
   BASE_BADGE_H,
@@ -24,6 +25,10 @@ import {
   resolveBadgeOrigin,
   resolveBarcodeRow,
   badgeSerialTop,
+  badgeNameTop,
+  badgeNameBandH,
+  badgeDetailTop,
+  DEFAULT_BADGE_FONT_SIZES,
   readBadgePolicy,
   DEFAULT_BADGE_POLICY,
   type BadgeLayout,
@@ -370,21 +375,94 @@ describe("barcode / DTCM QR arrangement", () => {
   });
 });
 
-describe("registration number moved under the name", () => {
-  it("prints between the name and the organisation / country band", () => {
-    // Owner, Aug 25 2026. It used to sit flush left on the bottom row opposite
-    // the role; it identifies the person, so it belongs with their name.
-    // The name occupies roughly 30..52 at 18pt and the org/country band is at
-    // +72, so it has to land between them or it collides with one of them.
-    const top = badgeSerialTop(1);
-    expect(top).toBeGreaterThan(52);
-    expect(top + 10).toBeLessThan(72);
+describe("the vertical bands cannot overlap", () => {
+  /**
+   * THE REGRESSION. Between Aug 25 and Aug 26 2026 the registration number sat
+   * at +58, directly under the name — and the name is allowed to WRAP, so a
+   * long name drew its second line straight through the number. The preview's
+   * deliberately long sample name showed it on the first look.
+   *
+   * The test that existed then asserted the number landed "between the name
+   * and the org band", reasoning that the name occupies 30..52 at 18pt. That
+   * reasoning is the bug: it is only true for a name that fits one line, and
+   * a badge renderer does not get to assume that.
+   *
+   * So these pin the STRUCTURE — each band ends where the next begins — rather
+   * than any one element's coordinate.
+   */
+  it("puts the registration number above the name, not inside its band", () => {
+    expect(badgeSerialTop(1)).toBeLessThan(badgeNameTop(1));
   });
 
-  it("scales with the badge like every other interior offset", () => {
+  it("leaves the number's own line room before the name starts", () => {
+    // A 10pt Helvetica line boxes at roughly 11.6pt.
+    expect(badgeNameTop(1) - badgeSerialTop(1)).toBeGreaterThanOrEqual(12);
+  });
+
+  it("gives the name EXACTLY the space above the line below it", () => {
+    // Derived, not a literal. The old code handed the name a fixed 48pt of
+    // height inside a 42pt gap, which is how a wrapped line escaped its band.
+    expect(badgeNameTop(1) + badgeNameBandH(1)).toBe(badgeDetailTop(1));
+  });
+
+  it("fits two lines of the name once the size is turned down", () => {
+    /**
+     * MEASURED with pdfkit, not multiplied by a guessed leading. The first
+     * version of this test used 1.16 and passed; the real figure for
+     * Helvetica-Bold is 1.19, so at the default 18pt two lines need 42.84
+     * against a 42pt band and the name TRUNCATES. The test cleared the bar
+     * while asserting the opposite of what the renderer does.
+     *
+     * Both halves are here on purpose. The second is the reason the type size
+     * is an organiser control rather than something auto-fitted: the trade
+     * between one big truncated line and two smaller complete ones belongs to
+     * the person holding the printed stock, and 16pt is where it flips on a
+     * standard 4x3in badge.
+     */
+    const doc = new PDFDocument({ size: "A4", margin: 0 });
+
+    doc.font("Helvetica-Bold").fontSize(16);
+    expect(doc.currentLineHeight(true) * 2).toBeLessThanOrEqual(badgeNameBandH(1));
+
+    doc.fontSize(DEFAULT_BADGE_FONT_SIZES.name);
+    expect(doc.currentLineHeight(true) * 2).toBeGreaterThan(badgeNameBandH(1));
+  });
+
+  it("scales every band with the badge", () => {
     expect(badgeSerialTop(2)).toBe(badgeSerialTop(1) * 2);
-    // Exactly 1 at the default size, so the multiply is a no-op there.
-    expect(badgeSerialTop(1)).toBe(58);
+    expect(badgeNameTop(2)).toBe(badgeNameTop(1) * 2);
+    expect(badgeNameBandH(2)).toBe(badgeNameBandH(1) * 2);
+    expect(badgeDetailTop(2)).toBe(badgeDetailTop(1) * 2);
+  });
+});
+
+describe("organiser-controlled type sizes", () => {
+  it("defaults to the sizes the badge has always printed", () => {
+    // `detail` is 10, the size COUNTRY has always printed at, because country
+    // is on by default and organisation is not — so every event that never
+    // touched these settings prints exactly what it printed before.
+    expect(readBadgeLayout({}).fontSizes).toEqual({ name: 18, detail: 10, badgeType: 20 });
+  });
+
+  it("honours a saved size", () => {
+    const l = readBadgeLayout({ settings: { badge: { fontSizes: { name: 24 } } } });
+    expect(l.fontSizes.name).toBe(24);
+  });
+
+  it("falls back PER FIELD, so one bad number cannot resize the rest", () => {
+    const l = readBadgeLayout({
+      settings: { badge: { fontSizes: { name: "big", detail: 14 } } },
+    });
+    expect(l.fontSizes.name).toBe(DEFAULT_BADGE_FONT_SIZES.name);
+    expect(l.fontSizes.detail).toBe(14);
+    expect(l.fontSizes.badgeType).toBe(DEFAULT_BADGE_FONT_SIZES.badgeType);
+  });
+
+  it("clamps rather than rejecting, so a typo cannot blank the badge", () => {
+    expect(readBadgeLayout({ settings: { badge: { fontSizes: { name: 0 } } } }).fontSizes.name)
+      .toBe(6);
+    expect(readBadgeLayout({ settings: { badge: { fontSizes: { name: 900 } } } }).fontSizes.name)
+      .toBe(48);
   });
 });
 

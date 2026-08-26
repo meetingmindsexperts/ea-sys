@@ -75,6 +75,7 @@ import {
   DEFAULT_BADGE_FIELDS,
   type BadgeAlign,
   type BadgeBarcodeArrangement,
+  DEFAULT_BADGE_FONT_SIZES,
 } from "@/lib/badge-layout";
 
 /** Common conference badge stock. Width x height in millimetres. */
@@ -392,6 +393,11 @@ export default function EventSettingsPage() {
           barcodeArrangement: resolvedBadge.barcodeArrangement,
           allowKioskReprint: readBadgePolicy(settings).allowKioskReprint,
           fields: resolvedBadge.fields,
+          fontSizes: {
+            name: String(resolvedBadge.fontSizes.name),
+            detail: String(resolvedBadge.fontSizes.detail),
+            badgeType: String(resolvedBadge.fontSizes.badgeType),
+          },
         });
 
         setRegistrationSettings({
@@ -593,6 +599,26 @@ export default function EventSettingsPage() {
     // card and one Save, but it is read back through readBadgePolicy.
     allowKioskReprint: false,
     fields: DEFAULT_BADGE_FIELDS,
+    // Strings, like the mm sizes above, so the field can be empty mid-typing
+    // instead of snapping to 0 on every keystroke.
+    fontSizes: {
+      name: String(DEFAULT_BADGE_FONT_SIZES.name),
+      detail: String(DEFAULT_BADGE_FONT_SIZES.detail),
+      badgeType: String(DEFAULT_BADGE_FONT_SIZES.badgeType),
+    },
+  });
+
+  /**
+   * The three type sizes as points. One helper because the preview link, the
+   * live warning and the save payload all need them, and three copies of
+   * `Number(x) || default` is three chances for one of them to disagree with
+   * what actually prints.
+   */
+  const badgeFontSizesPt = () => ({
+    name: Number(badgeLayout.fontSizes.name) || DEFAULT_BADGE_FONT_SIZES.name,
+    detail: Number(badgeLayout.fontSizes.detail) || DEFAULT_BADGE_FONT_SIZES.detail,
+    badgeType:
+      Number(badgeLayout.fontSizes.badgeType) || DEFAULT_BADGE_FONT_SIZES.badgeType,
   });
 
   /**
@@ -610,6 +636,7 @@ export default function EventSettingsPage() {
         offsetYPt: Number(badgeLayout.offsetYPt) || 0,
         barcodeArrangement: badgeLayout.barcodeArrangement,
         fields: badgeLayout.fields,
+        fontSizes: badgeFontSizesPt(),
       },
     },
   });
@@ -622,6 +649,9 @@ export default function EventSettingsPage() {
       ox: String(Number(badgeLayout.offsetXPt) || 0),
       oy: String(Number(badgeLayout.offsetYPt) || 0),
       arr: badgeLayout.barcodeArrangement,
+      fname: String(badgeFontSizesPt().name),
+      fdetail: String(badgeFontSizesPt().detail),
+      frole: String(badgeFontSizesPt().badgeType),
       // Enabled keys only. The preview has to show the switches as they sit on
       // screen, not as they were last saved, or it is not a calibration tool.
       fields: Object.entries(badgeLayout.fields)
@@ -680,6 +710,7 @@ export default function EventSettingsPage() {
               barcodeArrangement: badgeLayout.barcodeArrangement,
               allowKioskReprint: badgeLayout.allowKioskReprint,
               fields: badgeLayout.fields,
+              fontSizes: badgeFontSizesPt(),
             },
             presenterRegistration: { payNowEnabled: presenterPayNow },
             travelGrant: { enabled: travelGrantEnabled },
@@ -1685,8 +1716,80 @@ export default function EventSettingsPage() {
                     </label>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Organisation and country share the line under the name, so
-                    turning organisation on hides country.
+                    Organisation and country print on one line under the name,
+                    separated by a dot. Either one on its own prints on its own.
+                  </p>
+                </div>
+
+                {/* Type sizes. Organiser-controlled rather than auto-fitted:
+                    a long name can be one big truncated line or two smaller
+                    complete ones, and only the person holding the stock knows
+                    which they want. The name can never overflow into the line
+                    below whichever they pick — see badgeNameBandH. */}
+                <div className="mt-6 space-y-3">
+                  <Label>Type sizes (points)</Label>
+                  <div className="grid gap-4 sm:grid-cols-3 max-w-2xl">
+                    <div className="space-y-2">
+                      <Label htmlFor="badgeFontName" className="text-xs font-normal text-muted-foreground">
+                        Name
+                      </Label>
+                      <Input
+                        id="badgeFontName"
+                        type="number"
+                        min={6}
+                        max={48}
+                        value={badgeLayout.fontSizes.name}
+                        onChange={(e) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fontSizes: { ...badgeLayout.fontSizes, name: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="badgeFontDetail" className="text-xs font-normal text-muted-foreground">
+                        Organisation / country
+                      </Label>
+                      <Input
+                        id="badgeFontDetail"
+                        type="number"
+                        min={6}
+                        max={48}
+                        value={badgeLayout.fontSizes.detail}
+                        onChange={(e) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fontSizes: { ...badgeLayout.fontSizes, detail: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="badgeFontRole" className="text-xs font-normal text-muted-foreground">
+                        Role / badge type
+                      </Label>
+                      <Input
+                        id="badgeFontRole"
+                        type="number"
+                        min={6}
+                        max={48}
+                        value={badgeLayout.fontSizes.badgeType}
+                        onChange={(e) =>
+                          setBadgeLayout({
+                            ...badgeLayout,
+                            fontSizes: { ...badgeLayout.fontSizes, badgeType: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    A long name wraps to two lines if there is room, and is
+                    shortened with an ellipsis if there is not. On a standard
+                    4x3in badge that is about 16pt or below, so turn the name
+                    size down to keep long names whole. The registration number
+                    prints small above the name and is not resizable.
                   </p>
                 </div>
 
