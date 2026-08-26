@@ -593,6 +593,18 @@ export function RegistrationDetailSheet({
    * compliance code that was just assigned.
    */
   const [assigningDtcm, setAssigningDtcm] = useState(false);
+  // Typing a code by hand, from VIEW mode. The edit form has always carried a
+  // DTCM field, but it sits below Notes and requires entering edit mode and
+  // saving the whole row — so on a Dubai event the obvious question ("this
+  // person has a code on a printed sheet, where do I put it?") had no obvious
+  // answer. This is the same write, reachable from the tile you were already
+  // looking at.
+  // Keyed by registration id, not a boolean: switching rows in the sheet then
+  // closes it by construction, so there is no reset to forget and no way for a
+  // half-typed code to appear over somebody else's record.
+  const [manualDtcmForId, setManualDtcmForId] = useState<string | null>(null);
+  const [manualDtcmValue, setManualDtcmValue] = useState("");
+  const [savingManualDtcm, setSavingManualDtcm] = useState(false);
   const handleAssignDtcmCode = async () => {
     if (!selectedRegistration) return;
     setAssigningDtcm(true);
@@ -627,6 +639,44 @@ export function RegistrationDetailSheet({
       toast.error("Could not assign a code");
     } finally {
       setAssigningDtcm(false);
+    }
+  };
+
+  const handleSaveManualDtcm = async () => {
+    if (!selectedRegistration) return;
+    const code = manualDtcmValue.trim();
+    if (!code) {
+      toast.error("Enter a code first");
+      return;
+    }
+    setSavingManualDtcm(true);
+    try {
+      // The ordinary registration PUT, with a one-field payload. It already
+      // owns the uniqueness check and turns the P2002 into "this code is
+      // already assigned to another registration", so a dedicated route would
+      // be a second copy of a rule that must not drift.
+      await apiPutJson<Registration>(
+        `/api/events/${eventId}/registrations/${selectedRegistration.id}`,
+        { dtcmBarcode: code, expectedUpdatedAt: selectedRegistration.updatedAt },
+      );
+      toast.success("DTCM code saved.");
+      setManualDtcmForId(null);
+      setManualDtcmValue("");
+      await refreshSelectedRegistration(selectedRegistration.id);
+      // A typed code may well be one of the pool's spares, in which case it
+      // just stopped being spare.
+      queryClient.invalidateQueries({ queryKey: queryKeys.dtcmPool(eventId) });
+    } catch (error) {
+      // The duplicate message names the actual problem, so surface it rather
+      // than a generic failure — the operator's next move is to check the
+      // sheet, not to retry.
+      console.error("[dtcm] manual save failed", error);
+      toast.error(
+        error instanceof ApiError ? error.message : "Could not save the code",
+        { duration: error instanceof ApiError && error.code === "UNIQUE_CONSTRAINT" ? 10000 : undefined },
+      );
+    } finally {
+      setSavingManualDtcm(false);
     }
   };
 
@@ -905,7 +955,22 @@ export function RegistrationDetailSheet({
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-0 w-full sm:w-[750px]">
+      <SheetContent
+        className="overflow-y-auto p-0 w-full sm:w-[750px]"
+        // Escape backs out of the DTCM code input rather than closing the whole
+        // sheet. It has to be handled here, through Radix's own prop: Radix
+        // listens for Escape on the document in the CAPTURE phase, so a
+        // stopPropagation() inside the input's own React handler runs far too
+        // late and the sheet closes anyway, losing the record the operator was
+        // working on. Found by driving it in a browser; no unit test would see
+        // it, because the bug lives in the interaction between two libraries.
+        onEscapeKeyDown={(event) => {
+          if (manualDtcmForId) {
+            event.preventDefault();
+            setManualDtcmForId(null);
+          }
+        }}
+      >
         {selectedRegistration ? (
           <>
             {/* Header with actions */}
@@ -2695,20 +2760,84 @@ export function RegistrationDetailSheet({
                                   one: assigning a DTCM code hands over a door
                                   credential, and MEMBER staffs the desk but is
                                   deliberately outside that set. */}
-                              {canSeeBarcodes && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={handleAssignDtcmCode}
-                                disabled={assigningDtcm}
-                              >
-                                {assigningDtcm ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Barcode className="mr-2 h-4 w-4" />
-                                )}
-                                Assign a spare code
-                              </Button>
+                              {canSeeBarcodes && manualDtcmForId !== selectedRegistration.id && (
+                                <div className="flex flex-wrap justify-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={handleAssignDtcmCode}
+                                    disabled={assigningDtcm}
+                                  >
+                                    {assigningDtcm ? (
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Barcode className="mr-2 h-4 w-4" />
+                                    )}
+                                    Assign a spare code
+                                  </Button>
+                                  {/* The other half of the same job: the code
+                                      is on a sheet in front of you rather than
+                                      in the pool. */}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setManualDtcmValue("");
+                                      setManualDtcmForId(selectedRegistration.id);
+                                    }}
+                                    disabled={assigningDtcm}
+                                  >
+                                    Enter a code
+                                  </Button>
+                                </div>
+                              )}
+                              {canSeeBarcodes && manualDtcmForId === selectedRegistration.id && (
+                                <div className="space-y-2 text-left">
+                                  <Input
+                                    autoFocus
+                                    value={manualDtcmValue}
+                                    onChange={(e) => setManualDtcmValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      // A hardware scanner sends the code then
+                                      // Enter, so the desk can scan straight
+                                      // into this field without touching the
+                                      // mouse. Escape backs out.
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSaveManualDtcm();
+                                      }
+                                      // Escape is NOT handled here: Radix
+                                      // catches it on the document first. See
+                                      // onEscapeKeyDown on SheetContent.
+                                    }}
+                                    placeholder="Scan or type the DTCM code"
+                                    className="font-mono"
+                                    disabled={savingManualDtcm}
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setManualDtcmForId(null)}
+                                      disabled={savingManualDtcm}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={handleSaveManualDtcm}
+                                      disabled={savingManualDtcm || !manualDtcmValue.trim()}
+                                    >
+                                      {savingManualDtcm && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      )}
+                                      Save
+                                    </Button>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Must be unique across the event.
+                                  </p>
+                                </div>
                               )}
                             </>
                           )}
