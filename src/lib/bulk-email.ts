@@ -1334,10 +1334,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         },
       }),
     ]);
+    // No Zoom attached YET is not fatal. Attendees join through OUR gated
+    // session page (built from anchorSessionId below, NOT from the Zoom row),
+    // and passcode/recording are optional. Provisioning legitimately creates
+    // the anchor before Zoom (org not yet configured, or a transient Zoom API
+    // failure the console retries later). Degrade gracefully — send the
+    // confirmation/reminder with the session-page link, an empty passcode and
+    // the "details to follow" recording block — rather than throwing, which
+    // left the registrant with NO email at all (lifecycle review).
     if (!zoomMeeting) {
-      throw new BulkEmailError(
-        "Webinar email requested but no Zoom webinar is attached to the anchor session.",
-        400,
+      apiLogger.warn(
+        { eventId, emailType },
+        "webinar-email:no-zoom-attached-sending-without-passcode",
       );
     }
     // Render in the EVENT's timezone, not the server's clock — the box runs
@@ -1355,12 +1363,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const webinarTime = anchorSession?.startTime
       ? `${formatTimeInTz(new Date(anchorSession.startTime), eventTz)} ${tzLabel(new Date(anchorSession.startTime), eventTz)}`
       : "TBA";
-    const passcode = zoomMeeting.passcode ?? "";
+    const passcode = zoomMeeting?.passcode ?? "";
     // Recording URL is only populated once the webinar has ended AND the
     // cron worker has successfully fetched it from Zoom. Until then, the
     // template renders a "coming soon" fallback via recordingBlock.
     const recordingUrl =
-      zoomMeeting.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
+      zoomMeeting?.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
         ? zoomMeeting.recordingUrl
         : "";
     webinarEnrichment = {

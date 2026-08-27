@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, mockDeleteRemote, state } =
+const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, mockDeleteRemote, mockNotify, state } =
   vi.hoisted(() => {
     const state: { settings: Record<string, unknown> } = { settings: {} };
     return {
@@ -27,6 +27,7 @@ const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, m
       mockZoom: { isZoomConfigured: vi.fn(), createZoomWebinar: vi.fn() },
       mockEnqueue: vi.fn(async (...args: unknown[]) => void args),
       mockDeleteRemote: vi.fn(async (...args: unknown[]) => (void args, true)),
+      mockNotify: vi.fn(async (...args: unknown[]) => void args),
     };
   });
 
@@ -42,6 +43,9 @@ vi.mock("@/lib/webinar-email-sequence", () => ({
 }));
 vi.mock("@/lib/zoom/cleanup", () => ({
   deleteRemoteZoomMeeting: (...a: unknown[]) => mockDeleteRemote(...a),
+}));
+vi.mock("@/lib/notifications", () => ({
+  notifyEventAdmins: (...a: unknown[]) => mockNotify(...a),
 }));
 
 import { Prisma } from "@prisma/client";
@@ -343,5 +347,39 @@ describe("provisionWebinar — re-attach failure discrimination (review M6)", ()
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toBe("provision-already-in-progress");
     expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+  });
+});
+
+describe("provisionWebinar — no-Zoom lifecycle (Aug 27, 2026)", () => {
+  it("enqueues the reminder sequence AND alerts admins when Zoom is not configured", async () => {
+    // Default beforeEach: isZoomConfigured=false + empty settings ⇒ fresh provision.
+    const res = await provisionWebinar("ev1", { actorUserId: "u1" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomStatus).toBe("not-configured");
+    // Reminders enqueue regardless of Zoom status (gated session-page link
+    // renders without a Zoom room) — previously gated on zoomStatus==="created".
+    expect(mockEnqueue).toHaveBeenCalledWith("ev1", "u1");
+    // The missing room is no longer invisible to the organizer.
+    expect(mockNotify).toHaveBeenCalledWith(
+      "ev1",
+      expect.objectContaining({ title: "Webinar needs a Zoom room" }),
+    );
+  });
+
+  it("does NOT alert admins when the Zoom room was created", async () => {
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+    mockZoom.createZoomWebinar.mockResolvedValue({
+      id: 123,
+      join_url: "https://zoom.us/j/123",
+      start_url: "https://zoom.us/s/123?zak=X",
+      password: "pc",
+    });
+    mockDb.zoomMeeting.create.mockResolvedValue({ zoomMeetingId: "123" });
+
+    const res = await provisionWebinar("ev1", { actorUserId: "u1" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomStatus).toBe("created");
+    expect(mockEnqueue).toHaveBeenCalledWith("ev1", "u1");
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });

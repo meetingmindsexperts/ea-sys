@@ -7,6 +7,7 @@ import type { WebinarSettings } from "@/lib/webinar";
 import { readWebinarSettings } from "@/lib/webinar";
 import { updateEventSettings } from "@/lib/event-settings";
 import { enqueueWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 export type ZoomProvisionStatus =
   | "created"
@@ -344,17 +345,35 @@ export async function provisionWebinar(
     });
 
     // Enqueue the 4 future email phases (reminder-24h, reminder-1h, live-now,
-    // thank-you). Only runs if the Zoom webinar was freshly created here —
-    // without a joinUrl the emails can't render. Idempotent inside, safe on
-    // retry. Fire-and-forget so a sequence failure never fails provisioning.
-    // (The "already-attached" case returns early higher up via the idempotency
-    // branch and never reaches this point.)
-    if (zoomStatus === "created") {
-      enqueueWebinarSequenceForEvent(event.id, options?.actorUserId).catch((err) =>
-        apiLogger.error(
-          { err, eventId: event.id },
-          "webinar:sequence-enqueue-failed",
-        ),
+    // thank-you) regardless of whether Zoom attached here. The reminders point
+    // at OUR gated session page (not a Zoom URL), so they render even before
+    // Zoom is attached (lifecycle review) — and once Zoom IS attached, the same
+    // links start admitting attendees. Was gated on zoomStatus === "created",
+    // which meant a no-Zoom-yet webinar got no reminders at all. Idempotent +
+    // per-event-lock-serialized inside, so a later reattach won't double-enqueue.
+    // Fire-and-forget so a sequence failure never fails provisioning.
+    enqueueWebinarSequenceForEvent(event.id, options?.actorUserId).catch((err) =>
+      apiLogger.error(
+        { err, eventId: event.id },
+        "webinar:sequence-enqueue-failed",
+      ),
+    );
+
+    // Alert the organizer when the webinar was created WITHOUT a Zoom room —
+    // otherwise a fire-and-forget provision failure (or an org with no Zoom
+    // configured) is invisible: POST /api/events returns 201 and registrants
+    // sign up against a webinar that has no room. Fire-and-forget.
+    if (zoomStatus === "failed" || zoomStatus === "not-configured") {
+      notifyEventAdmins(event.id, {
+        type: "SESSION",
+        title: "Webinar needs a Zoom room",
+        message:
+          zoomStatus === "not-configured"
+            ? `"${event.name}" was created as a webinar, but this organisation has no Zoom credentials configured. Registrations are open, but attendees cannot join until you configure Zoom (Settings → Integrations) and attach a room from the Webinar Console.`
+            : `"${event.name}" was created as a webinar, but attaching the Zoom room failed. Registrations are open, but attendees cannot join until you attach a room (Webinar Console → Re-run provisioner).`,
+        link: `/events/${event.id}/webinar`,
+      }).catch((err) =>
+        apiLogger.error({ err, eventId: event.id }, "webinar:provision-alert-failed"),
       );
     }
 

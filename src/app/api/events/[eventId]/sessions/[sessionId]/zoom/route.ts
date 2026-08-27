@@ -8,6 +8,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
+import { canViewZoomHostCredentials, redactZoomHostFields } from "@/lib/zoom-visibility";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -85,7 +86,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No Zoom meeting linked to this session" }, { status: 404 });
     }
 
-    return NextResponse.json(zoomMeeting);
+    // Redact Zoom HOST credentials (startUrl/streamKey/passcode) for roles that
+    // may see the event but not run it. This findFirst returns the WHOLE row, so
+    // without this a read-only MEMBER (org-wide event access) gets the raw
+    // startUrl (host link) + streamKey (RTMP publish key). Session-only route,
+    // so isApiKey is false. Mirrors the sessions-LIST redaction (B1).
+    return NextResponse.json(
+      canViewZoomHostCredentials(session.user.role, false)
+        ? zoomMeeting
+        : redactZoomHostFields({ zoomMeeting }).zoomMeeting,
+    );
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-fetch-failed");

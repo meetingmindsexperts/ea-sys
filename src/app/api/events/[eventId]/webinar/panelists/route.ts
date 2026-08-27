@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { readWebinarSettings } from "@/lib/webinar";
 import {
   addWebinarPanelists,
@@ -40,10 +41,15 @@ export type ResolvedAnchor =
 
 export async function resolveAnchorZoomMeeting(
   eventId: string,
-  organizationId: string,
+  // Was `organizationId: string` with a hand-rolled { id, organizationId }
+  // lookup. WEBINAR_STAFF_ALLOW routes MUST resolve through buildEventAccessWhere
+  // (its invariant): for WEBINARS that matches ONLY webinar events, and for a
+  // future assignment-gated role it honours the gate — a hand-rolled org-scoped
+  // lookup next to this allow-list is the exact anti-pattern the invariant bans.
+  user: Parameters<typeof buildEventAccessWhere>[0],
 ): Promise<ResolvedAnchor> {
   const event = await db.event.findFirst({
-    where: { id: eventId, organizationId },
+    where: buildEventAccessWhere(user, eventId),
     select: { id: true, organizationId: true, settings: true },
   });
   if (!event) {
@@ -98,10 +104,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/panelists:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Panelist rows carry each panelist's join_url — a Zoom bearer link granting
+    // present / share-screen / unmute. Host-adjacent data: gate the read like the
+    // POST/DELETE below, so a read-only MEMBER / unassigned ONSITE / CRM_USER
+    // cannot enumerate it. (The write variants were already gated; the GET was
+    // the gap.)
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists:GET" });
+    if (denied) return denied;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      orgGuard.orgId,
+      session.user,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
@@ -169,7 +183,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      orgGuard.orgId,
+      session.user,
     );
     if (!resolved.ok) {
       apiLogger.warn(
@@ -268,7 +282,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      orgGuard.orgId,
+      session.user,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });

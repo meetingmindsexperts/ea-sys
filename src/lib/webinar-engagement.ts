@@ -200,10 +200,15 @@ export async function syncWebinarEngagement(
     // tuples. We collapse into a single logical WebinarPoll per webinar.
     //
     // The whole block runs in a transaction so that:
-    //   1. Concurrent syncs (e.g. manual Sync + chained cron) can't create
-    //      duplicate "Webinar Poll" rows. A nullable composite unique key
-    //      doesn't enforce uniqueness on NULL in Postgres, so we rely on
-    //      the transaction to serialize find-or-create.
+    //   1. Concurrent syncs (manual "Sync now" + chained cron, or a
+    //      double-clicked "Sync now") can't create duplicate "Webinar Poll"
+    //      rows. A nullable composite unique key does NOT enforce uniqueness on
+    //      NULL in Postgres (NULLs are distinct in a unique index), and the
+    //      find-or-create below is READ COMMITTED with no FOR UPDATE — so the
+    //      transaction ALONE does not serialize it. The per-meeting advisory
+    //      lock at the top of the tx (below) is what actually serializes it;
+    //      without it both txns see "no poll" and each create one, leaving a
+    //      phantom duplicate whose responses then go permanently stale.
     //   2. The deleteMany + createMany for responses is atomic — a crash
     //      between them can't leave us with zero responses.
     let pollsPersisted = 0;
@@ -220,6 +225,12 @@ export async function syncWebinarEngagement(
         // serialize-find-or-create semantics (nullable zoomPollId unique) and
         // the atomic deleteMany+createMany are unchanged.
         await tenantTransaction(async (tx) => {
+          // Serialize the find-or-create against a concurrent sync of the SAME
+          // webinar (see note above). Transaction-scoped, so it releases on
+          // commit and is pooler-safe. ::text cast — pg_advisory_xact_lock
+          // returns void, which Prisma's $queryRaw cannot deserialize.
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-poll:${meeting.id}`}))::text`;
+
           const existingPoll = await tx.webinarPoll.findFirst({
             where: { zoomMeetingId: meeting.id, zoomPollId: null },
             select: { id: true },

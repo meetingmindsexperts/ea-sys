@@ -89,7 +89,7 @@ export interface EnqueueSequenceResult {
  * decision is silently undone. Callers must clear pending rows first — use
  * rescheduleWebinarSequenceForEvent, which does both under a per-event lock.
  */
-export async function enqueueWebinarSequenceForEvent(
+async function enqueueSequenceInner(
   eventId: string,
   actorUserId?: string,
   opts?: { force?: boolean; resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
@@ -204,6 +204,34 @@ export async function enqueueWebinarSequenceForEvent(
   );
 
   return { ok: true, created: phases.length, skipped: null };
+}
+
+/**
+ * Public entry. When called WITHOUT a caller-supplied `tx` (the provisioner's
+ * direct call at create / reattach / already-attached), serialize on the SAME
+ * per-event advisory lock `rescheduleWebinarSequenceForEvent` takes. Without
+ * this, the non-force idempotency check (findFirst → createMany) is an unlocked
+ * check-then-act: a provisioner enqueue racing a retime-reschedule, or two
+ * concurrent "Run provisioner" clicks on a zero-row webinar, both see "no rows"
+ * under READ COMMITTED and each createMany the full 4-phase set — every reminder
+ * fires TWICE to the whole audience (there is no @@unique on (eventId,emailType)
+ * to collide on). When a `tx` IS supplied, the caller (reschedule) already holds
+ * the lock inside its transaction, so we run the body directly.
+ */
+export async function enqueueWebinarSequenceForEvent(
+  eventId: string,
+  actorUserId?: string,
+  opts?: { force?: boolean; resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
+): Promise<EnqueueSequenceResult> {
+  if (opts?.tx) {
+    return enqueueSequenceInner(eventId, actorUserId, opts);
+  }
+  return tenantTransaction(async (tx) => {
+    // ::text cast — pg_advisory_xact_lock returns void, which Prisma's $queryRaw
+    // cannot deserialize (same shape as reschedule, Aug 6 2026).
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-seq:${eventId}`}))::text`;
+    return enqueueSequenceInner(eventId, actorUserId, { ...opts, tx });
+  });
 }
 
 /**

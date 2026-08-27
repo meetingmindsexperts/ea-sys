@@ -10,6 +10,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
+import { canViewZoomHostCredentials, redactZoomHostFields } from "@/lib/zoom-visibility";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { enableWebinarQA } from "@/lib/zoom";
@@ -103,7 +104,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
         : Promise.resolve(null),
     ]);
 
-    return NextResponse.json({
+    // Zoom HOST credentials (startUrl/streamKey/passcode) grant CONTROL of the
+    // webinar, not just attendance. Only the roles that run the event may see
+    // them — this GET is session-only (no API-key path), so isApiKey is false.
+    // A MEMBER reaches this event via buildEventAccessWhere (org-wide read), so
+    // without this a read-only MEMBER would receive the host start link and
+    // could hijack the webinar. Mirrors the sessions-LIST redaction (B1).
+    const payload = {
       event: {
         id: event.id,
         name: event.name,
@@ -116,7 +123,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       webinar,
       anchorSession,
       zoomMeeting,
-    });
+    };
+    return NextResponse.json(
+      canViewZoomHostCredentials(session.user.role, false)
+        ? payload
+        : redactZoomHostFields(payload),
+    );
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:settings-fetch-failed");
