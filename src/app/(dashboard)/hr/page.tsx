@@ -1,0 +1,187 @@
+"use client";
+
+/**
+ * /hr — the leave summary. The workbook's "Leave Summary" sheet as a screen, and
+ * deliberately the landing page: it is what HR actually reads.
+ *
+ * Two presentation rules carry meaning rather than taste:
+ *
+ *   1. NEGATIVE BALANCES ARE SHOWN, never hidden or floored. They are leave
+ *      taken in advance, which is legal by agreement and true of four people in
+ *      the live data. A zero here would be a lie that costs money.
+ *   2. AN EMPLOYEE WITHOUT A FIRST ANNIVERSARY shows entitlement 0 and says so,
+ *      because otherwise a balance of -23 reads as a system error rather than as
+ *      somebody who has taken leave they have not yet accrued.
+ */
+
+import { useState } from "react";
+import Link from "next/link";
+import { useHrSummary, type HrSummaryRow } from "@/hr/hooks/use-hr-api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { CalendarClock, Loader2, TriangleAlert, CalendarDays } from "lucide-react";
+
+function Days({ value, highlightNegative = false }: { value: number; highlightNegative?: boolean }) {
+  const negative = value < 0;
+  return (
+    <span
+      className={
+        "tabular-nums" +
+        (highlightNegative && negative ? " font-semibold text-red-600 dark:text-red-400" : "")
+      }
+    >
+      {value}
+    </span>
+  );
+}
+
+export default function HrSummaryPage() {
+  const [includeExited, setIncludeExited] = useState(false);
+  const { data, isLoading, isError, error } = useHrSummary(undefined, includeExited);
+
+  if (isLoading) {
+    return (
+      <div className="mt-20 flex items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        Loading leave summary…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto mt-20 max-w-md rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
+        <TriangleAlert className="mx-auto mb-3 h-8 w-8 text-amber-700" />
+        <h2 className="font-semibold text-amber-900">Couldn&apos;t load the HR module</h2>
+        <p className="mt-2 text-sm text-amber-800">
+          {(error as Error)?.message ??
+            "The HR module may not be switched on for this deployment."}
+        </p>
+      </div>
+    );
+  }
+
+  const rows = data ?? [];
+  const negatives = rows.filter((r) => r.balance.annual.balance < 0).length;
+  const awaitingFirstYear = rows.filter((r) => !r.balance.hasCompletedFirstYear).length;
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+            <CalendarClock className="h-6 w-6 text-primary" />
+            Leave Summary
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {rows.length} employee{rows.length === 1 ? "" : "s"} ·{" "}
+            {rows[0]?.balance.leaveYear ?? new Date().getFullYear()} leave year · balances as at{" "}
+            {rows[0]?.balance.asOf ?? "today"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button asChild variant="secondary">
+            <Link href="/hr/attendance">
+              <CalendarDays className="h-4 w-4" />
+              Attendance
+            </Link>
+          </Button>
+          <Button variant="ghost" onClick={() => setIncludeExited((v) => !v)}>
+            {includeExited ? "Hide leavers" : "Show leavers"}
+          </Button>
+        </div>
+      </div>
+
+      {(negatives > 0 || awaitingFirstYear > 0) && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {negatives > 0 && (
+            <span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+              {negatives} with leave taken in advance (negative balance)
+            </span>
+          )}
+          {awaitingFirstYear > 0 && (
+            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              {awaitingFirstYear} not yet at their first anniversary (no entitlement yet)
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium">Employee</th>
+              <th className="px-3 py-2 text-right font-medium">Entitled</th>
+              <th className="px-3 py-2 text-right font-medium">Carried in</th>
+              <th className="px-3 py-2 text-right font-medium">AL taken</th>
+              <th className="px-3 py-2 text-right font-medium">AL balance</th>
+              <th className="px-3 py-2 text-right font-medium">Sick (full)</th>
+              <th className="px-3 py-2 text-right font-medium">Sick (half)</th>
+              <th className="px-3 py-2 text-right font-medium">C-off earned</th>
+              <th className="px-3 py-2 text-right font-medium">C-off taken</th>
+              <th className="px-3 py-2 text-right font-medium">C-off balance</th>
+              <th className="px-3 py-2 text-left font-medium">Next anniversary</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map(({ employee, balance }: HrSummaryRow) => (
+              <tr key={employee.id} className="hover:bg-muted/30">
+                <td className="px-3 py-2">
+                  <div className="font-medium">{employee.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {employee.empCode}
+                    {employee.department ? ` · ${employee.department}` : ""}
+                    {employee.exitDate ? ` · left ${employee.exitDate}` : ""}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {balance.hasCompletedFirstYear ? (
+                    <Days value={balance.annual.entitlement} />
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]">
+                      first year
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right"><Days value={balance.annual.carriedIn} /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.annual.taken} /></td>
+                <td className="px-3 py-2 text-right">
+                  <Days value={balance.annual.balance} highlightNegative />
+                </td>
+                <td className="px-3 py-2 text-right text-muted-foreground">
+                  {balance.sick.full.used} / {balance.sick.full.limit}
+                </td>
+                <td className="px-3 py-2 text-right text-muted-foreground">
+                  {balance.sick.half.used} / {balance.sick.half.limit}
+                </td>
+                <td className="px-3 py-2 text-right"><Days value={balance.compOff.earned} /></td>
+                <td className="px-3 py-2 text-right"><Days value={balance.compOff.taken} /></td>
+                <td className="px-3 py-2 text-right">
+                  <Days value={balance.compOff.balance} highlightNegative />
+                </td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">
+                  {balance.nextAnniversary}
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={11} className="px-3 py-10 text-center text-muted-foreground">
+                  No employees yet. Import the workbook, or add someone.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        A negative balance is leave taken in advance and is shown rather than
+        floored. Sick leave is the Art. 31 tiers: 15 days full pay, then 30 at
+        half pay, then 45 unpaid. A comp-off is earned by working both days of one
+        weekend.
+      </p>
+    </div>
+  );
+}
