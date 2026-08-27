@@ -5,6 +5,8 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
+import { cloneEventSettings } from "@/lib/event-clone-settings";
+import { Prisma } from "@prisma/client";
 
 export async function POST(
   _req: Request,
@@ -63,11 +65,12 @@ export async function POST(
       slug = `${baseSlug}-${Date.now()}`;
     }
 
-    // Clone settings but reset reviewerUserIds
-    const settings =
-      typeof source.settings === "object" && source.settings !== null
-        ? { ...(source.settings as Record<string, unknown>), reviewerUserIds: [] }
-        : {};
+    // Copy only the settings keys that are safe + desirable on a clone — an
+    // ALLOW-LIST, not a deny-list (see src/lib/event-clone-settings.ts). The old
+    // wholesale spread carried the source's webinar anchor sessionId (→ every
+    // Zoom attach 409'd), its surveyShareLink (a live token), and its
+    // agendaPublished flag (→ the clone's public agenda went live).
+    const settings = cloneEventSettings(source.settings) as Prisma.InputJsonValue;
 
     // Use 30s timeout — default 5s is too short on Vercel/pgbouncer when cloning
     // events with many related records (each is a sequential create).
