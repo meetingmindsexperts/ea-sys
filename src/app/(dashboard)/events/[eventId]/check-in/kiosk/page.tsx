@@ -198,7 +198,12 @@ export default function KioskCheckInPage() {
   // email footer image, and only 2 an email header — including the one being
   // rehearsed with, which has a banner and nothing else. Picking a single field
   // would have shown nothing on the very screen this was asked for.
-  const headerMark = event?.emailHeaderImage || event?.bannerImage || branding?.logo || null;
+  const eventMark = event?.emailHeaderImage || event?.bannerImage || null;
+  const headerMark = eventMark || branding?.logo || null;
+  // Whether the mark is a BANNER (a wide band designed to run edge to edge) or
+  // a LOGO (a mark drawn for a light background). They need opposite treatment,
+  // so the distinction is carried rather than guessed from the image.
+  const headerIsBanner = !!eventMark;
   const footerMark = event?.emailFooterImage || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
   // state reset) every time the event query refetches.
@@ -566,7 +571,7 @@ export default function KioskCheckInPage() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center text-white select-none"
+      className="fixed inset-0 z-50 flex flex-col items-center text-white select-none"
       /* Derived from --primary, which OrgTheme has already set to the
          organisation's brand colour further up the tree. An org that has set no
          colour keeps the app default, so this reproduces the previous cerulean
@@ -599,26 +604,56 @@ export default function KioskCheckInPage() {
       </form>
 
       {/* Event mark + event name */}
-      <div className="absolute top-8 inset-x-0 flex flex-col items-center gap-3 px-8">
-        {headerMark && (
-          /* On a white chip, not bare: these are supplied on the assumption of
-             a light background, and a dark mark laid straight onto the brand
-             gradient disappears. Sized to hold a wide banner as well as a
-             square logo — a banner constrained to logo height is unreadable
-             across a lobby. eslint-disable for the same reason the sidebar
-             does — these are organiser-uploaded paths, not build-time assets. */
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={headerMark}
-            alt={event?.name ?? branding?.name ?? "Event"}
-            className="h-24 w-auto max-w-[680px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
-          />
-        )}
-        <p className="text-2xl font-semibold text-white/90 truncate max-w-full">
+      {/* IN FLOW, not absolute. A full-bleed banner has a real height that
+          varies with the artwork, so an absolutely-positioned header sat on top
+          of the vertically-centred scan area — the event name printed straight
+          through the barcode icon. Letting it take its own space and centring
+          what remains composes at any banner height. */}
+      <div className="w-full shrink-0 flex flex-col items-center">
+        {/* eslint-disable @next/next/no-img-element -- organiser-uploaded paths, not build-time assets (same reason the sidebar does it) */}
+        {headerMark &&
+          (headerIsBanner ? (
+            /* Full-bleed. An event header or banner is artwork designed to run
+               the width of a page, and boxing it into a centred chip wasted
+               most of a lobby screen. `object-contain` rather than `cover`
+               because cropping a customer's artwork to fill is worse than
+               letterboxing it; `max-h` so a square image used in the header
+               slot cannot swallow the scan area below.
+
+               `max-h` is a SAFETY NET, not a size: with object-contain it binds
+               before the width does, so at 26vh a real banner came out
+               letterboxed across ~60% of the screen rather than full width. At
+               45vh no banner of ordinary proportions reaches it — a 4.5:1 band
+               is about 22vh at full width on 16:9 — so width governs, which is
+               what "full width" means. It only engages for something close to
+               square dropped into the header slot. */
+            <img
+              src={headerMark}
+              alt={event?.name ?? "Event"}
+              className="w-full h-auto max-h-[45vh] object-contain"
+            />
+          ) : (
+            /* The organisation-logo fallback keeps its white chip: a logo is
+               drawn on the assumption of a light background, and a dark mark
+               laid straight onto the brand gradient disappears. */
+            <img
+              src={headerMark}
+              alt={branding?.name ?? "Organiser"}
+              className="mt-8 h-24 w-auto max-w-[680px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
+            />
+          ))}
+        {/* eslint-enable @next/next/no-img-element */}
+        <p
+          className={`${headerMark ? "mt-3" : "mt-8"} px-8 text-2xl font-semibold text-white/90 truncate max-w-full`}
+        >
           {event?.name ?? ""}
         </p>
       </div>
 
+      {/* `min-h-0` so flex-1 can actually shrink below its content: without it a
+          flex child refuses to go under its intrinsic height and the footer gets
+          pushed off the bottom on a short screen. */}
+      <main className="flex-1 min-h-0 w-full flex flex-col items-center justify-center overflow-hidden">
       {state.kind === "idle" && (
         <div className="flex flex-col items-center text-center px-8">
           <div className="mb-10 rounded-full bg-white/15 p-10 animate-pulse">
@@ -694,13 +729,15 @@ export default function KioskCheckInPage() {
         </div>
       )}
 
+      </main>
+
       {/* Event footer mark. Bottom-centre and deliberately small: this is the
           event's sign-off, not a second headline, and the scan area between the
           two marks has to stay the thing your eye lands on. `pointer-events-none`
           so it can never swallow a tap meant for the corner exit target, which
           sits at the same edge. */}
       {footerMark && (
-        <div className="absolute bottom-6 inset-x-0 flex justify-center px-8 pointer-events-none">
+        <div className="shrink-0 w-full flex justify-center px-8 pb-6 pointer-events-none">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={footerMark}
