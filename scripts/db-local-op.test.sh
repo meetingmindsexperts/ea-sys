@@ -83,6 +83,8 @@ check() { if [ "$2" = "$3" ]; then echo "  ok   $1"; PASS=$((PASS+1));
           else echo "  FAIL $1 — expected [$2] got [$3]"; FAIL=$((FAIL+1)); fi }
 contains() { if printf '%s' "$3" | grep -q "$2"; then echo "  ok   $1"; PASS=$((PASS+1));
              else echo "  FAIL $1 — [$3] does not contain [$2]"; FAIL=$((FAIL+1)); fi }
+absent() { if printf '%s' "$3" | grep -q "$2"; then echo "  FAIL $1 — [$3] should not contain [$2]"; FAIL=$((FAIL+1));
+           else echo "  ok   $1"; PASS=$((PASS+1)); fi }
 
 echo "== a plain push snapshots first, then runs"
 reset; out=$(run DB_LOCAL_OP=push bash "$OP")
@@ -153,7 +155,13 @@ for i in 1 2 3 4; do
   sleep 1   # the filename stamp is per-second, so space them to keep order real
 done
 check "kept exactly 2" 2 "$(snap_count)"
-contains "kept the newest" "n4" "$(ls -1 "$TMP/snaps")"
+# Asserts the OLDEST is gone rather than that a specific newest survived.
+# Filenames are stamped per SECOND, so under load two snapshots can share a
+# stamp and `ls -1t` then orders them arbitrarily — which made the newest-label
+# assertion flake once in four full-suite runs. n1 is three seconds older than
+# anything else, so "n1 was pruned" is true regardless of any tie, and it is the
+# property that actually matters: prune takes the oldest first.
+absent "pruned the oldest" "n1" "$(ls -1 "$TMP/snaps")"
 
 echo "== a label cannot escape the snapshot directory"
 reset; run bash "$SNAP" --label '../../escaped' >/dev/null

@@ -1840,7 +1840,7 @@ cuid), unlike the same-day sessions blockers.
   registration detail sheet offers "Admit anyway (override)" when a check-in is refused PAYMENT_REQUIRED.
 - **✅ M2 (DECIDED July 11 — no change, now explicit)** — owner call: `FAILED` and `REFUNDED` stay
   **admitted** at the door (a failed charge attempt / goodwill refund doesn't bar the person from the
-  venue). Pinned in `isPaymentAdmissible`'s comment + a truth-table test so it can't be "fixed" without a
+  venue). ⚠️ REVERSED Aug 27, 2026 — the door now admits only PAID/COMPLIMENTARY/INCLUSIVE. Pinned in `isPaymentAdmissible` + a truth-table test so it can't be "fixed" without a
   new product decision. The desk reinstate half remains via the detail sheet's normal flows.
 - **✅ M3 (SHIPPED July 11)** — DTCM import now runs **every row in its own try/catch**: a P2002
   unique-collision (concurrent import) becomes a per-row error, anything else a generic per-row error with

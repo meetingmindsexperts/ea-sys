@@ -62,8 +62,12 @@ export interface CheckInDenial {
  *
  * Returns true when nothing about payment blocks entry. `CANCELLED` and
  * `VIRTUAL` are separate concerns handled by the callers (the gate's cancelled
- * branch; the badge route's `where`). If the door policy for FAILED/REFUNDED
- * ever tightens (review M2), tighten it here and the badge filter follows.
+ * branch; the badge route's `where`).
+ *
+ * The badge route derives from this SAME predicate, deliberately: a badge is
+ * printed for everyone the door admits and nobody else, so the two cannot drift
+ * into handing someone a badge that will not let them in. Tightening here
+ * tightens badge printing in step, which is the intent.
  */
 export function isComplimentaryRegistration(reg: {
   paymentStatus: string;
@@ -77,19 +81,42 @@ export function isComplimentaryRegistration(reg: {
   );
 }
 
+/**
+ * Payment statuses that admit someone at the door.
+ *
+ * An ALLOW-list, and that is the point: a status added to the enum later is
+ * excluded until somebody decides otherwise, rather than admitted because
+ * nobody remembered to add it to a deny-list. The July-2026 version was the
+ * deny-list shape and let UNASSIGNED, FAILED and REFUNDED through by omission.
+ */
+const ADMISSIBLE_PAYMENT_STATUSES: ReadonlySet<string> = new Set([
+  "PAID",
+  "COMPLIMENTARY",
+  "INCLUSIVE",
+]);
+
 export function isPaymentAdmissible(reg: {
   paymentStatus: string;
   ticketTypePrice: unknown;
   pricingTierPrice: unknown;
 }): boolean {
+  // A genuinely free ticket or tier admits regardless of the status string —
+  // nothing is owed, so there is nothing for payment to block.
   if (isComplimentaryRegistration(reg)) return true;
-  // The gate blocks exactly these two; everything else (PAID, INCLUSIVE,
-  // REFUNDED, FAILED, UNASSIGNED) is admitted, so it must be badge-able.
-  // FAILED + REFUNDED staying ADMITTED is an EXPLICIT owner decision
-  // (July 11, 2026 — closes review M2 as "decided, no change"): a failed
-  // charge attempt or a goodwill refund doesn't bar the person from the
-  // venue. Do not "fix" this without a new product call.
-  return reg.paymentStatus !== "UNPAID" && reg.paymentStatus !== "PENDING";
+  // OWNER DECISION, 2026-08-27: only PAID, COMPLIMENTARY and INCLUSIVE.
+  //
+  // This REVERSES the July 11 2026 ruling that FAILED and REFUNDED stay
+  // admitted ("a failed charge attempt or a goodwill refund doesn't bar the
+  // person from the venue"), and additionally excludes UNASSIGNED — the default
+  // for an admin-created registration whose payment is still pending, which the
+  // old deny-list admitted only because it was not named in it.
+  //
+  // Checked read-only before shipping: across every upcoming event this newly
+  // blocks TWO registrations, one REFUNDED and one UNASSIGNED on a test event.
+  //
+  // The desk can still admit anyone through `allowPaymentDue` — an explicit,
+  // audited override — so this narrows the default, not the desk's authority.
+  return ADMISSIBLE_PAYMENT_STATUSES.has(reg.paymentStatus);
 }
 
 /**

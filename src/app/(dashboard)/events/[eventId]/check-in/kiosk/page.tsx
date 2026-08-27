@@ -156,7 +156,20 @@ async function printBadge(eventId: string, registrationId: string): Promise<Prin
   }
 }
 
-const RESET_MS = { success: 8000, denied: 10000 } as const;
+const RESET_MS = {
+  success: 8000,
+  denied: 10000,
+  /**
+   * Already checked in — 2s (owner, 2026-08-27).
+   *
+   * Deliberately much shorter than a real denial. This is the most common
+   * rescan at a busy door (someone re-presenting a badge they already used),
+   * it needs no reading and no action, and holding the screen for ten seconds
+   * puts the next person in a queue behind a message that says nothing is
+   * wrong.
+   */
+  alreadyIn: 2000,
+} as const;
 
 const PIN_PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "ok"] as const;
 
@@ -175,6 +188,18 @@ export default function KioskCheckInPage() {
   // (Settings -> Registration -> Badge). Read through the shared reader so the
   // kiosk and the settings form cannot disagree about what the blob means.
   const allowReprint = readBadgePolicy(event?.settings).allowKioskReprint;
+
+  // EVENT branding first, organisation second (owner, 2026-08-27). The kiosk
+  // stands in the lobby OF AN EVENT, so the mark above the scanner should be
+  // that event's, not the agency's.
+  //
+  // A chain rather than one field, because events are configured unevenly:
+  // checked read-only across the upcoming events, 7 of 12 have a banner, 5 an
+  // email footer image, and only 2 an email header — including the one being
+  // rehearsed with, which has a banner and nothing else. Picking a single field
+  // would have shown nothing on the very screen this was asked for.
+  const headerMark = event?.emailHeaderImage || event?.bannerImage || branding?.logo || null;
+  const footerMark = event?.emailFooterImage || null;
   // Read through a ref so the scan handler is not re-created (and its debounce
   // state reset) every time the event query refetches.
   const allowReprintRef = useRef(allowReprint);
@@ -250,6 +275,21 @@ export default function KioskCheckInPage() {
     // 1s reclaim below already pulls focus back, but a second is far longer
     // than Tab-then-Enter takes.
     const trapTab = (event: KeyboardEvent) => {
+      // Escape opens the PIN pad (owner, 2026-08-27) — a keyboard shortcut for
+      // staff, since hunting the invisible corner target five times is awkward
+      // when you are the one who needs out.
+      //
+      // It OPENS the pad; it does not leave. Escape-as-exit would undo the
+      // reason the PIN exists (review H1: attendees tapping their way into the
+      // dashboard), and the kiosk has a keyboard attached by design — the
+      // barcode scanner is a keyboard wedge, so anything a key alone can do,
+      // the hardware in the attendee's hand can do too. With no PIN set the pad
+      // already says so and closing the window stays the only way out.
+      if (event.key === "Escape" && !exitOpenRef.current) {
+        event.preventDefault();
+        openExitPadRef.current();
+        return;
+      }
       if (!shouldTrapKioskTab({ key: event.key, exitPadOpen: exitOpenRef.current })) return;
       event.preventDefault();
       inputRef.current?.focus();
@@ -386,7 +426,7 @@ export default function KioskCheckInPage() {
               title: "Already checked in",
               detail: "You're already checked in. For a badge reprint, please visit the registration desk.",
             });
-            scheduleReset(RESET_MS.denied);
+            scheduleReset(RESET_MS.alreadyIn);
             return;
           }
           if (!data.registration) {
@@ -397,7 +437,7 @@ export default function KioskCheckInPage() {
               title: "Already checked in",
               detail: "You're already checked in. For a badge reprint, please visit the registration desk.",
             });
-            scheduleReset(RESET_MS.denied);
+            scheduleReset(RESET_MS.alreadyIn);
             return;
           }
           if (reprintCapExceeded(data.registration.id)) {
@@ -483,17 +523,22 @@ export default function KioskCheckInPage() {
     exitCloseTimerRef.current = setTimeout(closeExitPad, 20000);
   }, [closeExitPad]);
 
+  const openExitPad = useCallback(() => {
+    exitTapsRef.current = [];
+    setExitOpen(true);
+    exitOpenRef.current = true;
+    setPinValue("");
+    setPinError(null);
+    armExitAutoClose();
+  }, [armExitAutoClose]);
+
+  const openExitPadRef = useRef(openExitPad);
+  openExitPadRef.current = openExitPad;
+
   const handleExitTap = () => {
     const now = Date.now();
     exitTapsRef.current = [...exitTapsRef.current.filter((t) => now - t < 3000), now];
-    if (exitTapsRef.current.length >= 5) {
-      exitTapsRef.current = [];
-      setExitOpen(true);
-      exitOpenRef.current = true;
-      setPinValue("");
-      setPinError(null);
-      armExitAutoClose();
-    }
+    if (exitTapsRef.current.length >= 5) openExitPad();
   };
 
   const handlePinKey = (key: (typeof PIN_PAD_KEYS)[number]) => {
@@ -553,18 +598,20 @@ export default function KioskCheckInPage() {
         />
       </form>
 
-      {/* Organiser mark + event name */}
+      {/* Event mark + event name */}
       <div className="absolute top-8 inset-x-0 flex flex-col items-center gap-3 px-8">
-        {branding?.logo && (
-          /* On a white chip, not bare: a logo is supplied on the assumption of
+        {headerMark && (
+          /* On a white chip, not bare: these are supplied on the assumption of
              a light background, and a dark mark laid straight onto the brand
-             gradient disappears. eslint-disable for the same reason the sidebar
+             gradient disappears. Sized to hold a wide banner as well as a
+             square logo — a banner constrained to logo height is unreadable
+             across a lobby. eslint-disable for the same reason the sidebar
              does — these are organiser-uploaded paths, not build-time assets. */
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={branding.logo}
-            alt={branding.name ?? "Organiser"}
-            className="h-16 w-auto max-w-[320px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
+            src={headerMark}
+            alt={event?.name ?? branding?.name ?? "Event"}
+            className="h-24 w-auto max-w-[680px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
           />
         )}
         <p className="text-2xl font-semibold text-white/90 truncate max-w-full">
@@ -644,6 +691,22 @@ export default function KioskCheckInPage() {
           <p className="mt-6 text-2xl font-semibold">
             Please check in at the registration desk.
           </p>
+        </div>
+      )}
+
+      {/* Event footer mark. Bottom-centre and deliberately small: this is the
+          event's sign-off, not a second headline, and the scan area between the
+          two marks has to stay the thing your eye lands on. `pointer-events-none`
+          so it can never swallow a tap meant for the corner exit target, which
+          sits at the same edge. */}
+      {footerMark && (
+        <div className="absolute bottom-6 inset-x-0 flex justify-center px-8 pointer-events-none">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={footerMark}
+            alt=""
+            className="h-12 w-auto max-w-[420px] rounded-xl bg-white/90 object-contain px-4 py-2 opacity-90"
+          />
         </div>
       )}
 

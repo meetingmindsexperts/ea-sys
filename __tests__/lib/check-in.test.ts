@@ -74,9 +74,28 @@ describe("checkInGate — the desk truth table", () => {
     ).toMatchObject({ code: "ALREADY_CHECKED_IN" });
   });
 
-  it("FAILED and REFUNDED stay ADMITTED — explicit owner decision (July 11, closes review M2)", () => {
-    expect(checkInGate({ ...base, paymentStatus: "FAILED" })).toBeNull();
-    expect(checkInGate({ ...base, paymentStatus: "REFUNDED" })).toBeNull();
+  it("FAILED, REFUNDED and UNASSIGNED are REFUSED — owner decision, 2026-08-27", () => {
+    // REVERSES the July 11 2026 ruling that a failed charge or a goodwill
+    // refund should not bar someone from the venue, and additionally excludes
+    // UNASSIGNED (the default for an admin-created registration whose payment
+    // is still pending), which the old deny-list admitted only by omission.
+    //
+    // Pinned as explicitly as the old rule was, and for the same reason: this
+    // is a product decision, so it should take a product decision to change it,
+    // not a tidy-up.
+    for (const status of ["FAILED", "REFUNDED", "UNASSIGNED"]) {
+      expect(checkInGate({ ...base, paymentStatus: status })).toMatchObject({
+        code: "PAYMENT_REQUIRED",
+      });
+    }
+  });
+
+  it("the desk can still admit any of them with the audited override", () => {
+    // The rule narrows the DEFAULT, not the desk's authority. A registrant
+    // whose Stripe webhook is lagging must still get through the door.
+    for (const status of ["FAILED", "REFUNDED", "UNASSIGNED", "UNPAID", "PENDING"]) {
+      expect(checkInGate({ ...base, paymentStatus: status }, { allowPaymentDue: true })).toBeNull();
+    }
   });
 
   it("UNPAID but COMPLIMENTARY status / free ticket / free tier → allowed", () => {
@@ -111,21 +130,22 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
     ...extra,
   });
 
-  it("admits everyone the gate admits — incl. the two the old badge filter DROPPED", () => {
-    // The bug: badge filter was `PAID || complimentary`, so these two were
-    // admitted at the door but got no badge.
-    expect(isPaymentAdmissible(pay("INCLUSIVE"))).toBe(true); // sponsor-paid
-    expect(isPaymentAdmissible(pay("UNASSIGNED"))).toBe(true); // pay-at-desk
-    // …and the rest the gate also admits
+  it("admits exactly three statuses — an ALLOW-list, not a deny-list", () => {
+    // INCLUSIVE is sponsor-paid: the money arrived, just not from the attendee.
     expect(isPaymentAdmissible(pay("PAID"))).toBe(true);
     expect(isPaymentAdmissible(pay("COMPLIMENTARY"))).toBe(true);
-    expect(isPaymentAdmissible(pay("REFUNDED"))).toBe(true);
-    expect(isPaymentAdmissible(pay("FAILED"))).toBe(true);
+    expect(isPaymentAdmissible(pay("INCLUSIVE"))).toBe(true);
   });
 
-  it("excludes exactly what the gate blocks: UNPAID + PENDING", () => {
-    expect(isPaymentAdmissible(pay("UNPAID"))).toBe(false);
-    expect(isPaymentAdmissible(pay("PENDING"))).toBe(false);
+  it("excludes everything else, including a status invented tomorrow", () => {
+    for (const status of ["UNPAID", "PENDING", "UNASSIGNED", "REFUNDED", "FAILED"]) {
+      expect(isPaymentAdmissible(pay(status))).toBe(false);
+    }
+    // The shape that matters: the predicate is an allow-list, so a value added
+    // to the PaymentStatus enum later is refused until someone decides
+    // otherwise. Under the old deny-list it would have been admitted silently,
+    // which is how UNASSIGNED, FAILED and REFUNDED came to be admitted at all.
+    expect(isPaymentAdmissible(pay("SOME_FUTURE_STATUS"))).toBe(false);
   });
 
   it("free ticket / free tier is admissible regardless of status", () => {
