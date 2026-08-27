@@ -19,6 +19,7 @@ export const TEAM_ROLES = [
   "ONSITE",
   "CRM_USER",
   "WEBINARS",
+  "HR_USER",
 ] as const;
 
 /**

@@ -21,6 +21,7 @@ import {
   ScanBarcode,
   Video,
   Handshake,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -157,6 +158,19 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "See event finances",       allowed: false },
     ],
   },
+
+  HR_USER: {
+    label: "HR User",
+    description: "Attendance and leave",
+    color: "bg-rose-100 text-rose-700",
+    icon: CalendarClock,
+    permissions: [
+      { label: "Record attendance",     allowed: true },
+      { label: "Manage leave balances", allowed: true },
+      { label: "Manage events",         allowed: false },
+      { label: "See event finances",    allowed: false },
+    ],
+  },
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -274,7 +288,9 @@ export function Header() {
                     ? "Registration Portal"
                     : role === "CRM_USER"
                       ? "CRM"
-                      : "Dashboard")}
+                      : role === "HR_USER"
+                        ? "HR"
+                        : "Dashboard")}
           </h1>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isHrModuleEnabled } from "@/lib/module-flags";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { auth } from "@/lib/auth";
@@ -21,7 +22,21 @@ const ROLE_LABELS: Record<string, string> = {
   WEBINARS: "Webinars",
   REVIEWER: "Reviewer",
   CRM_USER: "CRM User",
+  HR_USER: "HR User",
 };
+
+/**
+ * HR_USER is only grantable where the HR module is switched on. The enum value
+ * exists on every silo because the enum is shared, but existing and being
+ * grantable are different questions: on the platform instance the module is off,
+ * so the role would be a login that can reach nothing at all.
+ *
+ * This is the authoritative check. The Settings dropdown hides the option, but a
+ * dropdown is UX and this is the boundary.
+ */
+function roleIsGrantableHere(role: string): boolean {
+  return role !== "HR_USER" || isHrModuleEnabled();
+}
 
 const inviteUserSchema = z.object({
   email: z.string().email().max(255),
@@ -122,6 +137,18 @@ export async function POST(req: Request) {
 
     const { firstName, lastName, role, password } = validated.data;
     const email = validated.data.email.toLowerCase();
+
+    if (!roleIsGrantableHere(role)) {
+      apiLogger.warn({
+        msg: "organization/users:role-not-grantable-on-this-deployment",
+        role,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "That role is not available on this deployment." },
+        { status: 400 },
+      );
+    }
 
     if (callerRole === "ORGANIZER" && role !== "ONSITE") {
       apiLogger.warn({

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -160,6 +161,7 @@ const dateFormats = [
 ];
 
 export default function SettingsPage() {
+  const { hrEnabled } = useRuntimeFlags();
   const { data: session, update: updateSession } = useSession();
   const qc = useQueryClient();
   const [organization, setOrganization] = useState<Organization | null>(null);
@@ -484,6 +486,7 @@ export default function SettingsPage() {
     ONSITE: "bg-cyan-100 text-cyan-800",
     WEBINARS: "bg-violet-100 text-violet-800",
     CRM_USER: "bg-green-100 text-green-800",
+    HR_USER: "bg-rose-100 text-rose-800",
   };
 
   if (loading) {
@@ -959,6 +962,12 @@ export default function SettingsPage() {
                               <SelectItem value="ONSITE">Onsite Staff</SelectItem>
                               <SelectItem value="WEBINARS">Webinars</SelectItem>
                               <SelectItem value="CRM_USER">CRM User</SelectItem>
+                              {/* Offered only where the HR module is switched
+                                  on. A role that can reach nothing is a support
+                                  ticket; the invite route refuses it anyway. */}
+                              {hrEnabled && (
+                                <SelectItem value="HR_USER">HR User</SelectItem>
+                              )}
                             </SelectContent>
                           </Select>
                         </div>

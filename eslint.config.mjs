@@ -114,6 +114,10 @@ const eslintConfig = defineConfig([
       "src/components/layout/sidebar.tsx",
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",
+      // NOTE: the availability flag deliberately does NOT live in src/hr/. It
+      // needed three exemptions here within one step, which is the signal that a
+      // file is on the wrong side of a boundary, so it moved to
+      // src/lib/module-flags.ts and the list stayed at three.
     ],
     rules: {
       "no-restricted-imports": [

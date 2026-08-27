@@ -170,6 +170,24 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // HR_USER: confined to the HR module. Every matched dashboard path is
+  // redirected to /hr; /hr itself is not in the matcher, so it passes straight
+  // through. API routes carry their own guard (denyNonHr on /api/hr, denyReviewer
+  // elsewhere), so they are never redirected.
+  //
+  // NOTE this redirect stands even on a deployment where the HR module is
+  // switched off. That is correct: the role only exists where it was granted, and
+  // sending it to a page that 404s is a better answer than dropping it into an
+  // events dashboard it must not see.
+  if (role === "HR_USER") {
+    if (pathname.startsWith("/api/")) {
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/hr";
+    return NextResponse.redirect(redirectUrl);
+  }
+
   // ONSITE: registration-desk staff. Allowed UI = the events list + a chosen
   // event's Registrations + Check-In pages. Everything else (other event
   // sections, dashboard, settings, logs, contacts, new-event) is redirected.

@@ -42,10 +42,12 @@ import {
   Cpu,
   Handshake,
   Lightbulb,
+  CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewCrm } from "@/crm/lib/crm-roles";
+import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useHelpChatLauncher } from "@/components/help-chat/help-chat-provider";
@@ -70,7 +72,7 @@ import {
 // entry (see crmOnlyNavigation below).
 const CRM_IN_SIDEBAR = true;
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; external?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; hrOnly?: boolean; external?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
@@ -81,6 +83,10 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // (leadership) but ONSITE may not (a desk temp must not hold the sponsorship
   // pipeline), which matches no other role set in the app.
   { name: "CRM",       href: "/crm",       icon: Handshake, crmOnly: true },
+  // HR is gated on BOTH the role and the deployment flag. The role check alone
+  // would show an ADMIN on the platform instance a link that 404s, because the
+  // module is master-silo only.
+  { name: "HR",        href: "/hr",        icon: CalendarClock, hrOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
@@ -224,6 +230,11 @@ export function Sidebar() {
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
   const canCrm        = canViewCrm(session?.user?.role);
+  // Read at request time on the server and handed down, because a NEXT_PUBLIC_
+  // constant is baked at build and master and the platform share one image.
+  const { hrEnabled } = useRuntimeFlags();
+  const canHr         = hrEnabled && ["SUPER_ADMIN", "ADMIN", "HR_USER"].includes(session?.user?.role ?? "");
+  const isHrUser      = session?.user?.role === "HR_USER";
 
   // Fetch all orgs for SUPER_ADMIN switcher
   const { data: allOrgs } = useOrganizations(isSuperAdmin);
@@ -285,7 +296,12 @@ export function Sidebar() {
   // CRM_USER is confined to the CRM — the sidebar shows only that entry.
   const crmOnlyNavigation = navigation.filter((item) => ["CRM"].includes(item.name));
 //this section to be reviewed, to much nesting, maybe can be simplified start
-  const baseNavigation = isCrmUser
+  // HR_USER is confined to the HR module — the sidebar shows only that entry.
+  const hrOnlyNavigation = navigation.filter((item) => ["HR"].includes(item.name));
+
+  const baseNavigation = isHrUser
+    ? hrOnlyNavigation
+    : isCrmUser
     ? crmOnlyNavigation
     : isOnsite || isWebinars
     ? eventsOnlyNavigation
@@ -296,6 +312,7 @@ export function Sidebar() {
           if (item.adminOnly && !isAdmin) return false;
           if (item.financeOnly && !canFinance) return false;
           if (item.crmOnly && (!canCrm || !CRM_IN_SIDEBAR)) return false;
+          if (item.hrOnly && !canHr) return false;
           return true;
         });
 

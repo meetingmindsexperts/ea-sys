@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isHrModuleEnabled } from "@/hr/lib/hr-enabled";
+import { isHrModuleEnabled } from "@/lib/module-flags";
 import {
   HR_LEAVE_CODE_SEED,
   HR_PUBLIC_HOLIDAYS_2026,

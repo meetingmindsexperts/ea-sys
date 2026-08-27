@@ -1,4 +1,14 @@
 /**
+ * PER-DEPLOYMENT MODULE FLAGS.
+ *
+ * WHY THIS LIVES IN CORE AND NOT IN `src/hr/`. It was written there first, and
+ * within one step it needed three exemptions from the one-way import boundary
+ * (the dashboard layout, and both role-granting routes). A boundary's whole
+ * value is being short, so a growing exemption list is the signal that the file
+ * is on the wrong side of it. A deployment flag is a property of the
+ * DEPLOYMENT, not of the module it happens to gate, and core is entitled to
+ * know which modules it is running.
+ *
  * HR MODULE AVAILABILITY: master silo only (owner decision, Aug 27 2026).
  *
  * THE DISTINCTION THIS FILE EXISTS TO HOLD. Two questions look alike and are

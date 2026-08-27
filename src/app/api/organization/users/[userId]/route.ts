@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
+import { isHrModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 
 const updateUserSchema = z.object({
@@ -90,6 +91,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
+      );
+    }
+
+    // HR_USER is only grantable where the HR module is switched on. Same
+    // authoritative check as the invite route: a role that can reach nothing is
+    // a support ticket, and the dropdown that hides it is only UX.
+    if (validated.data.role === "HR_USER" && !isHrModuleEnabled()) {
+      apiLogger.warn({
+        msg: "organization/users:role-not-grantable-on-this-deployment",
+        role: validated.data.role,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "That role is not available on this deployment." },
+        { status: 400 },
       );
     }
 

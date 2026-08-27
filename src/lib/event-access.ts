@@ -167,6 +167,13 @@ export function buildEventAccessWhere(
     return { id: { in: [] } };
   }
 
+  // HR_USER: confined to the HR module, which has no relationship to events at
+  // all. Same impossible predicate as CRM_USER, for the same reason: if one ever
+  // reaches an event route it gets an empty result or a 404, never a leak.
+  if (user.role === "HR_USER") {
+    return { id: { in: [] } };
+  }
+
   // SUPER_ADMIN: if no org is set (or explicitly cleared), see all events
   if (user.role === "SUPER_ADMIN" && !user.organizationId) {
     return { ...(eventId && { id: eventId }) };

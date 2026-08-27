@@ -15,7 +15,13 @@ import { apiLogger } from "@/lib/logger";
 // control of WEBINAR-type events is opt-in per route via WEBINAR_STAFF_ALLOW,
 // always paired with a buildEventAccessWhere lookup (which resolves ONLY
 // webinar events for this role), so a missed route fails closed.
-const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"];
+// ⚠ THIS IS THE ONLY DENY-LIST AMONG THE ROLE PREDICATES. Every other one
+// (finance, barcode, contacts, login, export, operator, hr) is an allow-list, so
+// a new role is excluded from them for free. Here, a role that is ABSENT can
+// write to every non-HR, non-CRM route in the application. Adding a confined
+// role and forgetting this line is the single highest-consequence omission in
+// the RBAC surface, and nothing else fails loudly if you make it.
+const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS", "HR_USER"];
 
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
@@ -94,6 +100,7 @@ export const ASSIGNABLE_USER_ROLES = [
   "ONSITE",
   "CRM_USER",
   "WEBINARS",
+  "HR_USER",
   "REVIEWER",
 ] as const;
 
