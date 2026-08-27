@@ -128,7 +128,7 @@ describe("checkInGate — the desk truth table", () => {
 describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () => {
   const pay = (
     paymentStatus: string,
-    extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown; status: string }> = {},
+    extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown; status: string; originalPrice: unknown }> = {},
   ) => ({
     paymentStatus,
     status: "CONFIRMED",
@@ -174,6 +174,36 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
     // means nobody has chased them yet.
     expect(isPaymentAdmissible(pay("FAILED", { status: "CONFIRMED" }))).toBe(false);
     expect(isPaymentAdmissible(pay("FAILED", { status: "CHECKED_IN" }))).toBe(false);
+  });
+
+  it("a TIER-PRICED registration on a 0-base ticket type is NOT free", () => {
+    // The bug this suite missed until 2026-08-27. The standard shape here is a
+    // base ticket type priced 0 with the real money on the tier (Early Bird,
+    // Standard), so the old `ticketTypePrice === 0 || pricingTierPrice === 0`
+    // read "Physician 0.00 + Standard 100.00" as FREE and admitted the person
+    // regardless of payment status. Found when an UNPAID attendee owing 100
+    // turned up checked in — 11 such registrations across four live events.
+    expect(
+      isPaymentAdmissible(pay("UNPAID", { ticketTypePrice: 0, pricingTierPrice: 100 })),
+    ).toBe(false);
+    // And it is the TIER that decides, not "either is zero": a free tier on a
+    // priced type is still free.
+    expect(
+      isPaymentAdmissible(pay("UNPAID", { ticketTypePrice: 100, pricingTierPrice: 0 })),
+    ).toBe(true);
+  });
+
+  it("the stamped price wins when it is present", () => {
+    // originalPrice is what the person was actually charged. A row stamped at
+    // 100 is not free just because the type has since been re-priced to 0.
+    expect(
+      isPaymentAdmissible(pay("UNPAID", { originalPrice: 100, ticketTypePrice: 0, pricingTierPrice: null })),
+    ).toBe(false);
+    // The stamping-gap guard: originalPrice 0 beside a priced tier means the
+    // price was never re-stamped, so the tier wins rather than reading as free.
+    expect(
+      isPaymentAdmissible(pay("UNPAID", { originalPrice: 0, ticketTypePrice: 0, pricingTierPrice: 100 })),
+    ).toBe(false);
   });
 
   it("free ticket / free tier is admissible regardless of status", () => {

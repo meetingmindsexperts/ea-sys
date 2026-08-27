@@ -81,6 +81,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         checkedInAt: registration.checkedInAt,
         ticketTypePrice: registration.ticketType?.price,
         pricingTierPrice: registration.pricingTier?.price,
+        originalPrice: registration.originalPrice,
       },
       { allowPaymentDue: overridePayment },
     );
@@ -254,6 +255,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       checkedInAt: registration.checkedInAt,
       ticketTypePrice: registration.ticketType?.price,
       pricingTierPrice: registration.pricingTier?.price,
+      originalPrice: registration.originalPrice,
     });
     if (gate) {
       apiLogger.warn({ msg: "check-in:qr-rejected", eventId, registrationId: registration.id, code: gate.code, kiosk: isKiosk });

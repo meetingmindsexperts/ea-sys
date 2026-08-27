@@ -378,6 +378,9 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
         id: true, status: true, paymentStatus: true, checkedInAt: true,
         attendanceMode: true, ticketTypeId: true, pricingTierId: true,
         createdSource: true, promoCodeId: true,
+        // The authoritative "what they owe": without it a tier-priced
+        // registration on a 0-base ticket type reads as free at the door.
+        originalPrice: true,
         ticketType: { select: { price: true } },
         pricingTier: { select: { price: true } },
         attendee: { select: { firstName: true, lastName: true } },
@@ -393,6 +396,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
         checkedInAt: reg.checkedInAt,
         ticketTypePrice: reg.ticketType?.price,
         pricingTierPrice: reg.pricingTier?.price,
+        originalPrice: reg.originalPrice,
       },
       { allowCancelled },
     );

@@ -23,6 +23,7 @@
  * committed check-in into a user-facing 500 at the desk (review M13 for
  * these routes).
  */
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -36,10 +37,15 @@ export interface CheckInGateInput {
   status: string;
   paymentStatus: string;
   checkedInAt: Date | null;
-  /** `ticketType.price` (Decimal | number | null) — 0 ⇒ free ⇒ complimentary. */
+  /**
+   * `ticketType.price` (Decimal | number | null). NOT "0 ⇒ free" on its own:
+   * the base type is routinely priced 0 with the real money on the tier below.
+   */
   ticketTypePrice: unknown;
-  /** `pricingTier.price` when a tier is set — 0 ⇒ free ⇒ complimentary. */
+  /** `pricingTier.price` when a tier is set. Wins over the ticket type. */
   pricingTierPrice: unknown;
+  /** `Registration.originalPrice` — the price stamped at create, if selected. */
+  originalPrice?: unknown;
 }
 
 export interface CheckInDenial {
@@ -73,11 +79,37 @@ export function isComplimentaryRegistration(reg: {
   paymentStatus: string;
   ticketTypePrice: unknown;
   pricingTierPrice: unknown;
+  /**
+   * Optional: the price stamped on the registration at create. Passed by both
+   * real callers because it is the most authoritative figure, but omitting it
+   * degrades safely to the tier-then-ticket resolution below — unlike `status`
+   * above, it cannot flip the verdict on a whole payment status.
+   */
+  originalPrice?: unknown;
 }): boolean {
+  if (reg.paymentStatus === "COMPLIMENTARY") return true;
+
+  // A registration is free when its EFFECTIVE price is zero — the tier's when
+  // it has one, the ticket type's otherwise.
+  //
+  // This used to be `ticketTypePrice === 0 || pricingTierPrice === 0`, which
+  // let a tier-priced registration through the door for nothing. It is the
+  // standard shape here: the base type is priced 0 and the real money lives on
+  // the tier (Early Bird, Standard). So "Physician 0.00 + Standard 100.00" read
+  // as FREE and was admitted regardless of payment status. Found 2026-08-27
+  // when an UNPAID attendee owing 100 turned up checked in.
+  //
+  // registration-financials solved exactly this in July for the money screens —
+  // its own comment reads "the row reads as a 'Free registration' while it
+  // actually owes the tier price". This is that same bug, in the door. Rather
+  // than repair a second copy of the rule, the door now calls the one that was
+  // already right, so the two cannot disagree about what someone owes.
   return (
-    reg.paymentStatus === "COMPLIMENTARY" ||
-    Number(reg.ticketTypePrice ?? 0) === 0 ||
-    (reg.pricingTierPrice != null && Number(reg.pricingTierPrice) === 0)
+    readRegistrationBasePrice({
+      originalPrice: reg.originalPrice,
+      pricingTier: reg.pricingTierPrice == null ? null : { price: reg.pricingTierPrice },
+      ticketType: reg.ticketTypePrice == null ? null : { price: reg.ticketTypePrice },
+    }) === 0
   );
 }
 
@@ -106,6 +138,8 @@ export function isPaymentAdmissible(reg: {
    * predicate exists to prevent (review H1).
    */
   status: string;
+  /** Forwarded to isComplimentaryRegistration — see the note there. */
+  originalPrice?: unknown;
 }): boolean {
   // A genuinely free ticket or tier admits regardless of the status string —
   // nothing is owed, so there is nothing for payment to block.

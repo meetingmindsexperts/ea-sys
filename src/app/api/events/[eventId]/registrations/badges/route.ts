@@ -73,6 +73,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Needed by isPaymentAdmissible: a REFUNDED registration is badge-able
         // only while its status says the place still stands.
         status: true,
+        // The authoritative "what they owe". Without it a tier-priced
+        // registration on a 0-base ticket type reads as free.
+        originalPrice: true,
         attendee: { select: { firstName: true, lastName: true, country: true, organization: true } },
         ticketType: { select: { name: true, price: true } },
         pricingTier: { select: { price: true } },
@@ -89,6 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       isPaymentAdmissible({
         paymentStatus: r.paymentStatus,
         status: r.status,
+        originalPrice: r.originalPrice,
         ticketTypePrice: r.ticketType?.price ?? null,
         pricingTierPrice: r.pricingTier?.price ?? null,
       }),
