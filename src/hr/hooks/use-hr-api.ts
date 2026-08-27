@@ -176,3 +176,54 @@ export function useClearHrAttendance() {
     },
   });
 }
+
+export interface HrEmployeeInput {
+  empCode: string;
+  name: string;
+  department?: string | null;
+  jobTitle?: string | null;
+  joiningDate: string;
+  exitDate?: string | null;
+  carryoverDays?: number;
+  openingSickUsed?: number;
+  openingCompOff?: number;
+  notes?: string | null;
+}
+
+async function send<T>(url: string, method: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parsed?.error ?? `Request failed (${res.status})`);
+  return parsed as T;
+}
+
+export function useCreateHrEmployee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: HrEmployeeInput) =>
+      send<{ employee: HrEmployee }>("/api/hr/employees", "POST", input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
+
+export function useUpdateHrEmployee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: Partial<HrEmployeeInput> & { id: string }) =>
+      send<{ employee: HrEmployee }>(`/api/hr/employees/${id}`, "PATCH", patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
+
+export function useHrEmployeeExit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, exitDate, status }: { id: string; exitDate: string; status: "RESIGNED" | "TERMINATED" }) =>
+      send<{ employee: HrEmployee }>(`/api/hr/employees/${id}/exit`, "POST", { exitDate, status }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
