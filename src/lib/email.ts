@@ -13,7 +13,7 @@ import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
-import { formatDateInTz, formatEventDateRange, resolveTimezone } from "./event-time";
+import { formatEventDateRange, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -1091,6 +1091,25 @@ export function renderMessageValue(
 // ── Email branding wrapper ─────────────────────────────────────────────────────
 
 export interface EmailBranding {
+  /**
+   * Event-level template variables, resolved once for EVERY slug.
+   *
+   * Owner rule, Aug 27 2026: event variables are GLOBAL. Before this each
+   * sender hand-built its own vars object, so a token that sender happened not
+   * to pass rendered as the LITERAL `{{eventDate}}` — `renderTemplate` leaves
+   * unknown keys in place on purpose. The organizer had no way to find out:
+   * the preview supplies event vars for every slug, so it rendered correctly
+   * and the sent email did not.
+   *
+   * That shipped. Middle East Heart Failure 2027 mailed real abstract authors
+   * "which will be held from {{eventDate}} at {{eventVenue}}", braces and all.
+   *
+   * It rides on `branding` because branding is the one object every sender
+   * already threads from `getEventTemplate` into `renderAndWrap` — so this
+   * reaches every slug with no per-caller wiring, which is what stops the next
+   * hand-built sender reproducing it.
+   */
+  eventVars?: Record<string, string>;
   emailHeaderImage?: string | null;
   /**
    * Responsive logo / sign-off image rendered at the very bottom of
@@ -3310,19 +3329,19 @@ export function buildEventPreviewVariables(
   extra?: Partial<Record<string, string | number>>,
 ): Record<string, string | number> {
   const tz = event.timezone ?? null;
-  const start = formatDateInTz(event.startDate, tz ?? "");
-  const multiDay =
-    event.endDate != null &&
-    formatDateInTz(event.endDate, tz ?? "") !== start;
-  // {{eventDate}} is the START date, matching what the real send renders.
-  // It used to show the RANGE on multi-day events while the send showed only
-  // the start, so an organizer previewed "October 2 – 3" and their registrants
-  // received "October 2". The range now lives in its own token, which the send
-  // provides too.
-  const eventDate = start;
-  const eventDateRange = multiDay
-    ? `${start} – ${formatDateInTz(event.endDate as Date, tz ?? "")}`
-    : start;
+  // Through the SAME helper the send uses, so preview and inbox cannot differ.
+  //
+  // They did: the preview formatted short ("Fri, Jan 15, 2027") while the send
+  // formats long ("Friday, January 15, 2027"), and the comment here asserted
+  // they matched. Harmless on its own — same date either way — but this is the
+  // exact mechanism behind the bug that shipped: an organizer trusts the
+  // preview, and the preview is not the email. Deriving both from one function
+  // makes agreement structural instead of a claim in a comment.
+  const { eventDate, eventDateRange } = buildEventDateTokens(
+    event.startDate,
+    event.endDate,
+    tz,
+  );
   const daysUntilEvent = Math.max(
     0,
     Math.ceil((event.startDate.getTime() - Date.now()) / 86_400_000),
@@ -3383,6 +3402,43 @@ export function buildEventPreviewVariables(
 
 // ── Helper to load event template from DB (with fallback to default) ───────────
 
+/**
+ * The event block every email gets, whatever its slug.
+ *
+ * Deliberately small: exactly the tokens organizers actually use today
+ * (verified against all 577 active templates), plus eventName. Adding another
+ * is now one line in one place, which is the whole point — the previous shape
+ * needed it added to each sender that might want it, and the ones that forgot
+ * shipped raw braces to real people.
+ *
+ * Dates go through `buildEventDateTokens` rather than a fresh Intl call: it
+ * anchors to the event's own timezone, and formatting an event date without
+ * one silently moves the DATE, not just the clock (a 02:00 Dubai start is
+ * 22:00Z the previous day). That lesson is written up on the helper itself.
+ */
+function buildGlobalEventVars(event: {
+  name: string;
+  startDate: Date;
+  endDate: Date | null;
+  venue: string | null;
+  city: string | null;
+  timezone: string | null;
+}): Record<string, string> {
+  const { eventDate, eventDateRange } = buildEventDateTokens(
+    event.startDate,
+    event.endDate,
+    event.timezone,
+  );
+  return {
+    eventName: event.name,
+    eventDate,
+    eventDateRange,
+    // Same join the registration confirmation and the group confirmation
+    // already use, so {{eventVenue}} means one thing across every email.
+    eventVenue: [event.venue, event.city].filter(Boolean).join(", "),
+  };
+}
+
 export async function getEventTemplate(
   eventId: string,
   slug: string
@@ -3405,11 +3461,19 @@ export async function getEventTemplate(
         emailFromName: true,
         emailCcAddresses: true,
         name: true,
+        // Added to the select this query already runs, so global event vars
+        // cost no extra round trip.
+        startDate: true,
+        endDate: true,
+        venue: true,
+        city: true,
+        timezone: true,
       },
     }),
   ]);
 
   const branding: EmailBranding = {
+    eventVars: event ? buildGlobalEventVars(event) : undefined,
     emailHeaderImage: event?.emailHeaderImage,
     emailFooterImage: event?.emailFooterImage,
     emailFooterHtml: event?.emailFooterHtml,
@@ -3459,7 +3523,11 @@ export function renderAndWrap(
   // as NOTHING on those paths instead of as the literal `{{organizerSignature}}`
   // text (renderTemplate deliberately leaves unknown tokens in place). A
   // caller-provided value always wins via the spread.
-  const vars = { organizerSignature: "", ...variables };
+  // Precedence, and it matters: the organizerSignature default is the weakest,
+  // then the global event block, then whatever the caller passed. A sender that
+  // already builds its own eventDate keeps winning, so this changes nothing for
+  // the paths that were already correct and only fills the holes.
+  const vars = { organizerSignature: "", ...(branding.eventVars ?? {}), ...variables };
   const subject = renderTemplatePlain(template.subject, vars);
   const bodyHtml = renderTemplate(template.htmlContent, vars, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);

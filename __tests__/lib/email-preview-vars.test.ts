@@ -65,7 +65,16 @@ describe("buildEventPreviewVariables", () => {
   it("puts the span in eventDateRange, collapsing it on a single-day event", () => {
     const single = buildEventPreviewVariables(baseEvent, USER);
     expect(String(single.eventDateRange)).not.toContain("–");
-    expect(String(single.eventDateRange)).toBe(String(single.eventDate));
+    // They name the same DAY, not the same STRING. This used to assert string
+    // equality, which only held because the preview formatted its own dates;
+    // the SEND has always produced "Thursday, September 10, 2026" for
+    // eventDate and "September 10, 2026" for the collapsed range. Now that
+    // both come from buildEventDateTokens the preview matches the send, and
+    // the old assertion was pinning the divergence rather than the behaviour.
+    expect(String(single.eventDateRange)).toContain("September 10, 2026");
+    expect(String(single.eventDate)).toContain("September 10, 2026");
+    expect(String(single.eventDate)).toContain("Thursday");
+    expect(String(single.eventDateRange)).not.toContain("Thursday");
 
     const multi = buildEventPreviewVariables(
       { ...baseEvent, endDate: new Date("2026-09-12T18:00:00+04:00") },
@@ -209,7 +218,9 @@ describe("buildEventPreviewVariables", () => {
   // Class-2: these were canned samples although the real event data is in hand.
   it("renders eventDateRange / organizationName / venueLine from the REAL event", () => {
     const v = buildEventPreviewVariables(baseEvent, USER);
-    expect(v.eventDateRange).toBe(v.eventDate);
+    // Same day, different format — see the note on the collapsing test above.
+    expect(String(v.eventDateRange)).toContain("September 10, 2026");
+    expect(String(v.eventDate)).toContain("September 10, 2026");
     expect(v.organizationName).toBe("Meeting Minds Group");
     expect(v.venueLine).toBe("at Madinat Jumeirah, Dubai");
   });
