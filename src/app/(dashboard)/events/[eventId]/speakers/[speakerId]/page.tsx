@@ -96,6 +96,12 @@ const statusColors: Record<string, string> = {
 
 interface Speaker {
   id: string;
+  /**
+   * The optimistic-lock token. The API has always returned it; this page just
+   * never declared it, which is a fair part of why the save here went a year
+   * without sending it while the sheet did.
+   */
+  updatedAt: string;
   title: string | null;
   /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
   role: string | null;
@@ -444,6 +450,18 @@ export default function SpeakerDetailPage() {
         ...(cancelCompanion !== undefined && { cancelCompanionRegistration: cancelCompanion }),
       };
       delete payload.email;
+      // Optimistic-lock token (W2-F8). The server has compared this against the
+      // row's `updatedAt` and returned 409 STALE_WRITE since the feature
+      // shipped — this page just never sent it, so every save from here was
+      // last-write-wins and the whole tested path was unreachable from the main
+      // editing surface. Exactly the gap the agenda dialog had until Aug 10,
+      // found the same way: the warning it logs, not a bug report.
+      //
+      // The sheet at components/speakers/speaker-detail-sheet.tsx already sent
+      // it, which made this worse than neither doing so: an edit made here
+      // could silently overwrite one made there, and the person who lost their
+      // work was told nothing.
+      payload.expectedUpdatedAt = speaker?.updatedAt;
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -471,7 +489,18 @@ export default function SpeakerDetailPage() {
         if (cascade === "cancelled") fetchSpeaker();
       } else {
         const data = await res.json();
-        toast.error(data.error || "Failed to save speaker");
+        if (res.status === 409 && data.code === "STALE_WRITE") {
+          // Same wording and same recovery as the sheet, deliberately: an
+          // organiser who hits this on one surface should not have to learn a
+          // second vocabulary on the other.
+          toast.error(
+            "This speaker was modified by someone else after you opened it. Reloading the latest version — please review and re-save your changes.",
+          );
+          fetchSpeaker();
+          setIsEditing(false);
+        } else {
+          toast.error(data.error || "Failed to save speaker");
+        }
       }
     } catch {
       toast.error("An error occurred. Please try again.");
