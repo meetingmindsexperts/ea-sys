@@ -6,10 +6,17 @@
 > which is the business-logic reference. Where this document and the workbook
 > disagree, the workbook wins and this document is wrong.
 >
-> **Three rules are OPEN (§3) and block the build.** Each has a definite answer
-> inside the workbook. Do not start §14 step 1 until all three are closed, and
-> do not guess: two of the three are the kind of rule that produces plausible
-> numbers while being wrong, which is the worst failure mode a leave tracker has.
+> **D1 and D2 are CLOSED** (owner rulings, Aug 27) and **§3 now records what the
+> workbook actually does, read from its formulas rather than its numbers.** That
+> reading overturned a premise: the leave year is the **calendar year**, not the
+> service year, so the anniversary-lump model in the first draft was wrong and
+> §5.1 is rewritten. It also found a live defect in the workbook: one employee
+> holds a comp-off that the owner's own rule does not award (§3.2).
+>
+> **Three questions remain open and block step 1** (§3.3, §3.4): whether a
+> negative balance carries into the new year, whether carryover is capped, and
+> whether derived-present is acceptable or a month needs finalising. None can be
+> answered from the workbook, which only ever holds one year.
 >
 > **Sequencing note.** `docs/PLATFORM_DECISIONS.md` §7 records per-tenant Stripe
 > and AI keys as the next build priority. The CRM, which is the closest
@@ -42,61 +49,136 @@ touch points worth naming before the schema is written.
   it: `src/hr/` may import core, core must never import `src/hr/`, with a named
   exemption list for the worker job shim.
 
-## 3. OPEN decisions (blocking)
+## 3. What the workbook actually does (read from the formulas, Aug 27, 2026)
 
-### D1. Comp-off on a run longer than two days
+The v5.1 workbook was parsed directly (formulas, not just cached values), and
+three things in the original plan were wrong. This section is the evidence.
+Shape: **9,125 rows** (25 employees x 365 days), **2026-01-01 to 2026-12-31**.
 
-The stated rule is: *an OD day whose immediately preceding calendar day (same
-employee) is also OD earns exactly one comp-off.* That yields N−1 for a run of
-N consecutive OD days. Sat plus Sun gives 1, which matches. A lone OD day gives
-0, which matches. But Friday plus Saturday plus Sunday gives **2**.
+### 3.1 The leave year is the CALENDAR year, not the service year
 
-Art. 28 FDL 33/2021 is usually read as one compensating day (or 50% extra pay)
-per rest day worked, which would give **3** for that run. The pair rule and the
-per-day rule agree on every two-day case and diverge on every longer one.
+This is the correction that matters most, because the original plan built an
+anniversary-lump service-year ledger and the workbook does nothing of the kind.
 
-**Question: what does the workbook produce for a three-day OD run?** If the
-answer is 2, the pair rule is correct and gets a comment explaining that it is
-deliberate and not an off-by-one. If the answer is 3, the rule is "one per OD
-day that falls on a rest day or holiday" and the pairing is an artefact.
+```
+Employee Master G:  =IF(EDATE(joining,12) <= TODAY(), 30, 0)      # entitlement
+Employee Master H:  manual "Carryover / Unused AL (manual)"
+Leave Summary   D:  =N(G) + N(H)                                   # entitlement + carryover
+Leave Summary   E:  =COUNTIFS(AL, date <= exitDate or 2027-01-01)
+                     + 0.5*COUNTIFS(AL-HD, same bound)             # taken
+Leave Summary   F:  =D - E                                         # balance
+```
 
-### D2. Do unused prior-year annual leave days vanish?
+There is **no lower date bound on E**, and the sheet spans exactly one calendar
+year. So: entitlement is a flat 30 for the year, the anniversary is only the
+eligibility gate for a first-year employee, and "taken" means "taken in 2026".
+Nothing accumulates across years inside the sheet; last year arrives as the
+manual `H`.
 
-§5.1 computes the balance as `current grant + carryoverDays − taken in the
-current service year`. On the second anniversary the year-one grant is replaced
-rather than added to, so any unused year-one days disappear unless HR types
-them into `Employee.carryoverDays` by hand.
+Two consequences worth stating before they surprise someone:
 
-That is very likely what the workbook does, and it is a legitimate policy
-(UAE law permits carryover limits by contract). It is recorded here because in
-code it will read as a lost-update bug to whoever maintains this next.
+- **The entitlement gate is evaluated against `TODAY()`, so it moves mid-year.**
+  EMP021 (Adelina) shows entitlement 0 and balance **-23** today. The moment her
+  first anniversary passes, entitlement flips to 30 and her balance becomes +7.
+  That is a live number that changes without anyone editing anything.
+- **After year one the gate is permanently true**, so `G` is simply 30 forever
+  and only new joiners ever see 0.
 
-**Question: confirm that prior-year remainder is manual-only.** If confirmed,
-`leaveBalanceService` carries a named comment saying so, and the dashboard shows
-"unused days from last year are not carried automatically" beside the carryover
-field so HR is reminded at the moment it matters.
+### 3.2 D1 CLOSED: only a Saturday plus Sunday pair earns a comp-off
 
-### D3. Derived-present versus recorded-present
+Owner ruling, Aug 27: *"fri + sat + sun give only 1, because fri is a workday.
+Only sat + sun consecutive will earn a comp-off."*
 
-§4 stores no row for an ordinary working day, and resolves an absent row to
-Present at query time. That is the right call for storage (it removes the
-phantom-row and pre-fill-cleanup class of bug the workbook has) but it has one
-consequence worth accepting knowingly: **the system cannot distinguish "this
-person was present" from "nobody has recorded anything yet".**
+**The workbook does not implement that.** Its formula is the broader
+previous-day rule:
 
-For a historical month that distinction is academic. For two cases it is not:
+```
+Daily Attendance J:  =IF(inactive, 0,
+                        IF(AND(F="OD", COUNTIFS(sameEmp, date-1, "OD") > 0), 1, 0))
+```
 
-1. **Today's dashboard** shows everyone present before anyone has opened the
-   grid, which is a confident-looking wrong answer.
-2. **End-of-service evidence.** Gratuity and leave encashment are computed from
-   this data. A derived P is an inference; a recorded P is a record.
+Any OD day whose previous calendar day is also OD earns 1, regardless of which
+days of the week they are. On weekend pairs the two rules agree, which is why
+this has gone unnoticed.
 
-**Question: do we need a "month finalised" marker**, set by HR, after which the
-month's derived days are frozen into real rows? Or is derived-present
-acceptable, with the dashboard simply labelling today's figures "unconfirmed"?
+**The divergence is live in the data, in exactly one row.** Of 58 OD days across
+16 employees, every earning pair is Sat+Sun except one:
 
-The cheap answer is the label. The durable answer is the marker. Either is
-fine, but it must be chosen before the schema, because the marker is a table.
+| Employee | OD days | Earned (workbook) | Earned (owner rule) |
+|---|---|---|---|
+| EMP002 Nawfer | Wed 2026-01-14 + Thu 2026-01-15, Sat 06-27, Sat 07-04 | **1** | **0** |
+| everyone else | Sat+Sun pairs and lone Saturdays | matches | matches |
+
+So Nawfer's comp-off balance is 1 in the workbook and should be 0. **The
+reconciliation gate in §13 must expect this single deliberate difference**,
+not treat it as an import failure. It is also the reason the gate exists.
+
+Implementation rule: **an OD on a weekend day earns 1 comp-off when the other
+day of the same weekend is also OD.** Compute from the weekend pair, not from
+"yesterday was OD". A lone Saturday earns 0. Wed+Thu earns 0.
+
+**Small follow-up, not blocking:** under this rule, working a **public holiday**
+earns nothing, even though §6.4 defines OD as working a weekly off *or* a
+holiday and Art. 28 covers both. The live data has no holiday OD, so nothing is
+affected today. Confirm when convenient.
+
+### 3.3 D2 CLOSED, and reversed from the first draft
+
+Owner ruling, Aug 27: *"they get carried forward. Muthu will manually enter them
+for last year, and going forward they will be carried forward."*
+
+So `Employee.carryoverDays` is the **seed** (manual, one time, for the year
+before go-live), and from then on the system rolls the closing balance into the
+next year automatically. Given §3.1, the boundary is **1 January**, not the
+anniversary.
+
+Two questions this raises that the workbook cannot answer, because it only ever
+holds one year:
+
+- **Does a NEGATIVE balance carry forward?** Leena closes 2026 at -15. Does she
+  open 2027 at 15 (30 - 15, the debt follows her) or at 30 (the debt is
+  forgiven)? "Carried forward" implies the former, and the former is also the
+  only reading under which leave-taken-in-advance means anything, but it is a
+  real money decision and it should be said out loud rather than inferred.
+- **Is carryover capped?** Many UAE contracts cap it (30 days, or half the
+  annual entitlement). `H` is free manual entry with no cap, so the workbook
+  neither implements nor rules out one.
+
+### 3.4 D3 informed: the workbook pre-generates everything, and 90% of it is noise
+
+All 9,125 rows exist. Only **943 carry information**:
+
+| | rows |
+|---|---|
+| P | 4,801 |
+| OFF | 2,191 |
+| PH | 264 |
+| blank (mostly outside the employment window) | 926 |
+| **AL** | **419** |
+| **WFH** | **386** |
+| **OD** | **58** |
+| **SL-F** | **45** |
+| **CO** | **29** |
+| **ABS** | **4** |
+| **SL-HD / AL-HD** | **1 each** |
+
+The §4 design note is vindicated: storing only the 943 is right, and the
+pre-generated 7,256 are exactly the phantom rows the module should not have.
+
+**The owner decision in D3 still stands and is unchanged by this**: derived-P
+cannot be distinguished from nobody-recorded-anything. What the data now adds is
+the cost of the alternative, which is roughly 7,300 rows per year for 25 people
+if a "finalise the month" action materialises them. That is nothing at this
+scale, so the choice is about meaning rather than storage.
+
+### 3.5 Two data-quality items the import must handle
+
+- **EMP024 and EMP025 are placeholder rows** with the literal name `0` and no
+  joining date. Skip them; do not create employees.
+- **Negative comp-off balances already exist** (EMP011 -2, EMP015 -2, EMP016 -2,
+  EMP022 -1): people have taken comp-offs they had not earned. This confirms
+  warn-rather-than-block as the right default in §6.4, and means negative
+  comp-off must display as plainly as negative annual leave.
 
 ---
 
@@ -185,14 +267,24 @@ happen to render similarly is exactly how the wrong one gets called.
 **`Decimal`, never `Float`, for every day count.** Half days must be exact. A
 float sum of thirty 0.5s is not 15.
 
-### 4.2 Service year is one helper, used everywhere
+### 4.2 The leave year is one helper, used everywhere
 
-Annual grants (§5.1) and sick tiers (§5.3) both reset on the employment
-anniversary. That boundary is computed by exactly one function,
-`serviceYearFor(employee, date)`, and both consumers call it. Two
-implementations of the same anniversary maths that disagree on leap years or on
-a joining date of 29 February is a defect nobody would find until the year it
-mattered. This is the no-cross-caller-duplication rule (AGENTS.md).
+Per §3.1 the leave year is the **calendar year**, and both annual leave and the
+sick tiers reset on it (the sick formulas have the same unbounded COUNTIFS
+shape as the annual one, so they are calendar-year too). The employment
+anniversary survives in exactly two places: the first-year eligibility gate, and
+the "next grant date" shown to HR.
+
+Two small functions, called by every consumer, never re-derived:
+
+- `leaveYearBounds(year)` gives the Jan 1 to Dec 31 window.
+- `hasCompletedFirstYear(employee, asOf)` is the entitlement gate.
+
+`hasCompletedFirstYear` is the one with a trap in it: a joining date of
+29 February has no anniversary in three years out of four, and whichever way
+that resolves (28 Feb or 1 Mar) it must resolve the same way for every caller.
+Two implementations that disagree there is a defect nobody finds until the year
+it matters. This is the no-cross-caller-duplication rule (AGENTS.md).
 
 ---
 
@@ -201,28 +293,42 @@ mattered. This is the no-cross-caller-duplication rule (AGENTS.md).
 Every rule below is validated in the workbook. Implement exactly; do not
 invent, and do not "improve" one because it looks inconsistent with another.
 
-### 5.1 Annual leave: anniversary lump model
+### 5.1 Annual leave: calendar year, flat 30, manual seed then automatic carry
 
-- **30 days granted as a lump on each service anniversary** (joining date plus
-  12·n months), materialised as `LeaveGrant` rows by a daily worker job, with an
-  idempotent upsert on `(employeeId, serviceYear)`. Grants are auditable events,
-  not a formula, so that "why does this person have 30 days" has an answer with
-  a date on it.
-- **Nothing accrues before the first anniversary.** New joiners have zero
-  entitlement until then. The law's pro-rata minimum for months 7 to 12 was
-  explicitly declined as company policy, so the reader carries a config flag
-  `accrueProRataFirstYear` defaulting to `false`, which lets that reverse later
-  without a schema change.
-- **Carryover is a manual HR field** (`Employee.carryoverDays`), added on top.
-  See **D2**.
-- **Balance** = current grant + carryover − annual leave taken in the current
-  service year.
-- **Negative balances are allowed, displayed, and never clamped.** They
-  represent leave taken in advance, which is legal by mutual agreement and is
-  present in the live data (EMP021 sits at −23 before their anniversary). A
-  `Math.max(0, …)` anywhere in this module is a bug. The dashboard surfaces
-  negatives prominently rather than hiding them.
-- Each employee exposes a **next grant date**.
+Per §3.1, read from the workbook formulas. This replaces the anniversary-lump
+model in the first draft of this plan, which the workbook does not implement.
+
+- **Entitlement for a calendar year is a flat 30 days**, granted in full, once
+  the employee has completed twelve months. Before that it is **zero**: the
+  law's pro-rata minimum for months 7 to 12 was declined as company policy, so
+  a config flag `accrueProRataFirstYear` defaults to `false` and leaves that
+  reversible without a schema change.
+- **The gate is evaluated against the current date, so it moves mid-year.** An
+  employee sits at 0 entitlement, possibly with a negative balance, until their
+  first anniversary passes, at which point 30 appears. EMP021 is exactly this:
+  -23 today, +7 the day after her anniversary. The UI must make that legible
+  rather than let it look like a correction nobody made.
+- **Carryover** is `Employee.carryoverDays`: manual for the one-time seed of the
+  year before go-live, then written by the year-end roll (below).
+- **Balance** = entitlement + carryover - annual leave taken in the calendar
+  year, where `AL` counts 1.0 and `AL-HD` counts 0.5.
+- **Negative balances are allowed, displayed, and never clamped.** They are
+  leave taken in advance, which is legal by agreement, and four employees are
+  negative in the live data. A `Math.max(0, ...)` anywhere in this module is a
+  bug.
+- **Year-end roll**, the piece the workbook does not have because it only holds
+  one year: on 1 January the closing balance becomes the new `carryoverDays`.
+  Two rules on it are still OPEN, see §3.3: whether a negative balance follows
+  the employee into the new year, and whether carryover is capped.
+- Each employee exposes a **next anniversary date**, which is informational
+  after year one.
+
+**`LeaveGrant` is retained even though the workbook has no equivalent.** A flat
+30 could be computed rather than stored, but the year-end roll writes a value
+derived from a whole year of entries, and a derived number that later disagrees
+with the entries it came from is unanswerable. One row per employee per leave
+year, carrying the entitlement and the carried-in figure, makes "why does this
+person have 34 days" a question with a dated answer.
 
 ### 5.2 Half days
 
@@ -235,19 +341,32 @@ invent, and do not "improve" one because it looks inconsistent with another.
 
 ### 5.3 Sick leave tiers (Art. 31 FDL 33/2021)
 
-Per service year: first 15 days full pay (`SL-F`), next 30 half pay (`SL-H`),
-next 45 unpaid (`SL-U`). Consumption is tracked per tier and the balances view
-shows all three, because "days of sick leave left" is not a single number.
+Per leave year (calendar, per §4.2): first 15 days full pay (`SL-F`), next 30
+half pay (`SL-H`), next 45 unpaid (`SL-U`). `SL-HD` counts 0.5 against the
+full-pay tier. Consumption is tracked per tier and the balances view shows all
+three, because "days of sick leave left" is not one number.
+
+`Employee.openingSickLeaveUsed` carries the seed, mirroring the workbook's
+"Opening Sick Leave Used" column.
 
 ### 5.4 On-Duty and Comp-Off (Art. 28)
 
 - `OD` marks working a weekly off or a public holiday, for example delivering a
   conference on a Saturday.
-- Comp-off earning follows **D3 §3, once answered**. Comp-off balance is
-  computed from data (earned minus taken), never stored as a counter, so it
-  cannot drift out of agreement with the entries it summarises.
-- `CO` marks taking an earned comp-off. Taking `CO` with a zero balance is a
-  **warning by default**, with a config flag to make it a hard block.
+- **Comp-off earning, per the owner ruling closed in §3.2: an OD day on a
+  weekend day earns 1 comp-off when the OTHER day of the same weekend is also
+  OD.** Sat plus Sun earns 1. A lone Saturday earns 0. Two working days marked
+  OD earn 0, which is where the workbook's own formula is wrong and where the
+  import will legitimately differ from it by one comp-off for EMP002.
+- Compute the rule from the weekend pair, not from "the previous day was OD".
+  The two agree on every weekend case and diverge everywhere else, so the
+  broader rule looks correct right up until it is not.
+- The balance is **derived** (earned plus opening, minus taken), never stored as
+  a counter, so it cannot drift away from the entries that justify it.
+- `CO` marks taking an earned comp-off. Taking one with a zero balance is a
+  **warning by default**, with a config flag to make it a hard block. Four
+  employees are already negative in the live data, so blocking by default would
+  refuse to import the truth.
 - No comp-off is earned after the exit date.
 
 ### 5.5 Employment window
@@ -434,55 +553,114 @@ person and HR data is about people.
 
 ## 13. Excel import, and the gate that makes it trustworthy
 
-`scripts/import-hr-excel.ts`, run once, against the v5.1 workbook:
+`scripts/import-hr-excel.ts`, run once, against the v5.1 workbook. The workbook
+is a zip of XML, so it can be read with the standard library; no new dependency
+is needed, and reading the **formulas** rather than only the cached values is
+what produced §3.
 
-1. Employee Master into `Employee`, including joining, exit and carryover.
+1. Employee Master into `Employee`, including joining, exit, carryover, opening
+   sick used and opening comp-off. **Skip EMP024 and EMP025**, which are
+   placeholder rows with the literal name `0` and no joining date.
 2. Leave Codes sheet into `LeaveCode`, with the `dayWeight` and `countsAs`
    mapping.
-3. Daily Attendance into `AttendanceEntry` for explicit leave, OD, CO and WFH
-   codes, **and any P or OFF that deviates from the computed default**. Rows
-   matching the default pattern are skipped, because they are derivable (§4).
+3. Daily Attendance into `AttendanceEntry` for the **943 rows that carry
+   information** (`AL`, `AL-HD`, `SL-F`, `SL-HD`, `OD`, `CO`, `WFH`, `ABS`) plus
+   any `P`, `OFF` or `PH` that deviates from the computed default. The other
+   7,256 are derivable and are not imported (§3.4).
 4. **The gate: recompute every balance through `leaveBalanceService` and diff
-   against the workbook's Leave Summary sheet. The import is accepted only when
-   annual taken, annual balance, all three sick tiers and comp-off match exactly
-   for every employee.** Print the diff table either way.
+   against the workbook's Leave Summary.** Print the diff table either way.
 
-Two live figures must reproduce, and they are chosen because each would be
-hidden by a plausible bug: **EMP021 at −23 before their anniversary** fails if
-anything clamps a negative balance, and **EMP001 at 45 annual days taken** fails
-if half-day weighting or the service-year boundary is wrong.
+### 13.1 The reconciliation baseline (read from the workbook, Aug 27, 2026)
+
+Entitlement is 30 for everyone except the three with an unreached first
+anniversary. Every figure below must reproduce exactly, with one deliberate
+exception.
+
+| Emp | Name | Entitlement | AL taken | AL balance | Sick full | OD | C-off earned | C-off taken | C-off balance |
+|---|---|---|---|---|---|---|---|---|---|
+| EMP001 | Leena | 30 | 45 | **-15** | 0 | 2 | 0 | 0 | 0 |
+| EMP002 | Nawfer | 30 | 30 | 0 | 0 | 4 | **1 → 0** | 0 | **1 → 0** |
+| EMP003 | Muthu | 30 | 34 | -4 | 2 | 0 | 0 | 0 | 0 |
+| EMP004 | Richard | 30 | 12 | 18 | 0 | 4 | 1 | 1 | 0 |
+| EMP005 | Dinalyn | 30 | 1 | 29 | 4 | 5 | 4 | 4 | 0 |
+| EMP006 | Vivek | 30 | 22 | 8 | 0 | 7 | 5 | 4 | 1 |
+| EMP007 | Aimon | 30 | 12 | 18 | 1 | 0 | 0 | 0 | 0 |
+| EMP008 | Bassem | 30 | 29 | 1 | 0 | 4 | 3 | 3 | 0 |
+| EMP009 | Jinan | 30 | 9 | 21 | 1 | 2 | 1 | 0 | 1 |
+| EMP010 | Mohammad Salah | 30 | 33 | -3 | 5 | 1 | 0 | 0 | 0 |
+| EMP011 | Zaid | 30 | 33 | -3 | 0 | 6 | 2 | 4 | **-2** |
+| EMP012 | Muhammad Ahsan | 30 | 15 | 15 | 6 | 0 | 0 | 0 | 0 |
+| EMP013 | Tabian | 30 | 31 | -1 | 6 | 2 | 1 | 1 | 0 |
+| EMP014 | Krishna | 30 | **9.5** | **20.5** | **1.5** | 0 | 0 | 0 | 0 |
+| EMP015 | Saleh Mahmoud | 30 | 12 | 18 | 1 | 2 | 0 | 2 | **-2** |
+| EMP016 | Sohail | 30 | 27 | 3 | 10 | 4 | 2 | 4 | **-2** |
+| EMP017 | Karim | 30 | 5 | 25 | 0 | 0 | 0 | 0 | 0 |
+| EMP018 | Nahil | 30 | 5 | 25 | 0 | 0 | 0 | 0 | 0 |
+| EMP019 | Seif | 30 | 26 | 4 | 3 | 5 | 1 | 1 | 0 |
+| EMP020 | Anisha Sodhi | 30 | 5 | 25 | 4 | 4 | 1 | 1 | 0 |
+| EMP021 | Adelina | **0** | 23 | **-23** | 0 | 4 | 1 | 1 | 0 |
+| EMP022 | Priyanka | **0** | 0 | 0 | 0 | 2 | 2 | 3 | **-1** |
+| EMP023 | Burhan | **0** | 1 | -1 | 1 | 0 | 0 | 0 | 0 |
+
+**The single expected difference is EMP002.** The workbook credits Nawfer one
+comp-off for a Wed plus Thu OD pair; under the owner rule (§3.2) that earns
+nothing, so the import produces 0 earned and 0 balance. Every other cell must
+match to the digit, and the importer prints the EMP002 line as an expected
+variance rather than a failure.
+
+**Why these particular rows are the ones to watch**, since each is hidden by a
+different plausible bug:
+
+- **EMP021 at -23 with entitlement 0** fails if anything clamps a negative, and
+  fails differently if the first-year gate is missing (she would show +7).
+- **EMP001 at 45 taken** fails if the leave year is scoped to the service year
+  rather than the calendar year, which is exactly the mistake the first draft of
+  this plan made.
+- **EMP014 at 9.5 and 1.5** fails if half-day weighting is wrong in either the
+  annual or the sick path.
+- **EMP011, EMP015, EMP016, EMP022 at negative comp-off** fail if comp-off is
+  floored at zero.
+- **EMP002** fails if the comp-off rule is copied from the workbook formula
+  instead of the owner ruling.
 
 The importer needs an **explicit bypass** for §5.5's write-time window
-rejection, plus a pre-flight report of any row it would have refused, since the
-workbook can hold rows the app will not accept.
+rejection, plus a pre-flight report of any row it would otherwise refuse.
 
 ## 14. Testing
 
-Unit tests on `leaveBalanceService` and `accrualService` are the core; the rest
-is plumbing. Port the workbook's validated scenarios as fixtures:
+Unit tests on `leaveBalanceService` are the core; the rest is plumbing. Port the
+§13.1 baseline as fixtures, so the suite asserts against real numbers rather
+than invented ones.
 
-- OD pair earns 1 comp-off; a lone OD earns 0; OD after the exit date earns 0;
-  **a three-day run earns whatever D1 resolves to**.
-- One `AL` plus two `AL-HD` equals 2.0 days. One `SL-HD` is 0.5 in the full-pay
-  tier.
-- Exit on Sep 30: annual leave on Sep 28 and 29 counts, Oct 5 is rejected.
-- Anniversary flip: entitlement goes 0 to 30 on the anniversary date exactly,
-  with time frozen in the test. Cover the Sep 1 and Oct 16 2026 cohorts.
-- Carryover 5 plus grant 30 minus 45 taken equals −10, and stays −10.
-- Rejections: before joining, after exit, duplicate `(employee, date)`.
-- Integration tests per route including RBAC denials in both directions.
-- RLS tests per the Phase-2 template: cross-org read and write must fail.
+- **Comp-off:** Sat plus Sun earns 1; a lone Saturday earns 0; **Wed plus Thu
+  earns 0** (the EMP002 case, and the one that fails if the workbook formula is
+  copied); a Sat plus Sun straddling a month boundary still earns 1; OD after
+  the exit date earns 0; a negative comp-off balance is preserved, not floored.
+- **Annual:** one `AL` plus two `AL-HD` equals 2.0; entitlement is 0 before the
+  first anniversary and 30 after it, with time frozen so the flip is asserted on
+  the exact date; carryover 5 plus entitlement 30 minus 45 taken equals -10 and
+  stays -10.
+- **Leave year:** leave taken in December of one year does not count against the
+  next year's balance. A joining date of 29 February resolves its anniversary
+  the same way in `hasCompletedFirstYear` for every caller.
+- **Sick:** one `SL-HD` is 0.5 in the full-pay tier; 15 full then 30 half then
+  45 unpaid, with the tier boundaries asserted at 15 and 45 exactly.
+- **Window:** exit on Sep 30 means annual leave on Sep 28 and 29 counts and
+  Oct 5 is rejected; entries before joining are rejected; a duplicate
+  `(employee, date)` is rejected.
+- Integration tests per route including RBAC denials in both directions, and RLS
+  tests per the Phase-2 template.
 
-**Mutation-verify the three guards that fail silently**: remove the negative
-clamp guard, the employment-window rejection and the service-year boundary in
-turn, and confirm the right test fails each time. A guard whose removal breaks
-nothing is not a guard.
+**Mutation-verify the four guards that fail silently**: remove the negative
+clamp, the employment-window rejection, the first-year entitlement gate, and the
+weekend-pair condition in the comp-off rule. Each removal must fail a specific
+named test. A guard whose removal breaks nothing is not a guard.
 
 ## 15. Build order and gates
 
 | Step | Gate |
 |---|---|
-| 0. Close D1, D2, D3 against the workbook | **Blocking. No code before this.** |
+| 0. Close the three §3.3/§3.4 questions (negative carry-forward, carryover cap, derived-present) | **Blocking. No code before this.** D1 and D2 are already closed. |
 | 1. Schema, migration, RLS policies, seeds (leave codes, 2026 holidays) | Migration replays from empty; `check-tenant-als.sh` green |
 | 2. `serviceYearFor`, `leaveBalanceService`, `accrualService` plus unit tests | Every §14 fixture passes; three mutation checks verified |
 | 3. Employee and attendance services, REST routes, integration tests | RBAC denials both directions |
