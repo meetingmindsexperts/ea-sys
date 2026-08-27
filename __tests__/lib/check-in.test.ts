@@ -83,11 +83,14 @@ describe("checkInGate — the desk truth table", () => {
     // Pinned as explicitly as the old rule was, and for the same reason: this
     // is a product decision, so it should take a product decision to change it,
     // not a tidy-up.
-    for (const status of ["FAILED", "REFUNDED", "UNASSIGNED"]) {
+    for (const status of ["FAILED", "UNASSIGNED"]) {
       expect(checkInGate({ ...base, paymentStatus: status })).toMatchObject({
         code: "PAYMENT_REQUIRED",
       });
     }
+    // REFUNDED is the exception and turns on the registration status — see the
+    // isPaymentAdmissible block below.
+    expect(checkInGate({ ...base, paymentStatus: "REFUNDED", status: "CONFIRMED" })).toBeNull();
   });
 
   it("the desk can still admit any of them with the audited override", () => {
@@ -123,8 +126,12 @@ describe("checkInGate — the desk truth table", () => {
 });
 
 describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () => {
-  const pay = (paymentStatus: string, extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown }> = {}) => ({
+  const pay = (
+    paymentStatus: string,
+    extra: Partial<{ ticketTypePrice: unknown; pricingTierPrice: unknown; status: string }> = {},
+  ) => ({
     paymentStatus,
+    status: "CONFIRMED",
     ticketTypePrice: 100,
     pricingTierPrice: null,
     ...extra,
@@ -138,7 +145,7 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
   });
 
   it("excludes everything else, including a status invented tomorrow", () => {
-    for (const status of ["UNPAID", "PENDING", "UNASSIGNED", "REFUNDED", "FAILED"]) {
+    for (const status of ["UNPAID", "PENDING", "UNASSIGNED", "FAILED"]) {
       expect(isPaymentAdmissible(pay(status))).toBe(false);
     }
     // The shape that matters: the predicate is an allow-list, so a value added
@@ -146,6 +153,27 @@ describe("isPaymentAdmissible — badge eligibility == door admission (H1)", () 
     // otherwise. Under the old deny-list it would have been admitted silently,
     // which is how UNASSIGNED, FAILED and REFUNDED came to be admitted at all.
     expect(isPaymentAdmissible(pay("SOME_FUTURE_STATUS"))).toBe(false);
+  });
+
+  it("REFUNDED turns on the REGISTRATION status, not the money", () => {
+    // Owner, 2026-08-27. A refund and a cancellation are different facts: money
+    // going back while the registration stays CONFIRMED is the organiser saying
+    // the place still stands (a sponsor picked up the cost, or goodwill).
+    // Someone who is not coming gets CANCELLED, which the gate refuses a branch
+    // earlier. The live case: HEMNET 2026 holds exactly one CONFIRMED+REFUNDED
+    // registration, already through the door.
+    expect(isPaymentAdmissible(pay("REFUNDED", { status: "CONFIRMED" }))).toBe(true);
+    expect(isPaymentAdmissible(pay("REFUNDED", { status: "CHECKED_IN" }))).toBe(true);
+    expect(isPaymentAdmissible(pay("REFUNDED", { status: "CANCELLED" }))).toBe(false);
+    expect(isPaymentAdmissible(pay("REFUNDED", { status: "PENDING" }))).toBe(false);
+  });
+
+  it("FAILED gets NO such exemption, however confirmed they are", () => {
+    // The distinction is where the money is. REFUNDED means it arrived and went
+    // back; FAILED means it never arrived, so they still owe and CONFIRMED only
+    // means nobody has chased them yet.
+    expect(isPaymentAdmissible(pay("FAILED", { status: "CONFIRMED" }))).toBe(false);
+    expect(isPaymentAdmissible(pay("FAILED", { status: "CHECKED_IN" }))).toBe(false);
   });
 
   it("free ticket / free tier is admissible regardless of status", () => {

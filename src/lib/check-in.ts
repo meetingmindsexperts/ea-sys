@@ -99,6 +99,13 @@ export function isPaymentAdmissible(reg: {
   paymentStatus: string;
   ticketTypePrice: unknown;
   pricingTierPrice: unknown;
+  /**
+   * Registration status. REQUIRED, not optional, so the compiler names every
+   * caller: REFUNDED's verdict depends on it, and a caller that quietly omitted
+   * it would admit at the door and print no badge — the exact drift the shared
+   * predicate exists to prevent (review H1).
+   */
+  status: string;
 }): boolean {
   // A genuinely free ticket or tier admits regardless of the status string —
   // nothing is owed, so there is nothing for payment to block.
@@ -116,6 +123,24 @@ export function isPaymentAdmissible(reg: {
   //
   // The desk can still admit anyone through `allowPaymentDue` — an explicit,
   // audited override — so this narrows the default, not the desk's authority.
+  //
+  // REFUNDED IS THE ONE EXCEPTION, and it turns on the registration status
+  // rather than the money (owner, 2026-08-27). A refund and a cancellation are
+  // different facts: if the organiser gave the money back and LEFT THE
+  // REGISTRATION CONFIRMED, that is an affirmative statement that the person is
+  // still attending — a sponsor picked up the cost, or it was goodwill. Someone
+  // who is not coming gets CANCELLED, which the gate refuses one branch above.
+  //
+  // FAILED deliberately does NOT get the same treatment: there the money never
+  // arrived at all, so the person still owes and CONFIRMED only means nobody has
+  // chased them yet.
+  //
+  // The live case this was asked for: HEMNET 2026 has exactly one CONFIRMED +
+  // REFUNDED registration, and they were already through the door.
+  if (reg.paymentStatus === "REFUNDED") {
+    return reg.status === "CONFIRMED" || reg.status === "CHECKED_IN";
+  }
+
   return ADMISSIBLE_PAYMENT_STATUSES.has(reg.paymentStatus);
 }
 

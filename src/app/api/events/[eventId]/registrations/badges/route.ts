@@ -70,6 +70,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         dtcmBarcode: true,
         badgeType: true,
         paymentStatus: true,
+        // Needed by isPaymentAdmissible: a REFUNDED registration is badge-able
+        // only while its status says the place still stands.
+        status: true,
         attendee: { select: { firstName: true, lastName: true, country: true, organization: true } },
         ticketType: { select: { name: true, price: true } },
         pricingTier: { select: { price: true } },
@@ -85,6 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const registrations = allRegistrations.filter((r) =>
       isPaymentAdmissible({
         paymentStatus: r.paymentStatus,
+        status: r.status,
         ticketTypePrice: r.ticketType?.price ?? null,
         pricingTierPrice: r.pricingTier?.price ?? null,
       }),
