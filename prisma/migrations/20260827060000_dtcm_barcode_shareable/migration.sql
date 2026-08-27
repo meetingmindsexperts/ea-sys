@@ -1,0 +1,35 @@
+-- DTCM codes become shareable between registrations (owner decision, 2026-08-27).
+--
+-- WHAT AND WHY. `Registration.dtcmBarcode` was globally UNIQUE. The desk hit that
+-- constraint twice during the Aug-28 badge rehearsal trying to put one code on a
+-- second person, and the owner's ruling — asked and reaffirmed — is that two
+-- people may deliberately share a code. The constraint is therefore dropped.
+--
+-- The consequences are real and are handled in application code rather than
+-- pretended away; docs/DTCM.md §"Shared codes" is the record:
+--   * the spare-pool maths is UNAFFECTED. `spare` is derived from a Set of held
+--     codes, so it counts DISTINCT codes and a shared one still counts once.
+--   * a scan of a shared code CANNOT identify one person. The check-in route now
+--     refuses an ambiguous DTCM scan and points the desk at the entry barcode,
+--     which stays unique per registration and is what badges lead with.
+--   * the spare-claim path no longer gets P2002 as its contention signal, so it
+--     verifies the claim explicitly. The POOL still hands each spare to exactly
+--     one person; only a human typing a code may duplicate it.
+--
+-- SAFE ACROSS A BLUE/GREEN SWAP because it only LOOSENS: every write the old
+-- container makes still succeeds, and it simply stops colliding. Precedent:
+-- 20260814120000 dropped RsvpInvite's per-event unique the same way.
+--
+-- Verified read-only on prod before writing: 10 registrations hold a DTCM code,
+-- all live, ZERO duplicates. So nothing existing changes meaning; this only
+-- permits something that was previously refused.
+--
+-- REVERSIBLE ONLY WHILE NO DUPLICATES EXIST. Re-adding the unique index requires
+-- the data to be duplicate-free, which it will not be once the desk uses this.
+-- That is the knowing cost of the decision, not an oversight.
+DROP INDEX IF EXISTS "Registration_dtcmBarcode_key";
+
+-- Keep it indexed: it is read on every check-in scan (the OR branch) and by the
+-- pool's held-codes query. Dropping the unique index would otherwise leave those
+-- as sequential scans on the busiest table at the door.
+CREATE INDEX IF NOT EXISTS "Registration_dtcmBarcode_idx" ON "Registration"("dtcmBarcode");

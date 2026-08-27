@@ -34,12 +34,21 @@
  *
  * ## Why the claim retries rather than locks
  *
- * Two desk stations can compute the same spare code at the same time. The
- * defence is the constraint that already exists: `Registration.dtcmBarcode` is
- * globally UNIQUE, so the second write fails with P2002 and we simply try the
- * next spare. No advisory lock, no transaction held across a desk interaction,
- * and correctness does not depend on which connection ran what — the June-2026
+ * Two desk stations can compute the same spare code at the same time. This used
+ * to lean on `Registration.dtcmBarcode` being globally UNIQUE — the second write
+ * got P2002 and we took the next spare. That constraint was DROPPED on Aug 27
+ * 2026 so a human can deliberately give two people one code, so the check is now
+ * explicit: after claiming, re-read the holders and keep the code only if we are
+ * the lowest registration id among them, else release and take the next.
+ *
+ * Deterministic on purpose. Both racers backing off would leave a walk-up with
+ * no code at all, which is the outcome this whole module exists to prevent.
+ * Still no advisory lock and no transaction held across a desk interaction, so
+ * correctness does not depend on which connection ran what — the June-2026
  * pooler lesson.
+ *
+ * Note the asymmetry, which is the design: a HUMAN typing a code may duplicate
+ * it; the POOL never does. Otherwise "12 spare" stops meaning anything.
  */
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -232,6 +241,39 @@ export async function claimSpareDtcmCode(args: {
             ? { status: "already-has-code", code: fresh.dtcmBarcode }
             : { status: "failed" };
         }
+        // The constraint used to be the contention signal: a second station
+        // writing the same code got P2002 and we moved on. `dtcmBarcode` stopped
+        // being unique on Aug 27 2026, so that signal is gone and the check is
+        // now explicit.
+        //
+        // Sharing is something a HUMAN may choose to do by typing a code; the
+        // POOL must still hand each spare to exactly one person, or "N spare"
+        // means nothing. The tie-break is deterministic — lowest registration id
+        // keeps it — so two stations racing converge instead of both backing off
+        // and leaving the desk with nothing.
+        const holders = await db.registration.findMany({
+          where: { eventId: args.eventId, dtcmBarcode: code },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        });
+        if (holders.length > 1 && holders[0]?.id !== args.registrationId) {
+          await db.registration.updateMany({
+            where: { id: args.registrationId, eventId: args.eventId, dtcmBarcode: code },
+            data: { dtcmBarcode: null },
+          });
+          apiLogger.warn(
+            {
+              msg: "dtcm-pool:claim-lost-race",
+              eventId: args.eventId,
+              registrationId: args.registrationId,
+              codePrefix: code.slice(0, 8),
+              holders: holders.length,
+            },
+            "Another registration claimed this spare first — taking the next",
+          );
+          continue;
+        }
+
         apiLogger.info(
           {
             msg: "dtcm-pool:assigned",
@@ -246,8 +288,10 @@ export async function claimSpareDtcmCode(args: {
         );
         return { status: "assigned", code };
       } catch (err) {
-        // P2002 = another registration took this exact code in the meantime.
-        // That is the expected contention outcome, not an error: try the next.
+        // Kept as a belt: `dtcmBarcode` is no longer unique, so this branch is
+        // unreachable through that column — but a P2002 from any OTHER unique
+        // on this row is still the same "someone got there first" outcome, and
+        // treating it as fatal would fail a walk-up over a recoverable race.
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
           continue;
         }

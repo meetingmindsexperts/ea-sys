@@ -1455,6 +1455,37 @@ export async function updateRegistration(
         });
       }
 
+      // A DTCM code may deliberately be shared between registrations since
+      // Aug 27 2026, so the unique constraint no longer records that this
+      // happened. Nothing else would: the per-row audit shows this row gained a
+      // code, never that someone else already had it. One indexed read, and only
+      // when a code is actually being SET — this is a door credential now
+      // covering two people, and that should be answerable afterwards.
+      if (typeof input.dtcmBarcode === "string" && input.dtcmBarcode.trim() !== "") {
+        const alsoHeldBy = await tx.registration.findMany({
+          where: {
+            eventId,
+            dtcmBarcode: input.dtcmBarcode.trim(),
+            NOT: { id: registrationId },
+          },
+          select: { id: true },
+        });
+        if (alsoHeldBy.length > 0) {
+          apiLogger.info(
+            {
+              msg: "registration-update:dtcm-code-shared",
+              eventId,
+              registrationId,
+              sharedWith: alsoHeldBy.map((r) => r.id),
+              // Truncated: /logs has a wider audience than the code does.
+              codePrefix: input.dtcmBarcode.trim().slice(0, 8),
+              source,
+            },
+            "DTCM code assigned to a registration that another already holds",
+          );
+        }
+      }
+
       const changeData: Prisma.RegistrationUncheckedUpdateInput = {
         ...(status && { status }),
         ...(paymentStatus && { paymentStatus }),

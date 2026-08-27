@@ -185,6 +185,43 @@ describe("claimSpareDtcmCode — assigning", () => {
     expect(write.data).toEqual({ dtcmBarcode: "B" });
   });
 
+  it("gives the spare up when another registration claimed it first", async () => {
+    // The unique constraint on dtcmBarcode was DROPPED on 2026-08-27 so a human
+    // can deliberately share a code, which took away this loop's P2002
+    // contention signal. The POOL must still hand each spare to exactly one
+    // person, or "N spare" on the desk strip means nothing.
+    mockDb.dtcmCode.findMany.mockResolvedValue([{ code: "A" }, { code: "B" }]);
+    mockDb.registration.findMany
+      .mockResolvedValueOnce([])                                  // held codes: none
+      .mockResolvedValueOnce([{ id: "r0" }, { id: "r1" }])        // holders of A: we lost
+      .mockResolvedValueOnce([{ id: "r1" }]);                     // holders of B: ours
+
+    expect(await claimSpareDtcmCode({ eventId: "ev", registrationId: "r1", requiresDtcm: true })).toEqual({
+      status: "assigned",
+      code: "B",
+    });
+
+    // Released A rather than leaving two rows holding it, then took the next.
+    const writes = mockDb.registration.updateMany.mock.calls.map((c) => c[0].data);
+    expect(writes).toEqual([{ dtcmBarcode: "A" }, { dtcmBarcode: null }, { dtcmBarcode: "B" }]);
+    expect(mockLogger.warn.mock.calls.flat().some((a) => JSON.stringify(a).includes("claim-lost-race"))).toBe(true);
+  });
+
+  it("keeps the spare when it is the lowest id among holders (deterministic tie-break)", async () => {
+    // Both racers backing off would leave the walk-up with no code at all, which
+    // is the outcome this module exists to prevent. One of them must win.
+    mockDb.dtcmCode.findMany.mockResolvedValue([{ code: "A" }]);
+    mockDb.registration.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "r1" }, { id: "r2" }]);       // we are lowest
+
+    expect(await claimSpareDtcmCode({ eventId: "ev", registrationId: "r1", requiresDtcm: true })).toEqual({
+      status: "assigned",
+      code: "A",
+    });
+    expect(mockDb.registration.updateMany.mock.calls.map((c) => c[0].data)).toEqual([{ dtcmBarcode: "A" }]);
+  });
+
   it("never logs the full code — it is a compliance credential", async () => {
     mockDb.dtcmCode.findMany.mockResolvedValue([{ code: "DTCM-SECRET-VALUE-1234" }]);
     mockDb.registration.findMany.mockResolvedValue([]);

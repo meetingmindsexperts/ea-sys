@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockAuth, mockUndo, mockExecute, mockGate } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
-    registration: { findFirst: vi.fn() },
+    registration: { findFirst: vi.fn(), findMany: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockUndo: vi.fn(),
@@ -40,7 +40,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ONSITE", organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
-  mockDb.registration.findFirst.mockResolvedValue({ id: "reg1", attendee: { firstName: "A", lastName: "B" } });
+  const one = { id: "reg1", attendee: { firstName: "A", lastName: "B" } };
+  // DELETE resolves one row by id (findFirst). The SCAN path uses findMany,
+  // because a shared DTCM code can match more than one registration.
+  mockDb.registration.findFirst.mockResolvedValue(one);
+  mockDb.registration.findMany.mockResolvedValue([one]);
 });
 
 describe("DELETE (undo check-in)", () => {
@@ -86,7 +90,7 @@ const putReq = (qrCode: string) =>
 describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () => {
   beforeEach(() => {
     // A matched registration that passes the gate straight through.
-    mockDb.registration.findFirst.mockResolvedValue({
+    mockDb.registration.findMany.mockResolvedValue([{
       id: "reg1",
       status: "CONFIRMED",
       paymentStatus: "PAID",
@@ -94,13 +98,13 @@ describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () =>
       ticketType: { name: "Standard", price: 100 },
       pricingTier: null,
       attendee: { firstName: "A", lastName: "B" },
-    });
+    }]);
   });
 
   it("a serial-suffixed scan ({qrCode}-{serial}) also tries the bare stored code", async () => {
     const res = await PUT(putReq("1753791234567123456-007"), params);
     expect(res.status).toBe(200);
-    const where = mockDb.registration.findFirst.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
+    const where = mockDb.registration.findMany.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
     expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123456-007", "1753791234567123456"] } });
     // DTCM barcodes (external, arbitrary) always match the scan as-is.
     expect(where.OR[1]).toEqual({ dtcmBarcode: "1753791234567123456-007" });
@@ -109,7 +113,7 @@ describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () =>
   it("a legacy bare scan matches exactly (single candidate)", async () => {
     const res = await PUT(putReq("1753791234567123456"), params);
     expect(res.status).toBe(200);
-    const where = mockDb.registration.findFirst.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
+    const where = mockDb.registration.findMany.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
     expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123456"] } });
   });
 });
@@ -122,9 +126,62 @@ describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () =>
 const kioskReq = (body: Record<string, unknown>) =>
   new Request("http://localhost/x", { method: "PUT", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 
+describe("PUT (scan check-in) — a DTCM code shared by two people", () => {
+  // dtcmBarcode stopped being unique on 2026-08-27 (owner decision): two
+  // registrations may deliberately share one code. The scan therefore has to
+  // cope with matching more than one person, and the previous findFirst would
+  // have checked in whichever row Postgres returned — the other one staying
+  // un-checked-in with nothing saying why.
+  const scan = (qrCode: string) =>
+    new Request("http://localhost/x", {
+      method: "PUT",
+      body: JSON.stringify({ qrCode }),
+      headers: { "content-type": "application/json" },
+    });
+
+  const shared = (id: string) => ({
+    id,
+    status: "CONFIRMED",
+    paymentStatus: "PAID",
+    checkedInAt: null,
+    qrCode: null,
+    dtcmBarcode: "DTCM-SHARED",
+    ticketType: { name: "Standard", price: 100 },
+    pricingTier: null,
+    attendee: { firstName: "A", lastName: "B" },
+  });
+
+  it("refuses rather than guessing which of the two to check in", async () => {
+    mockDb.registration.findMany.mockResolvedValue([shared("reg1"), shared("reg2")]);
+    const res = await PUT(scan("DTCM-SHARED"), params);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("AMBIGUOUS_SCAN");
+    // Names the way out. A refusal that does not is just a closed door.
+    expect(body.error).toMatch(/entry barcode/i);
+  });
+
+  it("still checks in on the ENTRY barcode, which is unique per person", async () => {
+    // The badge leads with the entry barcode, so the ordinary desk flow is
+    // unaffected even when that person's DTCM code is shared.
+    mockDb.registration.findMany.mockResolvedValue([
+      { ...shared("reg1"), qrCode: "123" },
+      shared("reg2"),
+    ]);
+    const res = await PUT(scan("123"), params);
+    expect(res.status).toBe(200);
+  });
+
+  it("one holder is unambiguous and checks in normally", async () => {
+    mockDb.registration.findMany.mockResolvedValue([shared("reg1")]);
+    const res = await PUT(scan("DTCM-SHARED"), params);
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("PUT (scan check-in) — kiosk audit tagging", () => {
   beforeEach(() => {
-    mockDb.registration.findFirst.mockResolvedValue({
+    mockDb.registration.findMany.mockResolvedValue([{
       id: "reg1",
       status: "CONFIRMED",
       paymentStatus: "PAID",
@@ -132,7 +189,7 @@ describe("PUT (scan check-in) — kiosk audit tagging", () => {
       ticketType: { name: "Standard", price: 100 },
       pricingTier: null,
       attendee: { firstName: "A", lastName: "B" },
-    });
+    }]);
   });
 
   it("kiosk: true lands in the audit extras", async () => {

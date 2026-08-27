@@ -179,7 +179,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // the stored value is the bare code, so the suffixed scan also tries its
     // bare prefix. DTCM values (external, arbitrary) always match as-is.
     const qrCandidates = scannedEntryCodeCandidates(String(qrCode));
-    const registration = await db.registration.findFirst({
+    // findMany, not findFirst: DTCM codes stopped being unique on Aug 27 2026
+    // (two registrations may deliberately share one), so a DTCM scan can match
+    // more than one person and `findFirst` would silently check in whichever row
+    // Postgres happened to return — the other one staying un-checked-in with
+    // nothing anywhere saying why. Entry barcodes are still unique per
+    // registration, so a match on one of those is never ambiguous.
+    const matches = await db.registration.findMany({
       where: {
         eventId,
         OR: [
@@ -193,6 +199,46 @@ export async function PUT(req: Request, { params }: RouteParams) {
         pricingTier: { select: { price: true } },
       },
     });
+
+    // Prefer the entry-barcode match. It identifies exactly one person by
+    // construction, so a badge scan keeps working unchanged even when that
+    // person's DTCM code is shared with someone else.
+    const byEntry = matches.filter((r) => r.qrCode && qrCandidates.includes(r.qrCode));
+    if (byEntry.length > 1) {
+      // Cannot happen while qrCode is unique. Loud rather than arbitrary: if it
+      // ever does, the door needs a human, not a coin flip.
+      apiLogger.error({
+        msg: "check-in:entry-barcode-ambiguous",
+        eventId,
+        matched: byEntry.length,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "This badge matches more than one registration. Please use the registration desk.", code: "AMBIGUOUS_SCAN" },
+        { status: 409 },
+      );
+    }
+
+    if (byEntry.length === 0 && matches.length > 1) {
+      // A shared DTCM code. Refuse rather than guess — checking in the wrong one
+      // of two people is worse than asking for the badge, and the badge carries
+      // an entry barcode that resolves it immediately.
+      apiLogger.warn({
+        msg: "check-in:dtcm-code-shared",
+        eventId,
+        matched: matches.length,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          error: `This DTCM code is shared by ${matches.length} registrations, so it cannot identify one person. Scan the entry barcode on the badge instead.`,
+          code: "AMBIGUOUS_SCAN",
+        },
+        { status: 409 },
+      );
+    }
+
+    const registration = byEntry[0] ?? matches[0] ?? null;
 
     if (!registration) {
       // H5: the unknown-barcode scan is the single highest-value line to trace
