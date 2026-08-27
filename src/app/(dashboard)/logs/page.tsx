@@ -262,18 +262,45 @@ export default function LogsPage() {
     }
   };
 
+  // Log lines name rows by id and nothing else, so an id in a line is a dead
+  // end unless you can get a name back. Every cuid becomes a link into
+  // /admin/lookup, which is the whole point: the question arises HERE, so the
+  // answer belongs here rather than behind a copy-paste into another screen.
+  // Split on a capture group so the delimiters survive; a line with no id
+  // short-circuits back to the plain string and costs nothing.
+  const linkifyIds = (text: string) => {
+    const parts = text.split(/(\bc[a-z0-9]{20,32}\b)/g);
+    if (parts.length === 1) return text;
+    return parts.map((part, i) =>
+      /^c[a-z0-9]{20,32}$/.test(part) ? (
+        <a
+          key={i}
+          href={`/admin/lookup?q=${part}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Look up this id"
+          className="text-cyan-300 underline decoration-dotted underline-offset-2 hover:text-cyan-100"
+        >
+          {part}
+        </a>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    );
+  };
+
   const formatMessage = (message: string) => {
     // Try to parse and pretty-print JSON
     try {
       const json = JSON.parse(message);
       return (
         <pre className="text-sm overflow-x-auto">
-          {JSON.stringify(json, null, 2)}
+          {linkifyIds(JSON.stringify(json, null, 2))}
         </pre>
       );
     } catch {
       // Not JSON, return as-is
-      return <span className="text-sm break-all">{message}</span>;
+      return <span className="text-sm break-all">{linkifyIds(message)}</span>;
     }
   };
 

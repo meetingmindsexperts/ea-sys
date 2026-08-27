@@ -429,6 +429,11 @@ OPERATOR_LANE_ALLOWLIST=(
   # privileged path for the platform view, so its caller decides the audience.
   "src/app/api/help-chat/queries/route.ts"   # operator-global captured Q&A
   "src/lib/infra/aws-ops.ts"                 # platform-scope business counters
+  # id → name resolver behind /admin/lookup. Cross-tenant BY DESIGN: an id in
+  # a log line may belong to any tenant, so a single lane would return zero
+  # rows for exactly the ids an operator needs to identify. Read-only
+  # (findMany only) and paired with denyNonOperator().
+  "src/app/api/admin/lookup/route.ts"        # operator-global id → name lookup
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't

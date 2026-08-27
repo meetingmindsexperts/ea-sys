@@ -25,6 +25,7 @@ import {
   Receipt,
   Calendar,
   ScrollText,
+  ScanSearch,
   MessageCircleQuestion,
   ScanBarcode,
   Activity,
@@ -84,6 +85,10 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
+  // Sits under Logs because that is where the need arises: log lines name
+  // rows by id, so the operator reading them is the one who needs an id
+  // resolved. It reads across every tenant, hence superAdminOnly like Logs.
+  { name: "ID Lookup", href: "/admin/lookup", icon: ScanSearch, superAdminOnly: true },
   { name: "Help Queries", href: "/admin/help-queries", icon: MessageCircleQuestion, superAdminOnly: true },
   // adminOnly, NOT superAdminOnly: the /activity page itself has always allowed
   // ADMIN, so a SUPER_ADMIN-only link left org admins reaching it by URL alone.
