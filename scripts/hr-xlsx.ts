@@ -10,7 +10,7 @@
  * rule that turns out to be wrong.
  */
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { inflateRawSync } from "node:zlib";
 
 export interface Cell {
   v: string | null;
@@ -25,13 +25,60 @@ export function excelSerialToDate(serial: number): string {
   return new Date(EXCEL_EPOCH + serial * 86_400_000).toISOString().slice(0, 10);
 }
 
+/**
+ * Extract one entry from a zip, in pure Node.
+ *
+ * This shelled out to `unzip` first, which works on macOS and FAILS in the
+ * worker container: the image is slim Debian with openssl, curl and
+ * ca-certificates, and nothing else. A script that has to run inside a container
+ * we do not control should not depend on what that container happens to have
+ * installed, and `node:zlib` already has the only hard part.
+ *
+ * Read via the CENTRAL DIRECTORY rather than by walking local headers. A local
+ * header may carry zero sizes when the entry uses a trailing data descriptor
+ * (bit 3 of the flags), and the central directory always has the real ones.
+ */
 function unzip(path: string, entry: string): string {
-  // `unzip -p` is present on macOS and every Linux image we run. Shelling out
-  // beats hand-rolling DEFLATE for a script that runs once.
-  return execFileSync("unzip", ["-p", path, entry], {
-    maxBuffer: 256 * 1024 * 1024,
-    encoding: "utf8",
-  });
+  const buf = readFileSync(path);
+
+  // End of central directory: scan back from the tail for its signature. The
+  // trailing comment is at most 64 KB, which bounds the scan.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd === -1) throw new Error(`Not a zip archive: ${path}`);
+
+  const entryCount = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+
+  for (let i = 0; i < entryCount; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(p + 10);
+    const compressedSize = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    const localOffset = buf.readUInt32LE(p + 42);
+    const name = buf.subarray(p + 46, p + 46 + nameLen).toString("utf8");
+
+    if (name === entry) {
+      // The LOCAL header's name and extra lengths can differ from the central
+      // directory's, so the data offset is computed from the local header.
+      const localNameLen = buf.readUInt16LE(localOffset + 26);
+      const localExtraLen = buf.readUInt16LE(localOffset + 28);
+      const start = localOffset + 30 + localNameLen + localExtraLen;
+      const raw = buf.subarray(start, start + compressedSize);
+      if (method === 0) return raw.toString("utf8");
+      if (method === 8) return inflateRawSync(raw).toString("utf8");
+      throw new Error(`Unsupported zip compression method ${method} for ${entry}`);
+    }
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  throw new Error(`Entry not found in archive: ${entry}`);
 }
 
 function decodeEntities(s: string): string {

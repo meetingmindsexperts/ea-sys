@@ -50,6 +50,17 @@ export interface BalanceInput {
   asOf: CalendarDate;
   /** The employee's entries. Any range: the engine bounds them itself. */
   entries: readonly BalanceEntry[];
+  /**
+   * What was carried into THIS leave year, when a `LeaveGrant` row records it.
+   *
+   * `Employee.carryoverDays` is only the SEED, for the year before the module
+   * went live. From the first year-end roll onwards the figure lives on the
+   * grant, and the seed is never overwritten. That is deliberate: overwriting it
+   * would make last year's closing balance unrecomputable the moment it was
+   * written, so a December leave day entered in January could never be
+   * reconciled. Non-destructive means the roll can simply be recomputed.
+   */
+  carriedInDays?: number;
   weekendDays?: readonly number[];
 }
 
@@ -134,7 +145,8 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
 
   const completedFirstYear = hasCompletedFirstYear(employee.joiningDate, asOf);
   const entitlement = completedFirstYear ? HR_ANNUAL_ENTITLEMENT_DAYS : 0;
-  const carriedIn = capCarryover(employee.carryoverDays);
+  const carriedInRaw = input.carriedInDays ?? employee.carryoverDays;
+  const carriedIn = capCarryover(carriedInRaw);
   const annualTaken = sumWeights(entries, "ANNUAL", from, to);
 
   // NEVER clamped. A negative balance is leave taken in advance, which is legal
@@ -167,7 +179,7 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
     annual: {
       entitlement,
       carriedIn,
-      carriedInStored: roundDays(employee.carryoverDays),
+      carriedInStored: roundDays(carriedInRaw),
       taken: annualTaken,
       balance: annualBalance,
     },
