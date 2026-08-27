@@ -17,9 +17,13 @@
 > new year, positive carryover is capped at 30 days, and days stay derived with
 > month-finalisation deferred as a purely additive follow-on.
 >
-> **Step 1 is BUILT** (schema, two additive migrations, five RLS policies, the
-> availability gate, the import boundary, the seed catalogue). Step 2, the
-> balance engine, is next.
+> **Steps 1 and 2 are BUILT.** Step 1: schema, two additive migrations, five RLS
+> policies, the availability gate, the import boundary, the seed catalogue.
+> Step 2: the pure balance engine, tested against the §13.1 baseline, with five
+> guards mutation-verified. Step 3, the DB-backed services and REST routes, is
+> next.
+>
+> **Nothing is reachable yet**: no routes exist and `HR_MODULE_ENABLED` is unset.
 >
 > **Sequencing note.** `docs/PLATFORM_DECISIONS.md` §7 records per-tenant Stripe
 > and AI keys as the next build priority. The CRM, which is the closest
@@ -748,7 +752,7 @@ named test. A guard whose removal breaks nothing is not a guard.
 |---|---|
 | 0. Close every rule against the workbook | **DONE** (§3). D1, D2, D3 and both follow-ons are closed. |
 | 1. Schema, two additive migrations, five RLS policies, availability gate, import boundary, seed catalogue | **DONE.** tsc, eslint, vitest, build green; `prisma validate` clean. Migration not yet applied to any database. |
-| 2. `serviceYearFor`, `leaveBalanceService`, `accrualService` plus unit tests | Every §14 fixture passes; three mutation checks verified |
+| 2. Date primitives, leave-year and anniversary helpers, the comp-off rule, the effective-status resolver, the pure balance engine and the year-roll planner, plus 44 tests | **DONE.** Every §14 fixture passes; **five** mutation checks verified (clamping a negative, dropping the employment bound, removing the first-year gate, reverting comp-off to the workbook formula, capping carryover symmetrically). |
 | 3. Employee and attendance services, REST routes, integration tests | RBAC denials both directions |
 | 4. Excel import and reconciliation diff | **Exact match on every employee, or the import is not accepted** |
 | 5. UI: grid, then balances, then dashboard, then settings | Browser-verified, both themes |
