@@ -1,0 +1,13 @@
+-- Add the HR_USER role: an org-bound team role confined to the HR module.
+--
+-- ADDITIVE + IDEMPOTENT. `ADD VALUE IF NOT EXISTS` is blue-green safe: the
+-- still-running old container never encounters the value (no user holds it yet),
+-- and a re-run is a no-op. This is the ONLY statement in the file, so the value
+-- is never used in the same transaction that creates it (a Postgres restriction
+-- on new enum values). Precedent: 20260715070000_add_crm_user_role.
+--
+-- EXISTING is not the same as GRANTABLE. The enum is shared by every silo, so
+-- the value appears on the platform too; whether it can be handed out is gated
+-- separately by HR_MODULE_ENABLED (src/hr/lib/hr-enabled.ts), which is unset
+-- everywhere except master.
+ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'HR_USER';

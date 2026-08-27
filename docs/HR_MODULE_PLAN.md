@@ -1,7 +1,7 @@
 # HR Module: Attendance & Leave Tracker (UAE)
 
-> **Status: PLANNED, NOT BUILT (August 27, 2026).** No schema, no migration, no
-> code. This file is the plan of record; the source it was written from is the
+> **Status: IN BUILD, step 1 of 7 complete (August 27, 2026).** This file is the
+> plan of record; the source it was written from is the
 > validated Excel tracker `UAE_Employee_Attendance_Leave_Tracker_2026` (v5.1),
 > which is the business-logic reference. Where this document and the workbook
 > disagree, the workbook wins and this document is wrong.
@@ -13,10 +13,13 @@
 > §5.1 is rewritten. It also found a live defect in the workbook: one employee
 > holds a comp-off that the owner's own rule does not award (§3.2).
 >
-> **Three questions remain open and block step 1** (§3.3, §3.4): whether a
-> negative balance carries into the new year, whether carryover is capped, and
-> whether derived-present is acceptable or a month needs finalising. None can be
-> answered from the workbook, which only ever holds one year.
+> **All rules are now CLOSED** (§3.3, §3.4): a negative balance carries into the
+> new year, positive carryover is capped at 30 days, and days stay derived with
+> month-finalisation deferred as a purely additive follow-on.
+>
+> **Step 1 is BUILT** (schema, two additive migrations, five RLS policies, the
+> availability gate, the import boundary, the seed catalogue). Step 2, the
+> balance engine, is next.
 >
 > **Sequencing note.** `docs/PLATFORM_DECISIONS.md` §7 records per-tenant Stripe
 > and AI keys as the next build priority. The CRM, which is the closest
@@ -48,6 +51,72 @@ touch points worth naming before the schema is written.
   carries a one-way import rule for `src/crm/**`, and the HR block is a clone of
   it: `src/hr/` may import core, core must never import `src/hr/`, with a named
   exemption list for the worker job shim.
+
+## 2a. Availability: master silo only, tenancy nonetheless first-class
+
+Owner decision, Aug 27, 2026: *"isolate this HR module to master silo only"* and
+*"but multi tenancy should be possible."* Those are not in tension; they answer
+two different questions, and the module keeps them apart deliberately.
+
+| Question | Answer | Where it lives |
+|---|---|---|
+| Can a tenant other than us hold HR data? | Yes | The schema: `organizationId` on all five tables, RLS policies from day one |
+| Is the module switched on for them? | No | `HR_MODULE_ENABLED`, unset everywhere except master |
+
+The reason for the split is that **only one of them is reversible.** A flag flips
+in a deploy. A tenant-blind data shape is a migration and a backfill, and by then
+there is real HR data in it. So the module is built tenant-correct and shipped
+master-only, which costs nothing now and forecloses nothing later.
+
+`HR_MODULE_ENABLED` **fails closed**: unset means off, so the platform instance, a
+DR box and a fresh dev machine do not acquire an HR system by accident. Only the
+literal string `true` enables it. It is deliberately **not** derived from
+`PLATFORM_ORG_ID`, because inferring "we are master because the platform id is
+unset" would couple this module's availability to the silo-detection mechanism,
+so a change to how silos identify themselves would silently change who has an HR
+system.
+
+Enforced in depth, like every other boundary here:
+
+- API routes **404** when the module is off. 404 rather than 403: a module that
+  is not available should not announce that it exists.
+- `src/proxy.ts` redirects `/hr*` when off.
+- The sidebar entry is hidden when off.
+- **`HR_USER` is not offered in the invite dropdown when off.** The enum value
+  exists on every silo because the enum is shared, but existing and being
+  grantable are different things, and a role that can reach nothing is a support
+  ticket waiting to happen.
+
+The RLS policies are applied on the platform too, even though the module is off
+there. The tables ship in the shared migration chain so they exist regardless,
+and an existing unpoliced table is a latent hole the day somebody flips the flag.
+"We will add the policy when we enable it" is precisely the sentence that does
+not survive a year.
+
+**Operator note.** `.env.example` is gitignored in this repo, so the variable is
+documented here and nowhere else:
+
+```
+HR_MODULE_ENABLED=true   # MASTER SILO ONLY. Unset/absent everywhere else.
+```
+
+Setting it on the platform instance switches the module on for every tenant at
+once. There is no per-tenant toggle today, deliberately: one flag with one
+meaning is easier to reason about than a per-org setting nobody audits, and a
+per-tenant version is additive if it is ever wanted.
+
+### 2a.1 The person entering the data is also in the data
+
+Owner note, Aug 27: *"Muthu logs into the system and captures attendance too."*
+
+Muthu is EMP003 (Admin and Accounts Manager) and is both the operator and a
+subject. So `Employee.userId` is used from day one rather than being the future
+self-service hook the first draft called it, and **his own leave is a
+self-entry**. There is no separation of duties, which is entirely normal at 25
+people and is exactly why every attendance write carries the acting user into
+`AuditLog`. The module does not block self-entry; it makes it visible.
+
+---
 
 ## 3. What the workbook actually does (read from the formulas, Aug 27, 2026)
 
@@ -132,17 +201,16 @@ before go-live), and from then on the system rolls the closing balance into the
 next year automatically. Given §3.1, the boundary is **1 January**, not the
 anniversary.
 
-Two questions this raises that the workbook cannot answer, because it only ever
-holds one year:
+Both follow-on questions are now answered (owner, Aug 27):
 
-- **Does a NEGATIVE balance carry forward?** Leena closes 2026 at -15. Does she
-  open 2027 at 15 (30 - 15, the debt follows her) or at 30 (the debt is
-  forgiven)? "Carried forward" implies the former, and the former is also the
-  only reading under which leave-taken-in-advance means anything, but it is a
-  real money decision and it should be said out loud rather than inferred.
-- **Is carryover capped?** Many UAE contracts cap it (30 days, or half the
-  annual entitlement). `H` is free manual entry with no cap, so the workbook
-  neither implements nor rules out one.
+- **A negative balance DOES carry forward.** Leena closes 2026 at -15 and opens
+  2027 at 15, not 30. The debt follows the employee, which is the only reading
+  under which leave taken in advance means anything.
+- **Positive carryover is CAPPED at 30 days** (`HR_CARRYOVER_CAP_DAYS`).
+- **The cap applies in one direction only.** A negative carries in full and is
+  never floored, because capping a debt would forgive it and thereby cancel the
+  first ruling. This asymmetry is the kind that reads as an oversight later, so
+  it is stated at the constant, in the schema comment and here.
 
 ### 3.4 D3 informed: the workbook pre-generates everything, and 90% of it is noise
 
@@ -165,11 +233,24 @@ All 9,125 rows exist. Only **943 carry information**:
 The §4 design note is vindicated: storing only the 943 is right, and the
 pre-generated 7,256 are exactly the phantom rows the module should not have.
 
-**The owner decision in D3 still stands and is unchanged by this**: derived-P
-cannot be distinguished from nobody-recorded-anything. What the data now adds is
-the cost of the alternative, which is roughly 7,300 rows per year for 25 people
-if a "finalise the month" action materialises them. That is nothing at this
-scale, so the choice is about meaning rather than storage.
+**DECIDED (Aug 27): days stay derived, and month-finalisation is deferred.**
+
+A derived P still cannot be distinguished from nobody-recorded-anything, and the
+two places that matters are today's dashboard (which reads confidently wrong
+before anyone opens the grid) and end-of-service evidence years later (where an
+inference is weaker than a record).
+
+**The first draft claimed this had to be settled before the schema. That was
+wrong**: a finalisation table is purely additive and changes nothing about the
+day-to-day model, so building derived-first forecloses nothing. Recorded because
+an incorrect blocker in a plan costs more than a missing one.
+
+The argument for adding it later is worth keeping, because it is not the obvious
+one. **Public holidays are entered by HR by hand each year**, since Islamic dates
+move with the moon. So the recipe that derives a day can change after the fact:
+add a holiday retroactively and a day that read Present last month reads PH
+today, silently, with no edit anyone made. Finalising freezes the answer. The
+storage cost is about 7,300 rows a year for 25 people, which is nothing.
 
 ### 3.5 Two data-quality items the import must handle
 
@@ -386,10 +467,15 @@ three, because "days of sick leave left" is not one number.
 
 - Weekend defaults to Saturday and Sunday, configurable per org
   (`weekendDays`), because some GCC entities run Friday and Saturday.
-- `PublicHoliday` is seeded with the confirmed 2026 UAE list: Jan 1;
-  Mar 19 to 20 (Eid al-Fitr); May 26 to 29 (Arafat and Eid al-Adha); Jun 15
-  (Islamic New Year); Aug 28 (Prophet's Birthday); Dec 2 to 3 (National Day).
-  Admin CRUD for future years. **No auto-generation:** Islamic dates are
+- `PublicHoliday` is seeded from **the PH rows the workbook actually holds**,
+  not from a published list. That distinction earned its keep: the first draft of
+  this plan carried eleven dates and the workbook has **thirteen**, because it
+  also holds **Jan 2** and **May 25**, making the Eid al-Adha block five days
+  rather than four. Seeding the published list would have marked two real
+  holidays as ordinary working days, and since an unrecorded day derives to
+  Present, **nobody would ever have seen an error**. The seed and its exact-count
+  test live in `src/hr/lib/hr-seed-data.ts`.
+- Admin CRUD for future years. **No auto-generation:** Islamic dates are
   moon-dependent, so HR confirms them annually and a generated guess would be
   wrong in a way that silently shifts a payroll month.
 - **Effective status for an (employee, date) with no entry:** outside the
@@ -660,8 +746,8 @@ named test. A guard whose removal breaks nothing is not a guard.
 
 | Step | Gate |
 |---|---|
-| 0. Close the three §3.3/§3.4 questions (negative carry-forward, carryover cap, derived-present) | **Blocking. No code before this.** D1 and D2 are already closed. |
-| 1. Schema, migration, RLS policies, seeds (leave codes, 2026 holidays) | Migration replays from empty; `check-tenant-als.sh` green |
+| 0. Close every rule against the workbook | **DONE** (§3). D1, D2, D3 and both follow-ons are closed. |
+| 1. Schema, two additive migrations, five RLS policies, availability gate, import boundary, seed catalogue | **DONE.** tsc, eslint, vitest, build green; `prisma validate` clean. Migration not yet applied to any database. |
 | 2. `serviceYearFor`, `leaveBalanceService`, `accrualService` plus unit tests | Every §14 fixture passes; three mutation checks verified |
 | 3. Employee and attendance services, REST routes, integration tests | RBAC denials both directions |
 | 4. Excel import and reconciliation diff | **Exact match on every employee, or the import is not accepted** |

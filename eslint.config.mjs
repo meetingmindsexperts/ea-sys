@@ -90,6 +90,67 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // ── HR module import boundary (docs/HR_MODULE_PLAN.md §2) ─────────────────
+  //
+  // Same one-way rule as the CRM above, for the same reason: src/hr/ may import
+  // core, core must never import src/hr/. Mechanical rather than disciplinary,
+  // because "we'll remember" is how a bounded namespace stops being bounded.
+  //
+  // The HR module has a second reason to hold this line that the CRM does not.
+  // It is MASTER-SILO ONLY (HR_MODULE_ENABLED), so a core file importing from
+  // src/hr/ would drag a module that is switched off on the platform into a code
+  // path that runs there. The flag would still refuse the request; the import
+  // would still be dead weight in every tenant's bundle, and the next person
+  // would reasonably conclude the module ships everywhere.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      // Inside the module: code root, API namespace, UI namespace.
+      "src/hr/**",
+      "src/app/api/hr/**",
+      "src/app/(dashboard)/hr/**",
+      // Permitted core-side touch points. Keep this list SHORT; adding a fourth
+      // should mean editing this file on purpose, not noticing later.
+      "src/components/layout/sidebar.tsx",
+      "src/lib/agent/mcp-server-builder.ts",
+      "src/lib/agent/register-mcp-tools.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/hr", "@/hr/*", "@/hr/**"],
+              message:
+                "Core must not import from src/hr/. The HR import boundary is one-way (src/hr/ -> core only) and the module is master-silo only — see docs/HR_MODULE_PLAN.md §2. If you genuinely need a new core-side touch point, add it to the exemption list in eslint.config.mjs deliberately.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Same rule for the worker tier: only the HR job shim may reach into src/hr/.
+  {
+    files: ["worker/**/*.ts"],
+    ignores: ["worker/jobs/hr-year-roll.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/hr", "@/hr/*", "@/hr/**"],
+              message:
+                "Only the HR job shim (worker/jobs/hr-year-roll.ts) may import from src/hr/. See docs/HR_MODULE_PLAN.md §2.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── Analytics core import boundary (docs/ANALYTICS_PLAN.md §7) ─────────────
   //
   // The INVERSE of the CRM rule above, and stricter. src/analytics/core/ must

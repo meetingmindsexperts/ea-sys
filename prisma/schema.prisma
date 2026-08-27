@@ -49,6 +49,11 @@ model Organization {
   crmDealTypes       CrmDealType[]
   crmDeals           CrmDeal[]
   crmTasks           CrmTask[]
+  employees          Employee[]
+  leaveCodes         LeaveCode[]
+  attendanceEntries  AttendanceEntry[]
+  leaveGrants        LeaveGrant[]
+  publicHolidays     PublicHoliday[]
   crmNotes           CrmNote[]
   crmActivities      CrmActivity[]
   crmNotifications   CrmNotification[]
@@ -188,6 +193,12 @@ model User {
   uploadedSpeakerDocuments SpeakerDocument[]   @relation("SpeakerDocumentUploader")
   coordinatedGroups        RegistrationGroup[] @relation("CoordinatedGroups")
   loginEvents              LoginEvent[]
+  /// HR: the employee record for this login, when the person is on staff.
+  /// Muthu (Admin & Accounts Manager) is the live case: he records everyone's
+  /// attendance AND has his own Employee row, so his own leave is a self-entry.
+  /// Fine at this size, but it means there is no separation of duties, which is
+  /// exactly why every attendance write is audited with the actor.
+  employeeRecord           Employee?           @relation("EmployeeUser")
 
   @@index([organizationId])
   @@index([email])
@@ -269,6 +280,17 @@ enum UserRole {
   // route fails CLOSED. Finance-capable (desk records payments) and holds
   // Zoom HOST credentials for webinar events (the producer role).
   WEBINARS
+  // HR User — org-bound team role CONFINED to the HR module (attendance and
+  // leave). Added 2026-08-27. Sees no events, registrations, speakers, invoices
+  // or settings; buildEventAccessWhere returns zero events for it, and it is in
+  // denyReviewer's restricted set so every non-HR write is refused.
+  //
+  // AVAILABILITY IS GATED SEPARATELY. The HR module is master-silo only
+  // (HR_MODULE_ENABLED), so this role is not offered in the invite dropdown on
+  // a deployment where the module is off. The enum value exists everywhere
+  // because the enum is shared; being grantable is a different question from
+  // existing.
+  HR_USER
 }
 
 enum Title {
@@ -4558,5 +4580,191 @@ model DtcmCode {
 
   @@unique([eventId, code])
   @@index([eventId])
+  @@index([organizationId])
+}
+
+// =============================================================================
+// HR MODULE (attendance + UAE leave tracker). Plan of record: docs/HR_MODULE_PLAN.md
+//
+// AVAILABILITY vs TENANCY, and they are different things (owner, Aug 27 2026):
+//   * AVAILABILITY is MASTER-SILO ONLY. The module is gated behind
+//     HR_MODULE_ENABLED (src/hr/lib/hr-enabled.ts), unset everywhere except
+//     master, so platform tenants never see it. Fails CLOSED.
+//   * TENANCY is nonetheless first-class. Every table carries organizationId,
+//     every write stamps it, and prisma/rls/*.sql policies exist from day one,
+//     so switching the module on for a tenant later is a flag, not a rewrite.
+// The one thing that must never happen is a master-only feature acquiring
+// master-only DATA SHAPE, because that is the part a flag cannot undo.
+// =============================================================================
+
+enum EmployeeStatus {
+  ACTIVE
+  RESIGNED
+  TERMINATED
+}
+
+/// What a leave code counts as, for the balance engine. The CODE is the
+/// organizer-facing label ("AL-HD"); the CATEGORY is what the maths keys on, so
+/// an org can rename or add codes without the balance rules following them.
+enum LeaveCategory {
+  ANNUAL
+  SICK_FULL
+  SICK_HALF
+  SICK_UNPAID
+  MATERNITY
+  PARENTAL
+  BEREAVEMENT
+  HAJJ
+  STUDY
+  NATIONAL_SERVICE
+  UNPAID
+  ABSENT
+  WORK
+  REST
+  PUBLIC_HOLIDAY
+  ON_DUTY
+  COMP_OFF
+}
+
+model Employee {
+  id             String         @id @default(cuid())
+  organizationId String
+  empCode        String
+  name           String
+  department     String?
+  jobTitle       String?
+  /// Calendar date, no time component. See docs/HR_MODULE_PLAN.md §4.1: a leave
+  /// day is a date, not an instant, and giving it a time invites a timezone to
+  /// change which day it is.
+  joiningDate    DateTime       @db.Date
+  /// Last working day, INCLUSIVE. Null while employed.
+  exitDate       DateTime?      @db.Date
+  status         EmployeeStatus @default(ACTIVE)
+  /// Annual-leave days carried in from the previous calendar year. Manual for
+  /// the one-time seed of the year before go-live, written by the year-end roll
+  /// thereafter. CAPPED at +30 (HR_CARRYOVER_CAP_DAYS); a NEGATIVE value is
+  /// carried in full and never floored, because a cap on a debt would forgive
+  /// it (owner, Aug 27 2026).
+  carryoverDays  Decimal        @default(0) @db.Decimal(5, 1)
+  /// Sick days already consumed in the current leave year before go-live,
+  /// mirroring the workbook's "Opening Sick Leave Used" column.
+  openingSickUsed Decimal       @default(0) @db.Decimal(5, 1)
+  /// Comp-off days already earned before go-live.
+  openingCompOff  Decimal       @default(0) @db.Decimal(5, 1)
+  /// Link to the core User this employee signs in as, when they have one.
+  /// Used from day one: the person who records attendance (Muthu) is himself an
+  /// employee, so his entries are self-entries and the audit trail is what makes
+  /// that visible. Optional on purpose: an employee who never signs in is still
+  /// an employee, and most never will.
+  userId         String?        @unique
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?             @relation("EmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
+  attendance   AttendanceEntry[]
+  grants       LeaveGrant[]
+
+  @@unique([organizationId, empCode])
+  @@index([organizationId])
+  @@index([organizationId, status])
+}
+
+model LeaveCode {
+  id             String        @id @default(cuid())
+  organizationId String
+  /// "AL", "AL-HD", "SL-F"... NOTE the naming trap this module lives with:
+  /// "-HD" means half DAY, "SL-H" means half PAY (Art. 31 tier 2). They differ
+  /// by one character and mean different things. Neither may be abbreviated
+  /// further anywhere in the UI.
+  code           String
+  label          String
+  lawReference   String?
+  paid           Boolean
+  /// 1.0 or 0.5. Decimal, never Float: a float sum of thirty 0.5s is not 15.
+  dayWeight      Decimal       @db.Decimal(2, 1)
+  countsAs       LeaveCategory
+  sortOrder      Int           @default(0)
+  active         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries      AttendanceEntry[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+/// ONE row per (employee, date) that CARRIES INFORMATION. An ordinary working
+/// day has NO row: the effective status is derived (weekend -> OFF, public
+/// holiday -> PH, otherwise P). The workbook pre-generates all 9,125 rows of
+/// which only 943 say anything (docs/HR_MODULE_PLAN.md §3.4); storing the 943
+/// is what removes the phantom-row and pre-fill-cleanup class of bug.
+model AttendanceEntry {
+  id             String   @id @default(cuid())
+  organizationId String
+  employeeId     String
+  date           DateTime @db.Date
+  leaveCodeId    String
+  remarks        String?
+  /// Core User who approved. Deliberately NOT a place for medical detail;
+  /// see docs/HR_MODULE_PLAN.md §10.
+  approvedById   String?
+  /// "ui" | "mcp" | "import" | "cron"
+  source         String   @default("ui")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveCode    LeaveCode    @relation(fields: [leaveCodeId], references: [id])
+
+  @@unique([organizationId, employeeId, date])
+  @@index([organizationId])
+  @@index([employeeId, date])
+  @@index([organizationId, date])
+}
+
+/// The annual-leave entitlement for ONE employee in ONE leave year, materialised
+/// rather than computed. The workbook has no equivalent because it only ever
+/// holds a single year; we need one because the year-end roll writes a figure
+/// derived from a whole year of entries, and a derived number that later
+/// disagrees with the entries it came from is unanswerable.
+model LeaveGrant {
+  id             String   @id @default(cuid())
+  organizationId String
+  employeeId     String
+  /// Calendar year. The leave year is the CALENDAR year, not the service year
+  /// (docs/HR_MODULE_PLAN.md §3.1, read from the workbook's own formulas).
+  leaveYear      Int
+  /// 30, or 0 for an employee who has not completed twelve months.
+  entitlementDays Decimal @db.Decimal(4, 1)
+  /// Carried in from the previous year, already capped.
+  carriedInDays  Decimal  @db.Decimal(5, 1) @default(0)
+  grantedAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, leaveYear])
+  @@index([organizationId])
+  @@index([employeeId])
+}
+
+/// Islamic dates move with the moon, so these are entered by HR annually and
+/// never generated. A generated guess would be wrong in a way that silently
+/// shifts a payroll month.
+model PublicHoliday {
+  id             String   @id @default(cuid())
+  organizationId String
+  date           DateTime @db.Date
+  label          String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, date])
   @@index([organizationId])
 }
