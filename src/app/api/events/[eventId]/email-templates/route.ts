@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { DEFAULT_TEMPLATES, TEMPLATE_VARIABLES } from "@/lib/email";
+import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
 import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
 
 interface RouteParams {
@@ -93,7 +93,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       templates: templates
         .filter((t) => isVisible(t.slug))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
-      variables: TEMPLATE_VARIABLES,
+      variables: allTemplateVariables(),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email templates" });

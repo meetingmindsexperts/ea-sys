@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
@@ -45,7 +45,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       template,
-      variables: TEMPLATE_VARIABLES[template.slug] || [],
+      // Global event block + this slug's own, so the editor lists every
+      // token that will actually resolve.
+      variables: templateVariablesFor(template.slug),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email template" });

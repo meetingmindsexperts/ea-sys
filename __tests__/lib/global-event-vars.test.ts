@@ -72,3 +72,47 @@ describe("global event vars", () => {
     expect(out.htmlContent).toContain("[]");
   });
 });
+
+/**
+ * The other half: the tokens must be DISCOVERABLE, not just functional.
+ *
+ * The runtime fix shipped first and the editor still listed twelve tokens for
+ * abstract-submission-confirmation, none of them the event date — so an
+ * organizer looking at the "Available variables" panel concluded, reasonably,
+ * that it was not available. Working but undiscoverable is not available.
+ */
+describe("the editor advertises the global block on every slug", () => {
+  it("lists the event tokens for a slug that never declared them", async () => {
+    const { templateVariablesFor } = await import("@/lib/email");
+    const keys = templateVariablesFor("abstract-submission-confirmation").map((v) => v.key);
+    for (const k of ["eventName", "eventDate", "eventDateRange", "eventVenue"]) {
+      expect(keys).toContain(k);
+    }
+  });
+
+  it("advertises them for EVERY slug, not a hand-picked few", async () => {
+    // The point of merging rather than pasting: adding the next global token
+    // must not mean 25 edits with one of them missed.
+    const { TEMPLATE_VARIABLES, templateVariablesFor } = await import("@/lib/email");
+    for (const slug of Object.keys(TEMPLATE_VARIABLES)) {
+      const keys = templateVariablesFor(slug).map((v) => v.key);
+      expect(keys, `slug ${slug}`).toContain("eventDate");
+      expect(keys, `slug ${slug}`).toContain("eventVenue");
+    }
+  });
+
+  it("never lists a key twice, and the slug's own description wins", async () => {
+    // registration-confirmation already declares eventDate with its own
+    // wording; the merge must not produce a duplicate chip in the panel.
+    const { templateVariablesFor, TEMPLATE_VARIABLES } = await import("@/lib/email");
+    const own = (TEMPLATE_VARIABLES["registration-confirmation"] ?? []).find((v) => v.key === "eventDate");
+    const merged = templateVariablesFor("registration-confirmation");
+    expect(merged.filter((v) => v.key === "eventDate")).toHaveLength(1);
+    if (own) expect(merged.find((v) => v.key === "eventDate")?.description).toBe(own.description);
+  });
+
+  it("an unknown slug still gets the global block rather than nothing", async () => {
+    const { templateVariablesFor } = await import("@/lib/email");
+    expect(templateVariablesFor("no-such-slug").map((v) => v.key)).toContain("eventDate");
+  });
+});

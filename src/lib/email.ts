@@ -3403,6 +3403,45 @@ export function buildEventPreviewVariables(
 // ── Helper to load event template from DB (with fallback to default) ───────────
 
 /**
+ * The event variables every template can use, listed for every slug.
+ *
+ * The runtime half of this shipped first (see `EmailBranding.eventVars`) and
+ * was only half the job: the tokens RESOLVED everywhere but were still absent
+ * from the editor's "Available variables" panel, which reads
+ * `TEMPLATE_VARIABLES[slug]`. An organizer opening the abstract-confirmation
+ * template saw twelve tokens, none of them the event date, and reasonably
+ * concluded it was not available. Working but undiscoverable is not available.
+ *
+ * Merged in rather than pasted into each of the 25 per-slug lists, because
+ * pasting is what produced the drift in the first place — adding the next
+ * global token would mean 25 more edits and one of them would be missed.
+ */
+export const GLOBAL_EVENT_VARIABLES: Array<{ key: string; description: string }> = [
+  { key: "eventName", description: "Event name" },
+  { key: "eventDate", description: "Event start date, in the event's timezone (e.g. Friday, January 15, 2027)" },
+  { key: "eventDateRange", description: "Event dates, collapsed on a single-day event (e.g. January 15 – 17, 2027)" },
+  { key: "eventVenue", description: "Venue and city (e.g. Raffles Hotel, Dubai)" },
+];
+
+/**
+ * The variables to advertise for one slug: the global event block first, then
+ * that slug's own. A slug that already declares one of the global keys keeps
+ * ITS description, which is usually the more specific of the two.
+ */
+export function templateVariablesFor(slug: string): Array<{ key: string; description: string }> {
+  const own = TEMPLATE_VARIABLES[slug] ?? [];
+  const ownKeys = new Set(own.map((v) => v.key));
+  return [...GLOBAL_EVENT_VARIABLES.filter((v) => !ownKeys.has(v.key)), ...own];
+}
+
+/** Same, for every slug at once — the templates index page lists them all. */
+export function allTemplateVariables(): Record<string, Array<{ key: string; description: string }>> {
+  return Object.fromEntries(
+    Object.keys(TEMPLATE_VARIABLES).map((slug) => [slug, templateVariablesFor(slug)]),
+  );
+}
+
+/**
  * The event block every email gets, whatever its slug.
  *
  * Deliberately small: exactly the tokens organizers actually use today

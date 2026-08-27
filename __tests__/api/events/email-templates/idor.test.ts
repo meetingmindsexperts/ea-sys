@@ -40,12 +40,17 @@ vi.mock("@/lib/auth-guards", () => ({
       ? { status: 403, json: async () => ({ error: "Forbidden" }) }
       : null,
 }));
-vi.mock("@/lib/email", () => ({
+// Spread the REAL module and override only what this test needs to fake.
+// A hand-listed mock is a trap that springs on whoever adds the next export:
+// this one had no `templateVariablesFor`, so the route called `undefined` and
+// a tenant-isolation test started failing with a 500 for a reason that had
+// nothing to do with tenant isolation.
+vi.mock("@/lib/email", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email")>()),
   sendEmail: vi.fn(),
   renderTemplate: vi.fn(() => ""),
   renderTemplatePlain: vi.fn(() => ""),
   getDefaultTemplate: vi.fn(() => ({ subject: "", htmlContent: "", textContent: "", name: "" })),
-  TEMPLATE_VARIABLES: {},
   wrapWithBranding: vi.fn(() => ""),
   inlineCss: vi.fn(() => ""),
   brandingFrom: vi.fn(() => ({})),
