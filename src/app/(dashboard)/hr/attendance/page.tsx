@@ -638,6 +638,17 @@ function CodePopover(props: {
   onPick: (code: string | null) => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  /**
+   * Dismiss on a click outside. This is why the secondary codes are an INLINE
+   * list and not a Select: Radix renders its list in a PORTAL, so an option is
+   * not inside `ref.current`, this handler read the click as "outside",
+   * unmounted the popover and took the Select with it before `onValueChange`
+   * could fire. The result was a dropdown that opened, offered sixteen codes,
+   * and silently did nothing — no error, no toast, no request. Keep everything
+   * this popover offers inside its own subtree.
+   */
   useEffect(() => {
     function onDown(ev: MouseEvent) {
       const el = ev.target as HTMLElement;
@@ -675,16 +686,31 @@ function CodePopover(props: {
       </div>
       {others.length > 0 && (
         <div className="mt-1.5 border-t pt-1.5">
-          <Select onValueChange={(v) => props.onPick(v)}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Another code…" /></SelectTrigger>
-            <SelectContent>
-              {others.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          {showAll ? (
+            <div className="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto">
+              {others.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => props.onPick(c)}
+                  className="rounded-md border px-1 py-1.5 font-mono text-[10px] hover:border-primary hover:text-primary"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAll(true)}
+              className="w-full rounded-md py-1.5 text-[11px] text-muted-foreground hover:bg-muted"
+            >
+              Another code… ({others.length})
+            </button>
+          )}
         </div>
       )}
       <button
         onClick={() => props.onPick(null)}
+        title="Removes the record. The day goes back to being worked out: Present on a working day, OFF at a weekend, PH on a public holiday."
         className="mt-1.5 w-full rounded-md py-1.5 text-[11px] text-muted-foreground hover:bg-muted"
       >
         Clear these days

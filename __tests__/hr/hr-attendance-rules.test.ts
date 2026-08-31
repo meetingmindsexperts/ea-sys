@@ -317,3 +317,57 @@ describe("the balance service adopts the resolver", () => {
     expect(merges).toHaveLength(2);
   });
 });
+
+/**
+ * REGRESSION: the code popover must contain no portalling component.
+ *
+ * Found by a user, not by a test: picking a code from the "Another code…"
+ * dropdown silently did nothing. Radix renders a Select's list in a PORTAL, so
+ * an option is not a DOM descendant of the popover; the popover's click-away
+ * handler read the click as "outside", unmounted itself and took the Select with
+ * it before `onValueChange` could fire.
+ *
+ * It failed in the worst possible way. No error, no toast, no network request,
+ * nothing in /logs — the dropdown opened, offered sixteen codes, and dropped
+ * every one of them. Sixteen of the twenty-one leave codes were unreachable and
+ * the only signal was a cell that did not change.
+ *
+ * The guard is structural rather than behavioural because the behavioural
+ * version needs a DOM, a portal and a real pointer sequence to reproduce, and
+ * would still only cover the components someone remembered to test. "Nothing in
+ * this popover may render outside its own subtree" is the actual invariant.
+ */
+describe("the code popover keeps its own children", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/app/(dashboard)/hr/attendance/page.tsx"),
+    "utf8",
+  );
+  const start = source.indexOf("function CodePopover(");
+  const end = source.indexOf("\nfunction ", start + 1);
+  const popover = source
+    .slice(start, end === -1 ? undefined : end)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  it("is actually where we think it is", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(popover).toContain("onPick");
+  });
+
+  it("renders no Radix Select, whose list would portal out of the popover", () => {
+    expect(popover).not.toMatch(/<Select[ >]/);
+    expect(popover).not.toContain("SelectTrigger");
+    expect(popover).not.toContain("SelectContent");
+  });
+
+  it("renders no other portalling primitive either", () => {
+    for (const portalling of ["<Popover", "<Dialog", "<DropdownMenu", "<Tooltip", "createPortal"]) {
+      expect(popover).not.toContain(portalling);
+    }
+  });
+
+  it("still offers the secondary codes, inline", () => {
+    expect(popover).toContain("Another code…");
+    expect(popover).toContain("others.map");
+  });
+});
