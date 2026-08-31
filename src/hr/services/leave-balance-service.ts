@@ -11,7 +11,9 @@ import type { LeaveCategory } from "@prisma/client";
 import { db } from "@/lib/db";
 import { type CalendarDate, fromCalendarDate, toCalendarDate, todayInTimezone, yearOf } from "../lib/hr-date";
 import { leaveYearBounds } from "../lib/hr-leave-year";
+import { ruleDerivedDays } from "../lib/hr-effective-status";
 import { computeLeaveBalance, type LeaveBalance } from "../lib/leave-balance";
+import type { AttendanceRuleLike } from "../lib/attendance-rules";
 import { EMPLOYEE_SELECT, toEmployeeView, type EmployeeView } from "./employee-service";
 
 /** The org's own working week. HR reads dates in the week its people work. */
@@ -20,6 +22,74 @@ const DEFAULT_TIMEZONE = "Asia/Dubai";
 export interface BalanceForEmployee {
   employee: EmployeeView;
   balance: LeaveBalance;
+}
+
+
+/**
+ * Standing rules and public holidays, in the shape the resolver wants.
+ *
+ * Loaded once per balance query and shared across every employee in it: an org
+ * has a handful of rules (thirteen would cover the imported year), so fetching
+ * them per person would be 23 identical round trips for one screen.
+ */
+async function loadRuleContext(organizationId: string): Promise<{
+  rules: (AttendanceRuleLike & { category: LeaveCategory; dayWeight: number })[];
+  holidays: Set<CalendarDate>;
+}> {
+  const [ruleRows, holidayRows] = await Promise.all([
+    db.attendanceRule.findMany({
+      where: { organizationId },
+      select: {
+        id: true, scope: true, employeeId: true, startDate: true, endDate: true,
+        leaveCode: { select: { code: true, countsAs: true, dayWeight: true } },
+      },
+    }),
+    db.publicHoliday.findMany({ where: { organizationId }, select: { date: true } }),
+  ]);
+  return {
+    rules: ruleRows.map((r) => ({
+      id: r.id,
+      scope: r.scope,
+      employeeId: r.employeeId,
+      code: r.leaveCode.code,
+      startDate: toCalendarDate(r.startDate),
+      endDate: r.endDate ? toCalendarDate(r.endDate) : null,
+      category: r.leaveCode.countsAs as LeaveCategory,
+      dayWeight: Number(r.leaveCode.dayWeight),
+    })),
+    holidays: new Set(holidayRows.map((h) => toCalendarDate(h.date))),
+  };
+}
+
+/**
+ * The rule-derived days for one employee, as balance entries.
+ *
+ * A rule carrying a leave code MUST count. Skipping this would let one
+ * company-wide record hand every employee free annual leave, invisibly.
+ */
+function ruleEntriesFor(params: {
+  employeeId: string;
+  employment: { joiningDate: CalendarDate; exitDate?: CalendarDate | null };
+  ctx: Awaited<ReturnType<typeof loadRuleContext>>;
+  explicitDates: ReadonlySet<CalendarDate>;
+  from: CalendarDate;
+  to: CalendarDate;
+  weekendDays?: readonly number[];
+}) {
+  const byId = new Map(params.ctx.rules.map((r) => [r.id, r]));
+  return ruleDerivedDays({
+    employeeId: params.employeeId,
+    employment: params.employment,
+    rules: params.ctx.rules,
+    explicitDates: params.explicitDates,
+    holidays: params.ctx.holidays,
+    from: params.from,
+    to: params.to,
+    weekendDays: params.weekendDays,
+  }).map((day) => {
+    const rule = byId.get(day.ruleId)!;
+    return { date: day.date, category: rule.category, dayWeight: rule.dayWeight };
+  });
 }
 
 export async function getLeaveBalance(params: {
@@ -52,6 +122,23 @@ export async function getLeaveBalance(params: {
     select: { date: true, leaveCode: { select: { countsAs: true, dayWeight: true } } },
   });
 
+  const explicit = entries.map((e) => ({
+    date: toCalendarDate(e.date),
+    category: e.leaveCode.countsAs as LeaveCategory,
+    dayWeight: Number(e.leaveCode.dayWeight),
+  }));
+
+  const ruleCtx = await loadRuleContext(params.organizationId);
+  const fromRules = ruleEntriesFor({
+    employeeId: employee.id,
+    employment: { joiningDate: employee.joiningDate, exitDate: employee.exitDate },
+    ctx: ruleCtx,
+    explicitDates: new Set(explicit.map((e) => e.date)),
+    from: employee.joiningDate,
+    to,
+    weekendDays: params.weekendDays,
+  });
+
   const balance = computeLeaveBalance({
     employee: {
       joiningDate: employee.joiningDate,
@@ -62,11 +149,7 @@ export async function getLeaveBalance(params: {
     },
     leaveYear,
     asOf,
-    entries: entries.map((e) => ({
-      date: toCalendarDate(e.date),
-      category: e.leaveCode.countsAs as LeaveCategory,
-      dayWeight: Number(e.leaveCode.dayWeight),
-    })),
+    entries: [...explicit, ...fromRules],
     weekendDays: params.weekendDays,
   });
 
@@ -125,8 +208,20 @@ export async function getOrgLeaveSummary(params: {
     byEmployee.set(e.employeeId, list);
   }
 
+  const ruleCtx = await loadRuleContext(params.organizationId);
+
   return rows.map((row) => {
     const employee = toEmployeeView(row);
+    const explicit = byEmployee.get(row.id) ?? [];
+    const fromRules = ruleEntriesFor({
+      employeeId: row.id,
+      employment: { joiningDate: employee.joiningDate, exitDate: employee.exitDate },
+      ctx: ruleCtx,
+      explicitDates: new Set(explicit.map((e) => e.date)),
+      from: employee.joiningDate,
+      to,
+      weekendDays: params.weekendDays,
+    });
     return {
       employee,
       balance: computeLeaveBalance({
@@ -139,7 +234,7 @@ export async function getOrgLeaveSummary(params: {
         },
         leaveYear,
         asOf,
-        entries: byEmployee.get(row.id) ?? [],
+        entries: [...explicit, ...fromRules],
         weekendDays: params.weekendDays,
       }),
     };

@@ -26,6 +26,7 @@ import {
   setAttendance,
   type AttendanceErrorCode,
 } from "@/hr/services/attendance-service";
+import { listAttendanceRules } from "@/hr/services/attendance-rule-service";
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
@@ -90,19 +91,22 @@ export async function GET(req: NextRequest) {
 
   return runWithTenant(org.orgId, async () => {
     try {
-      const [entries, holidays] = await Promise.all([
+      const [entries, holidays, rules] = await Promise.all([
         listAttendance({ organizationId: org.orgId, ...parsed.data }),
         db.publicHoliday.findMany({
           where: { organizationId: org.orgId },
           select: { date: true, label: true },
           orderBy: { date: "asc" },
         }),
+        listAttendanceRules({ organizationId: org.orgId }),
       ]);
       return NextResponse.json({
         entries,
-        // Sent alongside so the grid derives the same answer the balance engine
-        // does, rather than deriving its own from a different holiday list.
+        // Holidays AND rules travel with the entries so the grid derives the
+        // same answer the balance engine does, rather than deriving its own
+        // from a different holiday list or a stale set of rules.
         holidays: holidays.map((h) => ({ date: toCalendarDate(h.date), label: h.label })),
+        rules,
       });
     } catch (err) {
       apiLogger.error({ msg: "hr/attendance:list-failed", err, userId: session.user.id });

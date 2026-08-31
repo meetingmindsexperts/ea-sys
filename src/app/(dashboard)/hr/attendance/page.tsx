@@ -3,53 +3,88 @@
 /**
  * /hr/attendance — the month grid: employees down, days across.
  *
- * Only the entries that EXIST come down the wire. Every other cell is DERIVED
- * here with the same precedence the balance engine uses (outside employment,
- * then an explicit entry, then public holiday, then weekend, then present), from
- * the same holiday list the server sends alongside. Two derivations of the same
- * thing would eventually disagree, and the one people look at is not the one
- * that pays anybody.
+ * THE GRID IS THE INPUT. Select cells and press a key, or pick a code. The
+ * previous version displayed 713 cells and accepted input on none of them: to
+ * change one you looked away from it and re-described it in a five-field form,
+ * which is a translation the machine should be doing.
+ *
+ * Only the entries that EXIST come down the wire; every other cell is derived,
+ * through the SAME `effectiveStatusFor` the balance engine resolves with. It is
+ * imported rather than re-implemented on purpose — two derivations of one thing
+ * eventually disagree, and the one people look at is not the one that pays
+ * anybody.
  *
  * Derived cells are drawn faintly. That is not decoration: a derived P means
  * "nobody wrote anything down", which is usually but not always "they were
- * here", and the grid should not present an inference as a record.
+ * here", and the grid should not present an inference as a record. A cell a
+ * standing RULE produced carries a dot, because "a rule put this here" and
+ * "nobody wrote anything down" are different claims.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
+  useCreateHrAttendanceRule,
+  useDeleteHrAttendanceRule,
   useHrAttendance,
   useHrEmployees,
   useHrLeaveCodes,
   useSetHrAttendance,
   useClearHrAttendance,
+  type HrAttendanceRule,
+  type HrEmployee,
 } from "@/hr/hooks/use-hr-api";
+import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
+import type { AttendanceRuleLike } from "@/hr/lib/attendance-rules";
+import type { CalendarDate } from "@/hr/lib/hr-date";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Loader2, TableProperties, Trash2 } from "lucide-react";
+import {
+  Building2, CalendarClock, ChevronLeft, ChevronRight, Loader2, TableProperties, Trash2, UserCog,
+} from "lucide-react";
 
 const MS_DAY = 86_400_000;
-function iso(d: Date) { return d.toISOString().slice(0, 10); }
+const iso = (d: Date) => d.toISOString().slice(0, 10) as CalendarDate;
+const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+
 function monthBounds(year: number, month: number) {
   return {
     from: iso(new Date(Date.UTC(year, month, 1))),
     to: iso(new Date(Date.UTC(year, month + 1, 0))),
   };
 }
-function eachDay(from: string, to: string) {
-  const out: string[] = [];
+function eachDay(from: string, to: string): CalendarDate[] {
+  const out: CalendarDate[] = [];
   for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += MS_DAY) {
-    out.push(new Date(t).toISOString().slice(0, 10));
+    out.push(new Date(t).toISOString().slice(0, 10) as CalendarDate);
   }
   return out;
 }
 
-/** Muted for derived cells, saturated for recorded ones. */
+/**
+ * The codes that carry a keyboard shortcut, in the order they appear.
+ *
+ * Five, from the imported data: AL and WFH alone are 85% of every entry, and
+ * these five are 99.3%. The other sixteen live behind "Another code", so the
+ * once-a-year ones do not compete for attention with the daily ones.
+ */
+const PRIMARY: { code: string; label: string; key: string }[] = [
+  { code: "AL", label: "Annual", key: "a" },
+  { code: "WFH", label: "From home", key: "w" },
+  { code: "SL-F", label: "Sick", key: "s" },
+  { code: "OD", label: "On duty", key: "o" },
+  { code: "CO", label: "Comp-off", key: "c" },
+];
+const KEY_TO_CODE = Object.fromEntries(PRIMARY.map((p) => [p.key, p.code]));
+
 const CODE_STYLE: Record<string, string> = {
   AL: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
   "AL-HD": "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
@@ -61,8 +96,11 @@ const CODE_STYLE: Record<string, string> = {
   CO: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
   WFH: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
   ABS: "bg-red-200 text-red-900 dark:bg-red-900 dark:text-red-100",
+  PH: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 const DERIVED_STYLE = "text-muted-foreground/50";
+
+interface Selection { r0: number; d0: number; r1: number; d1: number }
 
 export default function HrAttendancePage() {
   const today = new Date();
@@ -76,69 +114,204 @@ export default function HrAttendancePage() {
   const { data, isLoading, isError, error } = useHrAttendance(from, to);
   const setAttendance = useSetHrAttendance();
   const clearAttendance = useClearHrAttendance();
+  const createRule = useCreateHrAttendanceRule();
+  const deleteRule = useDeleteHrAttendanceRule();
 
-  const [form, setForm] = useState({ employeeId: "", from: "", to: "", code: "AL" });
+  const [sel, setSel] = useState<Selection | null>(null);
+  const [pop, setPop] = useState<{ x: number; y: number } | null>(null);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [standingOpen, setStandingOpen] = useState(false);
+  const dragging = useRef(false);
+  const busy = setAttendance.isPending || clearAttendance.isPending;
 
-  const entryAt = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const e of data?.entries ?? []) m.set(`${e.employeeId}|${e.date}`, e.code);
+  /* ---------------------------------------------------------- derivation */
+  const entriesByEmployee = useMemo(() => {
+    const m = new Map<string, Map<CalendarDate, { code: string }>>();
+    for (const e of data?.entries ?? []) {
+      const inner = m.get(e.employeeId) ?? new Map<CalendarDate, { code: string }>();
+      inner.set(e.date as CalendarDate, { code: e.code });
+      m.set(e.employeeId, inner);
+    }
     return m;
   }, [data]);
+
   const holidays = useMemo(
-    () => new Map((data?.holidays ?? []).map((h) => [h.date, h.label])),
+    () => new Map((data?.holidays ?? []).map((h) => [h.date as CalendarDate, h.label])),
     [data],
   );
+  const holidaySet = useMemo(() => new Set(holidays.keys()), [holidays]);
 
-  function cellFor(employee: (typeof employees)[number], date: string) {
-    if (date < employee.joiningDate) return { code: "", derived: true, title: "before joining" };
-    if (employee.exitDate && date > employee.exitDate) return { code: "", derived: true, title: "after leaving" };
-    const recorded = entryAt.get(`${employee.id}|${date}`);
-    if (recorded) return { code: recorded, derived: false, title: recorded };
-    const holiday = holidays.get(date);
-    if (holiday) return { code: "PH", derived: true, title: holiday };
-    const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
-    if (dow === 0 || dow === 6) return { code: "OFF", derived: true, title: "weekend" };
-    return { code: "P", derived: true, title: "present (derived)" };
+  const rules = useMemo<HrAttendanceRule[]>(() => data?.rules ?? [], [data]);
+  const ruleLikes = useMemo<AttendanceRuleLike[]>(
+    () =>
+      rules.map((r) => ({
+        id: r.id,
+        scope: r.scope,
+        employeeId: r.employeeId,
+        code: r.code,
+        startDate: r.startDate as CalendarDate,
+        endDate: (r.endDate ?? null) as CalendarDate | null,
+      })),
+    [rules],
+  );
+  const ruleById = useMemo(() => new Map(rules.map((r) => [r.id, r])), [rules]);
+
+  const EMPTY = useMemo(() => new Map<CalendarDate, { code: string }>(), []);
+
+  function cellFor(employee: HrEmployee, date: CalendarDate) {
+    return effectiveStatusFor(date, {
+      employment: {
+        joiningDate: employee.joiningDate as CalendarDate,
+        exitDate: (employee.exitDate ?? null) as CalendarDate | null,
+      },
+      entriesByDate: entriesByEmployee.get(employee.id) ?? EMPTY,
+      holidays: holidaySet,
+      rules: ruleLikes,
+      employeeId: employee.id,
+    });
   }
 
-  async function submit() {
-    if (!form.employeeId || !form.from) {
-      toast.error("Pick a person and a start date.");
-      return;
+  /* ------------------------------------------------------------ selection */
+  const cellsInSel = useMemo(() => {
+    if (!sel) return [] as { employee: HrEmployee; date: CalendarDate }[];
+    const r1 = Math.min(sel.r0, sel.r1), r2 = Math.max(sel.r0, sel.r1);
+    const d1 = Math.min(sel.d0, sel.d1), d2 = Math.max(sel.d0, sel.d1);
+    const out: { employee: HrEmployee; date: CalendarDate }[] = [];
+    for (let r = r1; r <= r2 && r < employees.length; r++) {
+      for (let d = d1; d <= d2 && d < days.length; d++) {
+        const employee = employees[r];
+        const date = days[d];
+        if (date < employee.joiningDate) continue;
+        if (employee.exitDate && date > employee.exitDate) continue;
+        out.push({ employee, date });
+      }
     }
-    try {
-      const res = await setAttendance.mutateAsync({
-        employeeId: form.employeeId,
-        from: form.from,
-        to: form.to || undefined,
-        code: form.code,
-      });
+    return out;
+  }, [sel, employees, days]);
+
+  const selectedKeys = useMemo(
+    () => new Set(cellsInSel.map((c) => `${c.employee.id}|${c.date}`)),
+    [cellsInSel],
+  );
+
+  /**
+   * A selection spanning several people is written one request per person,
+   * because the API records a contiguous range for ONE employee. Two people is
+   * two requests; the alternative is a bulk endpoint whose failure semantics
+   * would be "some of it worked", which is worse than being slightly chattier.
+   */
+  async function apply(code: string | null) {
+    if (!cellsInSel.length) return;
+    const byEmployee = new Map<string, CalendarDate[]>();
+    for (const c of cellsInSel) {
+      const list = byEmployee.get(c.employee.id) ?? [];
+      list.push(c.date);
+      byEmployee.set(c.employee.id, list);
+    }
+    setPop(null);
+    let written = 0, skipped = 0, failed = 0;
+    for (const [employeeId, dates] of byEmployee) {
+      const sorted = [...dates].sort();
+      try {
+        if (code) {
+          const res = await setAttendance.mutateAsync({
+            employeeId,
+            from: sorted[0],
+            to: sorted[sorted.length - 1],
+            code,
+            // OD and CO describe the day itself rather than an absence from it,
+            // so they are the codes that must be allowed to land on a weekend.
+            includeNonWorkingDays: code === "OD" || code === "CO",
+          });
+          written += res.written;
+          skipped += res.skipped.length;
+        } else {
+          const res = await clearAttendance.mutateAsync({
+            employeeId,
+            from: sorted[0],
+            to: sorted[sorted.length - 1],
+          });
+          written += res.removed;
+        }
+      } catch (err) {
+        failed++;
+        toast.error((err as Error).message);
+      }
+    }
+    if (failed === 0) {
       toast.success(
-        `Recorded ${res.written} day${res.written === 1 ? "" : "s"}` +
-          (res.skipped.length ? `, skipped ${res.skipped.length} non-working day(s)` : ""),
+        code
+          ? `${written} day${written === 1 ? "" : "s"} set to ${code}` +
+              (skipped ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped` : "")
+          : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
       );
-    } catch (err) {
-      toast.error((err as Error).message);
     }
+    setSel(null);
   }
 
-  async function clear() {
-    if (!form.employeeId || !form.from) {
-      toast.error("Pick a person and a start date.");
-      return;
+  /* Keyboard is bound at the document, so a shortcut works wherever the pointer
+     ended up after a drag. Guarded on an open dialog and on any focused field,
+     or typing a date in a modal would set half the grid to Annual. */
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") { setPop(null); setSel(null); return; }
+      if (!sel || companyOpen || standingOpen) return;
+      const el = ev.target as HTMLElement | null;
+      if (el && el.closest("input,select,textarea,[role=dialog]")) return;
+      const code = KEY_TO_CODE[ev.key.toLowerCase()];
+      if (code) { ev.preventDefault(); void apply(code); return; }
+      if (ev.key === "Backspace" || ev.key === "Delete") { ev.preventDefault(); void apply(null); }
     }
-    try {
-      const res = await clearAttendance.mutateAsync({
-        employeeId: form.employeeId,
-        from: form.from,
-        to: form.to || undefined,
-      });
-      toast.success(`Cleared ${res.removed} entr${res.removed === 1 ? "y" : "ies"}.`);
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, companyOpen, standingOpen, cellsInSel]);
 
+  useEffect(() => {
+    function onUp(ev: MouseEvent) {
+      if (!dragging.current) return;
+      dragging.current = false;
+      if (cellsInSel.length) setPop({ x: ev.clientX, y: ev.clientY + window.scrollY });
+    }
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [cellsInSel]);
+
+  /* ------------------------------------------------------------- counters */
+  const { accounted, records } = useMemo(() => {
+    let accounted = 0;
+    for (const e of employees) {
+      for (const d of days) {
+        const c = cellFor(e, d);
+        if (c.code === "P" || c.code === "OFF" || c.code === "PH" || c.code === "NOT_EMPLOYED") continue;
+        accounted++;
+      }
+    }
+    // Contiguous same-code days for one person are one decision, so they count
+    // as one record: that is the unit an operator actually enters.
+    const byEmp = new Map<string, { d: CalendarDate; code: string }[]>();
+    for (const e of data?.entries ?? []) {
+      const list = byEmp.get(e.employeeId) ?? [];
+      list.push({ d: e.date as CalendarDate, code: e.code });
+      byEmp.set(e.employeeId, list);
+    }
+    let runs = 0;
+    for (const list of byEmp.values()) {
+      list.sort((a, b) => a.d.localeCompare(b.d));
+      for (let i = 0; i < list.length; i++) {
+        const prev = list[i - 1];
+        const gap = prev ? Date.parse(list[i].d) - Date.parse(prev.d) > MS_DAY : true;
+        if (!prev || prev.code !== list[i].code || gap) runs++;
+      }
+    }
+    const activeRules = rules.filter(
+      (r) => r.startDate <= to && (!r.endDate || r.endDate >= from),
+    ).length;
+    return { accounted, records: runs + activeRules };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, days, data, rules, from, to]);
+
+  /* ------------------------------------------------------------ rendering */
   if (isError) {
     return (
       <div className="mx-auto mt-20 max-w-md rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
@@ -153,135 +326,552 @@ export default function HrAttendancePage() {
   });
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
             <TableProperties className="h-6 w-6 text-primary" />
             Attendance
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Faint cells are worked out (weekend, holiday, present); solid cells were recorded.
+          <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">
+            Drag across the grid to select, then press a key or pick a code. Faint cells are
+            worked out; a dot means a standing rule put it there.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => {
-            const d = new Date(Date.UTC(year, month - 1, 1));
-            setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth());
-          }}><ChevronLeft className="h-4 w-4" /></Button>
-          <span className="w-40 text-center text-sm font-medium">{monthLabel}</span>
-          <Button variant="ghost" size="icon" onClick={() => {
-            const d = new Date(Date.UTC(year, month + 1, 1));
-            setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth());
-          }}><ChevronRight className="h-4 w-4" /></Button>
+        <div className="flex items-center gap-3">
+          <div className="flex overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="min-w-[96px] px-4 py-2 text-center">
+              <span className="block font-mono text-xl font-semibold tabular-nums">{accounted}</span>
+              <span className="mt-0.5 block text-[10px] uppercase tracking-wider text-muted-foreground">
+                days shown
+              </span>
+            </div>
+            <div className="min-w-[96px] border-l bg-primary/5 px-4 py-2 text-center">
+              <span className="block font-mono text-xl font-semibold tabular-nums text-primary">
+                {records}
+              </span>
+              <span className="mt-0.5 block text-[10px] uppercase tracking-wider text-muted-foreground">
+                records
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" aria-label="Previous month" onClick={() => {
+              const d = new Date(Date.UTC(year, month - 1, 1));
+              setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth()); setSel(null);
+            }}><ChevronLeft className="h-4 w-4" /></Button>
+            <span className="w-36 text-center text-sm font-medium">{monthLabel}</span>
+            <Button variant="ghost" size="icon" aria-label="Next month" onClick={() => {
+              const d = new Date(Date.UTC(year, month + 1, 1));
+              setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth()); setSel(null);
+            }}><ChevronRight className="h-4 w-4" /></Button>
+          </div>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-lg border p-3 md:grid-cols-5">
-        <div className="space-y-1">
-          <Label className="text-xs">Employee</Label>
-          <Select value={form.employeeId} onValueChange={(v) => setForm((f) => ({ ...f, employeeId: v }))}>
-            <SelectTrigger><SelectValue placeholder="Pick someone" /></SelectTrigger>
-            <SelectContent>
-              {employees.map((e) => (
-                <SelectItem key={e.id} value={e.id}>{e.name} ({e.empCode})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">From</Label>
-          <Input type="date" value={form.from} onChange={(e) => setForm((f) => ({ ...f, from: e.target.value }))} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">To (optional)</Label>
-          <Input type="date" value={form.to} onChange={(e) => setForm((f) => ({ ...f, to: e.target.value }))} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Code</Label>
-          <Select value={form.code} onValueChange={(v) => setForm((f) => ({ ...f, code: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {codes.map((c) => (
-                <SelectItem key={c.id} value={c.code}>{c.code} — {c.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-end gap-2">
-          <Button onClick={submit} disabled={setAttendance.isPending} className="flex-1">
-            {setAttendance.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Record
-          </Button>
-          <Button variant="outline" size="icon" onClick={clear} disabled={clearAttendance.isPending} title="Clear this range">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground md:col-span-5">
-          A range covers working days only: weekends and public holidays inside it
-          are skipped, so twelve calendar days of annual leave is not charged as twelve days.
-        </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => setCompanyOpen(true)}>
+          <Building2 className="h-4 w-4" /> Company day
+        </Button>
+        <Button variant="outline" onClick={() => setStandingOpen(true)}>
+          <UserCog className="h-4 w-4" /> Standing arrangement
+        </Button>
+        {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <div className="flex-1" />
+        <span className="text-xs text-muted-foreground">
+          {PRIMARY.map((p) => (
+            <span key={p.code} className="mr-2 whitespace-nowrap">
+              <kbd className="rounded border border-b-2 px-1 py-0.5 font-mono text-[10px]">
+                {p.key.toUpperCase()}
+              </kbd>{" "}
+              {p.label.toLowerCase()}
+            </span>
+          ))}
+          <span className="whitespace-nowrap">
+            <kbd className="rounded border border-b-2 px-1 py-0.5 font-mono text-[10px]">⌫</kbd> clear
+          </span>
+        </span>
       </div>
 
-      {isLoading || loadingEmployees ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="bg-muted/50">
-                <th className="sticky left-0 z-10 min-w-[180px] bg-muted/50 px-3 py-2 text-left font-medium">
-                  Employee
-                </th>
-                {days.map((d) => {
-                  const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
-                  const weekend = dow === 0 || dow === 6;
-                  return (
-                    <th
-                      key={d}
-                      className={`w-8 px-0 py-2 text-center font-normal ${weekend ? "text-muted-foreground/60" : ""}`}
-                      title={d}
-                    >
-                      {Number(d.slice(8, 10))}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {employees.map((e) => (
-                <tr key={e.id} className="hover:bg-muted/20">
-                  <td className="sticky left-0 z-10 bg-background px-3 py-1.5">
-                    <div className="font-medium">{e.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{e.empCode}</div>
-                  </td>
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="overflow-x-auto rounded-lg border bg-card">
+          {isLoading || loadingEmployees ? (
+            <div className="flex items-center justify-center py-20 text-muted-foreground">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="sticky left-0 z-10 min-w-[150px] bg-muted/50 px-3 py-2 text-left font-medium">
+                    Employee
+                  </th>
                   {days.map((d) => {
-                    const c = cellFor(e, d);
-                    const style = c.derived ? DERIVED_STYLE : (CODE_STYLE[c.code] ?? "bg-muted");
+                    const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
+                    const weekend = dow === 0 || dow === 6;
+                    const hol = holidays.get(d);
                     return (
-                      <td key={d} className="p-0 text-center" title={`${d} — ${c.title}`}>
-                        <div className={`mx-auto my-0.5 flex h-6 w-7 items-center justify-center rounded text-[10px] ${style}`}>
-                          {c.code}
-                        </div>
-                      </td>
+                      <th
+                        key={d}
+                        className={`w-7 px-0 py-1.5 text-center font-mono text-[10px] font-normal tabular-nums ${
+                          hol ? "text-slate-500" : weekend ? "text-muted-foreground/60" : ""
+                        }`}
+                        title={hol ? `${d} — ${hol}` : d}
+                      >
+                        {Number(d.slice(8, 10))}
+                        <span className="block text-[8px] font-normal uppercase text-muted-foreground/60">
+                          {DOW[dow]}
+                        </span>
+                      </th>
                     );
                   })}
                 </tr>
+              </thead>
+              <tbody className="divide-y">
+                {employees.map((e, r) => (
+                  <tr key={e.id} className="hover:bg-muted/20">
+                    <td className="sticky left-0 z-10 bg-card px-3 py-1 hover:bg-muted/20">
+                      <div className="truncate font-medium" title={e.name}>{e.name}</div>
+                      <div className="font-mono text-[9px] text-muted-foreground">{e.empCode}</div>
+                    </td>
+                    {days.map((d, di) => {
+                      const c = cellFor(e, d);
+                      const outside = c.code === "NOT_EMPLOYED";
+                      const selected = selectedKeys.has(`${e.id}|${d}`);
+                      const label =
+                        outside ? "" : c.code === "OFF" ? "OFF" : c.code;
+                      const style = outside
+                        ? "opacity-0"
+                        : c.derived
+                          ? c.ruleId
+                            ? `${CODE_STYLE[c.code] ?? ""} opacity-60`
+                            : c.code === "PH"
+                              ? CODE_STYLE.PH
+                              : DERIVED_STYLE
+                          : (CODE_STYLE[c.code] ?? "bg-muted");
+                      const why = outside
+                        ? "not employed"
+                        : c.ruleId
+                          ? ruleById.get(c.ruleId)?.label ?? "from a rule"
+                          : !c.derived
+                            ? "recorded"
+                            : c.code === "PH"
+                              ? holidays.get(d) ?? "public holiday"
+                              : c.code === "OFF"
+                                ? "weekend"
+                                : "present (assumed)";
+                      return (
+                        <td key={d} className="p-0 text-center">
+                          <div
+                            data-cell
+                            onMouseDown={(ev) => {
+                              if (outside) return;
+                              ev.preventDefault();
+                              setPop(null);
+                              dragging.current = true;
+                              setSel({ r0: r, d0: di, r1: r, d1: di });
+                            }}
+                            onMouseEnter={() => {
+                              if (!dragging.current) return;
+                              setSel((s) => (s ? { ...s, r1: r, d1: di } : s));
+                            }}
+                            title={`${d} — ${why}`}
+                            className={`relative mx-auto my-0.5 flex h-6 w-[26px] select-none items-center justify-center rounded font-mono text-[9px] ${
+                              outside ? "cursor-not-allowed" : "cursor-cell"
+                            } ${style} ${selected ? "ring-2 ring-primary ring-inset" : ""}`}
+                          >
+                            {label}
+                            {c.ruleId && (
+                              <span className="absolute left-[2px] top-[2px] h-[3px] w-[3px] rounded-full bg-primary/70" />
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {employees.length === 0 && (
+                  <tr>
+                    <td colSpan={days.length + 1} className="px-3 py-10 text-center text-muted-foreground">
+                      No employees yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border bg-card">
+            <div className="border-b px-3 py-2.5">
+              <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-primary">
+                Standing rules
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                One record that speaks for many days. Anything recorded for a person still wins.
+              </p>
+            </div>
+            {rules.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-muted-foreground">
+                None yet. A company day covers everyone at once; a standing arrangement covers one
+                person until you end it.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {rules.map((r) => (
+                  <li key={r.id} className="flex items-start gap-2 px-3 py-2 text-xs">
+                    <span
+                      className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold ${
+                        r.scope === "ORG"
+                          ? "bg-primary/10 text-primary"
+                          : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                      }`}
+                    >
+                      {r.scope === "ORG" ? "ALL" : "ONE"}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">
+                        {r.label} · {r.code}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {r.scope === "EMPLOYEE" ? `${r.employeeName ?? "?"} · ` : ""}
+                        {r.startDate}
+                        {r.endDate ? ` – ${r.endDate}` : " onwards"}
+                      </span>
+                    </span>
+                    <button
+                      className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-destructive"
+                      title="End this rule"
+                      disabled={deleteRule.isPending}
+                      onClick={async () => {
+                        try {
+                          await deleteRule.mutateAsync(r.id);
+                          toast.success("Rule removed. Those days go back to being derived.");
+                        } catch (err) {
+                          toast.error((err as Error).message);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-card">
+            <div className="border-b px-3 py-2.5">
+              <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-primary">
+                Codes
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-1.5 px-3 py-3">
+              {["AL", "WFH", "SL-F", "OD", "CO", "ABS", "PH"].map((c) => (
+                <span
+                  key={c}
+                  className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold ${CODE_STYLE[c] ?? "bg-muted"}`}
+                >
+                  {c}
+                </span>
               ))}
-              {employees.length === 0 && (
-                <tr>
-                  <td colSpan={days.length + 1} className="px-3 py-10 text-center text-muted-foreground">
-                    No employees yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {pop && cellsInSel.length > 0 && (
+        <CodePopover
+          x={pop.x}
+          y={pop.y}
+          count={cellsInSel.length}
+          codes={codes.map((c) => c.code)}
+          onPick={(code) => void apply(code)}
+          onClose={() => setPop(null)}
+        />
+      )}
+
+      <CompanyDayDialog
+        open={companyOpen}
+        onOpenChange={setCompanyOpen}
+        codes={codes.map((c) => ({ code: c.code, label: c.label }))}
+        defaultFrom={from}
+        pending={createRule.isPending}
+        onSubmit={async (v) => {
+          try {
+            await createRule.mutateAsync({ scope: "ORG", ...v });
+            toast.success("One record now covers everyone employed on those dates.");
+            setCompanyOpen(false);
+          } catch (err) {
+            toast.error((err as Error).message);
+          }
+        }}
+      />
+
+      <StandingDialog
+        open={standingOpen}
+        onOpenChange={setStandingOpen}
+        employees={employees}
+        codes={codes.map((c) => ({ code: c.code, label: c.label }))}
+        defaultFrom={from}
+        pending={createRule.isPending}
+        onSubmit={async (v) => {
+          try {
+            await createRule.mutateAsync({ scope: "EMPLOYEE", ...v });
+            toast.success("Recorded once. It applies every working day until you end it.");
+            setStandingOpen(false);
+          } catch (err) {
+            toast.error((err as Error).message);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- popover ---- */
+
+function CodePopover(props: {
+  x: number; y: number; count: number; codes: string[];
+  onPick: (code: string | null) => void; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onDown(ev: MouseEvent) {
+      const el = ev.target as HTMLElement;
+      if (!ref.current?.contains(el) && !el.closest("[data-cell]")) props.onClose();
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [props]);
+
+  const others = props.codes.filter((c) => !PRIMARY.some((p) => p.code === c));
+  const left = Math.min(props.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 236);
+
+  return (
+    <div
+      ref={ref}
+      style={{ left, top: props.y + 8 }}
+      className="absolute z-50 w-56 rounded-lg border bg-popover p-2 shadow-lg"
+    >
+      <p className="mb-1.5 px-1 font-mono text-[11px] text-muted-foreground">
+        {props.count} day{props.count === 1 ? "" : "s"} selected
+      </p>
+      <div className="grid grid-cols-2 gap-1">
+        {PRIMARY.map((p) => (
+          <button
+            key={p.code}
+            onClick={() => props.onPick(p.code)}
+            className="flex items-center gap-1.5 rounded-md border px-1.5 py-1.5 text-left text-[11px] hover:border-primary"
+          >
+            <span className={`rounded px-1 py-0.5 font-mono text-[9px] font-semibold ${CODE_STYLE[p.code]}`}>
+              {p.code}
+            </span>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {others.length > 0 && (
+        <div className="mt-1.5 border-t pt-1.5">
+          <Select onValueChange={(v) => props.onPick(v)}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Another code…" /></SelectTrigger>
+            <SelectContent>
+              {others.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       )}
+      <button
+        onClick={() => props.onPick(null)}
+        className="mt-1.5 w-full rounded-md py-1.5 text-[11px] text-muted-foreground hover:bg-muted"
+      >
+        Clear these days
+      </button>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------- dialogs --- */
+
+function CompanyDayDialog(props: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+  codes: { code: string; label: string }[]; defaultFrom: string; pending: boolean;
+  onSubmit: (v: { code: string; startDate: string; endDate: string | null; label: string }) => void;
+}) {
+  const [form, setForm] = useState({ startDate: "", endDate: "", code: "WFH", label: "Everyone remote" });
+  const [prevOpen, setPrevOpen] = useState(props.open);
+  if (props.open !== prevOpen) {
+    setPrevOpen(props.open);
+    // Re-seed on every closed -> open transition, so yesterday's half-typed
+    // range is not still sitting there tomorrow.
+    if (props.open) {
+      setForm({ startDate: props.defaultFrom, endDate: "", code: "WFH", label: "Everyone remote" });
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-primary" /> Company day
+          </DialogTitle>
+          <DialogDescription>
+            One record that applies to everyone employed on those dates. Anything already recorded
+            for a person still wins, so somebody on leave stays on leave.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">From</Label>
+              <Input type="date" value={form.startDate}
+                onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To (optional)</Label>
+              <Input type="date" value={form.endDate}
+                onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Code</Label>
+            <Select value={form.code} onValueChange={(v) => setForm((f) => ({ ...f, code: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {props.codes.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>{c.code} — {c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Why</Label>
+            <Input value={form.label} placeholder="Office closed, Ramadan hours…"
+              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+          </div>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            Weekends and public holidays inside the range are left alone. Nothing is written per
+            person, so ending this rule later puts every day back exactly as it was.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => props.onOpenChange(false)}>Cancel</Button>
+          <Button
+            disabled={props.pending || !form.startDate || !form.label.trim()}
+            onClick={() => props.onSubmit({
+              code: form.code,
+              startDate: form.startDate,
+              endDate: form.endDate || null,
+              label: form.label.trim(),
+            })}
+          >
+            {props.pending && <Loader2 className="h-4 w-4 animate-spin" />} Record
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StandingDialog(props: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+  employees: HrEmployee[]; codes: { code: string; label: string }[];
+  defaultFrom: string; pending: boolean;
+  onSubmit: (v: {
+    employeeId: string; code: string; startDate: string; endDate: string | null; label: string;
+  }) => void;
+}) {
+  const [form, setForm] = useState({
+    employeeId: "", startDate: "", endDate: "", code: "WFH", label: "Works remotely",
+  });
+  const [prevOpen, setPrevOpen] = useState(props.open);
+  if (props.open !== prevOpen) {
+    setPrevOpen(props.open);
+    if (props.open) {
+      setForm({
+        employeeId: "", startDate: props.defaultFrom, endDate: "", code: "WFH",
+        label: "Works remotely",
+      });
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-primary" /> Standing arrangement
+          </DialogTitle>
+          <DialogDescription>
+            Something permanently true about one person. It fills every working day until you end
+            it, and any individual record still overrides it.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Person</Label>
+            <Select value={form.employeeId}
+              onValueChange={(v) => setForm((f) => ({ ...f, employeeId: v }))}>
+              <SelectTrigger><SelectValue placeholder="Pick someone" /></SelectTrigger>
+              <SelectContent>
+                {props.employees.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>{e.name} ({e.empCode})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">From</Label>
+              <Input type="date" value={form.startDate}
+                onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Until (optional)</Label>
+              <Input type="date" value={form.endDate}
+                onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Code</Label>
+            <Select value={form.code} onValueChange={(v) => setForm((f) => ({ ...f, code: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {props.codes.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>{c.code} — {c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Why</Label>
+            <Input value={form.label}
+              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+          </div>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            Leave &ldquo;Until&rdquo; empty for an open-ended arrangement. It holds until somebody
+            ends it.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => props.onOpenChange(false)}>Cancel</Button>
+          <Button
+            disabled={props.pending || !form.employeeId || !form.startDate || !form.label.trim()}
+            onClick={() => props.onSubmit({
+              employeeId: form.employeeId,
+              code: form.code,
+              startDate: form.startDate,
+              endDate: form.endDate || null,
+              label: form.label.trim(),
+            })}
+          >
+            {props.pending && <Loader2 className="h-4 w-4 animate-spin" />} Record
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

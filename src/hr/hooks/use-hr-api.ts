@@ -122,13 +122,72 @@ export function useHrLeaveCodes() {
   });
 }
 
+/**
+ * A standing rule, as the grid needs it. `endDate` null means open-ended, which
+ * is what a permanent arrangement is.
+ */
+export interface HrAttendanceRule {
+  id: string;
+  scope: "ORG" | "EMPLOYEE";
+  employeeId: string | null;
+  employeeName: string | null;
+  code: string;
+  category: string;
+  dayWeight: number;
+  startDate: string;
+  endDate: string | null;
+  label: string;
+  createdAt: string;
+}
+
 export function useHrAttendance(from: string, to: string, employeeId?: string) {
   return useQuery({
     queryKey: hrKeys.attendance(from, to, employeeId),
     queryFn: () =>
-      get<{ entries: HrAttendanceEntry[]; holidays: { date: string; label: string }[] }>(
+      get<{
+        entries: HrAttendanceEntry[];
+        holidays: { date: string; label: string }[];
+        rules: HrAttendanceRule[];
+      }>(
         `/api/hr/attendance?from=${from}&to=${to}${employeeId ? `&employeeId=${employeeId}` : ""}`,
       ),
+  });
+}
+
+export function useCreateHrAttendanceRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      scope: "ORG" | "EMPLOYEE";
+      employeeId?: string | null;
+      code: string;
+      startDate: string;
+      endDate?: string | null;
+      label: string;
+    }) => {
+      const res = await fetch("/api/hr/attendance-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not save that rule.");
+      return data as { rule: HrAttendanceRule };
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
+
+export function useDeleteHrAttendanceRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ruleId: string) => {
+      const res = await fetch(`/api/hr/attendance-rules/${ruleId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not remove that rule.");
+      return data as { ok: true };
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
 }
 

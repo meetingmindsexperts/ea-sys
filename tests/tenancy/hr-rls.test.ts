@@ -1,6 +1,6 @@
 /**
  * HR module (born tenancy-compliant, Aug 27 2026): the policies from
- * prisma/rls/{employee,leavecode,attendanceentry,leavegrant,publicholiday}.sql
+ * prisma/rls/{employee,leavecode,attendanceentry,attendancerule,leavegrant,publicholiday}.sql
  * — the SAME files the platform bootstrap applies — enforced end to end through
  * the ALS store, the SET LOCAL extension and pgbouncer, as the non-owner
  * app_user.
@@ -36,6 +36,8 @@ const ENTRY_A_ID = "tenancy-hr-ae-a";
 const ENTRY_B_ID = "tenancy-hr-ae-b";
 const HOL_A_ID = "tenancy-hr-ph-a";
 const HOL_B_ID = "tenancy-hr-ph-b";
+const RULE_A_ID = "tenancy-hr-rule-a";
+const RULE_B_ID = "tenancy-hr-rule-b";
 
 /** Both orgs use this employee code. Scoping is what keeps them apart. */
 const SHARED_EMP_CODE = "EMP001";
@@ -71,6 +73,15 @@ beforeAll(async () => {
       { id: ENTRY_B_ID, organizationId: ORG_B_ID, employeeId: EMP_B_ID, date: DAY, leaveCodeId: CODE_B_ID },
     ],
   });
+  // Both orgs hold an ORG-scoped rule over the SAME dates. A rule is what the
+  // grid and the balance engine derive from, so one leaking across a lane would
+  // put another tenant's company shutdown into this tenant's payroll figures.
+  await owner.attendanceRule.createMany({
+    data: [
+      { id: RULE_A_ID, organizationId: ORG_A_ID, scope: "ORG", leaveCodeId: CODE_A_ID, startDate: DAY, endDate: DAY, label: "Everyone remote (A)", updatedAt: DAY },
+      { id: RULE_B_ID, organizationId: ORG_B_ID, scope: "ORG", leaveCodeId: CODE_B_ID, startDate: DAY, endDate: DAY, label: "Everyone remote (B)", updatedAt: DAY },
+    ],
+  });
   await owner.publicHoliday.createMany({
     data: [
       { id: HOL_A_ID, organizationId: ORG_A_ID, date: HOLIDAY, label: "National Day (A)" },
@@ -80,6 +91,7 @@ beforeAll(async () => {
 });
 
 async function cleanup() {
+  await owner?.attendanceRule.deleteMany({ where: { id: { in: [RULE_A_ID, RULE_B_ID] } } });
   await owner?.attendanceEntry.deleteMany({ where: { id: { in: [ENTRY_A_ID, ENTRY_B_ID] } } });
   await owner?.leaveGrant.deleteMany({ where: { employeeId: { in: [EMP_A_ID, EMP_B_ID] } } });
   await owner?.publicHoliday.deleteMany({ where: { id: { in: [HOL_A_ID, HOL_B_ID] } } });
@@ -197,5 +209,46 @@ describe("HR RLS via the SET LOCAL extension", () => {
     expect(res.count).toBe(0);
     const stillThere = await owner.employee.findUnique({ where: { id: EMP_B_ID } });
     expect(stillThere).not.toBeNull();
+  });
+
+  it("lane-scoped: an org-wide RULE resolves to each lane's own row", async () => {
+    const [a, b] = [
+      await runWithTenant(ORG_A_ID, () => db.attendanceRule.findFirst({ where: { scope: "ORG" } })),
+      await runWithTenant(ORG_B_ID, () => db.attendanceRule.findFirst({ where: { scope: "ORG" } })),
+    ];
+    expect(a?.id).toBe(RULE_A_ID);
+    expect(b?.id).toBe(RULE_B_ID);
+  });
+
+  it("cross-tenant miss: B's rule is invisible from A's lane, even by id", async () => {
+    const found = await runWithTenant(ORG_A_ID, () =>
+      db.attendanceRule.findUnique({ where: { id: RULE_B_ID } }),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("fails closed: with no lane, no rule is visible at all", async () => {
+    const rows = await db.attendanceRule.findMany({
+      where: { id: { in: [RULE_A_ID, RULE_B_ID] } },
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("WITH CHECK blocks re-homing a rule into another tenant", async () => {
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.attendanceRule.update({
+          where: { id: RULE_A_ID },
+          data: { organizationId: ORG_B_ID },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("cross-tenant DELETE cannot reach B's rule from A's lane", async () => {
+    const res = await runWithTenant(ORG_A_ID, () =>
+      db.attendanceRule.deleteMany({ where: { id: RULE_B_ID } }),
+    );
+    expect(res.count).toBe(0);
   });
 });
