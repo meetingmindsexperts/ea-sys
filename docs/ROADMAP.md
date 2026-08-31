@@ -271,6 +271,18 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
   are not surfaced at create, and the same-scope tiebreak is the later start date, now documented as such rather
   than as "most recent decision".
 
+- **✅ Batch 2 (same day): M1, M2, M3, M6, M10, M13.** *M2/M3/M6*: `updateEmployee` now judges the
+  status / last-working-day pair on the RESULTING record (a leaver needs a date, `EXIT_DATE_REQUIRED`; an
+  ACTIVE record cannot keep a past one, `LEAVER_STATUS_REQUIRED`; serving notice stays legal), refuses a date
+  move that would strand recorded days (`ENTRIES_OUTSIDE_WINDOW` 409, count and range in the message, no force
+  flag by design), writes through `updateMany({ id, organizationId })` and re-reads; create honours `status`
+  instead of dropping it; every default list decides "currently employed" from the last working day
+  (`employedOnWhere`) rather than the status column; the tenancy harness gained the defence-#1-in-isolation
+  assertion. *M1*: the grid fetches leavers and cuts rows to the people employed in the visible month
+  (`employedInMonth`). *M10*: a multi-person write refetches once, keeps the selection on any failure and
+  reports "written for N of M people, not written: who (why)". *M13*: the code popover is `position: fixed`,
+  anchored to the head cell, re-placed on any scroll or resize, flips above a bottom row (`placePopover`).
+  +25 tests; the three service guards mutation-verified. Verified in the browser on the local copy.
 - **✅ H6**: 1 January 2027 was a cliff: `LeaveGrant` was never read or written and the go-live seeds applied to
   every year. Owner decision: the seed year lives on the row (`Employee.seedLeaveYear`, additive migration,
   backfilled from `createdAt`). The seeds now count in that year only; `leave-year-roll-service.ts` writes one
@@ -281,18 +293,12 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
 
 | # | Sev | Finding |
 |---|-----|---------|
-| M1 | MED | Leavers vanish from the attendance grid (`useHrEmployees()` defaults to active only), so notice-period leave cannot be entered and past months cannot be corrected; the "records" tile still counts their entries. Fix: fetch leavers and filter rows to those whose employment overlaps the visible month. |
-| M2 | MED | `status` and `exitDate` are independently editable and the two halves read different fields: RESIGNED with no date is employed forever for the balance engine and hidden from every list; POST accepts `status` and drops it. Enforce the pair in `updateEmployee`; drop `status` from the create schema. |
-| M3 | MED | Moving `joiningDate` later or `exitDate` earlier strands recorded leave: hidden in the grid (NOT_EMPLOYED beats an explicit entry), excluded from the balance, rows still in the table, no warning. Count entries outside the resulting window and refuse, or require an explicit force recorded in the audit. |
 | M4 | MED | `?year=` on the summary and balance APIs returns figures labelled with a year they were not computed for (`asOf` is always today). The UI never sends it. Clamp `asOf` to the year end and refuse years with no grant once H6 ships. |
 | M5 | MED | `POST /api/hr/employees` links any `userId` with no org or existence check (global unique: a cross-tenant squat and an existence oracle on the platform; P2003 becomes a paging 500), cannot be unlinked (no `userId` on PATCH), and nothing reads the column. Verify the user is in the org; allow null on PATCH. |
-| M6 | MED | `updateEmployee` writes by bare id; its own comment claims the org binding is "part of the write". Not exploitable today; the harness has no defence-#1-in-isolation assertion for it. `updateMany({ where: { id, organizationId } })` plus the assertion. |
 | M7 | MED | Employee edits persist the full before/after view, free-text `notes` included, into `AuditLog` (no prune) on every save; rule creation audits the free-text label; rule deletion audits nothing about the rule. Field-level diff with `notes`/`label` redacted; snapshot the rule inside the delete transaction. |
 | M8 | MED | Public holidays: POST has no audit and no rate limit, there is no DELETE or edit route, no UI calls the POST, 2027 is unseeded. Audit + limit the POST, add DELETE (refused while referenced), a settings screen. |
-| M10 | MED | `apply()` partial failure loses the selection with no summary and no employee name; each of N mutations invalidates every HR query (a 23-row drag is ~69 refetches). Warn with counts, keep the selection, invalidate once. |
 | M11 | MED | Comp-off is bounded by `asOf` while annual is not, so a comp-off booked for next week is invisible until then. Bound by the employment window only. |
 | M12 | MED | A full-year range is up to 366 sequential upserts in one interactive transaction with Prisma's default 5 s timeout; the largest legitimate range is the one most likely to fail as `UNKNOWN`. Longer timeout or one `deleteMany` + `createMany`; map P2028 to its own code. |
-| M13 | MED | The code popover is `absolute` in an unpositioned tree with a dead `window.scrollY` term: correct at open, pinned while `<main>` scrolls under it, can overflow at the bottom. Worth a browser check; `position: fixed` with a clamped `top`. |
 | M14 | MED | No route-level test for any HR route; the source-grep adoption guards pass an `explicitDates: new Set()` mutation; the flag-off 404 is not pinned for a non-HR role; no e2e spec. |
 
 **Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`; and, left over from M9, overlapping standing rules are not surfaced at create, and the same-scope tiebreak is the later start date rather than creation order (now documented as such).

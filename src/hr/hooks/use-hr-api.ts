@@ -199,7 +199,14 @@ export function useDeleteHrAttendanceRule() {
   });
 }
 
-export function useSetHrAttendance() {
+/**
+ * `invalidate: false` is for a caller that writes several requests in a row
+ * and refetches ONCE afterwards (the grid, one request per person in a
+ * multi-row selection). Left on, a 23-row drag cancelled and restarted every
+ * HR query 23 times over (review M10).
+ */
+export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
+  const { invalidate = true } = opts;
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
@@ -220,12 +227,13 @@ export function useSetHrAttendance() {
       return body as { written: number; skipped: string[] };
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["hr"] });
+      if (invalidate) void qc.invalidateQueries({ queryKey: ["hr"] });
     },
   });
 }
 
-export function useClearHrAttendance() {
+export function useClearHrAttendance(opts: { invalidate?: boolean } = {}) {
+  const { invalidate = true } = opts;
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { employeeId: string; from: string; to?: string }) => {
@@ -239,7 +247,7 @@ export function useClearHrAttendance() {
       return body as { removed: number };
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["hr"] });
+      if (invalidate) void qc.invalidateQueries({ queryKey: ["hr"] });
     },
   });
 }

@@ -3,6 +3,26 @@
  *
  * Errors as values, per src/services/README.md. The service owns the
  * transaction and the audit row; the route owns auth, Zod and the HTTP status.
+ *
+ * TWO INVARIANTS, both enforced on the RESULTING record rather than on the
+ * patch, so that changing one field cannot leave the pair inconsistent
+ * (review M2 and M3, Aug 31 2026):
+ *
+ *   1. `status` and `exitDate` agree. A leaver (RESIGNED, TERMINATED) has a
+ *      last working day; an ACTIVE record never carries one that has already
+ *      passed. Before this the two halves of the module read different fields
+ *      (lists filtered on status, every window check read exitDate), so
+ *      RESIGNED with no date was hidden from every list while the balance
+ *      engine treated the person as employed forever. A future last working
+ *      day with the status still ACTIVE is somebody serving notice, and stays.
+ *   2. The employment window never moves under recorded attendance. Moving the
+ *      joining date later or the exit date earlier would leave rows the grid
+ *      hides (NOT_EMPLOYED beats an explicit entry), the balance excludes and
+ *      nothing warns about: a mistaken exit on 31 October for somebody with
+ *      leave recorded through 20 November silently dropped their taken figure.
+ *      The write is refused with the count; the operator clears or moves those
+ *      days first. There is deliberately no force flag: it would only mint the
+ *      stranded rows the refusal exists to prevent.
  */
 
 import { db } from "@/lib/db";
@@ -21,10 +41,52 @@ import { capCarryover } from "../lib/leave-balance";
 export type EmployeeErrorCode =
   | "INVALID_DATE"
   | "EXIT_BEFORE_JOINING"
+  | "EXIT_DATE_REQUIRED"
+  | "LEAVER_STATUS_REQUIRED"
+  | "ENTRIES_OUTSIDE_WINDOW"
   | "EMP_CODE_TAKEN"
   | "EMPLOYEE_NOT_FOUND"
   | "USER_ALREADY_LINKED"
   | "UNKNOWN";
+
+export type EmployeeStatus = "ACTIVE" | "RESIGNED" | "TERMINATED";
+
+/**
+ * "Currently employed", as a Prisma where-fragment: no last working day, or one
+ * still to come. Every default list reads THIS rather than `status`, because
+ * status is a human record that time does not update: somebody whose notice
+ * ended yesterday is still RESIGNED-with-a-date today, and a filter on status
+ * alone kept a leaver in the active payroll table until a person noticed.
+ */
+export function employedOnWhere(today: CalendarDate) {
+  return { OR: [{ exitDate: null }, { exitDate: { gte: fromCalendarDate(today) } }] };
+}
+
+/**
+ * Invariant 1, judged on the resulting pair. Returned as an error value so
+ * create and update share one rule and cannot drift.
+ */
+export function checkEmploymentPair(
+  status: EmployeeStatus,
+  exitDate: CalendarDate | null,
+  today: CalendarDate,
+): EmployeeResult<null> {
+  if (status !== "ACTIVE" && !exitDate) {
+    return {
+      ok: false,
+      code: "EXIT_DATE_REQUIRED",
+      message: "A resigned or terminated employee needs a last working day. Clear the status to Active instead if they are staying.",
+    };
+  }
+  if (status === "ACTIVE" && exitDate && exitDate < today) {
+    return {
+      ok: false,
+      code: "LEAVER_STATUS_REQUIRED",
+      message: `The last working day (${exitDate}) has passed. Set the status to Resigned or Terminated, or clear the date.`,
+    };
+  }
+  return { ok: true, employee: null };
+}
 
 export type EmployeeResult<T> =
   | { ok: true; employee: T }
@@ -53,6 +115,12 @@ export interface CreateEmployeeInput {
   seedLeaveYear?: number;
   userId?: string | null;
   notes?: string | null;
+  /**
+   * Honoured, not dropped: a historical leaver can be created in one call. It
+   * used to be accepted by the route and silently ignored here (review M2).
+   * Defaults to ACTIVE, and the status/exit-date pair is checked either way.
+   */
+  status?: EmployeeStatus;
 }
 
 /** The shape every HR read returns, with dates already flattened to strings. */
@@ -133,6 +201,9 @@ export async function createEmployee(
       message: "The exit date cannot be before the joining date.",
     };
   }
+  const status: EmployeeStatus = input.status ?? "ACTIVE";
+  const pair = checkEmploymentPair(status, input.exitDate ?? null, todayInTimezone(HR_DEFAULT_TIMEZONE));
+  if (!pair.ok) return pair;
 
   try {
     const row = await db.employee.create({
@@ -144,6 +215,7 @@ export async function createEmployee(
         jobTitle: input.jobTitle?.trim() || null,
         joiningDate: fromCalendarDate(input.joiningDate),
         exitDate: input.exitDate ? fromCalendarDate(input.exitDate) : null,
+        status,
         // Capped on the way in, so a bad seed cannot store a figure the balance
         // engine would then have to keep re-capping on every read.
         carryoverDays: capCarryover(input.carryoverDays ?? 0),
@@ -204,15 +276,12 @@ export interface UpdateEmployeeInput {
       | "carryoverDays" | "openingSickUsed" | "openingCompOff" | "notes"
       | "annualEntitlementDays"
     >
-  > & { status?: "ACTIVE" | "RESIGNED" | "TERMINATED" };
+  > & { status?: EmployeeStatus };
 }
 
 export async function updateEmployee(
   input: UpdateEmployeeInput,
 ): Promise<EmployeeResult<EmployeeView>> {
-  // Bound to the org in the WHERE, not merely checked beforehand: the binding
-  // has to be part of the write, or a later refactor can drop the check without
-  // anything failing.
   const existing = await db.employee.findFirst({
     where: { id: input.employeeId, organizationId: input.organizationId },
     select: EMPLOYEE_SELECT,
@@ -242,10 +311,47 @@ export async function updateEmployee(
       message: "The exit date cannot be before the joining date.",
     };
   }
+  const status = (p.status ?? existing.status) as EmployeeStatus;
+  const pair = checkEmploymentPair(status, exit, todayInTimezone(HR_DEFAULT_TIMEZONE));
+  if (!pair.ok) return pair;
+
+  // Invariant 2: the window may not move under recorded attendance. Only a
+  // date change can shrink it, so only a date change pays for the query.
+  if (p.joiningDate !== undefined || p.exitDate !== undefined) {
+    const stranded = await db.attendanceEntry.aggregate({
+      where: {
+        organizationId: input.organizationId,
+        employeeId: input.employeeId,
+        OR: [
+          { date: { lt: fromCalendarDate(joining) } },
+          ...(exit ? [{ date: { gt: fromCalendarDate(exit) } }] : []),
+        ],
+      },
+      _count: { _all: true },
+      _min: { date: true },
+      _max: { date: true },
+    });
+    const n = stranded._count._all;
+    if (n > 0) {
+      const first = stranded._min.date ? toCalendarDate(stranded._min.date) : "?";
+      const last = stranded._max.date ? toCalendarDate(stranded._max.date) : "?";
+      return {
+        ok: false,
+        code: "ENTRIES_OUTSIDE_WINDOW",
+        message:
+          `${n} recorded day${n === 1 ? "" : "s"} (${first === last ? first : `${first} to ${last}`}) ` +
+          `would fall outside the new employment dates. Clear or move ${n === 1 ? "it" : "them"} first.`,
+      };
+    }
+  }
 
   try {
-    const row = await db.employee.update({
-      where: { id: input.employeeId },
+    // Bound to the org IN THE WRITE, not only in the read above: `updateMany`
+    // takes a compound where, so a refactor that drops the read cannot turn
+    // this into a cross-tenant write (review M6; the same shape
+    // `deleteAttendanceRule` already uses, and the tenancy harness pins it).
+    const { count } = await db.employee.updateMany({
+      where: { id: input.employeeId, organizationId: input.organizationId },
       data: {
         ...(p.name !== undefined && { name: p.name.trim() }),
         ...(p.department !== undefined && { department: p.department?.trim() || null }),
@@ -264,8 +370,17 @@ export async function updateEmployee(
         ...(p.notes !== undefined && { notes: p.notes?.trim() || null }),
         ...(p.status !== undefined && { status: p.status }),
       },
+    });
+    if (count === 0) {
+      return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
+    }
+    const row = await db.employee.findFirst({
+      where: { id: input.employeeId, organizationId: input.organizationId },
       select: EMPLOYEE_SELECT,
     });
+    if (!row) {
+      return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
+    }
 
     await db.auditLog
       .create({
@@ -304,7 +419,7 @@ export async function setEmployeeExit(input: {
   actorUserId: string;
   employeeId: string;
   exitDate: CalendarDate;
-  status: "RESIGNED" | "TERMINATED";
+  status: Exclude<EmployeeStatus, "ACTIVE">;
 }): Promise<EmployeeResult<EmployeeView>> {
   return updateEmployee({
     organizationId: input.organizationId,

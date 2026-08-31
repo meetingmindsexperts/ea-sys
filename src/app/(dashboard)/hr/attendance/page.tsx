@@ -21,7 +21,8 @@
  * "nobody wrote anything down" are different claims.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -44,7 +45,9 @@ import {
   HALF_DAY,
   PRIMARY,
   collapseToHead,
+  employedInMonth,
   moveSelection,
+  placePopover,
   resolveKeyCode,
   type Selection,
 } from "@/hr/lib/attendance-grid";
@@ -110,16 +113,28 @@ export default function HrAttendancePage() {
   const { from, to } = useMemo(() => monthBounds(year, month), [year, month]);
   const days = useMemo(() => eachDay(from, to), [from, to]);
 
-  const { data: employees = [], isLoading: loadingEmployees } = useHrEmployees();
+  // Leavers included, then cut to the people employed at some point in the
+  // visible month. A leaver used to vanish the moment the exit was recorded,
+  // so notice-period leave could not be entered and a past month could not be
+  // corrected, while the "records" tile still counted their rows (review M1).
+  const { data: allEmployees = [], isLoading: loadingEmployees } = useHrEmployees(true);
+  const employees = useMemo(
+    () => allEmployees.filter((e) => employedInMonth(e, from, to)),
+    [allEmployees, from, to],
+  );
   const { data: codes = [] } = useHrLeaveCodes();
   const { data, isLoading, isError, error } = useHrAttendance(from, to);
-  const setAttendance = useSetHrAttendance();
-  const clearAttendance = useClearHrAttendance();
+  // The grid refetches ONCE after a multi-person write (see apply), so the
+  // hooks are told not to invalidate per request.
+  const qc = useQueryClient();
+  const setAttendance = useSetHrAttendance({ invalidate: false });
+  const clearAttendance = useClearHrAttendance({ invalidate: false });
   const createRule = useCreateHrAttendanceRule();
   const deleteRule = useDeleteHrAttendanceRule();
 
   const [sel, setSel] = useState<Selection | null>(null);
-  const [pop, setPop] = useState<{ x: number; y: number } | null>(null);
+  /** The head cell the code popover is anchored to, as grid coordinates. */
+  const [pop, setPop] = useState<{ r: number; d: number } | null>(null);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [standingOpen, setStandingOpen] = useState(false);
   const dragging = useRef(false);
@@ -214,20 +229,21 @@ export default function HrAttendancePage() {
     if (!cellsInSel.length || applying.current) return;
     applying.current = true;
     try {
-      const byEmployee = new Map<string, CalendarDate[]>();
+      const byEmployee = new Map<string, { employee: HrEmployee; dates: CalendarDate[] }>();
       for (const c of cellsInSel) {
-        const list = byEmployee.get(c.employee.id) ?? [];
-        list.push(c.date);
-        byEmployee.set(c.employee.id, list);
+        const group = byEmployee.get(c.employee.id) ?? { employee: c.employee, dates: [] };
+        group.dates.push(c.date);
+        byEmployee.set(c.employee.id, group);
       }
       setPop(null);
-      let written = 0, skipped = 0, failed = 0;
-      for (const [employeeId, dates] of byEmployee) {
+      let written = 0, skipped = 0;
+      const failures: { name: string; message: string }[] = [];
+      for (const { employee, dates } of byEmployee.values()) {
         const sorted = [...dates].sort();
         try {
           if (code) {
             const res = await setAttendance.mutateAsync({
-              employeeId,
+              employeeId: employee.id,
               from: sorted[0],
               to: sorted[sorted.length - 1],
               code,
@@ -239,31 +255,50 @@ export default function HrAttendancePage() {
             skipped += res.skipped.length;
           } else {
             const res = await clearAttendance.mutateAsync({
-              employeeId,
+              employeeId: employee.id,
               from: sorted[0],
               to: sorted[sorted.length - 1],
             });
             written += res.removed;
           }
         } catch (err) {
-          failed++;
-          toast.error((err as Error).message);
+          failures.push({ name: employee.name, message: (err as Error).message });
         }
       }
-      if (failed === 0) {
+      // ONE refetch for the whole selection. The hooks are told not to
+      // invalidate per request; left on, a 23-row drag cancelled and restarted
+      // the employees, attendance and codes queries 23 times over (review M10).
+      await qc.invalidateQueries({ queryKey: ["hr"] });
+
+      const people = byEmployee.size;
+      const skippedNote = skipped
+        ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped`
+        : "";
+      if (failures.length === 0) {
         toast.success(
           code
-            ? `${written} day${written === 1 ? "" : "s"} set to ${code}` +
-                (skipped ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped` : "")
+            ? `${written} day${written === 1 ? "" : "s"} set to ${code}${skippedNote}`
             : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
         );
+        // Collapse to the head rather than clearing. Dropping the selection
+        // ended every keyboard entry by sending you back to Tab-and-navigate-
+        // from-today; keeping the cursor lets you arrow straight on to the next
+        // day. After a mouse drag it simply leaves the ring on the last cell,
+        // as a spreadsheet would.
+        setSel((s) => (s ? collapseToHead(s) : s));
+        return;
       }
-      // Collapse to the head rather than clearing. Dropping the selection ended
-      // every keyboard entry by sending you back to Tab-and-navigate-from-today;
-      // keeping the cursor lets you arrow straight on to the next day. After a
-      // mouse drag it simply leaves the ring on the last cell, as a spreadsheet
-      // would.
-      setSel((s) => (s ? collapseToHead(s) : s));
+      // Partial or total failure: say who, with counts, and KEEP the selection
+      // so the failed part can be retried with one keypress instead of a new
+      // drag. The success toast used to be suppressed outright and the
+      // selection dropped, so "4 of 5 people written" looked like nothing
+      // written and could not be retried (review M10).
+      const who = failures.map((f) => `${f.name}: ${f.message}`).join("; ");
+      if (failures.length < people) {
+        toast.warning(`Written for ${people - failures.length} of ${people} people. Not written: ${who}`);
+      } else {
+        toast.error(people === 1 ? who : `Nothing written. ${who}`);
+      }
     } finally {
       applying.current = false;
     }
@@ -303,8 +338,7 @@ export default function HrAttendancePage() {
         // Keyboard equivalent of releasing a drag: open the picker on the cell
         // the cursor is actually on, not where the mouse was last seen.
         ev.preventDefault();
-        const rect = cellEl(sel.r1, sel.d1)?.getBoundingClientRect();
-        if (rect) setPop({ x: rect.left, y: rect.bottom + window.scrollY });
+        setPop({ r: sel.r1, d: sel.d1 });
         return;
       }
 
@@ -327,14 +361,16 @@ export default function HrAttendancePage() {
   }, [sel]);
 
   useEffect(() => {
-    function onUp(ev: MouseEvent) {
+    function onUp() {
       if (!dragging.current) return;
       dragging.current = false;
-      if (cellsInSel.length) setPop({ x: ev.clientX, y: ev.clientY + window.scrollY });
+      // Anchored to the head CELL, not to where the pointer was released, so
+      // the popover follows the cell when the grid scrolls under it (M13).
+      if (cellsInSel.length && sel) setPop({ r: sel.r1, d: sel.d1 });
     }
     window.addEventListener("mouseup", onUp);
     return () => window.removeEventListener("mouseup", onUp);
-  }, [cellsInSel]);
+  }, [cellsInSel, sel]);
 
   /* ------------------------------------------------------------- counters */
   const { accounted, records } = useMemo(() => {
@@ -670,8 +706,7 @@ export default function HrAttendancePage() {
 
       {pop && cellsInSel.length > 0 && (
         <CodePopover
-          x={pop.x}
-          y={pop.y}
+          anchor={pop}
           count={cellsInSel.length}
           codes={codes}
           onPick={(code) => void apply(code)}
@@ -720,11 +755,43 @@ export default function HrAttendancePage() {
 /* ------------------------------------------------------------- popover ---- */
 
 function CodePopover(props: {
-  x: number; y: number; count: number; codes: { code: string; label: string }[];
+  anchor: { r: number; d: number }; count: number; codes: { code: string; label: string }[];
   onPick: (code: string | null) => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [showAll, setShowAll] = useState(false);
+
+  /**
+   * Positioned FIXED against the head cell and re-measured on any scroll or
+   * resize. The old version was `absolute` in an unpositioned tree with an
+   * added document-scroll offset that is always 0 here: the document does not scroll,
+   * `<main>` does, so the popover was right at open time, stayed pinned while
+   * the grid moved under it, and on a bottom row ran off the viewport (review
+   * M13). Written to the element directly rather than through state: it is a
+   * measurement of layout, re-run after paint whenever the height can change.
+   */
+  useLayoutEffect(() => {
+    function place() {
+      const cell = cellEl(props.anchor.r, props.anchor.d);
+      const el = ref.current;
+      if (!cell || !el) return;
+      const at = placePopover(
+        cell.getBoundingClientRect(),
+        { width: el.offsetWidth, height: el.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      el.style.left = `${at.left}px`;
+      el.style.top = `${at.top}px`;
+      el.style.visibility = "visible";
+    }
+    place();
+    document.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      document.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [props.anchor.r, props.anchor.d, showAll]);
 
   /**
    * Dismiss on a click outside. This is why the secondary codes are an INLINE
@@ -746,13 +813,12 @@ function CodePopover(props: {
 
   const shown = new Set([...PRIMARY, ...HALF_DAY].map((p) => p.code));
   const others = props.codes.filter((c) => !shown.has(c.code));
-  const left = Math.min(props.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 268);
 
   return (
     <div
       ref={ref}
-      style={{ left, top: props.y + 8 }}
-      className="absolute z-50 w-64 rounded-lg border bg-popover p-2 shadow-lg"
+      style={{ left: 0, top: 0, visibility: "hidden" }}
+      className="fixed z-50 w-64 rounded-lg border bg-popover p-2 shadow-lg"
     >
       <p className="mb-1.5 px-1 font-mono text-[11px] text-muted-foreground">
         {props.count} day{props.count === 1 ? "" : "s"} selected

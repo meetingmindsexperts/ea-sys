@@ -112,3 +112,47 @@ export const GRID_SHORTCUT_CODES: readonly string[] = [...PRIMARY, ...HALF_DAY].
 export function seedHasCode(code: string): boolean {
   return HR_LEAVE_CODE_SEED.some((c) => c.code === code);
 }
+
+/**
+ * Who has a row for a month: anyone employed at some point inside it. Decided
+ * by the employment window, never by `status`, because a leaver used to vanish
+ * from the grid the moment the exit was recorded (review M1): notice-period
+ * leave could not be entered and a past month could not be corrected, while the
+ * "records" tile still counted their rows.
+ */
+export function employedInMonth(
+  e: { joiningDate: string; exitDate: string | null },
+  from: string,
+  to: string,
+): boolean {
+  return e.joiningDate <= to && (!e.exitDate || e.exitDate >= from);
+}
+
+export interface PopoverPlacement {
+  left: number;
+  top: number;
+  /** True when it had to open upwards to stay on screen. */
+  above: boolean;
+}
+
+/**
+ * Where the code popover goes, in viewport coordinates, for `position: fixed`.
+ *
+ * Below the anchor cell when it fits, above it when it would run off the
+ * bottom, and clamped to the viewport either way. Pure, because the old inline
+ * arithmetic clamped `left` and not `top`, and nobody noticed until a bottom
+ * row pushed the shell into a window scrollbar (review M13).
+ */
+export function placePopover(
+  anchor: { left: number; top: number; bottom: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 8,
+): PopoverPlacement {
+  const left = Math.max(gap, Math.min(anchor.left + gap, viewport.width - size.width - gap));
+  const below = anchor.bottom + gap;
+  if (below + size.height + gap <= viewport.height) return { left, top: below, above: false };
+  const above = anchor.top - gap - size.height;
+  if (above >= gap) return { left, top: above, above: true };
+  return { left, top: Math.max(gap, viewport.height - gap - size.height), above: false };
+}

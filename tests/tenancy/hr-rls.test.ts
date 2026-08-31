@@ -251,4 +251,21 @@ describe("HR RLS via the SET LOCAL extension", () => {
     );
     expect(res.count).toBe(0);
   });
+
+  /**
+   * Defence #1 in isolation. The OWNER role bypasses the non-FORCE policy, so
+   * this exercises only the compound where `updateEmployee` now writes with
+   * (`updateMany({ where: { id, organizationId } })`, review M6): even with
+   * RLS out of the picture, and even if a refactor dropped the org-bound read
+   * that precedes it, the write itself cannot reach another tenant's row.
+   */
+  it("defence #1 in isolation: the org-bound employee update misses a foreign row even as owner", async () => {
+    const res = await owner.employee.updateMany({
+      where: { id: EMP_B_ID, organizationId: ORG_A_ID },
+      data: { name: "Hijacked" },
+    });
+    expect(res.count).toBe(0);
+    const row = await owner.employee.findUnique({ where: { id: EMP_B_ID }, select: { name: true } });
+    expect(row?.name).toBe("Bob in B");
+  });
 });

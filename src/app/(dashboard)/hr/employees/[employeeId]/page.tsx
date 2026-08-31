@@ -280,7 +280,7 @@ export default function HrEmployeePage({
               onChange={set("joiningDate")} />
             <Field label="Last working day" type="date" value={form.exitDate}
               onChange={set("exitDate")} min={form.joiningDate || undefined}
-              hint="Empty means still employed. Clearing it is how a leaver recorded by mistake is put back — set the status to Active too." />
+              hint="Empty means still employed. Clearing it puts a leaver recorded by mistake back; set the status to Active in the same save, or the save is refused. Moving either date so that recorded days fall outside the employment is refused too: clear those days first." />
             <div className="space-y-1">
               <Label className="text-xs">Status</Label>
               <Select value={form.status} onValueChange={set("status")}>
@@ -293,7 +293,8 @@ export default function HrEmployeePage({
               </Select>
               <p className="text-[11px] text-muted-foreground">
                 A last working day in the future with the status still Active is somebody
-                serving notice, which is a real state and is left alone.
+                serving notice, which is a real state and is left alone. Resigned or Terminated
+                needs a last working day, and Active cannot keep one that has passed.
               </p>
             </div>
           </div>

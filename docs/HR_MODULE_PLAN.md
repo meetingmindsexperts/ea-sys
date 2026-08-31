@@ -497,6 +497,24 @@ three, because "days of sick leave left" is not one number.
   and **the history stays visible**: it is the evidence for end-of-service
   gratuity and leave encashment. Nothing in this module soft-deletes an
   employee.
+- **`status` and `exitDate` agree, judged on the resulting record** (review
+  M2, Aug 31 2026): RESIGNED or TERMINATED needs a last working day, and an
+  ACTIVE record never keeps one that has passed. A future last working day
+  with the status still ACTIVE is somebody serving notice. Every default list
+  (employees, the summary, the grid's rows for a month) decides "currently
+  employed" from the last working day (`employedOnWhere`, `employedInMonth`),
+  never from the status column, because a status is a human record that time
+  does not update. Create honours a supplied status (a historical leaver in
+  one call) and checks the same pair.
+- **The window never moves under recorded attendance** (review M3): moving the
+  joining date later or the exit date earlier is refused with the count and
+  dates of the rows it would strand (`ENTRIES_OUTSIDE_WINDOW`, 409); the
+  operator clears or moves those days first. There is deliberately no force
+  flag, because the rows it would leave behind are exactly the ones the grid
+  hides and the balance excludes.
+- The write itself is org-bound in the WHERE (`updateMany({ where: { id,
+  organizationId } })`, review M6), and the tenancy harness pins that with RLS
+  out of the picture.
 
 ### 5.6 Weekends and public holidays
 

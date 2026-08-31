@@ -13,6 +13,7 @@ import { type CalendarDate, fromCalendarDate, toCalendarDate, todayInTimezone, y
 import { HR_DEFAULT_TIMEZONE } from "../lib/hr-constants";
 import { leaveYearBounds } from "../lib/hr-leave-year";
 import { ruleDerivedDays } from "../lib/hr-effective-status";
+import { employedOnWhere } from "./employee-service";
 import { computeLeaveBalance, type LeaveBalance } from "../lib/leave-balance";
 import type { AttendanceRuleLike } from "../lib/attendance-rules";
 import { EMPLOYEE_SELECT, toEmployeeView, type EmployeeView } from "./employee-service";
@@ -201,7 +202,9 @@ export async function getOrgLeaveSummary(params: {
   const rows = await db.employee.findMany({
     where: {
       organizationId: params.organizationId,
-      ...(params.includeExited ? {} : { status: "ACTIVE" }),
+      // "Currently employed" is decided by the last working day, as the
+      // employees list decides it, so the two cannot disagree about a leaver.
+      ...(params.includeExited ? {} : employedOnWhere(asOf)),
     },
     select: EMPLOYEE_SELECT,
     orderBy: { empCode: "asc" },

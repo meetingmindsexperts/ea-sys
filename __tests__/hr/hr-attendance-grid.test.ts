@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ARROW_STEP,
@@ -5,7 +7,9 @@ import {
   HALF_DAY,
   PRIMARY,
   collapseToHead,
+  employedInMonth,
   moveSelection,
+  placePopover,
   resolveKeyCode,
   seedHasCode,
   type Selection,
@@ -104,5 +108,81 @@ describe("keyboard navigation", () => {
 
   it("leaves the cursor on the head after a write, not nowhere", () => {
     expect(collapseToHead({ r0: 1, d0: 2, r1: 4, d1: 9 })).toEqual(at(4, 9));
+  });
+});
+
+describe("who has a row for a month (review M1)", () => {
+  const march = ["2026-03-01", "2026-03-31"] as const;
+
+  it("a leaver keeps their rows for the months they were employed in", () => {
+    const leaver = { joiningDate: "2020-01-01", exitDate: "2026-03-15" };
+    expect(employedInMonth(leaver, ...march)).toBe(true);
+    expect(employedInMonth(leaver, "2026-04-01", "2026-04-30")).toBe(false);
+  });
+
+  it("somebody who has not joined yet has no row", () => {
+    expect(employedInMonth({ joiningDate: "2026-04-01", exitDate: null }, ...march)).toBe(false);
+    expect(employedInMonth({ joiningDate: "2026-03-31", exitDate: null }, ...march)).toBe(true);
+  });
+
+  it("is decided by the dates, never by status", () => {
+    // A resigned-with-future-date person is serving notice and still needs
+    // their leave recorded; status is not consulted at all.
+    expect(employedInMonth({ joiningDate: "2019-06-01", exitDate: "2026-09-30", status: "RESIGNED" } as never, ...march)).toBe(true);
+  });
+});
+
+describe("where the code popover goes (review M13)", () => {
+  const viewport = { width: 1200, height: 800 };
+  const size = { width: 256, height: 300 };
+
+  it("opens below the cell when it fits", () => {
+    const at = placePopover({ left: 100, top: 200, bottom: 224 }, size, viewport);
+    expect(at).toEqual({ left: 108, top: 232, above: false });
+  });
+
+  it("flips above a bottom-row cell instead of running off the viewport", () => {
+    const at = placePopover({ left: 100, top: 700, bottom: 724 }, size, viewport);
+    expect(at.above).toBe(true);
+    expect(at.top).toBe(700 - 8 - 300);
+    expect(at.top + size.height).toBeLessThanOrEqual(viewport.height);
+  });
+
+  it("clamps at the right edge, which is the one clamp the old code had", () => {
+    const at = placePopover({ left: 1150, top: 200, bottom: 224 }, size, viewport);
+    expect(at.left).toBe(1200 - 256 - 8);
+  });
+
+  it("never goes above the top even when it fits nowhere", () => {
+    const at = placePopover({ left: 10, top: 100, bottom: 124 }, { width: 256, height: 700 }, { width: 400, height: 500 });
+    expect(at.top).toBe(8);
+    expect(at.left).toBe(18);
+  });
+});
+
+describe("the grid page keeps the review M10 and M13 fixes", () => {
+  const page = readFileSync(
+    join(process.cwd(), "src/app/(dashboard)/hr/attendance/page.tsx"),
+    "utf8",
+  );
+
+  it("refetches once per apply, not once per person", () => {
+    // Both write hooks are told not to invalidate, and the page does it itself
+    // exactly once after the loop. Dropping either half is silent: with the
+    // hook default restored a 23-row drag is 23 refetches again; with the
+    // page's own call dropped the grid simply stops refreshing after a write.
+    expect(page).toContain("useSetHrAttendance({ invalidate: false })");
+    expect(page).toContain("useClearHrAttendance({ invalidate: false })");
+    expect(page.match(/qc\.invalidateQueries\(\{ queryKey: \["hr"\] \}\)/g)).toHaveLength(1);
+  });
+
+  it("keeps the selection when part of a write fails, and names who", () => {
+    expect(page).toContain("toast.warning(`Written for ${people - failures.length} of ${people} people.");
+  });
+
+  it("anchors the popover to the head cell, fixed, with no scrollY arithmetic", () => {
+    expect(page).not.toContain("scrollY");
+    expect(page).toContain('className="fixed z-50 w-64');
+    expect(page).toContain("placePopover(");
   });
 });

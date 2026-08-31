@@ -23,9 +23,12 @@ import { denyNonHr } from "@/hr/lib/hr-roles";
 import {
   EMPLOYEE_SELECT,
   createEmployee,
+  employedOnWhere,
   toEmployeeView,
   type EmployeeErrorCode,
 } from "@/hr/services/employee-service";
+import { todayInTimezone } from "@/hr/lib/hr-date";
+import { HR_DEFAULT_TIMEZONE } from "@/hr/lib/hr-constants";
 import { ensureLeaveCodes, ensurePublicHolidays2026 } from "@/hr/services/hr-seed-service";
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
@@ -44,6 +47,8 @@ const createSchema = z.object({
   annualEntitlementDays: z.number().min(0).max(365).nullish(),
   userId: z.string().cuid().nullish(),
   notes: z.string().max(2000).nullish(),
+  // Honoured by the service (a historical leaver in one call); it used to be
+  // accepted here and silently dropped there.
   status: z.enum(["ACTIVE", "RESIGNED", "TERMINATED"]).optional(),
 });
 
@@ -51,6 +56,9 @@ const createSchema = z.object({
 export const HTTP_STATUS_FOR_EMPLOYEE_ERROR: Record<EmployeeErrorCode, number> = {
   INVALID_DATE: 400,
   EXIT_BEFORE_JOINING: 400,
+  EXIT_DATE_REQUIRED: 400,
+  LEAVER_STATUS_REQUIRED: 400,
+  ENTRIES_OUTSIDE_WINDOW: 409,
   EMP_CODE_TAKEN: 409,
   EMPLOYEE_NOT_FOUND: 404,
   USER_ALREADY_LINKED: 409,
@@ -78,10 +86,12 @@ export async function GET(req: NextRequest) {
       await ensureLeaveCodes(org.orgId);
       await ensurePublicHolidays2026(org.orgId);
 
+      // "Currently employed" is decided by the last working day, not by the
+      // status column: see `employedOnWhere`.
       const rows = await db.employee.findMany({
         where: {
           organizationId: org.orgId,
-          ...(includeExited ? {} : { status: "ACTIVE" }),
+          ...(includeExited ? {} : employedOnWhere(todayInTimezone(HR_DEFAULT_TIMEZONE))),
         },
         select: EMPLOYEE_SELECT,
         orderBy: { empCode: "asc" },
