@@ -62,32 +62,74 @@ describe("ruleApplies", () => {
 });
 
 describe("ruleFor precedence", () => {
-  it("the narrower statement wins: EMPLOYEE beats ORG", () => {
-    const shutdown: AttendanceRuleLike = {
-      id: "r-shut", scope: "ORG", code: "AL",
-      startDate: d("2026-03-02"), endDate: d("2026-03-06"),
-    };
-    const picked = ruleFor("e-jinan", d("2026-03-04"), [shutdown, standing]);
-    expect(picked?.id).toBe("r-standing");
-    // ...and the person the narrow rule does NOT name still gets the org one.
+  /** The office closes for Eid: everyone on annual leave, 2 to 6 March. */
+  const shutdown: AttendanceRuleLike = {
+    id: "r-shut", scope: "ORG", code: "AL", category: "ANNUAL",
+    startDate: d("2026-03-02"), endDate: d("2026-03-06"),
+  };
+
+  it("the shutdown wins: a company leave rule puts the permanently remote person on leave too", () => {
+    // Owner ruling, Aug 31 2026 (review M9). Before it the scope order alone
+    // decided, Jinan's standing WFH beat the shutdown, and she was the one
+    // person in the company not charged for the week.
+    expect(ruleFor("e-jinan", d("2026-03-04"), [shutdown, standing])?.id).toBe("r-shut");
     expect(ruleFor("e-other", d("2026-03-04"), [shutdown, standing])?.id).toBe("r-shut");
   });
 
-  it("does not depend on the order it was handed the rules", () => {
-    const a = ruleFor("e-jinan", d("2026-03-04"), [companyWeek, standing]);
-    const b = ruleFor("e-jinan", d("2026-03-04"), [standing, companyWeek]);
-    expect(a?.id).toBe(b?.id);
+  it("and the rest of the time she is WFH", () => {
+    expect(ruleFor("e-jinan", d("2026-03-09"), [shutdown, standing])?.id).toBe("r-standing");
   });
 
-  it("within one scope the later start date wins", () => {
+  it("her own recorded leave overrides the arrangement, as any explicit entry does", () => {
+    const s = effectiveStatusFor(d("2026-03-11"), {
+      employment, holidays: noHolidays, rules: [standing], employeeId: "e-jinan",
+      entriesByDate: new Map([[d("2026-03-11"), { code: "AL" }]]),
+    });
+    expect(s).toMatchObject({ code: "AL", derived: false });
+    expect(s.ruleId).toBeUndefined();
+  });
+
+  it("a person's own leave survives a company working day", () => {
+    // Somebody on maternity leave is not brought back by "everyone remote this week".
+    const maternity: AttendanceRuleLike = {
+      id: "r-ml", scope: "EMPLOYEE", employeeId: "e-m", code: "ML", category: "MATERNITY",
+      startDate: d("2026-01-15"), endDate: d("2026-03-15"),
+    };
+    expect(ruleFor("e-m", d("2026-03-04"), [companyWeek, maternity])?.id).toBe("r-ml");
+  });
+
+  it("between two rules of the same kind the narrower statement wins: EMPLOYEE beats ORG", () => {
+    expect(ruleFor("e-jinan", d("2026-03-04"), [companyWeek, standing])?.id).toBe("r-standing");
+    // ...and the person the narrow rule does NOT name still gets the org one.
+    expect(ruleFor("e-other", d("2026-03-04"), [companyWeek, standing])?.id).toBe("r-company");
+  });
+
+  it("a rule that cannot say what it is gets no say in that contest: the scope order decides", () => {
+    // Every real path carries the category (it comes off the leave code). A
+    // caller that dropped it is not guessed at, in either direction.
+    const uncategorised: AttendanceRuleLike = { ...shutdown, category: undefined };
+    expect(ruleFor("e-jinan", d("2026-03-04"), [uncategorised, standing])?.id).toBe("r-standing");
+  });
+
+  it("does not depend on the order it was handed the rules", () => {
+    for (const pair of [[companyWeek, standing], [shutdown, standing]] as const) {
+      const a = ruleFor("e-jinan", d("2026-03-04"), [pair[0], pair[1]]);
+      const b = ruleFor("e-jinan", d("2026-03-04"), [pair[1], pair[0]]);
+      expect(a?.id).toBe(b?.id);
+    }
+  });
+
+  it("within one scope and one kind the later start date wins", () => {
     const older: AttendanceRuleLike = {
-      id: "r-1", scope: "ORG", code: "WFH", startDate: d("2026-03-01"), endDate: d("2026-03-31"),
+      id: "r-1", scope: "ORG", code: "WFH", category: "WORK",
+      startDate: d("2026-03-01"), endDate: d("2026-03-31"),
     };
     const newer: AttendanceRuleLike = {
-      id: "r-2", scope: "ORG", code: "AL", startDate: d("2026-03-10"), endDate: d("2026-03-12"),
+      id: "r-2", scope: "ORG", code: "WFH", category: "WORK",
+      startDate: d("2026-03-10"), endDate: d("2026-03-12"),
     };
-    expect(ruleFor("e-a", d("2026-03-11"), [older, newer])?.code).toBe("AL");
-    expect(ruleFor("e-a", d("2026-03-05"), [older, newer])?.code).toBe("WFH");
+    expect(ruleFor("e-a", d("2026-03-11"), [older, newer])?.id).toBe("r-2");
+    expect(ruleFor("e-a", d("2026-03-05"), [older, newer])?.id).toBe("r-1");
   });
 
   it("returns null when nothing applies", () => {
@@ -272,6 +314,25 @@ describe("a rule reaches the balance", () => {
     expect(derived).toHaveLength(5);
     const balance = balanceWith(
       derived.map((x) => ({ date: x.date, category: "ANNUAL" as LeaveCategory, dayWeight: 1 })),
+    );
+    expect(balance.annual.taken).toBe(5);
+    expect(balance.annual.balance).toBe(25);
+  });
+
+  it("the permanently remote person is charged the shutdown like everyone else", () => {
+    // Owner ruling, Aug 31 2026 (review M9): the shutdown wins. Her open-ended
+    // WFH arrangement yields to it for the five days and resumes the Monday after.
+    const remote: AttendanceRuleLike = { ...standing, employeeId: "e-a" };
+    const derived = days([shutdown, remote]);
+    const byDate = new Map(derived.map((x) => [x.date, x]));
+    for (const day of ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"]) {
+      expect(byDate.get(d(day))).toMatchObject({ code: "AL", ruleId: "r-shutdown" });
+    }
+    expect(byDate.get(d("2026-03-09"))).toMatchObject({ code: "WFH", ruleId: "r-standing" });
+    const balance = balanceWith(
+      derived
+        .filter((x) => x.code === "AL")
+        .map((x) => ({ date: x.date, category: "ANNUAL" as LeaveCategory, dayWeight: 1 })),
     );
     expect(balance.annual.taken).toBe(5);
     expect(balance.annual.balance).toBe(25);

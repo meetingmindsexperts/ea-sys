@@ -14,6 +14,7 @@
 
 import type { LeaveCategory } from "@prisma/client";
 import { type CalendarDate, isWithin } from "./hr-date";
+import { isWorkingCategory } from "./hr-constants";
 
 export type AttendanceRuleScope = "ORG" | "EMPLOYEE";
 
@@ -25,12 +26,14 @@ export interface AttendanceRuleLike {
   employeeId?: string | null;
   code: string;
   /**
-   * The code's category. Decides how far the rule reaches: a category that
-   * covers calendar days (annual leave, on-duty, comp-off, see
+   * The code's category. Decides two things. How far the rule reaches: a
+   * category that covers calendar days (annual leave, on-duty, comp-off, see
    * `rangeCoversCalendarDays`) speaks for the weekend and the public holiday
    * inside its window too, exactly as an explicit range of that code would be
-   * written. Absent means working days only, which is the safe direction: a
-   * rule that cannot say what it is cannot charge a Saturday.
+   * written. And which of two overlapping rules speaks: time not worked beats
+   * a working arrangement (`isWorkingCategory`). Absent means working days
+   * only and no say in that contest, which is the safe direction: a rule that
+   * cannot say what it is cannot charge a Saturday, and is not guessed at.
    */
   category?: LeaveCategory;
   startDate: CalendarDate;
@@ -51,17 +54,28 @@ export function ruleApplies(
 /**
  * The rule in force, or null.
  *
- * Precedence, and both halves are deliberate:
+ * Precedence, each step deliberate:
  *
- *   1. EMPLOYEE beats ORG. "Jinan works remotely" is a narrower statement than
- *      "the office is closed", so it is the one that should win when they
- *      disagree. Without this an org-wide rule would silently overwrite every
- *      individual arrangement for its duration.
- *   2. Within a scope, the LATER start date wins, with the id as a stable
- *      tiebreak. Two overlapping rules of the same scope are a genuine
- *      ambiguity; resolving it by recency means the most recent decision is the
- *      one that holds, and resolving it DETERMINISTICALLY is what stops the
- *      grid and the balance engine reading the same data two ways.
+ *   1. TIME NOT WORKED BEATS A WORKING ARRANGEMENT, whatever the scope. Owner
+ *      ruling, Aug 31 2026 (review M9): "the shutdown wins". When the company
+ *      is put on annual leave, the permanently remote employee is on annual
+ *      leave with everyone else and charged for it; on every other day she is
+ *      WFH; and a leave day recorded for her personally still overrides the
+ *      arrangement, because an explicit entry beats every rule. The same step
+ *      keeps somebody on standing maternity leave ON maternity leave through a
+ *      company WFH week. Decided by `isWorkingCategory`, and only when BOTH
+ *      rules can say what they are: a rule with no category is not guessed at
+ *      in either direction, it falls through to the scope order below.
+ *   2. EMPLOYEE beats ORG. Between two rules of the same kind, "Jinan works
+ *      remotely" is a narrower statement than "everyone is remote this week",
+ *      so it is the one that should hold. Without this an org-wide rule would
+ *      silently overwrite every individual arrangement for its duration.
+ *   3. Within a scope, the LATER START DATE wins, with the id as a stable
+ *      tiebreak. Note what this is not: it is not "the more recently created
+ *      rule", it is the rule whose window begins later. Two overlapping rules
+ *      of one scope and one kind are a genuine ambiguity; resolving it
+ *      DETERMINISTICALLY is what stops the grid and the balance engine reading
+ *      the same data two ways.
  *
  * The sort is done here rather than expected from the caller on purpose: a pure
  * function whose answer depends on the order it was handed is not pure enough to
@@ -82,6 +96,12 @@ export function ruleFor(
 }
 
 function beats(a: AttendanceRuleLike, b: AttendanceRuleLike): boolean {
+  if (a.category && b.category) {
+    const aWorks = isWorkingCategory(a.category);
+    const bWorks = isWorkingCategory(b.category);
+    // The one that is NOT a working arrangement wins.
+    if (aWorks !== bWorks) return bWorks;
+  }
   if (a.scope !== b.scope) return a.scope === "EMPLOYEE";
   if (a.startDate !== b.startDate) return a.startDate > b.startDate;
   return a.id > b.id;

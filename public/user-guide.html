@@ -2625,7 +2625,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       record it person by person. Click <b>Company day</b>, give the dates and a reason, and
       one record covers everybody employed on those dates.</p>
       <p>Anything already recorded for a person still wins, so somebody on annual leave that
-      week stays on annual leave. For a working code such as WFH, weekends and public holidays
+      week stays on annual leave. A company day that is leave also applies to anyone with a
+      standing arrangement such as working from home: the shutdown wins, and their arrangement
+      carries on when it ends. For a working code such as WFH, weekends and public holidays
       inside the range are left alone. For annual leave, on-duty and comp-off the rule covers
       every day in the range, exactly as the same block recorded on the grid would, so a
       company shutdown costs the same however it was recorded. Removing the rule later puts
@@ -2634,7 +2636,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <h3>When one person is permanently different: use a Standing arrangement</h3>
       <p>For somebody who always works remotely, click <b>Standing arrangement</b>, pick the
       person, and leave &ldquo;Until&rdquo; empty. It fills every working day until you end
-      it. One record instead of roughly two hundred and forty a year.</p>
+      it. One record instead of roughly two hundred and forty a year. A leave day you record
+      for them still wins, and so does a company day that is leave: someone who works remotely
+      is on leave with everyone else during a shutdown.</p>
 
       <div class="callout">
         <b>How to tell where a cell came from.</b> A small dot in the corner means a rule put

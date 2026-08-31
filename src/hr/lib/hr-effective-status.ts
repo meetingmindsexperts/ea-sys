@@ -24,8 +24,11 @@
  *      working day; only an explicit entry (an OD) can do that.
  *   6. Any other STANDING RULE -> its code. "Everyone remote, 2 to 6 March" and
  *      "Jinan works remotely" are single records that speak for many days, so
- *      the day they describe is derived here rather than stored 252 times. See
- *      `attendance-rules.ts` for why EMPLOYEE scope beats ORG.
+ *      the day they describe is derived here rather than stored 252 times.
+ *      Which rule speaks when two overlap is decided in `attendance-rules.ts`,
+ *      for step 3 and this step alike: time not worked beats a working
+ *      arrangement (a company shutdown puts the remote worker on leave too,
+ *      owner ruling Aug 31 2026), then EMPLOYEE beats ORG.
  *   7. Otherwise -> P.
  *
  * KNOWN AND ACCEPTED: a derived P means "nobody wrote anything down", which is

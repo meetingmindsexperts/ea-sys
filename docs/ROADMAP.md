@@ -263,11 +263,13 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
   everywhere. A rule whose code covers calendar days now beats the holiday and the weekend in the resolver (a WFH
   rule still stops at working days); the docs, dialog copy and user guide say so.
 
-**Needs an owner ruling before code (M9):**
-
-| # | Sev | Finding |
-|---|-----|---------|
-| M9 | MED | **Rule precedence.** An EMPLOYEE standing WFH rule exempts that person from an ORG AL shutdown (pinned by test); defensible if a shutdown means "the office is unavailable", not if it means "the company is on leave". Within one scope the comment says "most recent decision wins" but the code compares start dates, so an older WFH rule beats a newer AL rule on their overlap, and overlaps are never surfaced at create. |
+- **✅ M9** (ruled the same day, owner: "the shutdown wins"): a company-wide leave rule now outranks a person's
+  standing WFH arrangement, so the permanently remote employee is on leave with everyone else and charged for it,
+  is WFH the rest of the time, and her own recorded leave still overrides the arrangement (an explicit entry beats
+  every rule). `ruleFor` decides time-not-worked over working before the EMPLOYEE-over-ORG order, and only when
+  both rules carry a category; a standing maternity rule survives a company WFH week. Left over as LOWs: overlaps
+  are not surfaced at create, and the same-scope tiebreak is the later start date, now documented as such rather
+  than as "most recent decision".
 
 - **✅ H6**: 1 January 2027 was a cliff: `LeaveGrant` was never read or written and the go-live seeds applied to
   every year. Owner decision: the seed year lives on the row (`Employee.seedLeaveYear`, additive migration,
@@ -293,7 +295,7 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
 | M13 | MED | The code popover is `absolute` in an unpositioned tree with a dead `window.scrollY` term: correct at open, pinned while `<main>` scrolls under it, can overflow at the bottom. Worth a browser check; `position: fixed` with a clamped `top`. |
 | M14 | MED | No route-level test for any HR route; the source-grep adoption guards pass an `explicitDates: new Set()` mutation; the flag-off 404 is not pinned for a non-HR role; no e2e spec. |
 
-**Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`.
+**Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`; and, left over from M9, overlapping standing rules are not surfaced at create, and the same-scope tiebreak is the later start date rather than creation order (now documented as such).
 
 ### DTCM spare pool — deferred findings (Aug 26, 2026)
 

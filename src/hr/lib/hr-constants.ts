@@ -68,3 +68,23 @@ export const HR_DAY_DECIMALS = 1;
 export function rangeCoversCalendarDays(category: LeaveCategory): boolean {
   return category === "ANNUAL" || category === "ON_DUTY" || category === "COMP_OFF";
 }
+
+/**
+ * Does a category describe WORKING, or time not worked?
+ *
+ * Decides which standing rule speaks when two overlap (`ruleFor`). Owner
+ * ruling, Aug 31 2026 (review M9): "the shutdown wins". A company-wide rule
+ * that puts everyone on leave puts the permanently remote person on leave too,
+ * and charges her for it; her standing WFH arrangement resumes when the
+ * shutdown ends; and a leave day recorded for her personally still overrides
+ * the arrangement, as any explicit entry does. So time not worked outranks a
+ * working arrangement whatever the scope, and the narrower-statement order
+ * (EMPLOYEE over ORG) decides only between two rules of the same kind.
+ *
+ * WORK and ON_DUTY are the working categories: P and WFH, and OD, which
+ * describes a day that was worked. Everything else, leave, rest and holiday
+ * alike, is time not worked.
+ */
+export function isWorkingCategory(category: LeaveCategory): boolean {
+  return category === "WORK" || category === "ON_DUTY";
+}

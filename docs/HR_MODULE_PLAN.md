@@ -863,9 +863,19 @@ a rule is not a record of what somebody typed.
 4. A public holiday → `PH`
 5. A weekend → `OFF`. **A working-day rule must never turn a Saturday into a
    working day**; only an explicit entry (an OD) can do that.
-6. Any other standing rule → its code. `EMPLOYEE` beats `ORG`, because the
-   narrower statement is the more specific one; within a scope the later start
-   date wins, with the id as a stable tiebreak.
+6. Any other standing rule → its code. Which rule speaks when two overlap is
+   decided once, in `ruleFor`, for step 3 and this step alike: **time not
+   worked beats a working arrangement** whatever the scope (owner ruling, Aug
+   31 2026, review M9: "the shutdown wins". A company AL shutdown puts the
+   permanently remote person on leave with everyone else and charges her for
+   it; she is WFH the rest of the time; and a leave day recorded for her
+   personally still overrides the arrangement, as any explicit entry does.
+   `isWorkingCategory`, applied only when both rules carry a category), then
+   `EMPLOYEE` beats `ORG` between two rules of the same kind, because the
+   narrower statement is the more specific one; then the later **start** date,
+   with the id as a stable tiebreak. That last is the later start, not the more
+   recently created rule, and overlaps are not surfaced at create; both are
+   recorded in ROADMAP.
 7. Otherwise → assumed `P`
 
 `ruleFor` sorts internally rather than trusting the caller's ordering: a pure

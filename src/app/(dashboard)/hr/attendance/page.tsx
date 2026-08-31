@@ -803,8 +803,10 @@ function CompanyDayDialog(props: {
           <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
             A working code such as WFH covers working days only. Annual leave, on-duty and
             comp-off cover every day in the range, weekends and public holidays included,
-            exactly as the same block recorded on the grid would. Nothing is written per person,
-            so ending this rule later puts every day back exactly as it was.
+            exactly as the same block recorded on the grid would. A company day that is leave
+            also applies to anyone with a standing working arrangement such as WFH: the
+            shutdown wins, and their arrangement resumes when it ends. Nothing is written per
+            person, so ending this rule later puts every day back exactly as it was.
           </p>
         </div>
         <DialogFooter>
@@ -857,8 +859,9 @@ function StandingDialog(props: {
           </DialogTitle>
           <DialogDescription>
             Something permanently true about one person. It fills every working day until you end
-            it (every day, for annual leave, on-duty or comp-off), and any individual record still
-            overrides it.
+            it (every day, for annual leave, on-duty or comp-off). Any individual record still
+            overrides it, and so does a company day that is leave: during a shutdown a remote
+            worker is on leave with everyone else.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
