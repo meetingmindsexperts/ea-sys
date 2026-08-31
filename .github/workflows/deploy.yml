@@ -101,6 +101,12 @@ jobs:
       - name: Tenant ALS (swept-domain runWithTenant wraps)
         run: bash scripts/check-tenant-als.sh
 
+      # The RLS rollout is intentionally incremental. Keep its remaining work
+      # measurable in every CI run; a platform-wide enablement must additionally
+      # run this script with --require-ready (see docs/RLS_MIGRATION_STATUS.md).
+      - name: RLS migration status
+        run: bash scripts/rls-migration-status.sh
+
       # Cross-tenant authorisation. `canActAsPlatformOperator` was written in
       # August 2026 and then only eight files adopted it; the Aug 21 sweep found
       # ten more still deciding the same question with a bare SUPER_ADMIN check,
@@ -133,6 +139,9 @@ jobs:
       # pins that it stays required and that the labels stay real.
       - name: Guard refusals name their route
         run: bash scripts/check-guard-route.sh
+
+      - name: No silent server-side catches
+        run: bash scripts/check-no-silent-server-catches.sh
 
       # next/font/google downloads .woff2 at BUILD time, so a Google CDN
       # rotation can block a hotfix (run 1309). Fonts are vendored; this keeps

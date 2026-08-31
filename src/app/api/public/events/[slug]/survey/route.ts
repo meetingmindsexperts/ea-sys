@@ -191,7 +191,12 @@ async function finalizeSubmission(
     if (deleteTokenHash) {
       await db.verificationToken
         .delete({ where: { token: deleteTokenHash } })
-        .catch(() => {});
+        .catch((err) => apiLogger.warn({
+          err,
+          msg: "survey:already-completed-token-cleanup-failed",
+          eventId,
+          registrationId,
+        }));
     }
     return NextResponse.json({ ok: true, alreadyCompleted: true });
   }
@@ -238,7 +243,12 @@ async function finalizeSubmission(
       if (deleteTokenHash) {
         await db.verificationToken
           .delete({ where: { token: deleteTokenHash } })
-          .catch(() => {});
+          .catch((err) => apiLogger.warn({
+            err,
+            msg: "survey:race-dedup-token-cleanup-failed",
+            eventId,
+            registrationId,
+          }));
       }
       return NextResponse.json({ ok: true, alreadyCompleted: true });
     }

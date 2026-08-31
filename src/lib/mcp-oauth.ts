@@ -167,7 +167,12 @@ export async function exchangeAuthCode(params: {
   }
   if (row.expiresAt < new Date()) {
     // Clean up the expired row to prevent reuse
-    await db.mcpOAuthAuthCode.delete({ where: { id: row.id } }).catch(() => {});
+    await db.mcpOAuthAuthCode.delete({ where: { id: row.id } }).catch((err) => {
+      // Cleanup is best-effort: expiry remains authoritative, but a failed
+      // delete must be observable so stale authorization codes do not grow
+      // unnoticed during a database incident.
+      apiLogger.warn({ err, msg: "mcp-oauth:expired-auth-code-cleanup-failed", authorizationCodeId: row.id });
+    });
     return { error: "invalid_grant", description: "Authorization code expired" };
   }
   if (row.clientId !== params.clientId) {

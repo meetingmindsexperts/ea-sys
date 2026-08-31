@@ -114,8 +114,11 @@ function createDbLogStream(): Writable {
           timestamp: e.timestamp,
         })),
       });
-    } catch {
-      // Silently fail — don't let log persistence break the app
+    } catch (err) {
+      // This is the terminal logging sink, so use stderr rather than the Pino
+      // stream that just failed to persist. Never allow an observability failure
+      // to take down the request, but never hide it either.
+      console.error("[logger] system-log persistence failed", err);
     }
   }
 
