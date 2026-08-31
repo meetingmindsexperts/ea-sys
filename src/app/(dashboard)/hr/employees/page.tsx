@@ -15,6 +15,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { HR_ANNUAL_ENTITLEMENT_DAYS } from "@/hr/lib/hr-constants";
 import { toast } from "sonner";
 import {
   useHrEmployees,
@@ -38,7 +39,8 @@ import { Loader2, LogOut, Pencil, Plus, Users } from "lucide-react";
 const EMPTY = {
   empCode: "", name: "", department: "", jobTitle: "",
   joiningDate: "", exitDate: "", status: "ACTIVE" as "ACTIVE" | "RESIGNED" | "TERMINATED",
-  carryoverDays: "0", openingSickUsed: "0", openingCompOff: "0", notes: "",
+  carryoverDays: "0", openingSickUsed: "0", openingCompOff: "0",
+  annualEntitlementDays: "", notes: "",
 };
 
 export default function HrEmployeesPage() {
@@ -68,6 +70,8 @@ export default function HrEmployeesPage() {
       joiningDate: e.joiningDate,
       exitDate: e.exitDate ?? "",
       status: e.status as "ACTIVE" | "RESIGNED" | "TERMINATED",
+      annualEntitlementDays:
+        e.annualEntitlementDays === null ? "" : String(e.annualEntitlementDays),
       carryoverDays: String(e.carryoverDays),
       openingSickUsed: String(e.openingSickUsed),
       openingCompOff: String(e.openingCompOff),
@@ -88,6 +92,10 @@ export default function HrEmployeesPage() {
       department: form.department.trim() || null,
       jobTitle: form.jobTitle.trim() || null,
       joiningDate: form.joiningDate,
+      // Empty means "use the rule", which is a null, not a zero: zero is itself a
+              // valid agreed figure and the two must stay tellable apart.
+      annualEntitlementDays:
+        form.annualEntitlementDays.trim() === "" ? null : Number(form.annualEntitlementDays),
       carryoverDays: Number(form.carryoverDays) || 0,
       openingSickUsed: Number(form.openingSickUsed) || 0,
       openingCompOff: Number(form.openingCompOff) || 0,
@@ -318,6 +326,24 @@ export default function HrEmployeesPage() {
                 </div>
               </>
             )}
+            <div className="space-y-1">
+              <Label className="text-xs">Annual entitlement</Label>
+              <Input
+                type="number"
+                step="0.5"
+                min="0"
+                placeholder="Standard rule"
+                value={form.annualEntitlementDays}
+                onChange={(e) => setForm((f) => ({ ...f, annualEntitlementDays: e.target.value }))}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Leave empty for the standard rule: {HR_ANNUAL_ENTITLEMENT_DAYS} days once the
+                first year is complete, none before it. Type a number for a figure agreed
+                between the employee and management &mdash; a leaver&rsquo;s final year is
+                usually negotiated rather than calculated. Zero is a valid agreement and is
+                not the same as leaving this empty.
+              </p>
+            </div>
             <div className="space-y-1">
               <Label className="text-xs">Carried-in annual days</Label>
               <Input type="number" step="0.5" value={form.carryoverDays} onChange={(e) => setForm((f) => ({ ...f, carryoverDays: e.target.value }))} />

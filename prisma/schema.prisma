@@ -4647,6 +4647,13 @@ model Employee {
   /// carried in full and never floored, because a cap on a debt would forgive
   /// it (owner, Aug 27 2026).
   carryoverDays  Decimal        @default(0) @db.Decimal(5, 1)
+  /// Agreed annual entitlement for this person, overriding the standard rule.
+  /// NULL means "use the rule": 30 days once the first year is complete, 0
+  /// before it. Set by hand when a figure is agreed between the employee and
+  /// management — typically for a leaver, whose final year is negotiated rather
+  /// than calculated (owner ruling, Aug 31 2026). It deliberately BEATS the
+  /// first-year gate too: an explicit human decision outranks a rule.
+  annualEntitlementDays Decimal? @db.Decimal(5, 1)
   /// Sick days already consumed in the current leave year before go-live,
   /// mirroring the workbook's "Opening Sick Leave Used" column.
   openingSickUsed Decimal       @default(0) @db.Decimal(5, 1)

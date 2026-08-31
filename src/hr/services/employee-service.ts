@@ -35,6 +35,8 @@ export interface CreateEmployeeInput {
   carryoverDays?: number;
   openingSickUsed?: number;
   openingCompOff?: number;
+  /** Null clears the override and returns the person to the standard rule. */
+  annualEntitlementDays?: number | null;
   userId?: string | null;
   notes?: string | null;
 }
@@ -52,6 +54,7 @@ export interface EmployeeView {
   carryoverDays: number;
   openingSickUsed: number;
   openingCompOff: number;
+  annualEntitlementDays: number | null;
   userId: string | null;
   notes: string | null;
 }
@@ -60,6 +63,7 @@ type EmployeeRow = {
   id: string; empCode: string; name: string; department: string | null;
   jobTitle: string | null; joiningDate: Date; exitDate: Date | null; status: string;
   carryoverDays: unknown; openingSickUsed: unknown; openingCompOff: unknown;
+  annualEntitlementDays: unknown;
   userId: string | null; notes: string | null;
 };
 
@@ -81,6 +85,10 @@ export function toEmployeeView(row: EmployeeRow): EmployeeView {
     carryoverDays: num(row.carryoverDays),
     openingSickUsed: num(row.openingSickUsed),
     openingCompOff: num(row.openingCompOff),
+    annualEntitlementDays:
+      row.annualEntitlementDays === null || row.annualEntitlementDays === undefined
+        ? null
+        : num(row.annualEntitlementDays),
     userId: row.userId,
     notes: row.notes,
   };
@@ -89,7 +97,8 @@ export function toEmployeeView(row: EmployeeRow): EmployeeView {
 export const EMPLOYEE_SELECT = {
   id: true, empCode: true, name: true, department: true, jobTitle: true,
   joiningDate: true, exitDate: true, status: true, carryoverDays: true,
-  openingSickUsed: true, openingCompOff: true, userId: true, notes: true,
+  openingSickUsed: true, openingCompOff: true, annualEntitlementDays: true,
+  userId: true, notes: true,
 } as const;
 
 export async function createEmployee(
@@ -124,6 +133,7 @@ export async function createEmployee(
         carryoverDays: capCarryover(input.carryoverDays ?? 0),
         openingSickUsed: input.openingSickUsed ?? 0,
         openingCompOff: input.openingCompOff ?? 0,
+        annualEntitlementDays: input.annualEntitlementDays ?? null,
         userId: input.userId ?? null,
         notes: input.notes?.trim() || null,
       },
@@ -174,6 +184,7 @@ export interface UpdateEmployeeInput {
       CreateEmployeeInput,
       | "name" | "department" | "jobTitle" | "joiningDate" | "exitDate"
       | "carryoverDays" | "openingSickUsed" | "openingCompOff" | "notes"
+      | "annualEntitlementDays"
     >
   > & { status?: "ACTIVE" | "RESIGNED" | "TERMINATED" };
 }
@@ -228,6 +239,10 @@ export async function updateEmployee(
         ...(p.carryoverDays !== undefined && { carryoverDays: capCarryover(p.carryoverDays) }),
         ...(p.openingSickUsed !== undefined && { openingSickUsed: p.openingSickUsed }),
         ...(p.openingCompOff !== undefined && { openingCompOff: p.openingCompOff }),
+        // null is meaningful: it clears the agreement and restores the rule.
+        ...(p.annualEntitlementDays !== undefined && {
+          annualEntitlementDays: p.annualEntitlementDays,
+        }),
         ...(p.notes !== undefined && { notes: p.notes?.trim() || null }),
         ...(p.status !== undefined && { status: p.status }),
       },

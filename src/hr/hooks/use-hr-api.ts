@@ -20,6 +20,8 @@ export interface HrEmployee {
   carryoverDays: number;
   openingSickUsed: number;
   openingCompOff: number;
+  /** An agreed figure replacing the standard entitlement; null means use the rule. */
+  annualEntitlementDays: number | null;
   userId: string | null;
   notes: string | null;
 }
@@ -37,6 +39,7 @@ export interface HrBalance {
   nextAnniversary: string;
   annual: {
     entitlement: number;
+    entitlementOverridden: boolean;
     carriedIn: number;
     carriedInStored: number;
     taken: number;
@@ -246,6 +249,7 @@ export interface HrEmployeeInput {
   carryoverDays?: number;
   openingSickUsed?: number;
   openingCompOff?: number;
+  annualEntitlementDays?: number | null;
   notes?: string | null;
   /**
    * Editable on the edit path, not on create: a new employee is Active by

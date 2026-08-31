@@ -40,6 +40,8 @@ const createSchema = z.object({
   carryoverDays: z.number().min(-999).max(999).optional(),
   openingSickUsed: z.number().min(0).max(999).optional(),
   openingCompOff: z.number().min(0).max(999).optional(),
+  // nullable, not just optional: null CLEARS the agreement and restores the rule.
+  annualEntitlementDays: z.number().min(0).max(365).nullish(),
   userId: z.string().cuid().nullish(),
   notes: z.string().max(2000).nullish(),
   status: z.enum(["ACTIVE", "RESIGNED", "TERMINATED"]).optional(),

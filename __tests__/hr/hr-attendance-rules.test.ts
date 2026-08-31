@@ -425,3 +425,75 @@ describe("how far a range reaches", () => {
     expect(source).toContain("input.includeNonWorkingDays ?? rangeCoversCalendarDays(");
   });
 });
+
+/**
+ * An agreed entitlement overriding the standard rule.
+ *
+ * Owner ruling, Aug 31 2026: "zero, unless first year is completed; Muthu can
+ * update on whatever is later agreed between employee and management." So the
+ * automatic rule is UNCHANGED — 30 once the first year is complete, 0 before it
+ * — and what is new is that a human figure can replace it. A leaver's final year
+ * is negotiated rather than calculated.
+ */
+describe("an agreed annual entitlement", () => {
+  const base = {
+    joiningDate: d("2020-01-01"),
+    exitDate: null,
+    carryoverDays: 0,
+    openingSickUsed: 0,
+    openingCompOff: 0,
+  };
+  const run = (employee: typeof base & { annualEntitlementDays?: number | null }) =>
+    computeLeaveBalance({ employee, leaveYear: 2026, asOf: d("2026-12-31"), entries: [] });
+
+  it("without one, the standard rule is untouched", () => {
+    const b = run(base);
+    expect(b.annual.entitlement).toBe(30);
+    expect(b.annual.entitlementOverridden).toBe(false);
+  });
+
+  it("null means use the rule, and is not read as zero", () => {
+    expect(run({ ...base, annualEntitlementDays: null }).annual.entitlement).toBe(30);
+    expect(run({ ...base, annualEntitlementDays: null }).annual.entitlementOverridden).toBe(false);
+  });
+
+  it("an agreed figure replaces it and says so", () => {
+    const b = run({ ...base, annualEntitlementDays: 12.5 });
+    expect(b.annual.entitlement).toBe(12.5);
+    expect(b.annual.entitlementOverridden).toBe(true);
+    expect(b.annual.balance).toBe(12.5);
+  });
+
+  it("ZERO is a real agreement, distinct from having none", () => {
+    // The distinction that matters: a negotiated nil is not the same as "nobody
+    // has decided yet". Reading 0 as absent would silently restore 30 days to a
+    // leaver whose final year was agreed at nothing.
+    const b = run({ ...base, annualEntitlementDays: 0 });
+    expect(b.annual.entitlement).toBe(0);
+    expect(b.annual.entitlementOverridden).toBe(true);
+  });
+
+  it("an agreement outranks the first-year gate", () => {
+    // Somebody four months in, leaving, with a figure agreed. The rule would
+    // give them 0; the agreement is a human decision and wins.
+    const b = computeLeaveBalance({
+      employee: { ...base, joiningDate: d("2026-09-01"), annualEntitlementDays: 5 },
+      leaveYear: 2026,
+      asOf: d("2026-12-31"),
+      entries: [],
+    });
+    expect(b.hasCompletedFirstYear).toBe(false);
+    expect(b.annual.entitlement).toBe(5);
+  });
+
+  it("still nothing before the first anniversary when nothing is agreed", () => {
+    const b = computeLeaveBalance({
+      employee: { ...base, joiningDate: d("2026-09-01") },
+      leaveYear: 2026,
+      asOf: d("2026-12-31"),
+      entries: [],
+    });
+    expect(b.annual.entitlement).toBe(0);
+    expect(b.annual.entitlementOverridden).toBe(false);
+  });
+});

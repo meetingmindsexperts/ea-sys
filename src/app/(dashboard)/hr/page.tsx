@@ -12,6 +12,11 @@
  *   2. AN EMPLOYEE WITHOUT A FIRST ANNIVERSARY shows entitlement 0 and says so,
  *      because otherwise a balance of -23 reads as a system error rather than as
  *      somebody who has taken leave they have not yet accrued.
+ *   3. AN AGREED ENTITLEMENT is marked "agreed" rather than shown as a bare
+ *      number. A leaver's final year is negotiated between the employee and
+ *      management (owner ruling, Aug 31 2026), so one person legitimately
+ *      differs from everyone else — and an unexplained difference reads as a
+ *      bug to whoever checks it next.
  */
 
 import { useState } from "react";
@@ -143,7 +148,20 @@ export default function HrSummaryPage() {
                   </div>
                 </td>
                 <td className="px-3 py-2 text-right">
-                  {balance.hasCompletedFirstYear ? (
+                  {/* An agreed figure is shown with a marker rather than silently:
+                      a number that differs from everyone else's needs to explain
+                      itself, or the next person to read it calls it a bug. It is
+                      checked FIRST because an agreement outranks the first-year
+                      rule, which is what makes a negotiated leaver's year work. */}
+                  {balance.annual.entitlementOverridden ? (
+                    <span
+                      className="inline-flex items-center gap-1"
+                      title="Agreed with management, not the standard rule"
+                    >
+                      <Days value={balance.annual.entitlement} />
+                      <Badge variant="outline" className="text-[10px]">agreed</Badge>
+                    </span>
+                  ) : balance.hasCompletedFirstYear ? (
                     <Days value={balance.annual.entitlement} />
                   ) : (
                     <Badge variant="outline" className="text-[10px]">

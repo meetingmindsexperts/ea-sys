@@ -41,6 +41,14 @@ export interface BalanceEmployee {
   carryoverDays: number;
   openingSickUsed: number;
   openingCompOff: number;
+  /**
+   * An agreed figure that REPLACES the standard entitlement. Null means use the
+   * rule. It beats the first-year gate on purpose: this is a human decision
+   * between the employee and management, and a rule should not overrule one
+   * (owner ruling, Aug 31 2026 — typically a leaver, whose final year is
+   * negotiated rather than calculated).
+   */
+  annualEntitlementDays?: number | null;
 }
 
 export interface BalanceInput {
@@ -79,6 +87,9 @@ export interface LeaveBalance {
   nextAnniversary: CalendarDate;
   annual: {
     entitlement: number;
+    /** True when the figure came from an agreement, not from the rule. Surfaced
+     *  so nobody has to wonder why one person's number differs. */
+    entitlementOverridden: boolean;
     /** After the cap. */
     carriedIn: number;
     /** As stored, so a value the cap trimmed is still visible. */
@@ -144,7 +155,13 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   const to = window?.to ?? null;
 
   const completedFirstYear = hasCompletedFirstYear(employee.joiningDate, asOf);
-  const entitlement = completedFirstYear ? HR_ANNUAL_ENTITLEMENT_DAYS : 0;
+  const overridden =
+    employee.annualEntitlementDays !== undefined && employee.annualEntitlementDays !== null;
+  const entitlement = overridden
+    ? roundDays(employee.annualEntitlementDays as number)
+    : completedFirstYear
+      ? HR_ANNUAL_ENTITLEMENT_DAYS
+      : 0;
   const carriedInRaw = input.carriedInDays ?? employee.carryoverDays;
   const carriedIn = capCarryover(carriedInRaw);
   const annualTaken = sumWeights(entries, "ANNUAL", from, to);
@@ -178,6 +195,7 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
     nextAnniversary: nextAnniversary(employee.joiningDate, asOf),
     annual: {
       entitlement,
+      entitlementOverridden: overridden,
       carriedIn,
       carriedInStored: roundDays(carriedInRaw),
       taken: annualTaken,

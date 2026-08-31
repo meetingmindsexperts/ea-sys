@@ -34,9 +34,17 @@
 >    rule is annual-specific and sick leave stays working-days-only. Implemented
 >    as `rangeCoversCalendarDays()` in `hr-constants.ts`, resolved in the SERVICE
 >    so the grid, MCP and any importer cannot answer it three different ways.
-> 2. **A leaver's entitlement (OPEN).** Owner ruling Aug 31: a leaver gets
->    nothing for their exit year, and Muthu must be able to override it by hand.
->    Needs a per-employee entitlement field; not built yet.
+> 2. **CLOSED, Aug 31 2026 (owner): the automatic rule is unchanged; an agreed
+>    figure can replace it.** 30 days once the first year is complete, nothing
+>    before it — leaver or not. New is `Employee.annualEntitlementDays`, which HR
+>    sets when a figure is agreed between the employee and management, since a
+>    leaver's final year is negotiated rather than calculated. Two rules inside
+>    it, both mutation-verified: **zero is a real agreement**, distinct from an
+>    empty field (a truthiness check would read it as absent and hand a leaver 30
+>    days back), and **an agreement outranks the first-year gate**, because a rule
+>    should not overrule a decision made between two people. Shown on the summary
+>    with an "agreed" marker rather than as a bare number: one person legitimately
+>    differing from everyone else has to explain itself, or it reads as a bug.
 > 3. **The year-end roll worker.** `planYearRoll` exists as a pure function; the
 >    DB service and `worker/jobs/hr-year-roll.ts` do not. 1 January is a real
 >    deadline.
