@@ -51,6 +51,16 @@ export interface EmployeePlan {
   conflicts: FieldConflict[];
 }
 
+/**
+ * Two values that differ only in surrounding whitespace are the same value.
+ * The import wrote the sheet's trailing spaces, the app trims on save, and
+ * without this the first save of an untouched field reads as a decision.
+ */
+function same(a: unknown, b: unknown): boolean {
+  if (typeof a === "string" && typeof b === "string") return a.trim() === b.trim();
+  return a === b;
+}
+
 export function planEmployeeSync(
   app: EmployeeSyncValues,
   workbook: EmployeeSyncValues,
@@ -61,7 +71,7 @@ export function planEmployeeSync(
   for (const field of EMPLOYEE_SYNC_FIELDS) {
     const a = app[field];
     const w = workbook[field];
-    if (a === w) continue;
+    if (same(a, w)) continue;
     if (appEdited.has(field)) {
       conflicts.push({ field, app: a, workbook: w });
       continue;
@@ -98,7 +108,8 @@ export function appEditedFields(auditChanges: readonly unknown[]): Set<EmployeeS
       const before = c.before as Record<string, unknown>;
       const after = c.after as Record<string, unknown>;
       for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-        if (isSyncField(key) && JSON.stringify(before[key]) !== JSON.stringify(after[key])) out.add(key);
+        if (!isSyncField(key) || same(before[key], after[key])) continue;
+        if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) out.add(key);
       }
     }
   }

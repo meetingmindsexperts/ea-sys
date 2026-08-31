@@ -56,6 +56,21 @@ describe("planEmployeeSync", () => {
     expect(conflicts).toEqual([{ field: "carryoverDays", app: 15, workbook: 0 }]);
   });
 
+  /**
+   * The sheet carries "Medical Liaison Executive " with a trailing space and the
+   * app trims on save. On prod that read as two jobTitle conflicts that nobody
+   * could see; whitespace is not a difference and not a decision.
+   */
+  it("treats a whitespace-only difference as agreement", () => {
+    const { patch, conflicts } = planEmployeeSync(
+      { ...base, jobTitle: "Medical Liaison Executive" },
+      { ...base, jobTitle: "Medical Liaison Executive " },
+      new Set(["jobTitle"]),
+    );
+    expect(patch).toEqual({});
+    expect(conflicts).toEqual([]);
+  });
+
   it("does not report a conflict for an app-edited field the workbook agrees with", () => {
     const app = { ...base, carryoverDays: 15 };
     const { patch, conflicts } = planEmployeeSync(app, { ...app }, new Set(["carryoverDays"]));
@@ -82,6 +97,12 @@ describe("appEditedFields", () => {
    */
   it("ignores audit rows a sync wrote", () => {
     expect(appEditedFields([{ changed: { carryoverDays: { from: 0, to: -10 } }, source: "import" }]).size).toBe(0);
+  });
+
+  it("does not count a whitespace-only save as an edit", () => {
+    const before = { jobTitle: "Medical Liaison Executive ", name: "Tabian" };
+    const after = { jobTitle: "Medical Liaison Executive", name: "Tabian Fatherahman" };
+    expect([...appEditedFields([{ before, after }])]).toEqual(["name"]);
   });
 
   it("tolerates rows that are not objects", () => {

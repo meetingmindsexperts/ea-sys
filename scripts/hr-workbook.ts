@@ -82,6 +82,16 @@ function n(value: string | null): number {
 }
 
 /**
+ * Text as a person meant it. The sheet carries trailing spaces ("Medical
+ * Liaison Executive "), and the app trims on save, so a raw comparison reports
+ * a difference no one can see.
+ */
+function text(value: string | null): string | null {
+  const t = value?.trim() ?? "";
+  return t === "" ? null : t;
+}
+
+/**
  * The sheet's Employment Status, reconciled with its Exit Date.
  *
  * The date is the fact and the word is a label that goes stale: the sheet
@@ -137,10 +147,10 @@ export function parseHrWorkbook(
     const exitDate = exitCell ? excelSerialToDate(Number(exitCell)) : null;
     const entitlementCell = cell(row, "G");
     employees.push({
-      empCode,
-      name,
-      department: cell(row, "C"),
-      jobTitle: cell(row, "D"),
+      empCode: empCode.trim(),
+      name: name.trim(),
+      department: text(cell(row, "C")),
+      jobTitle: text(cell(row, "D")),
       joiningDate: excelSerialToDate(Number(joining)),
       exitDate,
       status: statusFromSheet(cell(row, "F"), exitDate, today),
@@ -188,8 +198,8 @@ export function parseHrWorkbook(
     const name = cell(row, "B");
     if (!empCode || !name || /^\d+$/.test(name)) continue;
     summary.push({
-      empCode,
-      name,
+      empCode: empCode.trim(),
+      name: name.trim(),
       entitlement: n(cell(row, "D")),
       entitlementIsFormula: Boolean(row.D?.f),
       annualTaken: n(cell(row, "E")),
