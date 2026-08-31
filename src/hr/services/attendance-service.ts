@@ -33,9 +33,14 @@ import {
   fromCalendarDate,
   isCalendarDate,
   toCalendarDate,
+  yearOf,
 } from "../lib/hr-date";
-import { HR_DEFAULT_WEEKEND_DAYS, rangeCoversCalendarDays } from "../lib/hr-constants";
+import { HR_DEFAULT_WEEKEND_DAYS, rangeCoversCalendarDays, HR_SICK_TIER_DAYS } from "../lib/hr-constants";
 import { isWithinEmployment } from "../lib/hr-leave-year";
+// One balance engine, asked rather than re-derived: it already knows about the
+// opening seed, rule-derived days and half days, and a second count here would
+// be the thing that disagrees with the summary screen.
+import { getLeaveBalance } from "./leave-balance-service";
 
 export type AttendanceErrorCode =
   | "INVALID_DATE"
@@ -45,6 +50,7 @@ export type AttendanceErrorCode =
   | "LEAVE_CODE_NOT_FOUND"
   | "OUTSIDE_EMPLOYMENT"
   | "NO_WORKING_DAYS"
+  | "SICK_FULL_TIER_EXCEEDED"
   | "WRITE_TIMED_OUT"
   | "UNKNOWN";
 
@@ -90,6 +96,79 @@ export interface SetAttendanceInput {
    */
   includeNonWorkingDays?: boolean;
   weekendDays?: readonly number[];
+  /**
+   * Proceed even though the write takes the person past the 15 days of
+   * full-pay sick leave that Art. 31 allows.
+   *
+   * Owner ruling, Aug 31 2026: WARN, do not convert. The system does not move
+   * anyone into the half-pay tier by itself, because the tier is decided by
+   * which code is recorded and silently counting an SL-F day at half pay would
+   * make the grid say one thing while payroll pays another. So HR is told, and
+   * HR chooses: record SL-H instead, or record SL-F anyway because they have a
+   * reason. This flag is that second answer.
+   */
+  acknowledgeSickTier?: boolean;
+}
+
+function toNumber(v: unknown): number {
+  return v instanceof Prisma.Decimal ? v.toNumber() : Number(v);
+}
+
+/**
+ * What this write would do to the full-pay sick tier, or null when it cannot
+ * be judged (no such employee, or the dates span no leave year we hold).
+ *
+ * Judged per LEAVE YEAR, because a range crossing New Year is two separate
+ * entitlements and summing them would invent a limit nobody has. The worst
+ * year wins, since it only takes one to cross.
+ */
+async function projectSickFullTier(params: {
+  organizationId: string;
+  employeeId: string;
+  dates: CalendarDate[];
+  newDayWeight: number;
+  weekendDays: readonly number[];
+}): Promise<{ leaveYear: number; used: number; adding: number; wouldBe: number } | null> {
+  const byYear = new Map<number, CalendarDate[]>();
+  for (const d of params.dates) {
+    const y = yearOf(d);
+    byYear.set(y, [...(byYear.get(y) ?? []), d]);
+  }
+
+  // What is already recorded on the days about to be rewritten. Without this,
+  // re-saving a day that is already SL-F would read as a sixteenth day.
+  const existing = await db.attendanceEntry.findMany({
+    where: {
+      organizationId: params.organizationId,
+      employeeId: params.employeeId,
+      date: { in: params.dates.map(fromCalendarDate) },
+    },
+    select: { date: true, leaveCode: { select: { countsAs: true, dayWeight: true } } },
+  });
+  const replacingByYear = new Map<number, number>();
+  for (const e of existing) {
+    if (e.leaveCode.countsAs !== "SICK_FULL") continue;
+    const y = yearOf(toCalendarDate(e.date));
+    replacingByYear.set(y, (replacingByYear.get(y) ?? 0) + toNumber(e.leaveCode.dayWeight));
+  }
+
+  let worst: { leaveYear: number; used: number; adding: number; wouldBe: number } | null = null;
+  for (const [leaveYear, dates] of byYear) {
+    const balance = await getLeaveBalance({
+      organizationId: params.organizationId,
+      employeeId: params.employeeId,
+      leaveYear,
+      weekendDays: params.weekendDays,
+    });
+    if (!balance || !balance.balance.employedInYear) continue;
+    const used = balance.balance.sick.full.used - (replacingByYear.get(leaveYear) ?? 0);
+    const adding = params.newDayWeight * dates.length;
+    const wouldBe = Math.round((used + adding) * 10) / 10;
+    if (!worst || wouldBe > worst.wouldBe) {
+      worst = { leaveYear, used: Math.round(used * 10) / 10, adding, wouldBe };
+    }
+  }
+  return worst;
 }
 
 export async function setAttendance(
@@ -121,7 +200,7 @@ export async function setAttendance(
     }),
     db.leaveCode.findFirst({
       where: { organizationId: input.organizationId, code: input.code, active: true },
-      select: { id: true, code: true, countsAs: true },
+      select: { id: true, code: true, countsAs: true, dayWeight: true },
     }),
   ]);
   if (!employee) {
@@ -185,6 +264,48 @@ export async function setAttendance(
       message: "That range contains no working days.",
       meta: { skipped },
     };
+  }
+
+  /*
+   * The 15-day full-pay sick limit (Art. 31), as a WARNING rather than a
+   * conversion. Owner ruling, Aug 31 2026.
+   *
+   * The tier is decided by which CODE is recorded, so moving somebody into
+   * half pay automatically would mean the grid shows SL-F while payroll pays
+   * half: the record would stop being the truth, which is the one property
+   * this module is built on. Instead the write is refused once, with the
+   * numbers, and HR decides. `acknowledgeSickTier` is them deciding.
+   *
+   * `used` comes from the ONE balance engine rather than a second count here,
+   * so it already includes the opening seed, rule-derived days and half days
+   * (SL-HD is 0.5 and also counts against this tier). Days being overwritten
+   * are subtracted, or re-saving an existing sick day would look like adding
+   * one.
+   */
+  if (leaveCode.countsAs === "SICK_FULL" && !input.acknowledgeSickTier) {
+    const tier = await projectSickFullTier({
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      dates: target,
+      newDayWeight: toNumber(leaveCode.dayWeight),
+      weekendDays,
+    });
+    if (tier && tier.wouldBe > HR_SICK_TIER_DAYS.full) {
+      return {
+        ok: false,
+        code: "SICK_FULL_TIER_EXCEEDED",
+        message:
+          `This takes ${tier.leaveYear} full-pay sick leave to ${tier.wouldBe} of ` +
+          `${HR_SICK_TIER_DAYS.full} days. Beyond 15 the entitlement is half pay (SL-H).`,
+        meta: {
+          leaveYear: tier.leaveYear,
+          used: tier.used,
+          adding: tier.adding,
+          wouldBe: tier.wouldBe,
+          limit: HR_SICK_TIER_DAYS.full,
+        },
+      };
+    }
   }
 
   try {

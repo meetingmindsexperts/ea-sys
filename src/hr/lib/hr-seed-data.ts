@@ -57,7 +57,13 @@ export const HR_LEAVE_CODE_SEED: readonly LeaveCodeSeed[] = [
   // Aug 27 2026: only both days of the same weekend earn one). The seeded label
   // deliberately does not repeat the workbook's wording, because a description
   // that contradicts the implemented rule is worse than no description.
-  { code: "OD",    label: "On Duty (weekend or holiday work)", lawReference: "Art. 28 FDL 33/2021", paid: true, dayWeight: 1,    countsAs: "ON_DUTY" },
+  //
+  // And it said "weekend or holiday work" until Aug 31 2026, which was the same
+  // mistake in miniature: working a public holiday earns NOTHING back, only
+  // both days of one weekend do (owner ruling, reaffirmed the same day). The
+  // label promised staff a day the rule never granted. It matters more now than
+  // it did, because the code picker shows these labels rather than bare codes.
+  { code: "OD",    label: "On Duty (weekend work)",           lawReference: "Art. 28 FDL 33/2021", paid: true, dayWeight: 1,    countsAs: "ON_DUTY" },
   { code: "CO",    label: "Comp-Off (compensatory rest day)",  lawReference: "Art. 28 FDL 33/2021", paid: true, dayWeight: 1,    countsAs: "COMP_OFF" },
 ];
 

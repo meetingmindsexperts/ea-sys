@@ -335,9 +335,25 @@ local e2e pass is due rather than committed unrun.
   every caller. The **rate-limit half of L5 is still open** (no `checkRateLimit` on attendance DELETE,
   employees PATCH, exit POST, holidays POST), along with the missing `userId` on some log lines.
 
-**Still deferred (L6–L10, L12, L13):** `openingSickUsed` above 15 has no waterfall into the half-pay tier and no
-warning exists on a 16th SL-F day or a comp-off with no balance; OD on a public holiday earns no comp-off
-despite the seeded label; row-index selection and mouse-only drag (the keyboard half shipped Aug 31 — arrows,
+**✅ The two policy questions, ruled and shipped Aug 31, 2026 (owner).**
+- **L6 (sick past 15) — WARN, do not convert.** Recording a day that takes somebody past the 15 full-pay days
+  now refuses ONCE with the numbers (`SICK_FULL_TIER_EXCEEDED`, 409) and the grid asks: record SL-H (half pay)
+  instead, record the original code anyway, or cancel. Nothing is written until someone chooses. The owner's
+  reasoning is the module's own: the tier is whichever CODE is recorded, so converting silently would make the
+  grid show SL-F while payroll paid half, and the record would stop being the truth. The projection asks the ONE
+  balance engine rather than counting a second time, weighs half days as 0.5 (SL-HD is also SICK_FULL), subtracts
+  what it is overwriting, and judges per leave year. Six behavioural tests; counting days instead of weight, and
+  forgetting the overwrite subtraction, each fail their own test.
+- **L7 (holiday work) — weekends only; the label was wrong, not the rule.** Working a public holiday earns no
+  comp-off, exactly as the Aug 27 ruling said. The seeded label promised "weekend or holiday work" and now reads
+  "On Duty (weekend work)", with an idempotent data migration for the existing row guarded on the old text so a
+  customised label survives. This mattered more than it looks: the code picker now shows labels rather than bare
+  codes, so that sentence is what an operator reads when choosing. Live data: 58 on-duty days in 2026, none on a
+  public holiday, so nothing changed retroactively.
+- **Still open from L6:** no warning on a comp-off taken with no balance. Same shape as the sick warning and not
+  yet asked about.
+
+**Still deferred (L8–L10, L12, L13):** row-index selection and mouse-only drag (the keyboard half shipped Aug 31 — arrows,
 Shift+arrows, Enter — so what remains is selection identity and pointer alternatives); accessibility of the
 cells and dark-mode variants on the error cards; pre-existing org-level reads (`GET /api/organization` returns
 the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership,

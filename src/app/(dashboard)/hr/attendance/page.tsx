@@ -35,6 +35,7 @@ import {
   useClearHrAttendance,
   type HrAttendanceRule,
   type HrEmployee,
+  type HrWriteError,
 } from "@/hr/hooks/use-hr-api";
 import type { LeaveCategory } from "@prisma/client";
 import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
@@ -104,6 +105,14 @@ function cellEl(r: number, d: number): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-cell][data-r="${r}"][data-d="${d}"]`);
 }
 
+/**
+ * The code Art. 31 entitles somebody to once the 15 full-pay days are used.
+ *
+ * Note the naming trap the seed warns about and do not "tidy" it: `SL-H` is
+ * half PAY, `SL-HD` is half a DAY. This is the pay tier, not the half day.
+ */
+const HALF_PAY_SICK_CODE = "SL-H";
+
 const CODE_STYLE: Record<string, string> = {
   AL: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
   "AL-HD": "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
@@ -118,6 +127,27 @@ const CODE_STYLE: Record<string, string> = {
   PH: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 const DERIVED_STYLE = "text-muted-foreground/50";
+
+/**
+ * One person's write held at the 15-day full-pay sick limit.
+ *
+ * Kept apart from `failures` on purpose: nothing went wrong. Art. 31 gives 15
+ * days at full pay and 30 more at half, and the owner's ruling is that the
+ * system says so rather than moving anyone between tiers by itself, because the
+ * tier is whichever code is recorded and converting it silently would make the
+ * grid disagree with payroll.
+ */
+interface SickTierAsk {
+  employeeId: string;
+  name: string;
+  from: CalendarDate;
+  to: CalendarDate;
+  code: string;
+  used: number;
+  wouldBe: number;
+  limit: number;
+  leaveYear: number;
+}
 
 export default function HrAttendancePage() {
   const [todayIso] = useState(todayHere);
@@ -148,6 +178,7 @@ export default function HrAttendancePage() {
   const [sel, setSel] = useState<Selection | null>(null);
   /** The head cell the code popover is anchored to, as grid coordinates. */
   const [pop, setPop] = useState<{ r: number; d: number } | null>(null);
+  const [sickAsks, setSickAsks] = useState<SickTierAsk[] | null>(null);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [standingOpen, setStandingOpen] = useState(false);
   const dragging = useRef(false);
@@ -238,6 +269,51 @@ export default function HrAttendancePage() {
    * two requests; the alternative is a bulk endpoint whose failure semantics
    * would be "some of it worked", which is worse than being slightly chattier.
    */
+  /**
+   * Answer the 15-day question for everyone it was raised about.
+   *
+   * "half-pay" records SL-H, which is what Art. 31 entitles them to past 15
+   * days. "anyway" re-sends the original code with the acknowledgement, which
+   * is HR saying they have a reason. Either way the RECORD ends up saying what
+   * was decided, which is the property the automatic conversion would have cost.
+   */
+  async function resolveSickAsks(choice: "half-pay" | "anyway") {
+    const asks = sickAsks ?? [];
+    setSickAsks(null);
+    if (asks.length === 0) return;
+    applying.current = true;
+    try {
+      let written = 0;
+      const failures: { name: string; message: string }[] = [];
+      for (const ask of asks) {
+        try {
+          const res = await setAttendance.mutateAsync({
+            employeeId: ask.employeeId,
+            from: ask.from,
+            to: ask.to,
+            code: choice === "half-pay" ? HALF_PAY_SICK_CODE : ask.code,
+            ...(choice === "anyway" ? { acknowledgeSickTier: true } : {}),
+          });
+          written += res.written;
+        } catch (err) {
+          failures.push({ name: ask.name, message: (err as Error).message });
+        }
+      }
+      await qc.invalidateQueries({ queryKey: ["hr"] });
+      if (failures.length === 0) {
+        toast.success(
+          `${written} day${written === 1 ? "" : "s"} recorded as ` +
+            (choice === "half-pay" ? `${HALF_PAY_SICK_CODE} (half pay)` : asks[0].code),
+        );
+        setSel((s) => (s ? collapseToHead(s) : s));
+      } else {
+        toast.error(failures.map((f) => `${f.name}: ${f.message}`).join("; "));
+      }
+    } finally {
+      applying.current = false;
+    }
+  }
+
   async function apply(code: string | null) {
     if (!cellsInSel.length || applying.current) return;
     applying.current = true;
@@ -251,6 +327,10 @@ export default function HrAttendancePage() {
       setPop(null);
       let written = 0, skipped = 0;
       const failures: { name: string; message: string }[] = [];
+      // Not a failure: the service refused ONCE so a person can be asked. Held
+      // aside so the toast does not call it an error and the dialog can offer
+      // the two answers the owner's ruling allows.
+      const tierAsks: SickTierAsk[] = [];
       for (const { employee, dates } of byEmployee.values()) {
         const sorted = [...dates].sort();
         try {
@@ -275,13 +355,35 @@ export default function HrAttendancePage() {
             written += res.removed;
           }
         } catch (err) {
-          failures.push({ name: employee.name, message: (err as Error).message });
+          const e = err as HrWriteError;
+          if (code && e.code === "SICK_FULL_TIER_EXCEEDED") {
+            tierAsks.push({
+              employeeId: employee.id,
+              name: employee.name,
+              from: sorted[0],
+              to: sorted[sorted.length - 1],
+              code,
+              used: Number(e.body?.used ?? 0),
+              wouldBe: Number(e.body?.wouldBe ?? 0),
+              limit: Number(e.body?.limit ?? 15),
+              leaveYear: Number(e.body?.leaveYear ?? 0),
+            });
+            continue;
+          }
+          failures.push({ name: employee.name, message: e.message });
         }
       }
       // ONE refetch for the whole selection. The hooks are told not to
       // invalidate per request; left on, a 23-row drag cancelled and restarted
       // the employees, attendance and codes queries 23 times over (review M10).
       await qc.invalidateQueries({ queryKey: ["hr"] });
+
+      if (tierAsks.length > 0) {
+        // Ask BEFORE reporting: the operator has a decision to make, and a
+        // success toast underneath an open question reads as "done".
+        setSickAsks(tierAsks);
+        return;
+      }
 
       const people = byEmployee.size;
       const skippedNote = skipped
@@ -732,6 +834,13 @@ export default function HrAttendancePage() {
         />
       )}
 
+      <SickTierDialog
+        asks={sickAsks}
+        halfPayAvailable={codes.some((c) => c.code === HALF_PAY_SICK_CODE)}
+        onChoose={(choice) => void resolveSickAsks(choice)}
+        onCancel={() => setSickAsks(null)}
+      />
+
       <CompanyDayDialog
         open={companyOpen}
         onOpenChange={setCompanyOpen}
@@ -916,6 +1025,66 @@ function CodePopover(props: {
 }
 
 /* -------------------------------------------------------------- dialogs --- */
+
+/**
+ * "This person is past 15 days of full-pay sick leave. What should it be?"
+ *
+ * Three answers, and the DEFAULT is the lawful one: past 15 days the
+ * entitlement is half pay, so SL-H is the primary button. Recording full pay
+ * anyway stays available because HR sometimes has a reason and the system is
+ * not the one making this call (owner ruling, Aug 31 2026) — but it is the
+ * quieter button, because it is the exception.
+ */
+function SickTierDialog(props: {
+  asks: SickTierAsk[] | null;
+  halfPayAvailable: boolean;
+  onChoose: (choice: "half-pay" | "anyway") => void;
+  onCancel: () => void;
+}) {
+  const asks = props.asks ?? [];
+  const open = asks.length > 0;
+  const original = asks[0]?.code ?? "";
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) props.onCancel(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Past 15 days of full-pay sick leave</DialogTitle>
+          <DialogDescription>
+            UAE law (Art. 31) gives 15 days at full pay, then 30 at half pay. Nothing has
+            been recorded yet.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="space-y-1.5 rounded-md border bg-muted/40 p-3 text-sm">
+          {asks.map((a) => (
+            <li key={a.employeeId} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{a.name}</span>
+              <span className="text-muted-foreground tabular-nums">
+                has used {a.used} of {a.limit} in {a.leaveYear}; this would make it {a.wouldBe}.
+              </span>
+            </li>
+          ))}
+        </ul>
+        {!props.halfPayAvailable && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            There is no active <b>{HALF_PAY_SICK_CODE}</b> code on this organisation, so the
+            half-pay option cannot be recorded. Add it under leave codes first.
+          </p>
+        )}
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="ghost" onClick={props.onCancel}>Cancel</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => props.onChoose("anyway")}>
+              Record as {original} anyway
+            </Button>
+            <Button disabled={!props.halfPayAvailable} onClick={() => props.onChoose("half-pay")}>
+              Record as {HALF_PAY_SICK_CODE} (half pay)
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CompanyDayDialog(props: {
   open: boolean; onOpenChange: (v: boolean) => void;

@@ -40,6 +40,12 @@ const HTTP_STATUS_FOR_ATTENDANCE_ERROR: Record<AttendanceErrorCode, number> = {
   // employment window, which is a state the caller can see and correct.
   OUTSIDE_EMPLOYMENT: 409,
   NO_WORKING_DAYS: 400,
+  // 409, not 400: the request is well formed and the CONFLICT is with a limit
+  // the caller can see and deliberately pass (`acknowledgeSickTier`). Art. 31
+  // gives 15 days at full pay; beyond that the entitlement is half pay, and
+  // the owner's ruling is that HR chooses the code rather than the system
+  // silently converting it.
+  SICK_FULL_TIER_EXCEEDED: 409,
   // Nothing was written; the caller can retry with a smaller range.
   WRITE_TIMED_OUT: 503,
   UNKNOWN: 500,

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { HR_LEAVE_CODE_SEED } from "@/hr/lib/hr-seed-data";
 
 /**
  * Review H5 (Aug 31 2026). Attendance history was unrecoverable: a clear was an
@@ -19,7 +22,7 @@ const { mockDb, mockTx, mockApiLogger } = vi.hoisted(() => {
     employee: { findFirst: vi.fn() },
     leaveCode: { findFirst: vi.fn() },
     publicHoliday: { findMany: vi.fn() },
-    attendanceEntry: { deleteMany: vi.fn() },
+    attendanceEntry: { deleteMany: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn() },
   };
   const mockApiLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -32,6 +35,10 @@ vi.mock("@/lib/db", () => ({
   tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) => mockTenantTx(cb, opts),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
+// The tier check asks the ONE balance engine; mocked here so these tests are
+// about the projection arithmetic and not about re-testing the engine.
+const mockGetBalance = vi.hoisted(() => vi.fn());
+vi.mock("@/hr/services/leave-balance-service", () => ({ getLeaveBalance: mockGetBalance }));
 
 import { clearAttendance, setAttendance } from "@/hr/services/attendance-service";
 
@@ -53,6 +60,8 @@ beforeEach(() => {
   mockTx.attendanceEntry.findMany.mockResolvedValue([]);
   mockTx.attendanceEntry.upsert.mockResolvedValue({});
   mockTx.attendanceEntry.deleteMany.mockResolvedValue({ count: 0 });
+  mockDb.attendanceEntry.findMany.mockResolvedValue([]);
+  mockGetBalance.mockResolvedValue(null);
 });
 
 function auditChanges(): Record<string, unknown> {
@@ -171,5 +180,151 @@ describe("the transaction budget and the timeout answer (M12)", () => {
     if (res.ok) throw new Error("unreachable");
     expect(res.message).toContain("5 days");
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The 15-day full-pay sick limit, as a WARNING and not a conversion.
+ *
+ * Owner ruling, Aug 31 2026. The tier is decided by which CODE is recorded, so
+ * moving somebody into half pay automatically would make the grid show SL-F
+ * while payroll pays half: the record would stop being the truth. So the write
+ * is refused once, with the numbers, and HR chooses.
+ */
+describe("full-pay sick tier", () => {
+  it("names the code and carries the numbers, so the UI can ask rather than guess", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/hr/services/attendance-service.ts"),
+      "utf8",
+    );
+    expect(src).toContain('"SICK_FULL_TIER_EXCEEDED"');
+    // The numbers the dialog puts on screen. A bare message would force the UI
+    // to parse prose to say "10 of 15, this makes it 16".
+    for (const key of ["leaveYear", "used", "adding", "wouldBe", "limit"]) {
+      expect(src, `meta.${key} is what the dialog reads`).toContain(key);
+    }
+  });
+
+  /**
+   * The load-bearing one. If the check ran on the day COUNT rather than the
+   * day WEIGHT, ten SL-HD half days would read as ten full days and warn at the
+   * wrong time; and if it did not subtract what it is overwriting, re-saving an
+   * existing sick day would look like adding one.
+   */
+  it("counts weight, not days, and subtracts what it replaces", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/hr/services/attendance-service.ts"),
+      "utf8",
+    );
+    expect(src).toContain("newDayWeight");
+    expect(src).toContain("replacingByYear");
+    // And it asks the ONE balance engine rather than counting a second time.
+    expect(src).toContain("getLeaveBalance(");
+  });
+
+  /** The override exists, or the ruling would be "the system decides" after all. */
+  it("can be acknowledged and proceeded past", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/hr/services/attendance-service.ts"),
+      "utf8",
+    );
+    expect(src).toContain("acknowledgeSickTier");
+    expect(src).toContain("!input.acknowledgeSickTier");
+  });
+});
+
+/**
+ * Working a public holiday earns NOTHING back; only both days of one weekend
+ * do (owner, Aug 27 2026, reaffirmed Aug 31). The label used to promise
+ * otherwise, which matters now that the picker shows labels rather than codes.
+ */
+describe("the On-Duty label matches the comp-off rule", () => {
+  it("does not promise a day back for holiday work", () => {
+    const od = HR_LEAVE_CODE_SEED.find((c) => c.code === "OD");
+    expect(od?.label).toBe("On Duty (weekend work)");
+    expect(od?.label.toLowerCase()).not.toContain("holiday");
+  });
+});
+
+describe("the sick tier check, driven through setAttendance", () => {
+  const sick = (dayWeight: number, code = "SL-F") => ({
+    id: "lc-sl", code, countsAs: "SICK_FULL", dayWeight,
+  });
+  const balanceWith = (used: number) => ({
+    balance: { employedInYear: true, sick: { full: { used, limit: 15, remaining: 15 - used } } },
+  });
+
+  it("refuses the write that crosses 15, and says by how much", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockResolvedValue(balanceWith(10));
+    // Six more full days on top of ten is sixteen.
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", to: "2026-06-08", code: "SL-F",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.code).toBe("SICK_FULL_TIER_EXCEEDED");
+    expect(res.meta?.used).toBe(10);
+    expect(Number(res.meta?.wouldBe)).toBeGreaterThan(15);
+    expect(mockTx.attendanceEntry.upsert).not.toHaveBeenCalled();
+  });
+
+  it("lets the write that lands exactly on 15 through", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockResolvedValue(balanceWith(10));
+    // Mon-Fri is five working days: 10 + 5 = 15, which is the entitlement, not past it.
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", to: "2026-06-05", code: "SL-F",
+    });
+    expect(res.ok).toBe(true);
+    expect(mockTx.attendanceEntry.upsert).toHaveBeenCalled();
+  });
+
+  /**
+   * THE ONE THAT WOULD BE SILENTLY WRONG. SL-HD is half a day and also counts
+   * against this tier. Counting DAYS rather than WEIGHT would call six half
+   * days six, warn at 16, and stop a perfectly legal write.
+   */
+  it("counts a half day as half a day", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(0.5, "SL-HD"));
+    mockGetBalance.mockResolvedValue(balanceWith(10));
+    // Six half days is three: 13, not 16.
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", to: "2026-06-08", code: "SL-HD",
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  /** Re-saving a day that is ALREADY sick is not a new sick day. */
+  it("subtracts what it is overwriting", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockResolvedValue(balanceWith(15));
+    mockDb.attendanceEntry.findMany.mockResolvedValue([
+      { date: new Date("2026-06-01T00:00:00Z"), leaveCode: { countsAs: "SICK_FULL", dayWeight: 1 } },
+    ]);
+    // 15 used, one of which is the day being rewritten: 15 - 1 + 1 = 15.
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", code: "SL-F",
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("proceeds when HR acknowledges it", async () => {
+    mockDb.leaveCode.findFirst.mockResolvedValue(sick(1));
+    mockGetBalance.mockResolvedValue(balanceWith(10));
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", to: "2026-06-08", code: "SL-F",
+      acknowledgeSickTier: true,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("never asks about a code that is not full-pay sick", async () => {
+    mockGetBalance.mockResolvedValue(balanceWith(99));
+    const res = await setAttendance({
+      ...base, source: "ui", from: "2026-06-01", to: "2026-06-08", code: "AL",
+    });
+    expect(res.ok).toBe(true);
+    expect(mockGetBalance).not.toHaveBeenCalled();
   });
 });

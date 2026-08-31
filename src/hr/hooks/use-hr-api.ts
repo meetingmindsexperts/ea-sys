@@ -213,6 +213,15 @@ export function useDeleteHrAttendanceRule() {
  * multi-row selection). Left on, a 23-row drag cancelled and restarted every
  * HR query 23 times over (review M10).
  */
+/**
+ * An HR write failure carrying the service's own error code, and the response
+ * body it came with, rather than only a sentence.
+ */
+export interface HrWriteError extends Error {
+  code?: string;
+  body?: Record<string, unknown>;
+}
+
 export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
   const { invalidate = true } = opts;
   const qc = useQueryClient();
@@ -224,6 +233,8 @@ export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
       code: string;
       remarks?: string | null;
       includeNonWorkingDays?: boolean;
+      /** Proceed past the 15-day full-pay sick limit; see SetAttendanceInput. */
+      acknowledgeSickTier?: boolean;
     }) => {
       const res = await fetch("/api/hr/attendance", {
         method: "PUT",
@@ -231,7 +242,19 @@ export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
         body: JSON.stringify(input),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+      if (!res.ok) {
+        // The service's CODE travels with the error, because one of them is not
+        // a failure at all: SICK_FULL_TIER_EXCEEDED is a question the grid has
+        // to put to the operator, and prose cannot be branched on without
+        // matching a message string.
+        //
+        // Note the route SPREADS `meta` at the top level of the body rather
+        // than nesting it, so the numbers are read from there.
+        const err = new Error(body?.error ?? `Request failed (${res.status})`) as HrWriteError;
+        err.code = typeof body?.code === "string" ? body.code : undefined;
+        err.body = body;
+        throw err;
+      }
       return body as { written: number; skipped: string[] };
     },
     onSuccess: () => {

@@ -167,13 +167,36 @@ describe("the grid page keeps the review M10 and M13 fixes", () => {
   );
 
   it("refetches once per apply, not once per person", () => {
-    // Both write hooks are told not to invalidate, and the page does it itself
-    // exactly once after the loop. Dropping either half is silent: with the
+    // Both write hooks are told not to invalidate, and each write LOOP does it
+    // itself, once, after the loop. Dropping either half is silent: with the
     // hook default restored a 23-row drag is 23 refetches again; with the
     // page's own call dropped the grid simply stops refreshing after a write.
     expect(page).toContain("useSetHrAttendance({ invalidate: false })");
     expect(page).toContain("useClearHrAttendance({ invalidate: false })");
-    expect(page.match(/qc\.invalidateQueries\(\{ queryKey: \["hr"\] \}\)/g)).toHaveLength(1);
+    expect(page).toContain('qc.invalidateQueries({ queryKey: ["hr"] })');
+  });
+
+  /**
+   * The invariant, stated directly rather than by counting occurrences.
+   *
+   * It used to assert there was exactly ONE `invalidateQueries` in the file,
+   * which held only while there was one write loop; a second, equally correct
+   * one (the sick-tier answer) broke it while doing nothing wrong. What
+   * actually matters is that no refetch happens INSIDE a per-person loop —
+   * that is the 23-refetch regression M10 fixed.
+   */
+  it("never refetches inside a per-person write loop", () => {
+    const loops = [
+      ["for (const { employee, dates } of byEmployee.values())", "// ONE refetch"],
+      ["for (const ask of asks)", "await qc.invalidateQueries"],
+    ] as const;
+    for (const [start, end] of loops) {
+      const i = page.indexOf(start);
+      const j = page.indexOf(end, i);
+      expect(i, `loop start not found: ${start}`).toBeGreaterThan(-1);
+      expect(j, `loop end not found: ${end}`).toBeGreaterThan(i);
+      expect(page.slice(i, j), `refetch inside ${start}`).not.toContain("invalidateQueries");
+    }
   });
 
   it("keeps the selection when part of a write fails, and names who", () => {
