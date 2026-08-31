@@ -17,6 +17,8 @@
  * plain string comparison and needs no parsing at all.
  */
 
+import { z } from "zod";
+
 /** A calendar date with no time and no timezone: `YYYY-MM-DD`. */
 export type CalendarDate = string;
 
@@ -113,3 +115,20 @@ export function todayInTimezone(timeZone: string): CalendarDate {
     day: "2-digit",
   }).format(new Date());
 }
+
+/**
+ * The Zod schema for a calendar date arriving over HTTP.
+ *
+ * Every HR route used to carry its own `/^\d{4}-\d{2}-\d{2}$/`, six copies of
+ * it, and a regex only says the string is the right SHAPE. `2026-02-31` passed
+ * all six, then threw inside `fromCalendarDate` further down the handler and
+ * came back as a 500 with an error-level log, which pages. A date that cannot
+ * exist is a bad request, not an outage.
+ *
+ * It reuses `isCalendarDate`, so the round-trip realness check has one
+ * definition rather than being re-derived per route, and a seventh route gets
+ * it by importing rather than by remembering.
+ */
+export const calendarDateSchema = z
+  .string()
+  .refine(isCalendarDate, "Expected a real date in YYYY-MM-DD form");

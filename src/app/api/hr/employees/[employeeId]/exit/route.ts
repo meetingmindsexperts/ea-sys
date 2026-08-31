@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { calendarDateSchema } from "@/hr/lib/hr-date";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
@@ -19,7 +20,7 @@ import { HTTP_STATUS_FOR_EMPLOYEE_ERROR } from "../../route";
 
 const exitSchema = z.object({
   // The LAST WORKING DAY, inclusive.
-  exitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+  exitDate: calendarDateSchema,
   status: z.enum(["RESIGNED", "TERMINATED"]),
 });
 

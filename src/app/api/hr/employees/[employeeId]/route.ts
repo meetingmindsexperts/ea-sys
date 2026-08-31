@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { calendarDateSchema } from "@/hr/lib/hr-date";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
@@ -10,7 +11,7 @@ import { denyNonHr } from "@/hr/lib/hr-roles";
 import { updateEmployee } from "@/hr/services/employee-service";
 import { HTTP_STATUS_FOR_EMPLOYEE_ERROR } from "../route";
 
-const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const ISO_DATE = calendarDateSchema;
 
 const patchSchema = z.object({
   name: z.string().min(1).max(200).optional(),

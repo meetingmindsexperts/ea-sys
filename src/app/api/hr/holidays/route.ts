@@ -17,11 +17,11 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { denyNonHr } from "@/hr/lib/hr-roles";
-import { fromCalendarDate, isCalendarDate, toCalendarDate } from "@/hr/lib/hr-date";
+import { fromCalendarDate, isCalendarDate, toCalendarDate, calendarDateSchema } from "@/hr/lib/hr-date";
 import { ensurePublicHolidays } from "@/hr/services/hr-seed-service";
 
 const createSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+  date: calendarDateSchema,
   label: z.string().min(1).max(120),
 });
 

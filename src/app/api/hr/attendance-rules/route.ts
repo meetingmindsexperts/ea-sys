@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { calendarDateSchema } from "@/hr/lib/hr-date";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
@@ -23,7 +24,7 @@ import {
   type AttendanceRuleErrorCode,
 } from "@/hr/services/attendance-rule-service";
 
-const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const ISO_DATE = calendarDateSchema;
 
 const HTTP_STATUS_FOR_RULE_ERROR: Record<AttendanceRuleErrorCode, number> = {
   INVALID_DATE: 400,

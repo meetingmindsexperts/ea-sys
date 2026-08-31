@@ -119,7 +119,7 @@ export async function listAttendanceRules(params: {
 export interface CreateAttendanceRuleInput {
   organizationId: string;
   actorUserId: string;
-  source: "ui" | "mcp" | "import" | "cron";
+  source: AttendanceRuleSource;
   scope: AttendanceRuleScope;
   /** Required when scope is EMPLOYEE, ignored otherwise. */
   employeeId?: string | null;
@@ -247,10 +247,21 @@ export async function createAttendanceRule(
  * assumed-present again, since they were derived all along. Nothing an operator
  * typed is lost, because a rule is not a record of what somebody typed.
  */
+/** Who performed a rule change, recorded on the audit row. */
+export type AttendanceRuleSource = "ui" | "mcp" | "import" | "cron";
+
 export async function deleteAttendanceRule(params: {
   organizationId: string;
   actorUserId: string;
   ruleId: string;
+  /**
+   * Who is doing this. It used to be hardcoded `"ui"` on the audit row, which
+   * is true of the only caller today and would quietly mislabel the first MCP
+   * or import one: the trail would say a person clicked a button when nobody
+   * did. Every sibling in this service already takes it, so the field was
+   * asserting something the caller had not said.
+   */
+  source: AttendanceRuleSource;
 }): Promise<AttendanceRuleResult<{ id: string }>> {
   try {
     const deleted = await tenantTransaction(async (tx) => {
@@ -289,7 +300,7 @@ export async function deleteAttendanceRule(params: {
           entityType: "AttendanceRule",
           entityId: params.ruleId,
           changes: {
-            source: "ui",
+            source: params.source,
             scope: deleted.snapshot?.scope ?? null,
             employeeId: deleted.snapshot?.employeeId ?? null,
             code: deleted.snapshot?.leaveCode.code ?? null,

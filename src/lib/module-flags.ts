@@ -37,7 +37,12 @@
  * ENFORCED IN DEPTH, like every other boundary here:
  *   * API routes 404 when off (404, not 403: a module that is not available
  *     should not announce that it exists).
- *   * src/proxy.ts redirects /hr* when off.
+ *   * src/app/(dashboard)/hr/layout.tsx returns notFound() when off, and
+ *     refuses a caller who may not see HR. NOTE it is the LAYOUT that does
+ *     this, not the middleware: `/hr` is deliberately absent from the proxy
+ *     matcher, because the HR_USER rule redirects TO /hr and matching it would
+ *     loop. This comment used to claim the proxy did it, which was fiction and
+ *     meant nobody checked.
  *   * The sidebar entry is hidden when off.
  *   * HR_USER is not offered in the invite dropdown when off, because a role
  *     that can reach nothing is a support ticket waiting to happen.

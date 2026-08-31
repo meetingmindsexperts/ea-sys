@@ -19,7 +19,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { denyNonHr } from "@/hr/lib/hr-roles";
-import { toCalendarDate } from "@/hr/lib/hr-date";
+import { toCalendarDate, calendarDateSchema } from "@/hr/lib/hr-date";
 import {
   clearAttendance,
   listAttendance,
@@ -28,7 +28,7 @@ import {
 } from "@/hr/services/attendance-service";
 import { listAttendanceRules } from "@/hr/services/attendance-rule-service";
 
-const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const ISO_DATE = calendarDateSchema;
 
 const HTTP_STATUS_FOR_ATTENDANCE_ERROR: Record<AttendanceErrorCode, number> = {
   INVALID_DATE: 400,

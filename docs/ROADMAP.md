@@ -308,7 +308,42 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
 regression e2e suite runs only locally against the seeded test DB, so it is written when the next
 local e2e pass is due rather than committed unrun.
 
-**Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`; and, left over from M9, overlapping standing rules are not surfaced at create, and the same-scope tiebreak is the later start date rather than creation order (now documented as such).
+**✅ LOWs shipped Aug 31, 2026 (second batch): L1, L2, L3, L4, L11, and the `source` half of L5.**
+- **L1**: `module-flags.ts` claimed "src/proxy.ts redirects /hr* when off" and the proxy does no such thing —
+  `/hr` is deliberately absent from the matcher, because the HR_USER rule redirects TO `/hr` and matching it
+  would loop. A comment describing a control that is not there is worse than no comment: it stops the next
+  person looking. New `src/app/(dashboard)/hr/layout.tsx` gives the page surface the same two answers the API
+  gives (`notFound()` when the module is off, a refusal that says who grants access when the person may not
+  see it), and the comment now describes what actually enforces it.
+- **L2**: the grid derived dates its own way. `new Date().getUTCMonth()` meant that between 00:00 and 03:59
+  Dubai on the 1st it opened on the PREVIOUS month while `/hr` reported balances "as at" the new one, and a
+  Fri/Sat org got muted Sat/Sun headers over Fri/Sat OFF cells because the header hardcoded the weekend while
+  the cells read `HR_DEFAULT_WEEKEND_DAYS`. Now `todayInTimezone`, `dayOfWeek`, `eachDate` and `daysBetween`
+  from `hr-date.ts`, which is what the file's own header always argued for.
+- **L3 + the duplication under it**: six HR routes each carried `/^\d{4}-\d{2}-\d{2}$/`, and a regex only
+  says the string is the right SHAPE — `2026-02-31` passed all six, threw deeper in the handler and returned a
+  500 with an error-level log that pages. One `calendarDateSchema` in `hr-date.ts` reuses the existing
+  round-trip realness check; a **source guard** fails if a seventh route writes its own regex, because that
+  regression is invisible (the new route looks normal and 500s exactly as the six did).
+- **L4**: `check-tenant-als.sh` `SWEPT_MODELS` gained the six HR models. Worth noting the first attempt to
+  mutation-verify this was a silent no-op — the injected line never landed — and the gate "passing" was
+  meaningless until the edit was asserted. With a real violation in place it fails correctly.
+- **L11**: the sidebar's duplicated `HR_ROLES` went with the per-person-access change; it now calls the same
+  predicate the API calls, from the server-import-free `hr-visibility.ts`.
+- **L5 (part)**: the rule-delete audit hardcoded `source: "ui"`, which is true of today's only caller and would
+  quietly mislabel the first MCP or import one. `source` is now a required argument, so the compiler names
+  every caller. The **rate-limit half of L5 is still open** (no `checkRateLimit` on attendance DELETE,
+  employees PATCH, exit POST, holidays POST), along with the missing `userId` on some log lines.
+
+**Still deferred (L6–L10, L12, L13):** `openingSickUsed` above 15 has no waterfall into the half-pay tier and no
+warning exists on a 16th SL-F day or a comp-off with no balance; OD on a public holiday earns no comp-off
+despite the seeded label; row-index selection and mouse-only drag (the keyboard half shipped Aug 31 — arrows,
+Shift+arrows, Enter — so what remains is selection identity and pointer alternatives); accessibility of the
+cells and dark-mode variants on the error cards; pre-existing org-level reads (`GET /api/organization` returns
+the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership,
+`POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields;
+`HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`; and, from M9, overlapping standing rules are not
+surfaced at create and the same-scope tiebreak is the later start date rather than creation order.
 
 ### DTCM spare pool — deferred findings (Aug 26, 2026)
 

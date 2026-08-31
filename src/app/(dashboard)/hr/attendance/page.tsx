@@ -39,7 +39,14 @@ import {
 import type { LeaveCategory } from "@prisma/client";
 import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
 import type { AttendanceRuleLike } from "@/hr/lib/attendance-rules";
-import type { CalendarDate } from "@/hr/lib/hr-date";
+import {
+  dayOfWeek,
+  daysBetween,
+  eachDate,
+  todayInTimezone,
+  type CalendarDate,
+} from "@/hr/lib/hr-date";
+import { HR_DEFAULT_TIMEZONE, HR_DEFAULT_WEEKEND_DAYS } from "@/hr/lib/hr-constants";
 import {
   ARROW_STEP,
   HALF_DAY,
@@ -64,22 +71,28 @@ import {
   Building2, CalendarClock, ChevronLeft, ChevronRight, Loader2, TableProperties, Trash2, UserCog,
 } from "lucide-react";
 
-const MS_DAY = 86_400_000;
 const iso = (d: Date) => d.toISOString().slice(0, 10) as CalendarDate;
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+
+/**
+ * Today, in the org's own week.
+ *
+ * It used to be `new Date().getUTCFullYear()/getUTCMonth()`. Dubai is UTC+4, so
+ * between 00:00 and 03:59 local on the 1st of a month the grid opened on the
+ * PREVIOUS month while /hr reported balances "as at" the new one, and the two
+ * screens disagreed about what today was. This is exactly what the file's own
+ * header argues against: the derivation belongs in `hr-date.ts`, which every
+ * other reader already uses.
+ */
+function todayHere(): CalendarDate {
+  return todayInTimezone(HR_DEFAULT_TIMEZONE);
+}
 
 function monthBounds(year: number, month: number) {
   return {
     from: iso(new Date(Date.UTC(year, month, 1))),
     to: iso(new Date(Date.UTC(year, month + 1, 0))),
   };
-}
-function eachDay(from: string, to: string): CalendarDate[] {
-  const out: CalendarDate[] = [];
-  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += MS_DAY) {
-    out.push(new Date(t).toISOString().slice(0, 10) as CalendarDate);
-  }
-  return out;
 }
 
 /**
@@ -107,11 +120,11 @@ const CODE_STYLE: Record<string, string> = {
 const DERIVED_STYLE = "text-muted-foreground/50";
 
 export default function HrAttendancePage() {
-  const today = new Date();
-  const [year, setYear] = useState(today.getUTCFullYear());
-  const [month, setMonth] = useState(today.getUTCMonth());
+  const [todayIso] = useState(todayHere);
+  const [year, setYear] = useState(() => Number(todayIso.slice(0, 4)));
+  const [month, setMonth] = useState(() => Number(todayIso.slice(5, 7)) - 1);
   const { from, to } = useMemo(() => monthBounds(year, month), [year, month]);
-  const days = useMemo(() => eachDay(from, to), [from, to]);
+  const days = useMemo(() => eachDate(from, to), [from, to]);
 
   // Leavers included, then cut to the people employed at some point in the
   // visible month. A leaver used to vanish the moment the exit was recorded,
@@ -395,7 +408,7 @@ export default function HrAttendancePage() {
       list.sort((a, b) => a.d.localeCompare(b.d));
       for (let i = 0; i < list.length; i++) {
         const prev = list[i - 1];
-        const gap = prev ? Date.parse(list[i].d) - Date.parse(prev.d) > MS_DAY : true;
+        const gap = prev ? daysBetween(prev.d, list[i].d) > 1 : true;
         if (!prev || prev.code !== list[i].code || gap) runs++;
       }
     }
@@ -512,7 +525,7 @@ export default function HrAttendancePage() {
           tabIndex={0}
           onFocus={() => {
             if (sel || !employees.length || !days.length) return;
-            const d = Math.max(0, days.indexOf(iso(new Date()) as CalendarDate));
+            const d = Math.max(0, days.indexOf(todayIso));
             setSel({ r0: 0, d0: d, r1: 0, d1: d });
           }}
           className="overflow-x-auto rounded-lg border bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -529,8 +542,12 @@ export default function HrAttendancePage() {
                     Employee
                   </th>
                   {days.map((d) => {
-                    const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
-                    const weekend = dow === 0 || dow === 6;
+                    // Same source as the CELLS below, which resolve OFF from
+                    // `HR_DEFAULT_WEEKEND_DAYS`. Hardcoding Sat/Sun here meant a
+                    // Fri/Sat org would get muted headers over the wrong two
+                    // columns: greyed Sat/Sun above Fri/Sat OFF cells.
+                    const dow = dayOfWeek(d);
+                    const weekend = HR_DEFAULT_WEEKEND_DAYS.includes(dow);
                     const hol = holidays.get(d);
                     return (
                       <th

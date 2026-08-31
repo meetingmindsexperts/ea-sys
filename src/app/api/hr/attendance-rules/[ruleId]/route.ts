@@ -48,6 +48,7 @@ export async function DELETE(
       organizationId: org.orgId,
       actorUserId: session.user.id,
       ruleId,
+      source: "ui",
     });
     if (!result.ok) {
       return NextResponse.json(

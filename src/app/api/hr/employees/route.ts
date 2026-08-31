@@ -27,11 +27,11 @@ import {
   toEmployeeView,
   type EmployeeErrorCode,
 } from "@/hr/services/employee-service";
-import { todayInTimezone } from "@/hr/lib/hr-date";
+import { todayInTimezone, calendarDateSchema } from "@/hr/lib/hr-date";
 import { HR_DEFAULT_TIMEZONE } from "@/hr/lib/hr-constants";
 import { ensureLeaveCodes, ensurePublicHolidays } from "@/hr/services/hr-seed-service";
 
-const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const ISO_DATE = calendarDateSchema;
 
 const createSchema = z.object({
   empCode: z.string().min(1).max(50),

@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync } from "fs";
+import { join } from "path";
 import {
   addDays,
+  calendarDateSchema,
   dayOfWeek,
   daysBetween,
   eachDate,
@@ -138,5 +141,56 @@ describe("leave year and anniversary", () => {
     ).toEqual({ from: "2026-01-01", to: "2026-09-30" });
     // Employed entirely outside the year.
     expect(employedWindowInYear(2026, { joiningDate: "2027-01-01", exitDate: null })).toBeNull();
+  });
+});
+
+describe("calendarDateSchema", () => {
+  /**
+   * The reason it exists. Six HR routes each carried `/^\d{4}-\d{2}-\d{2}$/`,
+   * and a regex only says the string is the right SHAPE. `2026-02-31` passed
+   * all six, threw deeper in the handler and came back a 500 with an
+   * error-level log, which pages. A date that cannot exist is a bad request.
+   */
+  it("rejects a well-formed date that does not exist", () => {
+    for (const bad of ["2026-02-31", "2026-13-01", "2026-04-31", "2026-00-10", "2025-02-29"]) {
+      expect(calendarDateSchema.safeParse(bad).success, bad).toBe(false);
+    }
+  });
+
+  it("accepts real dates, leap day included", () => {
+    for (const ok of ["2026-01-01", "2026-12-31", "2024-02-29", "2026-08-31"]) {
+      expect(calendarDateSchema.safeParse(ok).success, ok).toBe(true);
+    }
+  });
+
+  it("still rejects the wrong shape", () => {
+    for (const bad of ["2026-8-31", "31-08-2026", "2026-08-31T00:00:00Z", "", "today", "2026/08/31"]) {
+      expect(calendarDateSchema.safeParse(bad).success, bad).toBe(false);
+    }
+  });
+});
+
+describe("HR routes do not re-declare a date regex", () => {
+  /**
+   * A SOURCE guard, because the failure it prevents is silent: a seventh route
+   * that writes its own `/^\d{4}-\d{2}-\d{2}$/` looks perfectly normal, passes
+   * every test, and 500s on an impossible date exactly as the six did. The
+   * shared schema only helps if new routes reach for it.
+   */
+  it("every HR route uses the shared schema", () => {
+    const dir = join(process.cwd(), "src/app/api/hr");
+    const offenders: string[] = [];
+    const walk = (d: string) => {
+      for (const entry of readdirSync(d, { withFileTypes: true })) {
+        const full = join(d, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts")) {
+          const src = readFileSync(full, "utf8");
+          if (/\\d\{4\}-\\d\{2\}-\\d\{2\}/.test(src)) offenders.push(full.replace(process.cwd(), ""));
+        }
+      }
+    };
+    walk(dir);
+    expect(offenders, `these declare their own date regex instead of importing calendarDateSchema:\n${offenders.join("\n")}`).toEqual([]);
   });
 });
