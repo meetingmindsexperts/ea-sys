@@ -51,7 +51,7 @@ import { readBadgePolicy } from "@/lib/badge-layout";
 import { formatPersonName } from "@/lib/utils";
 import { playBeep } from "@/lib/scan-feedback";
 import { readKioskExitPin } from "@/lib/kiosk-exit-pin";
-import { shouldTrapKioskTab } from "@/lib/kiosk-focus";
+import { kioskPinKeyAction, shouldTrapKioskTab } from "@/lib/kiosk-focus";
 
 /** Max self-service badge REPRINTS per registration per rolling hour. */
 const KIOSK_REPRINT_CAP = 3;
@@ -171,7 +171,7 @@ const RESET_MS = {
   alreadyIn: 2000,
 } as const;
 
-const PIN_PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "ok"] as const;
+const PIN_PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "ok"] as const;
 
 export default function KioskCheckInPage() {
   const params = useParams();
@@ -294,6 +294,32 @@ export default function KioskCheckInPage() {
         event.preventDefault();
         openExitPadRef.current();
         return;
+      }
+      // The PIN pad answers the keyboard.
+      //
+      // It was buttons only: `handlePinKey` was reachable from onClick and
+      // nothing else, so a staff member stood there typing their PIN into a
+      // pad that could not hear them. There is no text input to focus either,
+      // so the keys are read here, where the pad's open state already lives.
+      //
+      // This does NOT widen the exit (review H1). Tab is deliberately exempt
+      // while the pad is open, so Tab-to-a-digit-then-Enter already worked —
+      // keyboard entry was possible, merely laborious. The control has always
+      // been the PIN itself, not the input device, which matters on a machine
+      // whose barcode scanner is a keyboard wedge.
+      if (exitOpenRef.current) {
+        const el = event.target as HTMLElement | null;
+        // A focused pad button handles its own Enter/Space; acting here too
+        // would fire the key twice.
+        if (el?.closest("button")) return;
+        const pin = kioskPinKeyAction(event.key);
+        if (pin) {
+          event.preventDefault();
+          if (pin.action === "close") closeExitPadRef.current();
+          else if (pin.action === "digit") handlePinKeyRef.current(pin.digit as "0");
+          else handlePinKeyRef.current(pin.action);
+          return;
+        }
       }
       if (!shouldTrapKioskTab({ key: event.key, exitPadOpen: exitOpenRef.current })) return;
       event.preventDefault();
@@ -548,8 +574,11 @@ export default function KioskCheckInPage() {
 
   const handlePinKey = (key: (typeof PIN_PAD_KEYS)[number]) => {
     armExitAutoClose();
-    if (key === "clear") {
-      setPinValue("");
+    if (key === "back") {
+      // Deletes ONE digit, which is what its backspace icon has always
+      // promised. It used to wipe the whole entry, so a staff member who
+      // mistyped the fourth digit silently lost the first three.
+      setPinValue((v) => v.slice(0, -1));
       setPinError(null);
       return;
     }
@@ -567,24 +596,31 @@ export default function KioskCheckInPage() {
     setPinValue((v) => (v.length >= 8 ? v : v + key));
   };
 
+  /* The document-level key handler is registered once, so it cannot close over
+     `pinValue` — the "ok" branch reads it directly and a stale copy would
+     compare the wrong entry. Same live-ref pattern the page already uses for
+     openExitPad. */
+  const handlePinKeyRef = useRef(handlePinKey);
+  handlePinKeyRef.current = handlePinKey;
+  const closeExitPadRef = useRef(closeExitPad);
+  closeExitPadRef.current = closeExitPad;
+
   const pinConfigured = exitOpen && readKioskExitPin().length > 0;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center text-white select-none"
-      /* Derived from --primary, which OrgTheme has already set to the
-         organisation's brand colour further up the tree. An org that has set no
-         colour keeps the app default, so this reproduces the previous cerulean
-         exactly rather than changing it for everyone. Inline rather than a
-         Tailwind class because the stops are computed from a CSS variable. */
-      style={{
-        backgroundImage: [
-          "linear-gradient(to bottom right,",
-          "var(--primary),",
-          "color-mix(in oklch, var(--primary) 82%, black),",
-          "color-mix(in oklch, var(--primary) 58%, black))",
-        ].join(" "),
-      }}
+      /* White, not the brand gradient (owner, Aug 31 2026). It also suits the
+         artwork: the header slot takes an event banner or email header, which
+         is designed for a white page, so on a dark ground a banner with a white
+         backdrop read as a pale slab floating on blue. On white it simply sits
+         there, and the brand arrives through the artwork and the accents rather
+         than through the wall behind them.
+
+         Colours are literal rather than theme tokens on purpose. This is a
+         lobby screen, closer to a printed sign than a page: it must look the
+         same on every machine regardless of the viewer's light/dark setting,
+         so nothing here may resolve differently per host. */
+      className="fixed inset-0 z-50 flex flex-col items-center bg-white text-slate-900 select-none"
     >
       {/* Keyboard-wedge target — visually hidden, always focused */}
       <form
@@ -633,18 +669,20 @@ export default function KioskCheckInPage() {
               className="w-full h-auto max-h-[45vh] object-contain"
             />
           ) : (
-            /* The organisation-logo fallback keeps its white chip: a logo is
-               drawn on the assumption of a light background, and a dark mark
-               laid straight onto the brand gradient disappears. */
+            /* The white chip this used to sit on is gone with the gradient. It
+               existed because a logo is drawn for a light background and a dark
+               mark laid onto the brand colour disappeared; on a white page the
+               logo is already on the background it was drawn for, and the chip
+               would just be a box around it. */
             <img
               src={headerMark}
               alt={branding?.name ?? "Organiser"}
-              className="mt-8 h-24 w-auto max-w-[680px] rounded-2xl bg-white/95 object-contain px-5 py-3 shadow-lg"
+              className="mt-8 h-24 w-auto max-w-[680px] object-contain px-5 py-3"
             />
           ))}
         {/* eslint-enable @next/next/no-img-element */}
         <p
-          className={`${headerMark ? "mt-3" : "mt-8"} px-8 text-2xl font-semibold text-white/90 truncate max-w-full`}
+          className={`${headerMark ? "mt-3" : "mt-8"} px-8 text-2xl font-semibold text-slate-500 truncate max-w-full`}
         >
           {event?.name ?? ""}
         </p>
@@ -656,11 +694,17 @@ export default function KioskCheckInPage() {
       <main className="flex-1 min-h-0 w-full flex flex-col items-center justify-center overflow-hidden">
       {state.kind === "idle" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-10 rounded-full bg-white/15 p-10 animate-pulse">
-            <ScanBarcode className="h-28 w-28" />
+          {/* The scan mark carries the organisation's colour, so losing the
+              brand gradient does not mean losing the brand: it lands on the one
+              thing the attendee is meant to look at. */}
+          <div
+            className="mb-10 rounded-full p-10 animate-pulse"
+            style={{ backgroundColor: "color-mix(in oklch, var(--primary) 12%, white)" }}
+          >
+            <ScanBarcode className="h-28 w-28" style={{ color: "var(--primary)" }} />
           </div>
           <h1 className="text-5xl font-bold mb-4">Welcome!</h1>
-          <p className="text-2xl text-white/90 max-w-xl">
+          <p className="text-2xl text-slate-600 max-w-xl">
             Scan the barcode from your confirmation email to check in and print your badge.
           </p>
         </div>
@@ -675,27 +719,27 @@ export default function KioskCheckInPage() {
 
       {state.kind === "success" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-emerald-400/25 p-8">
-            <CheckCircle2 className="h-28 w-28 text-emerald-300" />
+          <div className="mb-8 rounded-full bg-emerald-50 p-8">
+            <CheckCircle2 className="h-28 w-28 text-emerald-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">
             {state.reprint ? "You're already checked in" : `Welcome, ${state.name}!`}
           </h1>
           {state.reprint && <p className="text-3xl mb-4">{state.name}</p>}
           {state.printed ? (
-            <p className="flex items-center gap-3 text-2xl text-white/90">
+            <p className="flex items-center gap-3 text-2xl text-slate-600">
               <Printer className="h-7 w-7" />
               {state.reprint ? "Printing your badge again…" : "Your badge is printing…"}
             </p>
           ) : (
-            <p className="text-2xl text-amber-200 max-w-xl">
+            <p className="text-2xl text-amber-700 max-w-xl">
               {state.reprint
                 ? "We couldn't print your badge — please visit the registration desk."
                 : "You're checked in, but the badge didn't print — please visit the registration desk."}
             </p>
           )}
           {state.dialogSuspected && (
-            <p className="mt-8 text-sm text-amber-200/90 max-w-xl">
+            <p className="mt-8 text-sm text-amber-700/90 max-w-xl">
               Staff note: a print dialog opened — relaunch Chrome with{" "}
               <code className="font-mono">--kiosk-printing</code> for silent badge printing.
             </p>
@@ -705,11 +749,11 @@ export default function KioskCheckInPage() {
 
       {state.kind === "denied" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-amber-400/25 p-8">
-            <AlertTriangle className="h-28 w-28 text-amber-300" />
+          <div className="mb-8 rounded-full bg-amber-50 p-8">
+            <AlertTriangle className="h-28 w-28 text-amber-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">{state.title}</h1>
-          <p className="text-2xl text-white/90 max-w-xl mb-6">{state.detail}</p>
+          <p className="text-2xl text-slate-600 max-w-xl mb-6">{state.detail}</p>
           <p className="text-2xl font-semibold">
             Please visit the registration desk — our team will help you.
           </p>
@@ -718,11 +762,11 @@ export default function KioskCheckInPage() {
 
       {state.kind === "staff-needed" && (
         <div className="flex flex-col items-center text-center px-8">
-          <div className="mb-8 rounded-full bg-red-400/25 p-8">
-            <ShieldAlert className="h-28 w-28 text-red-300" />
+          <div className="mb-8 rounded-full bg-red-50 p-8">
+            <ShieldAlert className="h-28 w-28 text-red-600" />
           </div>
           <h1 className="text-5xl font-bold mb-4">Kiosk needs attention</h1>
-          <p className="text-2xl text-white/90 max-w-xl">{state.detail}</p>
+          <p className="text-2xl text-slate-600 max-w-xl">{state.detail}</p>
           <p className="mt-6 text-2xl font-semibold">
             Please check in at the registration desk.
           </p>
@@ -742,15 +786,16 @@ export default function KioskCheckInPage() {
           <img
             src={footerMark}
             alt=""
-            className="h-12 w-auto max-w-[420px] rounded-xl bg-white/90 object-contain px-4 py-2 opacity-90"
+            className="h-12 w-auto max-w-[420px] object-contain px-4 py-2 opacity-90"
           />
         </div>
       )}
 
       {/* Staff exit PIN pad (H1) */}
       {exitOpen && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
-          <div className="rounded-2xl bg-white text-slate-900 p-8 w-[340px] shadow-2xl">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/40">
+          {/* A white card on a white page needs a border to read as a card. */}
+          <div className="rounded-2xl border border-slate-200 bg-white text-slate-900 p-8 w-[340px] shadow-2xl">
             {pinConfigured ? (
               <>
                 <p className="text-center font-semibold mb-1">Staff exit</p>
@@ -771,7 +816,7 @@ export default function KioskCheckInPage() {
                           : "bg-slate-100 hover:bg-slate-200"
                       }`}
                     >
-                      {k === "clear" ? <Delete className="h-5 w-5" /> : k === "ok" ? "OK" : k}
+                      {k === "back" ? <Delete className="h-5 w-5" /> : k === "ok" ? "OK" : k}
                     </button>
                   ))}
                 </div>

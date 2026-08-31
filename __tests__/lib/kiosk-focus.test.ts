@@ -18,7 +18,7 @@
  * surface changes.
  */
 import { describe, it, expect } from "vitest";
-import { shouldTrapKioskTab } from "@/lib/kiosk-focus";
+import { kioskPinKeyAction, shouldTrapKioskTab } from "@/lib/kiosk-focus";
 
 describe("shouldTrapKioskTab", () => {
   it("swallows Tab while the kiosk is scanning", () => {
@@ -44,5 +44,53 @@ describe("shouldTrapKioskTab", () => {
     // browser reports `key: "Tab"` either way, so one check covers both — but
     // only as long as nobody narrows this to a shiftKey-aware comparison.
     expect(shouldTrapKioskTab({ key: "Tab", exitPadOpen: false })).toBe(true);
+  });
+});
+
+describe("kioskPinKeyAction", () => {
+  /**
+   * The pad shipped with an onClick and no key handler, so typing a PIN into it
+   * did nothing at all — no error, no feedback, just a pad that ignored you.
+   * Nothing about the screen looked wrong, which is why it survived four weeks.
+   */
+  it("reads every digit off the keyboard", () => {
+    for (const d of "0123456789") {
+      expect(kioskPinKeyAction(d)).toEqual({ action: "digit", digit: d });
+    }
+  });
+
+  it("submits on Enter and deletes one digit on Backspace", () => {
+    expect(kioskPinKeyAction("Enter")).toEqual({ action: "ok" });
+    expect(kioskPinKeyAction("Backspace")).toEqual({ action: "back" });
+  });
+
+  /** Escape closes the pad here; the same key OPENS it from the scan screen.
+   *  Neither direction leaves the kiosk — that still costs the PIN. */
+  it("closes the pad on Escape", () => {
+    expect(kioskPinKeyAction("Escape")).toEqual({ action: "close" });
+  });
+
+  it("ignores everything that is not a pad key", () => {
+    for (const k of ["a", "Z", "Tab", " ", "F5", "ArrowLeft", "Shift", "-", ".", ""]) {
+      expect(kioskPinKeyAction(k), `${k} should not reach the pad`).toBeNull();
+    }
+  });
+
+  /**
+   * ASCII digits only. The PIN is typed into a plain text field on the Check-In
+   * page and compared as a string, and the pad's own buttons emit ASCII, so a
+   * key that produced "١" could never match what a button can produce. Better
+   * an unrecognised key than an entry that can never succeed.
+   */
+  it("does not accept non-ASCII numerals", () => {
+    expect(kioskPinKeyAction("١")).toBeNull();
+    expect(kioskPinKeyAction("٢")).toBeNull();
+    expect(kioskPinKeyAction("１")).toBeNull();
+  });
+
+  /** A digit is a digit even while the scanner is idle — the guard that decides
+   *  WHEN the pad listens is the pad's open state, not this function. */
+  it("is a pure mapping with no notion of pad state", () => {
+    expect(kioskPinKeyAction("7")).toEqual({ action: "digit", digit: "7" });
   });
 });
