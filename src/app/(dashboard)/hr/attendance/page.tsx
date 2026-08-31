@@ -367,6 +367,7 @@ export default function HrAttendancePage() {
             }}><ChevronRight className="h-4 w-4" /></Button>
           </div>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
+          <Button asChild variant="secondary"><Link href="/hr/employees">Employees</Link></Button>
         </div>
       </div>
 

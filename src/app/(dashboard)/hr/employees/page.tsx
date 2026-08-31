@@ -145,6 +145,8 @@ export default function HrEmployeesPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
+          <Button asChild variant="secondary"><Link href="/hr/attendance">Attendance</Link></Button>
           <Button variant="ghost" onClick={() => setIncludeExited((v) => !v)}>
             {includeExited ? "Active only" : "Include leavers"}
           </Button>

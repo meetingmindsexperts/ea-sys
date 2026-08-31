@@ -19,7 +19,8 @@ import Link from "next/link";
 import { useHrSummary, type HrSummaryRow } from "@/hr/hooks/use-hr-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CalendarClock, Loader2, TriangleAlert, CalendarDays } from "lucide-react";
+import { CalendarClock, Loader2, TriangleAlert, CalendarDays, Users
+} from "lucide-react";
 
 function Days({ value, highlightNegative = false }: { value: number; highlightNegative?: boolean }) {
   const negative = value < 0;
@@ -80,6 +81,12 @@ export default function HrSummaryPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="secondary">
+            <Link href="/hr/employees">
+              <Users className="h-4 w-4" />
+              Employees
+            </Link>
+          </Button>
           <Button asChild variant="secondary">
             <Link href="/hr/attendance">
               <CalendarDays className="h-4 w-4" />
