@@ -446,6 +446,12 @@ with the entries it came from is unanswerable. One row per employee per leave
 year, carrying the entitlement and the carried-in figure, makes "why does this
 person have 34 days" a question with a dated answer.
 
+- **A balance for a past year is "as at" 31 December of that year**, never
+  today: the first-year gate, the comp-off bound and the next anniversary all
+  read `asOf`. A year before the seed year with no grant is refused
+  (`YEAR_NOT_HELD`), because the system holds nothing for it and a figure would
+  be a fabrication (review M4, Aug 31 2026).
+
 ### 5.2 Half days
 
 - `AL-HD` and `SL-HD` carry `dayWeight = 0.5`.
@@ -515,6 +521,12 @@ three, because "days of sick leave left" is not one number.
 - The write itself is org-bound in the WHERE (`updateMany({ where: { id,
   organizationId } })`, review M6), and the tenancy harness pins that with RLS
   out of the picture.
+- A linked login must belong to the organisation (`USER_NOT_IN_ORG`) and can
+  be unlinked with `userId: null` (review M5). The edit audit is a field diff
+  that records `notes` as changed and never quotes it (review M7); the
+  attendance audit already refused remarks for the same reason.
+- Comp-off is bounded by the employment window only, never by `asOf`: a
+  comp-off approved for next week is already spent today (review M11).
 
 ### 5.6 Weekends and public holidays
 
@@ -592,6 +604,14 @@ deciding this role's answer in every predicate that already exists.
 That asymmetry is the same allow-list lesson the check-in payment gate produced
 in August 2026: a status was admitted at the door purely because nobody had
 remembered to add it to a deny-list.
+- **Holidays are entered by hand on `/hr/holidays`** (review M8): add with a
+  date and a name, remove with a click; removal is refused while attendance is
+  recorded on that date (`HOLIDAY_IN_USE`, with the count), and both are
+  audited. 2026 is seeded in full from the workbook; of 2027 only the FIXED
+  dates are seeded (`skipDuplicates`, so a hand-entered date is never touched).
+  The Islamic dates are never generated, for the reason the route header gives:
+  a wrong guess silently changes which days are working days.
+
 
 ### 8.1 Edits genuinely required
 

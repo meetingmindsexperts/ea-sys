@@ -44,6 +44,7 @@ export type EmployeeErrorCode =
   | "EXIT_DATE_REQUIRED"
   | "LEAVER_STATUS_REQUIRED"
   | "ENTRIES_OUTSIDE_WINDOW"
+  | "USER_NOT_IN_ORG"
   | "EMP_CODE_TAKEN"
   | "EMPLOYEE_NOT_FOUND"
   | "USER_ALREADY_LINKED"
@@ -91,6 +92,54 @@ export function checkEmploymentPair(
 export type EmployeeResult<T> =
   | { ok: true; employee: T }
   | { ok: false; code: EmployeeErrorCode; message: string };
+
+/**
+ * A login may be linked only if it belongs to THIS organisation. Without the
+ * check, on the platform, org B could bind its employee to an org A login (a
+ * squat that then 409s org A's own record) and probe user ids for existence;
+ * on master an employee could be tied to a REGISTRANT (review M5). A
+ * non-member and a non-existent id get the same answer, so this is not an
+ * existence oracle either.
+ */
+async function lookupOrgUser(
+  organizationId: string,
+  userId: string,
+): Promise<EmployeeResult<null>> {
+  const user = await db.user.findFirst({ where: { id: userId, organizationId }, select: { id: true } });
+  if (!user) {
+    return {
+      ok: false,
+      code: "USER_NOT_IN_ORG",
+      message: "That login is not a member of this organisation.",
+    };
+  }
+  return { ok: true, employee: null };
+}
+
+type AuditScalar = string | number | boolean | null;
+
+/**
+ * The audit row for an edit: the fields that CHANGED, with their old and new
+ * values, and `notes` recorded as changed but never quoted. The full record
+ * used to be copied in twice on every save, free text included, into a table
+ * with no prune job; the attendance audit already refused remarks for the
+ * same reason, that free text about a person will hold medical detail and the
+ * trail outlives the row (review M7). Empty when nothing changed.
+ */
+export function employeeAuditDiff(
+  before: EmployeeView,
+  after: EmployeeView,
+): Record<string, { from: AuditScalar; to: AuditScalar } | "changed"> {
+  const diff: Record<string, { from: AuditScalar; to: AuditScalar } | "changed"> = {};
+  for (const key of Object.keys(after) as (keyof EmployeeView)[]) {
+    if (key === "id") continue;
+    const from = before[key] as AuditScalar;
+    const to = after[key] as AuditScalar;
+    if (from === to) continue;
+    diff[key] = key === "notes" ? "changed" : { from, to };
+  }
+  return diff;
+}
 
 export interface CreateEmployeeInput {
   organizationId: string;
@@ -204,6 +253,10 @@ export async function createEmployee(
   const status: EmployeeStatus = input.status ?? "ACTIVE";
   const pair = checkEmploymentPair(status, input.exitDate ?? null, todayInTimezone(HR_DEFAULT_TIMEZONE));
   if (!pair.ok) return pair;
+  if (input.userId) {
+    const linked = await lookupOrgUser(input.organizationId, input.userId);
+    if (!linked.ok) return linked;
+  }
 
   try {
     const row = await db.employee.create({
@@ -274,7 +327,7 @@ export interface UpdateEmployeeInput {
       CreateEmployeeInput,
       | "name" | "department" | "jobTitle" | "joiningDate" | "exitDate"
       | "carryoverDays" | "openingSickUsed" | "openingCompOff" | "notes"
-      | "annualEntitlementDays"
+      | "annualEntitlementDays" | "userId"
     >
   > & { status?: EmployeeStatus };
 }
@@ -345,6 +398,13 @@ export async function updateEmployee(
     }
   }
 
+  // Null unlinks; a new id must belong to this org. Neither was possible
+  // before: the PATCH schema omitted the field, so a wrong link was permanent.
+  if (p.userId) {
+    const linked = await lookupOrgUser(input.organizationId, p.userId);
+    if (!linked.ok) return linked;
+  }
+
   try {
     // Bound to the org IN THE WRITE, not only in the read above: `updateMany`
     // takes a compound where, so a refactor that drops the read cannot turn
@@ -369,6 +429,7 @@ export async function updateEmployee(
         }),
         ...(p.notes !== undefined && { notes: p.notes?.trim() || null }),
         ...(p.status !== undefined && { status: p.status }),
+        ...(p.userId !== undefined && { userId: p.userId }),
       },
     });
     if (count === 0) {
@@ -382,26 +443,32 @@ export async function updateEmployee(
       return { ok: false, code: "EMPLOYEE_NOT_FOUND", message: "Employee not found." };
     }
 
-    await db.auditLog
-      .create({
-        data: {
-          userId: input.actorUserId,
-          action: "UPDATE",
-          entityType: "Employee",
-          entityId: row.id,
-          // Prisma's Json input needs an index signature, which a named
-          // interface does not have. Spreading gives the same object as a plain
-          // record without loosening the exported type.
-          changes: {
-            before: { ...toEmployeeView(existing) },
-            after: { ...toEmployeeView(row) },
+    const after = toEmployeeView(row);
+    const changed = employeeAuditDiff(toEmployeeView(existing), after);
+    if (Object.keys(changed).length > 0) {
+      await db.auditLog
+        .create({
+          data: {
+            userId: input.actorUserId,
+            action: "UPDATE",
+            entityType: "Employee",
+            entityId: row.id,
+            changes: { changed },
           },
-        },
-      })
-      .catch((err) => apiLogger.error({ msg: "hr-employee:audit-failed", err }));
+        })
+        .catch((err) => apiLogger.error({ msg: "hr-employee:audit-failed", err }));
+    }
 
-    return { ok: true, employee: toEmployeeView(row) };
+    return { ok: true, employee: after };
   } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === "P2002" && String((err as { meta?: { target?: unknown } })?.meta?.target ?? "").includes("userId")) {
+      return {
+        ok: false,
+        code: "USER_ALREADY_LINKED",
+        message: "That login is already linked to another employee.",
+      };
+    }
     apiLogger.error({ msg: "hr-employee:update-failed", err, employeeId: input.employeeId });
     return { ok: false, code: "UNKNOWN", message: "Could not update the employee." };
   }

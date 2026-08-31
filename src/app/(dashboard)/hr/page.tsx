@@ -25,7 +25,7 @@ import { toast } from "sonner";
 import { useHrSummary, useRollHrLeaveYear, type HrSummaryRow } from "@/hr/hooks/use-hr-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CalendarClock, Loader2, TriangleAlert, CalendarDays, RefreshCw, Users
+import { CalendarClock, Loader2, TriangleAlert, CalendarDays, Flag, RefreshCw, Users
 } from "lucide-react";
 
 function Days({ value, highlightNegative = false }: { value: number; highlightNegative?: boolean }) {
@@ -123,6 +123,12 @@ export default function HrSummaryPage() {
             <Link href="/hr/attendance">
               <CalendarDays className="h-4 w-4" />
               Attendance
+            </Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/hr/holidays">
+              <Flag className="h-4 w-4" />
+              Holidays
             </Link>
           </Button>
           <Button variant="ghost" onClick={() => setIncludeExited((v) => !v)}>

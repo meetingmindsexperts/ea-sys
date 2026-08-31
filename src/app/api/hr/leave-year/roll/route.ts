@@ -18,6 +18,7 @@ import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { denyNonHr } from "@/hr/lib/hr-roles";
 import { rollLeaveYear } from "@/hr/services/leave-year-roll-service";
+import { LeaveYearNotHeldError } from "@/hr/services/leave-balance-service";
 
 const schema = z.object({
   /** The year being CLOSED; the grant is written for the year after it. */
@@ -68,6 +69,10 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ result });
     } catch (err) {
+      if (err instanceof LeaveYearNotHeldError) {
+        apiLogger.warn({ msg: "hr/leave-year-roll:year-not-held", year: err.year, userId: session.user.id });
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
       apiLogger.error({
         msg: "hr/leave-year-roll:failed",
         err,

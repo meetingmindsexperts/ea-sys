@@ -45,6 +45,7 @@ export type AttendanceErrorCode =
   | "LEAVE_CODE_NOT_FOUND"
   | "OUTSIDE_EMPLOYMENT"
   | "NO_WORKING_DAYS"
+  | "WRITE_TIMED_OUT"
   | "UNKNOWN";
 
 export type AttendanceResult<T> =
@@ -56,6 +57,21 @@ export type AttendanceResult<T> =
  * attempt to write the entire table in one request.
  */
 const MAX_RANGE_DAYS = 366;
+
+/**
+ * The transaction budget for a range write. A full year is up to 366
+ * statements in one interactive transaction, and Prisma's default is 5 s: at
+ * 10 to 15 ms a statement through the pooler under load, the largest legitimate
+ * range was exactly the one that failed, as an opaque UNKNOWN (review M12).
+ * Still per-day upserts, because the before-snapshot is per day; the budget is
+ * simply sized for the cap above.
+ */
+const TX_BUDGET = { maxWait: 10_000, timeout: 60_000 } as const;
+
+/** Prisma P2028: the interactive transaction's timeout expired and it rolled back. */
+function isTransactionTimeout(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === "P2028";
+}
 
 export interface SetAttendanceInput {
   organizationId: string;
@@ -192,6 +208,8 @@ export async function setAttendance(
       }));
 
       for (const date of target) {
+        // One statement per day is what lets the snapshot above stay per day;
+        // the transaction budget for the longest range is TX_BUDGET.
         await tx.attendanceEntry.upsert({
           where: {
             organizationId_employeeId_date: {
@@ -221,7 +239,7 @@ export async function setAttendance(
         });
       }
       return previous;
-    });
+    }, TX_BUDGET);
 
     await db.auditLog
       .create({
@@ -249,6 +267,20 @@ export async function setAttendance(
 
     return { ok: true, result: { written: target.length, skipped } };
   } catch (err) {
+    if (isTransactionTimeout(err)) {
+      apiLogger.error({
+        msg: "hr-attendance:write-timed-out",
+        employeeId: input.employeeId,
+        from: input.from,
+        to,
+        days: target.length,
+      });
+      return {
+        ok: false,
+        code: "WRITE_TIMED_OUT",
+        message: `Saving ${target.length} days took too long and nothing was written. Try a shorter range.`,
+      };
+    }
     apiLogger.error({
       msg: "hr-attendance:write-failed",
       err,
@@ -300,7 +332,7 @@ export async function clearAttendance(input: {
       });
       await tx.attendanceEntry.deleteMany({ where });
       return rows.map((r) => ({ date: toCalendarDate(r.date), code: r.leaveCode.code }));
-    });
+    }, TX_BUDGET);
     await db.auditLog
       .create({
         data: {
@@ -320,6 +352,14 @@ export async function clearAttendance(input: {
       .catch((err) => apiLogger.error({ msg: "hr-attendance:audit-failed", err }));
     return { ok: true, result: { removed: removed.length } };
   } catch (err) {
+    if (isTransactionTimeout(err)) {
+      apiLogger.error({ msg: "hr-attendance:clear-timed-out", employeeId: input.employeeId, from: input.from, to });
+      return {
+        ok: false,
+        code: "WRITE_TIMED_OUT",
+        message: "Clearing that range took too long and nothing was removed. Try a shorter range.",
+      };
+    }
     apiLogger.error({ msg: "hr-attendance:clear-failed", err, employeeId: input.employeeId });
     return { ok: false, code: "UNKNOWN", message: "Could not clear that attendance." };
   }

@@ -21,6 +21,30 @@ import { EMPLOYEE_SELECT, toEmployeeView, type EmployeeView } from "./employee-s
 const DEFAULT_TIMEZONE = HR_DEFAULT_TIMEZONE;
 
 /**
+ * Thrown for a year the system holds nothing for: earlier than the person's
+ * (or every person's) seed year, with no grant written for it. The routes used
+ * to accept any year from 2000 to 2100 and answer with figures labelled with a
+ * year they were not computed for (review M4).
+ */
+export class LeaveYearNotHeldError extends Error {
+  readonly code = "YEAR_NOT_HELD" as const;
+  constructor(readonly year: number) {
+    super(`No leave records are held for ${year}.`);
+    this.name = "LeaveYearNotHeldError";
+  }
+}
+
+/**
+ * A balance for a PAST year is "as at" the end of that year, not today: the
+ * first-year gate, the comp-off bound and the next anniversary all read `asOf`,
+ * and judging 2025 at a 2026 date labels the answer wrongly (review M4).
+ */
+function clampAsOf(asOf: CalendarDate, leaveYear: number): CalendarDate {
+  const { to } = leaveYearBounds(leaveYear);
+  return to < asOf ? to : asOf;
+}
+
+/**
  * What the year-end roll carried into `leaveYear`, per employee. A grant is
  * the ONLY source of carry-in for any year other than an employee's seed year;
  * absent, the engine carries nothing in (see `BalanceEmployee.seedLeaveYear`).
@@ -86,7 +110,7 @@ async function loadRuleContext(organizationId: string): Promise<{
  * A rule carrying a leave code MUST count. Skipping this would let one
  * company-wide record hand every employee free annual leave, invisibly.
  */
-function ruleEntriesFor(params: {
+export function ruleEntriesFor(params: {
   employeeId: string;
   employment: { joiningDate: CalendarDate; exitDate?: CalendarDate | null };
   ctx: Awaited<ReturnType<typeof loadRuleContext>>;
@@ -118,8 +142,9 @@ export async function getLeaveBalance(params: {
   asOf?: CalendarDate;
   weekendDays?: readonly number[];
 }): Promise<BalanceForEmployee | null> {
-  const asOf = params.asOf ?? todayInTimezone(DEFAULT_TIMEZONE);
-  const leaveYear = params.leaveYear ?? yearOf(asOf);
+  const today = params.asOf ?? todayInTimezone(DEFAULT_TIMEZONE);
+  const leaveYear = params.leaveYear ?? yearOf(today);
+  const asOf = clampAsOf(today, leaveYear);
 
   const row = await db.employee.findFirst({
     where: { id: params.employeeId, organizationId: params.organizationId },
@@ -151,6 +176,14 @@ export async function getLeaveBalance(params: {
     loadRuleContext(params.organizationId),
     loadCarriedIn(params.organizationId, [employee.id], leaveYear),
   ]);
+  // Nothing is held before the seed year unless a roll wrote a grant for it.
+  if (
+    employee.seedLeaveYear !== null &&
+    leaveYear < employee.seedLeaveYear &&
+    !carriedIn.has(employee.id)
+  ) {
+    throw new LeaveYearNotHeldError(leaveYear);
+  }
   const fromRules = ruleEntriesFor({
     employeeId: employee.id,
     employment: { joiningDate: employee.joiningDate, exitDate: employee.exitDate },
@@ -195,8 +228,9 @@ export async function getOrgLeaveSummary(params: {
   includeExited?: boolean;
   weekendDays?: readonly number[];
 }): Promise<BalanceForEmployee[]> {
-  const asOf = params.asOf ?? todayInTimezone(DEFAULT_TIMEZONE);
-  const leaveYear = params.leaveYear ?? yearOf(asOf);
+  const today = params.asOf ?? todayInTimezone(DEFAULT_TIMEZONE);
+  const leaveYear = params.leaveYear ?? yearOf(today);
+  const asOf = clampAsOf(today, leaveYear);
   const { to } = leaveYearBounds(leaveYear);
 
   const rows = await db.employee.findMany({
@@ -239,6 +273,14 @@ export async function getOrgLeaveSummary(params: {
     loadRuleContext(params.organizationId),
     loadCarriedIn(params.organizationId, rows.map((r) => r.id), leaveYear),
   ]);
+  // A year before everyone's seed year, with no grant anywhere, is a year the
+  // system holds nothing for.
+  if (
+    carriedIn.size === 0 &&
+    rows.every((r) => r.seedLeaveYear !== null && leaveYear < r.seedLeaveYear)
+  ) {
+    throw new LeaveYearNotHeldError(leaveYear);
+  }
 
   return rows.map((row) => {
     const employee = toEmployeeView(row);

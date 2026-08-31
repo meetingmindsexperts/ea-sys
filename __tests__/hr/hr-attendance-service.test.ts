@@ -26,9 +26,10 @@ const { mockDb, mockTx, mockApiLogger } = vi.hoisted(() => {
   return { mockDb, mockTx, mockApiLogger };
 });
 
+const mockTenantTx = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/db", () => ({
   db: mockDb,
-  tenantTransaction: (cb: (tx: unknown) => unknown) => cb(mockTx),
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) => mockTenantTx(cb, opts),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
@@ -40,6 +41,7 @@ const base = { organizationId: ORG, actorUserId: "u1", employeeId: EMP };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockTenantTx.mockImplementation((cb: (tx: unknown) => unknown) => cb(mockTx));
   mockDb.employee.findFirst.mockResolvedValue({
     id: EMP,
     joiningDate: new Date("2020-01-01T00:00:00Z"),
@@ -138,5 +140,36 @@ describe("setAttendance", () => {
   it("never puts remarks on the audit row", async () => {
     await setAttendance({ ...base, source: "ui", from: "2026-03-02", code: "AL", remarks: "diagnosis" });
     expect(JSON.stringify(auditChanges())).not.toContain("diagnosis");
+  });
+});
+
+/**
+ * Review M12 (Aug 31 2026). A full-year range is up to 366 statements in one
+ * interactive transaction, and Prisma's default budget is 5 s, so the largest
+ * legitimate range was the one most likely to fail, as an opaque UNKNOWN.
+ */
+describe("the transaction budget and the timeout answer (M12)", () => {
+  it("runs a range write under a budget sized for a year, not Prisma's 5 s default", async () => {
+    mockDb.employee.findFirst.mockResolvedValue({ id: EMP, joiningDate: new Date("2020-01-01T00:00:00Z"), exitDate: null });
+    mockDb.leaveCode.findFirst.mockResolvedValue({ id: "lc", code: "WFH", countsAs: "WORK" });
+    mockDb.publicHoliday.findMany.mockResolvedValue([]);
+    mockTx.attendanceEntry.findMany.mockResolvedValue([]);
+    mockTx.attendanceEntry.upsert.mockResolvedValue({});
+    await setAttendance({ ...base, from: "2026-01-05" as never, to: "2026-01-09" as never, code: "WFH", source: "ui" });
+    const opts = mockTenantTx.mock.calls[0][1] as { timeout?: number; maxWait?: number };
+    expect(opts.timeout).toBeGreaterThanOrEqual(30_000);
+    expect(opts.maxWait).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("a timed-out transaction is WRITE_TIMED_OUT, naming the size, not UNKNOWN", async () => {
+    mockDb.employee.findFirst.mockResolvedValue({ id: EMP, joiningDate: new Date("2020-01-01T00:00:00Z"), exitDate: null });
+    mockDb.leaveCode.findFirst.mockResolvedValue({ id: "lc", code: "WFH", countsAs: "WORK" });
+    mockDb.publicHoliday.findMany.mockResolvedValue([]);
+    mockTenantTx.mockRejectedValue({ code: "P2028" });
+    const res = await setAttendance({ ...base, from: "2026-01-05" as never, to: "2026-01-09" as never, code: "WFH", source: "ui" });
+    expect(res).toMatchObject({ ok: false, code: "WRITE_TIMED_OUT" });
+    if (res.ok) throw new Error("unreachable");
+    expect(res.message).toContain("5 days");
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 });

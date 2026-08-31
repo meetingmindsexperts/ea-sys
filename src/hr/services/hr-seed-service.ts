@@ -14,7 +14,11 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { HR_LEAVE_CODE_SEED, HR_PUBLIC_HOLIDAYS_2026 } from "../lib/hr-seed-data";
+import {
+  HR_LEAVE_CODE_SEED,
+  HR_PUBLIC_HOLIDAYS_2026,
+  HR_PUBLIC_HOLIDAYS_2027_FIXED,
+} from "../lib/hr-seed-data";
 import { fromCalendarDate, yearOf } from "../lib/hr-date";
 
 export async function ensureLeaveCodes(organizationId: string): Promise<number> {
@@ -39,7 +43,35 @@ export async function ensureLeaveCodes(organizationId: string): Promise<number> 
   return created.count;
 }
 
-export async function ensurePublicHolidays2026(organizationId: string): Promise<number> {
+/**
+ * 2026 in full (curated from the workbook), plus the FIXED dates of 2027.
+ * The 2027 rows are written with `skipDuplicates`, so a date HR has already
+ * entered by hand is never touched and the seed is idempotent per row.
+ */
+export async function ensurePublicHolidays(organizationId: string): Promise<number> {
+  const [a, b] = await Promise.all([
+    ensurePublicHolidays2026(organizationId),
+    ensureFixedHolidays2027(organizationId),
+  ]);
+  return a + b;
+}
+
+async function ensureFixedHolidays2027(organizationId: string): Promise<number> {
+  const created = await db.publicHoliday.createMany({
+    data: HR_PUBLIC_HOLIDAYS_2027_FIXED.map((h) => ({
+      organizationId,
+      date: fromCalendarDate(h.date),
+      label: h.label,
+    })),
+    skipDuplicates: true,
+  });
+  if (created.count > 0) {
+    apiLogger.info({ msg: "hr-seed:holidays-created", organizationId, year: 2027, count: created.count });
+  }
+  return created.count;
+}
+
+async function ensurePublicHolidays2026(organizationId: string): Promise<number> {
   const year = yearOf(HR_PUBLIC_HOLIDAYS_2026[0].date);
   const existing = await db.publicHoliday.count({
     where: {

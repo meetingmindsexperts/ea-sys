@@ -11,6 +11,7 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockDb: {
     employee: { findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn() },
     attendanceEntry: { aggregate: vi.fn() },
+    user: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -49,6 +50,7 @@ beforeEach(() => {
   mockDb.employee.updateMany.mockResolvedValue({ count: 1 });
   mockDb.employee.create.mockImplementation(async ({ data }) => row(data));
   mockDb.attendanceEntry.aggregate.mockResolvedValue(noStranded);
+  mockDb.user.findFirst.mockResolvedValue({ id: "u-in-org" });
   mockDb.auditLog.create.mockResolvedValue({});
 });
 
@@ -169,15 +171,19 @@ describe("the employment window never moves under recorded attendance (M3)", () 
 
 describe("the write is org-bound in the WHERE (M6)", () => {
   it("updates through a compound where and re-reads the row", async () => {
+    mockDb.employee.findFirst
+      .mockResolvedValueOnce(row())
+      .mockResolvedValueOnce(row({ name: "Renamed" }));
     const res = await updateEmployee({ ...base, patch: { name: "Renamed" } });
     expect(res.ok).toBe(true);
+    if (res.ok) expect(res.employee.name).toBe("Renamed");
     expect(mockDb.employee.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "e1", organizationId: ORG } }),
     );
-    // Audit carries before and after, from the read and the re-read.
+    // The audit is a diff of the read and the re-read: what changed, from
+    // what, to what.
     const changes = mockDb.auditLog.create.mock.calls[0][0].data.changes;
-    expect(changes.before.name).toBe("Someone");
-    expect(changes.after).toBeDefined();
+    expect(changes).toEqual({ changed: { name: { from: "Someone", to: "Renamed" } } });
   });
 
   it("a write that matched no row in this org is NOT FOUND, not a silent success", async () => {
@@ -185,5 +191,58 @@ describe("the write is org-bound in the WHERE (M6)", () => {
     const res = await updateEmployee({ ...base, patch: { name: "Renamed" } });
     expect(res).toMatchObject({ ok: false, code: "EMPLOYEE_NOT_FOUND" });
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the audit row is a field diff that never quotes free text (M7)", () => {
+  it("records that notes changed, and not what they say", async () => {
+    mockDb.employee.findFirst
+      .mockResolvedValueOnce(row({ notes: "old" }))
+      .mockResolvedValueOnce(row({ notes: "Was off sick with a named condition." }));
+    await updateEmployee({ ...base, patch: { notes: "Was off sick with a named condition." } });
+    const audit = JSON.stringify(mockDb.auditLog.create.mock.calls[0][0].data.changes);
+    expect(JSON.parse(audit)).toEqual({ changed: { notes: "changed" } });
+    expect(audit).not.toContain("named condition");
+    expect(audit).not.toContain("old");
+  });
+
+  it("writes no audit row for a save that changed nothing", async () => {
+    await updateEmployee({ ...base, patch: { name: "Someone" } });
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("a linked login must belong to this organisation (M5)", () => {
+  it("create refuses a login from another org, or none, with one answer", async () => {
+    mockDb.user.findFirst.mockResolvedValue(null);
+    const res = await createEmployee({
+      organizationId: ORG, actorUserId: "u1", source: "ui", empCode: "X9", name: "Linked",
+      joiningDate: c("2026-01-01"), userId: "cmth0oni60005y917w5lybinj",
+    });
+    expect(res).toMatchObject({ ok: false, code: "USER_NOT_IN_ORG" });
+    expect(mockDb.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "cmth0oni60005y917w5lybinj", organizationId: ORG } }),
+    );
+    expect(mockDb.employee.create).not.toHaveBeenCalled();
+  });
+
+  it("update validates a new link the same way, and null unlinks without a lookup", async () => {
+    mockDb.user.findFirst.mockResolvedValue(null);
+    const bad = await updateEmployee({ ...base, patch: { userId: "cmth0oni60005y917w5lybinj" } });
+    expect(bad).toMatchObject({ ok: false, code: "USER_NOT_IN_ORG" });
+    expect(mockDb.employee.updateMany).not.toHaveBeenCalled();
+
+    mockDb.user.findFirst.mockClear();
+    const unlink = await updateEmployee({ ...base, patch: { userId: null } });
+    expect(unlink.ok).toBe(true);
+    expect(mockDb.user.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.employee.updateMany.mock.calls[0][0].data).toMatchObject({ userId: null });
+  });
+
+  it("a login already linked elsewhere is a 409-class answer on update too, not a paging 500", async () => {
+    mockDb.employee.updateMany.mockRejectedValue({ code: "P2002", meta: { target: ["userId"] } });
+    const res = await updateEmployee({ ...base, patch: { userId: "cmth0oni60005y917w5lybinj" } });
+    expect(res).toMatchObject({ ok: false, code: "USER_ALREADY_LINKED" });
+    expect(mockApiLogger.error).not.toHaveBeenCalled();
   });
 });

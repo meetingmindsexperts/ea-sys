@@ -25,6 +25,8 @@ const patchSchema = z.object({
   annualEntitlementDays: z.number().min(0).max(365).nullish(),
   notes: z.string().max(2000).nullish(),
   status: z.enum(["ACTIVE", "RESIGNED", "TERMINATED"]).optional(),
+  // null unlinks the login; a new id must belong to this org (review M5).
+  userId: z.string().cuid().nullish(),
 });
 
 export async function PATCH(

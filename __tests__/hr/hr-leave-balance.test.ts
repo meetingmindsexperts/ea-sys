@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import type { CalendarDate } from "@/hr/lib/hr-date";
+import type { LeaveCategory } from "@prisma/client";
 import {
   type BalanceEntry,
   capCarryover,
@@ -537,5 +539,52 @@ describe("the go-live seeds belong to one year", () => {
       employee: { ...seeded, seedLeaveYear: null }, leaveYear: 2027, asOf: "2027-06-30", entries: [],
     });
     expect(b.annual.carriedIn).toBe(4);
+  });
+});
+
+/**
+ * Review M11 (Aug 31 2026). Comp-off was bounded by `asOf` while annual leave
+ * never was, so a comp-off approved for next week read as unspent until the
+ * day arrived, and the balance looked one day better than it was.
+ */
+describe("comp-off is bounded by employment, not by the clock (M11)", () => {
+  const person = {
+    joiningDate: "2020-01-01" as CalendarDate,
+    exitDate: null,
+    carryoverDays: 0,
+    openingSickUsed: 0,
+    openingCompOff: 0,
+  };
+  const weekendWorked = [
+    { date: "2026-08-01" as CalendarDate, category: "ON_DUTY" as LeaveCategory, dayWeight: 1 },
+    { date: "2026-08-02" as CalendarDate, category: "ON_DUTY" as LeaveCategory, dayWeight: 1 },
+  ];
+
+  it("a comp-off booked for next week is already spent today", () => {
+    const b = computeLeaveBalance({
+      employee: person,
+      leaveYear: 2026,
+      asOf: "2026-08-31" as CalendarDate,
+      entries: [
+        ...weekendWorked,
+        { date: "2026-09-07" as CalendarDate, category: "COMP_OFF" as LeaveCategory, dayWeight: 1 },
+      ],
+    });
+    expect(b.compOff.earned).toBe(1);
+    expect(b.compOff.taken).toBe(1);
+    expect(b.compOff.balance).toBe(0);
+  });
+
+  it("a leaver's comp-off still stops at the last working day", () => {
+    const b = computeLeaveBalance({
+      employee: { ...person, exitDate: "2026-08-15" as CalendarDate },
+      leaveYear: 2026,
+      asOf: "2026-08-31" as CalendarDate,
+      entries: [
+        ...weekendWorked,
+        { date: "2026-08-20" as CalendarDate, category: "COMP_OFF" as LeaveCategory, dayWeight: 1 },
+      ],
+    });
+    expect(b.compOff.taken).toBe(0);
   });
 });

@@ -353,3 +353,38 @@ export function useHrEmployeeExit() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
 }
+
+export interface HrHoliday {
+  id: string;
+  date: string;
+  label: string;
+}
+
+export function useHrHolidays() {
+  return useQuery({
+    queryKey: ["hr", "holidays"] as const,
+    queryFn: () => get<{ holidays: HrHoliday[] }>("/api/hr/holidays").then((r) => r.holidays),
+  });
+}
+
+export function useCreateHrHoliday() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { date: string; label: string }) =>
+      send<{ holiday: HrHoliday }>("/api/hr/holidays", "POST", input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
+
+export function useDeleteHrHoliday() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (holidayId: string) => {
+      const res = await fetch(`/api/hr/holidays/${holidayId}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+      return body as { ok: true };
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}

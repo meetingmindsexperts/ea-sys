@@ -13,6 +13,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { denyNonHr } from "@/hr/lib/hr-roles";
 import { getOrgLeaveSummary } from "@/hr/services/leave-balance-service";
+import { LeaveYearNotHeldError } from "@/hr/services/leave-balance-service";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -42,6 +43,10 @@ export async function GET(req: NextRequest) {
       });
       return NextResponse.json({ summary: rows });
     } catch (err) {
+      if (err instanceof LeaveYearNotHeldError) {
+        apiLogger.warn({ msg: "hr/summary:year-not-held", year: err.year, userId: session.user.id });
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
       apiLogger.error({ msg: "hr/summary:failed", err, userId: session.user.id });
       return NextResponse.json({ error: "Could not build the summary." }, { status: 500 });
     }

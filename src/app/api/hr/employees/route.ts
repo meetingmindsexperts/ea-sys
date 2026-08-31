@@ -29,7 +29,7 @@ import {
 } from "@/hr/services/employee-service";
 import { todayInTimezone } from "@/hr/lib/hr-date";
 import { HR_DEFAULT_TIMEZONE } from "@/hr/lib/hr-constants";
-import { ensureLeaveCodes, ensurePublicHolidays2026 } from "@/hr/services/hr-seed-service";
+import { ensureLeaveCodes, ensurePublicHolidays } from "@/hr/services/hr-seed-service";
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
@@ -59,6 +59,7 @@ export const HTTP_STATUS_FOR_EMPLOYEE_ERROR: Record<EmployeeErrorCode, number> =
   EXIT_DATE_REQUIRED: 400,
   LEAVER_STATUS_REQUIRED: 400,
   ENTRIES_OUTSIDE_WINDOW: 409,
+  USER_NOT_IN_ORG: 400,
   EMP_CODE_TAKEN: 409,
   EMPLOYEE_NOT_FOUND: 404,
   USER_ALREADY_LINKED: 409,
@@ -84,7 +85,7 @@ export async function GET(req: NextRequest) {
       // first person to open the module gets a working catalogue without an
       // operator having to run anything.
       await ensureLeaveCodes(org.orgId);
-      await ensurePublicHolidays2026(org.orgId);
+      await ensurePublicHolidays(org.orgId);
 
       // "Currently employed" is decided by the last working day, not by the
       // status column: see `employedOnWhere`.

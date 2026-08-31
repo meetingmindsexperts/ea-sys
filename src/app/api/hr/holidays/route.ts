@@ -14,9 +14,11 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
+import { checkRateLimit } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
 import { denyNonHr } from "@/hr/lib/hr-roles";
 import { fromCalendarDate, isCalendarDate, toCalendarDate } from "@/hr/lib/hr-date";
-import { ensurePublicHolidays2026 } from "@/hr/services/hr-seed-service";
+import { ensurePublicHolidays } from "@/hr/services/hr-seed-service";
 
 const createSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
@@ -36,7 +38,7 @@ export async function GET() {
 
   return runWithTenant(org.orgId, async () => {
     try {
-      await ensurePublicHolidays2026(org.orgId);
+      await ensurePublicHolidays(org.orgId);
       const rows = await db.publicHoliday.findMany({
         where: { organizationId: org.orgId },
         select: { id: true, date: true, label: true },
@@ -62,6 +64,17 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const org = requireOrgId(session, { route: "hr/holidays" });
   if ("error" in org) return org.error;
+
+  // The same write bucket as every other HR write: a holiday moves every
+  // rule-derived day and the working-day expansion for the whole org.
+  const rl = checkRateLimit({
+    key: `hr-write:${session.user.id}`,
+    limit: 300,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!rl.allowed) {
+    return rateLimited(rl, { route: "hr/holidays", userId: session.user.id, limit: 300, windowSeconds: 3600 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
@@ -91,6 +104,20 @@ export async function POST(req: NextRequest) {
         },
         select: { id: true, date: true, label: true },
       });
+      // Audited (review M8): a holiday changes what a rule charges and how much
+      // leave a range costs, for everyone, and nothing said who added it.
+      await db.auditLog
+        .create({
+          data: {
+            userId: session.user.id,
+            action: "CREATE",
+            entityType: "PublicHoliday",
+            entityId: row.id,
+            changes: { date: parsed.data.date, label: row.label },
+          },
+        })
+        .catch((err) => apiLogger.error({ msg: "hr/holidays:audit-failed", err, holidayId: row.id }));
+      apiLogger.info({ msg: "hr/holidays:created", holidayId: row.id, date: parsed.data.date, userId: session.user.id });
       return NextResponse.json(
         { holiday: { ...row, date: toCalendarDate(row.date) } },
         { status: 201 },

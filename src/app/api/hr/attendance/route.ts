@@ -40,6 +40,8 @@ const HTTP_STATUS_FOR_ATTENDANCE_ERROR: Record<AttendanceErrorCode, number> = {
   // employment window, which is a state the caller can see and correct.
   OUTSIDE_EMPLOYMENT: 409,
   NO_WORKING_DAYS: 400,
+  // Nothing was written; the caller can retry with a smaller range.
+  WRITE_TIMED_OUT: 503,
   UNKNOWN: 500,
 };
 

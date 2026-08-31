@@ -226,10 +226,12 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
 
   // Comp-off is a RUNNING balance, not an annual one: the workbook sums it with
   // no year bound and carries an opening figure. So it is bounded only by the
-  // employment window and by `asOf`, never by the leave year.
+  // employment window: never by the leave year, and not by `asOf` either. A
+  // comp-off approved for next Monday is a decision already made, exactly as
+  // annual leave booked ahead has always counted; bounding this one by the
+  // clock read "balance 1" for somebody who had already spent it (review M11).
   const compFrom = employee.joiningDate;
-  const compTo =
-    employee.exitDate && employee.exitDate < asOf ? employee.exitDate : asOf;
+  const compTo = employee.exitDate ?? null;
   const onDutyDates = entries
     .filter((e) => e.category === "ON_DUTY" && isWithin(e.date, compFrom, compTo))
     .map((e) => e.date);

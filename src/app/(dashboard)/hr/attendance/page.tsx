@@ -463,6 +463,7 @@ export default function HrAttendancePage() {
           </div>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
           <Button asChild variant="secondary"><Link href="/hr/employees">Employees</Link></Button>
+          <Button asChild variant="secondary"><Link href="/hr/holidays">Holidays</Link></Button>
         </div>
       </div>
 

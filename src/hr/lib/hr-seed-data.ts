@@ -97,3 +97,16 @@ export const HR_PUBLIC_HOLIDAYS_2026: readonly PublicHolidaySeed[] = [
   { date: "2026-12-02", label: "UAE National Day" },
   { date: "2026-12-03", label: "UAE National Day" },
 ];
+
+/**
+ * The dates of 2027 that do NOT move: the Gregorian ones. The Islamic holidays
+ * of 2027 are entered by HR on the Holidays screen once announced, exactly as
+ * the header above says; seeding a guess would silently change which days are
+ * working days. Seeding the fixed ones stops a rule-based AL block charging New
+ * Year's Day on 1 January 2027 before anyone has opened the screen (review M8).
+ */
+export const HR_PUBLIC_HOLIDAYS_2027_FIXED: readonly PublicHolidaySeed[] = [
+  { date: "2027-01-01", label: "New Year's Day" },
+  { date: "2027-12-02", label: "UAE National Day" },
+  { date: "2027-12-03", label: "UAE National Day" },
+];

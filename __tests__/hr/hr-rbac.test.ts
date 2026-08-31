@@ -49,9 +49,12 @@ describe("who may reach the HR module", () => {
 });
 
 describe("denyNonHr", () => {
-  it("404s for everyone when the module is switched off", async () => {
+  it("404s for everyone when the module is switched off, non-HR roles included", async () => {
     withHr(false);
-    for (const role of ["SUPER_ADMIN", "ADMIN", "HR_USER"]) {
+    // ORGANIZER and REGISTRANT are the point: the flag check must come BEFORE
+    // the role check, or a switched-off module answers 403 to an outsider and
+    // thereby announces that it exists (review M14).
+    for (const role of ["SUPER_ADMIN", "ADMIN", "HR_USER", "ORGANIZER", "REGISTRANT"]) {
       const res = denyNonHr({ user: { id: "u1", role } }, { route: "hr:test" });
       expect(res?.status).toBe(404);
     }

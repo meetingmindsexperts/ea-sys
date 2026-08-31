@@ -260,7 +260,7 @@ async function writeToDatabase(input: {
   // Imported lazily so the DRY RUN never opens a database connection at all.
   const { db } = await import("../src/lib/db");
   const { runWithTenant } = await import("../src/lib/tenant-context");
-  const { ensureLeaveCodes, ensurePublicHolidays2026 } = await import(
+  const { ensureLeaveCodes, ensurePublicHolidays } = await import(
     "../src/hr/services/hr-seed-service"
   );
   const { fromCalendarDate } = await import("../src/hr/lib/hr-date");
@@ -281,7 +281,7 @@ async function writeToDatabase(input: {
     }
 
     await ensureLeaveCodes(input.organizationId);
-    await ensurePublicHolidays2026(input.organizationId);
+    await ensurePublicHolidays(input.organizationId);
 
     const codes = await db.leaveCode.findMany({
       where: { organizationId: input.organizationId },

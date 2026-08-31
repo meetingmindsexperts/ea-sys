@@ -214,7 +214,9 @@ export async function createAttendanceRule(
             code: leaveCode.code,
             startDate: input.startDate,
             endDate: input.endDate ?? null,
-            label: input.label,
+            // Not the label: it is the organiser's free text, and the trail
+            // outlives the rule (review M7). Scope, code and dates are the
+            // facts a reversal needs.
           },
         },
       })
@@ -252,15 +254,25 @@ export async function deleteAttendanceRule(params: {
 }): Promise<AttendanceRuleResult<{ id: string }>> {
   try {
     const deleted = await tenantTransaction(async (tx) => {
+      // Snapshot INSIDE the transaction that removes it: a company-wide AL
+      // shutdown being deleted changes every balance in the org, and the audit
+      // used to say only that a rule went (review M7).
+      const snapshot = await tx.attendanceRule.findFirst({
+        where: { id: params.ruleId, organizationId: params.organizationId },
+        select: {
+          scope: true, employeeId: true, startDate: true, endDate: true,
+          leaveCode: { select: { code: true } },
+        },
+      });
       // Compound where: the org binding is part of the WRITE, not a preceding
       // read, so a cross-tenant id cannot be deleted even if the caller skipped
       // its own lookup.
       const res = await tx.attendanceRule.deleteMany({
         where: { id: params.ruleId, organizationId: params.organizationId },
       });
-      return res.count;
+      return { count: res.count, snapshot };
     });
-    if (deleted === 0) {
+    if (deleted.count === 0) {
       apiLogger.warn({
         msg: "hr/attendance-rule:not-found",
         ruleId: params.ruleId,
@@ -276,7 +288,14 @@ export async function deleteAttendanceRule(params: {
           action: "DELETE",
           entityType: "AttendanceRule",
           entityId: params.ruleId,
-          changes: { source: "ui" },
+          changes: {
+            source: "ui",
+            scope: deleted.snapshot?.scope ?? null,
+            employeeId: deleted.snapshot?.employeeId ?? null,
+            code: deleted.snapshot?.leaveCode.code ?? null,
+            startDate: deleted.snapshot ? toCalendarDate(deleted.snapshot.startDate) : null,
+            endDate: deleted.snapshot?.endDate ? toCalendarDate(deleted.snapshot.endDate) : null,
+          },
         },
       })
       .catch((err) =>

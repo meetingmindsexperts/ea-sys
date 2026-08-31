@@ -283,23 +283,30 @@ UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the
   reports "written for N of M people, not written: who (why)". *M13*: the code popover is `position: fixed`,
   anchored to the head cell, re-placed on any scroll or resize, flips above a bottom row (`placePopover`).
   +25 tests; the three service guards mutation-verified. Verified in the browser on the local copy.
+- **✅ Batch 3 (same day): M4, M5, M7, M8, M11, M12, M14.** *M4*: a past year is "as at" 31 December of
+  that year (`clampAsOf`), and a year before the seed year with no grant is refused (`YEAR_NOT_HELD`, 400,
+  summary + balance + roll). *M5*: a linked login must belong to the org (`USER_NOT_IN_ORG`; one answer for a
+  non-member and a non-existent id), `userId: null` on PATCH unlinks, a P2002 on update is 409 not a paging
+  500. *M7*: the employee audit is a field diff with `notes` recorded as changed and never quoted, no row for a
+  no-op save; rule creation no longer audits the free-text label; rule deletion snapshots scope, code and
+  dates inside the delete transaction. *M8*: holiday POST is rate-limited and audited, DELETE exists and is
+  refused while attendance is recorded on the date (`HOLIDAY_IN_USE` with the count), a Holidays screen at
+  `/hr/holidays` (add, remove, by year), and 2027's FIXED dates are seeded (the Islamic ones stay HR-entered, as
+  the design says). *M11*: comp-off is bounded by employment only, so a comp-off approved for next week is
+  already spent today. *M12*: a range write runs under a 60 s transaction budget and a timeout is
+  `WRITE_TIMED_OUT` (503) naming the size, not UNKNOWN. *M14*: route-level tests for employees, holidays,
+  summary, balance and attendance (flag-off 404 pinned for non-HR roles too), a service-level test that a
+  recorded day inside a rule window is charged once (the mutation the source-grep guard let through), and M12's
+  budget pinned. +33 tests; five guards mutation-verified.
 - **✅ H6**: 1 January 2027 was a cliff: `LeaveGrant` was never read or written and the go-live seeds applied to
   every year. Owner decision: the seed year lives on the row (`Employee.seedLeaveYear`, additive migration,
   backfilled from `createdAt`). The seeds now count in that year only; `leave-year-roll-service.ts` writes one
   grant per employee from `planYearRoll`; both balance paths read the grant; the `hr-year-roll` worker job (1018)
   runs it nightly through January; `POST /api/hr/leave-year/roll` + a summary-page button re-run it later.
 
-**Deferred MEDs:**
-
-| # | Sev | Finding |
-|---|-----|---------|
-| M4 | MED | `?year=` on the summary and balance APIs returns figures labelled with a year they were not computed for (`asOf` is always today). The UI never sends it. Clamp `asOf` to the year end and refuse years with no grant once H6 ships. |
-| M5 | MED | `POST /api/hr/employees` links any `userId` with no org or existence check (global unique: a cross-tenant squat and an existence oracle on the platform; P2003 becomes a paging 500), cannot be unlinked (no `userId` on PATCH), and nothing reads the column. Verify the user is in the org; allow null on PATCH. |
-| M7 | MED | Employee edits persist the full before/after view, free-text `notes` included, into `AuditLog` (no prune) on every save; rule creation audits the free-text label; rule deletion audits nothing about the rule. Field-level diff with `notes`/`label` redacted; snapshot the rule inside the delete transaction. |
-| M8 | MED | Public holidays: POST has no audit and no rate limit, there is no DELETE or edit route, no UI calls the POST, 2027 is unseeded. Audit + limit the POST, add DELETE (refused while referenced), a settings screen. |
-| M11 | MED | Comp-off is bounded by `asOf` while annual is not, so a comp-off booked for next week is invisible until then. Bound by the employment window only. |
-| M12 | MED | A full-year range is up to 366 sequential upserts in one interactive transaction with Prisma's default 5 s timeout; the largest legitimate range is the one most likely to fail as `UNKNOWN`. Longer timeout or one `deleteMany` + `createMany`; map P2028 to its own code. |
-| M14 | MED | No route-level test for any HR route; the source-grep adoption guards pass an `explicitDates: new Set()` mutation; the flag-off 404 is not pinned for a non-HR role; no e2e spec. |
+**Every MED is now closed.** The one piece deferred out of M14 is an e2e spec for the HR pages: the
+regression e2e suite runs only locally against the seeded test DB, so it is written when the next
+local e2e pass is due rather than committed unrun.
 
 **Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`; and, left over from M9, overlapping standing rules are not surfaced at create, and the same-scope tiebreak is the later start date rather than creation order (now documented as such).
 

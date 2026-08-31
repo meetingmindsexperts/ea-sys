@@ -7,6 +7,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { denyNonHr } from "@/hr/lib/hr-roles";
 import { getLeaveBalance } from "@/hr/services/leave-balance-service";
+import { LeaveYearNotHeldError } from "@/hr/services/leave-balance-service";
 
 export async function GET(
   req: NextRequest,
@@ -42,6 +43,10 @@ export async function GET(
       }
       return NextResponse.json(result);
     } catch (err) {
+      if (err instanceof LeaveYearNotHeldError) {
+        apiLogger.warn({ msg: "hr/balance:year-not-held", year: err.year, userId: session.user.id });
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
       apiLogger.error({ msg: "hr/balance:failed", err, employeeId });
       return NextResponse.json({ error: "Could not compute balances." }, { status: 500 });
     }
