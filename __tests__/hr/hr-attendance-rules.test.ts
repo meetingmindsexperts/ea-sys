@@ -639,17 +639,33 @@ describe("the grid's keyboard shortcuts leave the browser's combinations alone",
 
   it("is actually where we think it is", () => {
     expect(start).toBeGreaterThan(-1);
-    expect(handler).toContain("KEY_TO_CODE[");
+    expect(handler).toContain("resolveKeyCode(");
   });
 
   it("refuses modifier keys and key repeat BEFORE looking a letter up", () => {
     const guard = handler.indexOf("ev.metaKey");
-    const lookup = handler.indexOf("KEY_TO_CODE[");
+    const lookup = handler.indexOf("resolveKeyCode(");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(lookup);
     for (const flag of ["ev.metaKey", "ev.ctrlKey", "ev.altKey", "ev.repeat"]) {
       expect(handler).toContain(flag);
     }
+    // The H4 invariant is specifically that a HELD key cannot repeat a WRITE.
+    expect(handler.indexOf("ev.repeat")).toBeLessThan(lookup);
+  });
+
+  /**
+   * Movement is the one action a held key may repeat, so the arrow branch sits
+   * ABOVE the repeat guard on purpose (Aug 31 2026). Pin the order: if the
+   * repeat guard ever floats back to the top of the handler it becomes blanket
+   * again and holding an arrow to cross a month stops working, which is a
+   * regression nothing else here would catch.
+   */
+  it("lets a held ARROW repeat while still refusing a held letter", () => {
+    const arrows = handler.indexOf("ARROW_STEP[");
+    const repeat = handler.indexOf("ev.repeat");
+    expect(arrows).toBeGreaterThan(-1);
+    expect(arrows).toBeLessThan(repeat);
   });
 
   it("does not start a second run while one is writing", () => {

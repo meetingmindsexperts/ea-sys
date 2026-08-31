@@ -39,6 +39,15 @@ import type { LeaveCategory } from "@prisma/client";
 import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
 import type { AttendanceRuleLike } from "@/hr/lib/attendance-rules";
 import type { CalendarDate } from "@/hr/lib/hr-date";
+import {
+  ARROW_STEP,
+  HALF_DAY,
+  PRIMARY,
+  collapseToHead,
+  moveSelection,
+  resolveKeyCode,
+  type Selection,
+} from "@/hr/lib/attendance-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,20 +80,13 @@ function eachDay(from: string, to: string): CalendarDate[] {
 }
 
 /**
- * The codes that carry a keyboard shortcut, in the order they appear.
- *
- * Five, from the imported data: AL and WFH alone are 85% of every entry, and
- * these five are 99.3%. The other sixteen live behind "Another code", so the
- * once-a-year ones do not compete for attention with the daily ones.
+ * The DOM cell at a grid coordinate, for focus-scrolling and popover anchoring.
+ * Coordinates live on the element (`data-r`/`data-d`) so the keyboard can find
+ * a cell it never touched with a pointer.
  */
-const PRIMARY: { code: string; label: string; key: string }[] = [
-  { code: "AL", label: "Annual", key: "a" },
-  { code: "WFH", label: "From home", key: "w" },
-  { code: "SL-F", label: "Sick", key: "s" },
-  { code: "OD", label: "On duty", key: "o" },
-  { code: "CO", label: "Comp-off", key: "c" },
-];
-const KEY_TO_CODE = Object.fromEntries(PRIMARY.map((p) => [p.key, p.code]));
+function cellEl(r: number, d: number): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[data-cell][data-r="${r}"][data-d="${d}"]`);
+}
 
 const CODE_STYLE: Record<string, string> = {
   AL: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
@@ -100,8 +102,6 @@ const CODE_STYLE: Record<string, string> = {
   PH: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 const DERIVED_STYLE = "text-muted-foreground/50";
-
-interface Selection { r0: number; d0: number; r1: number; d1: number }
 
 export default function HrAttendancePage() {
   const today = new Date();
@@ -258,7 +258,12 @@ export default function HrAttendancePage() {
             : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
         );
       }
-      setSel(null);
+      // Collapse to the head rather than clearing. Dropping the selection ended
+      // every keyboard entry by sending you back to Tab-and-navigate-from-today;
+      // keeping the cursor lets you arrow straight on to the next day. After a
+      // mouse drag it simply leaves the ring on the last cell, as a spreadsheet
+      // would.
+      setSel((s) => (s ? collapseToHead(s) : s));
     } finally {
       applying.current = false;
     }
@@ -275,18 +280,51 @@ export default function HrAttendancePage() {
       // Cmd+W work-from-home as the tab closed (review H4, Aug 31 2026). A held
       // key auto-repeats keydown, so `repeat` is refused too, and nothing is
       // accepted while a write is already in flight.
-      if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat) return;
-      if (!sel || companyOpen || standingOpen || applying.current) return;
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (!sel || companyOpen || standingOpen) return;
       const el = ev.target as HTMLElement | null;
       if (el && el.closest("input,select,textarea,[role=dialog]")) return;
-      const code = KEY_TO_CODE[ev.key.toLowerCase()];
+
+      /* Movement first, and it is the one thing a HELD key may repeat.
+         `ev.repeat` used to be refused outright, which was right while every
+         shortcut WROTE: holding a letter fired the same write thirty times.
+         But the rule was never "no repeats", it was "no repeated writes" — a
+         blanket guard was only the cheapest way to say that while the two
+         coincided. Holding an arrow to cross a month is what anyone expects,
+         so the guard is per-action from here down. */
+      const step = ARROW_STEP[ev.key];
+      if (step) {
+        ev.preventDefault();
+        setPop(null);
+        setSel((s) => (s ? moveSelection(s, step, ev.shiftKey, employees.length, days.length) : s));
+        return;
+      }
+      if (ev.key === "Enter" || ev.key === " ") {
+        // Keyboard equivalent of releasing a drag: open the picker on the cell
+        // the cursor is actually on, not where the mouse was last seen.
+        ev.preventDefault();
+        const rect = cellEl(sel.r1, sel.d1)?.getBoundingClientRect();
+        if (rect) setPop({ x: rect.left, y: rect.bottom + window.scrollY });
+        return;
+      }
+
+      if (ev.repeat || applying.current) return;
+      const code = resolveKeyCode(ev.key, ev.shiftKey);
       if (code) { ev.preventDefault(); void apply(code); return; }
       if (ev.key === "Backspace" || ev.key === "Delete") { ev.preventDefault(); void apply(null); }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel, companyOpen, standingOpen, cellsInSel]);
+  }, [sel, companyOpen, standingOpen, cellsInSel, employees.length, days.length]);
+
+  /* Keep the cursor on screen: a month scrolls sideways, and a selection you
+     cannot see is worse than none. `nearest` is a no-op while it is visible,
+     so this does not fight a mouse drag. */
+  useEffect(() => {
+    if (!sel) return;
+    cellEl(sel.r1, sel.d1)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [sel]);
 
   useEffect(() => {
     function onUp(ev: MouseEvent) {
@@ -410,6 +448,17 @@ export default function HrAttendancePage() {
               {p.label.toLowerCase()}
             </span>
           ))}
+          {HALF_DAY.map((h) => (
+            <span key={h.code} className="mr-2 whitespace-nowrap">
+              <kbd className="rounded border border-b-2 px-1 py-0.5 font-mono text-[10px]">
+                ⇧{h.key.toUpperCase()}
+              </kbd>{" "}
+              {h.label.toLowerCase()}
+            </span>
+          ))}
+          <span className="mr-2 whitespace-nowrap">
+            <kbd className="rounded border border-b-2 px-1 py-0.5 font-mono text-[10px]">←↑↓→</kbd> move
+          </span>
           <span className="whitespace-nowrap">
             <kbd className="rounded border border-b-2 px-1 py-0.5 font-mono text-[10px]">⌫</kbd> clear
           </span>
@@ -417,7 +466,20 @@ export default function HrAttendancePage() {
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        {/* One focusable widget, not 700 focusable cells: Tab reaches the grid
+            once and a roving selection moves inside it, which is the standard
+            grid pattern and keeps the tab order short. Landing seeds a cursor
+            on today so the arrows do something immediately — an empty
+            selection would make the first keypress look broken. */}
+        <div
+          tabIndex={0}
+          onFocus={() => {
+            if (sel || !employees.length || !days.length) return;
+            const d = Math.max(0, days.indexOf(iso(new Date()) as CalendarDate));
+            setSel({ r0: 0, d0: d, r1: 0, d1: d });
+          }}
+          className="overflow-x-auto rounded-lg border bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
           {isLoading || loadingEmployees ? (
             <div className="flex items-center justify-center py-20 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
@@ -487,6 +549,8 @@ export default function HrAttendancePage() {
                         <td key={d} className="p-0 text-center">
                           <div
                             data-cell
+                            data-r={r}
+                            data-d={di}
                             onMouseDown={(ev) => {
                               if (outside) return;
                               ev.preventDefault();
@@ -609,7 +673,7 @@ export default function HrAttendancePage() {
           x={pop.x}
           y={pop.y}
           count={cellsInSel.length}
-          codes={codes.map((c) => c.code)}
+          codes={codes}
           onPick={(code) => void apply(code)}
           onClose={() => setPop(null)}
         />
@@ -656,7 +720,7 @@ export default function HrAttendancePage() {
 /* ------------------------------------------------------------- popover ---- */
 
 function CodePopover(props: {
-  x: number; y: number; count: number; codes: string[];
+  x: number; y: number; count: number; codes: { code: string; label: string }[];
   onPick: (code: string | null) => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -680,14 +744,15 @@ function CodePopover(props: {
     return () => document.removeEventListener("mousedown", onDown);
   }, [props]);
 
-  const others = props.codes.filter((c) => !PRIMARY.some((p) => p.code === c));
-  const left = Math.min(props.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 236);
+  const shown = new Set([...PRIMARY, ...HALF_DAY].map((p) => p.code));
+  const others = props.codes.filter((c) => !shown.has(c.code));
+  const left = Math.min(props.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 268);
 
   return (
     <div
       ref={ref}
       style={{ left, top: props.y + 8 }}
-      className="absolute z-50 w-56 rounded-lg border bg-popover p-2 shadow-lg"
+      className="absolute z-50 w-64 rounded-lg border bg-popover p-2 shadow-lg"
     >
       <p className="mb-1.5 px-1 font-mono text-[11px] text-muted-foreground">
         {props.count} day{props.count === 1 ? "" : "s"} selected
@@ -706,17 +771,42 @@ function CodePopover(props: {
           </button>
         ))}
       </div>
+      {/* Half days get a labelled row of their own. Left in the unlabelled
+          sixteen they sat beside SL-H — a FULL day at half pay — one character
+          away from SL-HD, which is half a day at full pay. */}
+      <div className="mt-1.5 grid grid-cols-2 gap-1 border-t pt-1.5">
+        {HALF_DAY.map((h) => (
+          <button
+            key={h.code}
+            onClick={() => props.onPick(h.code)}
+            title={`${h.code} \u2014 half a day, full pay`}
+            className="flex items-center gap-1.5 rounded-md border px-1.5 py-1.5 text-left text-[11px] hover:border-primary"
+          >
+            <span className={`rounded px-1 py-0.5 font-mono text-[9px] font-semibold ${CODE_STYLE[h.code]}`}>
+              \u00bd
+            </span>
+            {h.label}
+          </button>
+        ))}
+      </div>
       {others.length > 0 && (
         <div className="mt-1.5 border-t pt-1.5">
           {showAll ? (
-            <div className="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto">
+            /* One labelled row each, not a three-column grid of bare codes.
+               The label is the whole point: SL-H, SL-HD, SL-F and SL-U are
+               four different entitlements whose codes differ by a character. */
+            <div className="grid max-h-44 grid-cols-1 gap-1 overflow-y-auto">
               {others.map((c) => (
                 <button
-                  key={c}
-                  onClick={() => props.onPick(c)}
-                  className="rounded-md border px-1 py-1.5 font-mono text-[10px] hover:border-primary hover:text-primary"
+                  key={c.code}
+                  onClick={() => props.onPick(c.code)}
+                  title={c.label}
+                  className="flex items-center gap-2 rounded-md border px-1.5 py-1 text-left text-[10px] hover:border-primary"
                 >
-                  {c}
+                  <span className="w-10 shrink-0 font-mono text-[9px] font-semibold text-muted-foreground">
+                    {c.code}
+                  </span>
+                  <span className="truncate">{c.label}</span>
                 </button>
               ))}
             </div>
