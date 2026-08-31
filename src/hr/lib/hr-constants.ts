@@ -1,3 +1,5 @@
+import type { LeaveCategory } from "@prisma/client";
+
 /**
  * HR module constants. Client-safe: no `db`, no Node built-ins, so the settings
  * UI and the balance engine can share one definition rather than two that drift.
@@ -39,3 +41,27 @@ export const HR_DEFAULT_WEEKEND_DAYS: readonly number[] = [6, 0];
  * is a Prisma Decimal rather than a Float.
  */
 export const HR_DAY_DECIMALS = 1;
+
+/**
+ * Does a recorded RANGE cover calendar days, or only working days?
+ *
+ * Owner ruling, Aug 31 2026, taken from the workbook rather than from a
+ * principle: a holiday booked Monday the 6th to Friday the 17th costs TWELVE
+ * days, not ten. The weekend in the middle is charged, because the person was
+ * away. That is what the Excel did and what every imported balance was
+ * calculated from, so matching it keeps new records consistent with history
+ * instead of quietly cheaper.
+ *
+ * The scope is annual leave specifically, and the data is what decided that:
+ * of the imported rows, 86 of 419 ANNUAL days fall on a weekend, while only 2
+ * of 45 sick days do. So the Excel charged annual leave across a block and
+ * recorded sick leave on working days only. Applying the calendar rule to sick
+ * leave would have invented a policy nobody has.
+ *
+ * ON_DUTY and COMP_OFF are here for a different reason: those codes describe
+ * the DAY ITSELF rather than an absence from it, so a Saturday is exactly when
+ * they are meant to be recorded.
+ */
+export function rangeCoversCalendarDays(category: LeaveCategory): boolean {
+  return category === "ANNUAL" || category === "ON_DUTY" || category === "COMP_OFF";
+}

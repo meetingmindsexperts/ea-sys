@@ -24,7 +24,7 @@ import {
   isCalendarDate,
   toCalendarDate,
 } from "../lib/hr-date";
-import { HR_DEFAULT_WEEKEND_DAYS } from "../lib/hr-constants";
+import { HR_DEFAULT_WEEKEND_DAYS, rangeCoversCalendarDays } from "../lib/hr-constants";
 import { isWithinEmployment } from "../lib/hr-leave-year";
 
 export type AttendanceErrorCode =
@@ -128,7 +128,11 @@ export async function setAttendance(
   const weekendDays = input.weekendDays ?? HR_DEFAULT_WEEKEND_DAYS;
   let skipped: CalendarDate[] = [];
   let target = dates;
-  if (!input.includeNonWorkingDays) {
+  // Policy lives HERE, not at the call site, so every caller — the grid, MCP,
+  // an import — gets the same answer. The explicit flag stays as an override.
+  const coversCalendarDays =
+    input.includeNonWorkingDays ?? rangeCoversCalendarDays(leaveCode.countsAs);
+  if (!coversCalendarDays) {
     const holidays = new Set(
       (
         await db.publicHoliday.findMany({

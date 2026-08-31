@@ -20,6 +20,7 @@ import { effectiveStatusFor, ruleDerivedDays } from "@/hr/lib/hr-effective-statu
 import { computeLeaveBalance } from "@/hr/lib/leave-balance";
 import type { CalendarDate } from "@/hr/lib/hr-date";
 import type { LeaveCategory } from "@prisma/client";
+import { rangeCoversCalendarDays } from "@/hr/lib/hr-constants";
 
 const d = (s: string) => s as CalendarDate;
 
@@ -369,5 +370,58 @@ describe("the code popover keeps its own children", () => {
   it("still offers the secondary codes, inline", () => {
     expect(popover).toContain("Another code…");
     expect(popover).toContain("others.map");
+  });
+});
+
+/**
+ * How far a recorded RANGE reaches.
+ *
+ * Owner ruling, Aug 31 2026: a holiday booked Monday the 6th to Friday the 17th
+ * costs TWELVE days, not ten. Matching the workbook matters more than matching a
+ * principle here, because every imported balance was calculated its way — and
+ * the alternative is that new records are quietly cheaper than old ones, which
+ * is a discrepancy nobody would spot until a final settlement.
+ *
+ * The scope came from the data, not from the ruling: 86 of 419 imported ANNUAL
+ * days fall on a weekend, and only 2 of 45 sick days do. Extending the rule to
+ * sick leave would have invented a policy nobody has.
+ */
+describe("how far a range reaches", () => {
+  it("annual leave is charged across the weekend inside a block", () => {
+    expect(rangeCoversCalendarDays("ANNUAL")).toBe(true);
+  });
+
+  it("sick leave is NOT — the workbook recorded it on working days only", () => {
+    for (const category of ["SICK_FULL", "SICK_HALF", "SICK_UNPAID"] as const) {
+      expect(rangeCoversCalendarDays(category)).toBe(false);
+    }
+  });
+
+  it("on-duty and comp-off reach the weekend, because they describe the day itself", () => {
+    expect(rangeCoversCalendarDays("ON_DUTY")).toBe(true);
+    expect(rangeCoversCalendarDays("COMP_OFF")).toBe(true);
+  });
+
+  it("everything else stays working-days-only", () => {
+    for (const category of [
+      "MATERNITY", "PARENTAL", "BEREAVEMENT", "HAJJ", "STUDY",
+      "NATIONAL_SERVICE", "UNPAID", "ABSENT", "WORK", "REST", "PUBLIC_HOLIDAY",
+    ] as const) {
+      expect(rangeCoversCalendarDays(category)).toBe(false);
+    }
+  });
+
+  it("the service asks the policy instead of trusting the caller", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/hr/services/attendance-service.ts"),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    // The explicit flag may still override, but the DEFAULT must come from the
+    // leave code's category — otherwise the grid, MCP and the importer can each
+    // answer this differently, which is how the 86 weekend days got out of step
+    // in the first place.
+    expect(source).toContain("input.includeNonWorkingDays ?? rangeCoversCalendarDays(");
   });
 });

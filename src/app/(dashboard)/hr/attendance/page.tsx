@@ -219,9 +219,9 @@ export default function HrAttendancePage() {
             from: sorted[0],
             to: sorted[sorted.length - 1],
             code,
-            // OD and CO describe the day itself rather than an absence from it,
-            // so they are the codes that must be allowed to land on a weekend.
-            includeNonWorkingDays: code === "OD" || code === "CO",
+            // Deliberately NOT passed: whether a range covers calendar days or
+            // only working days is a policy, and it lives in the service so the
+            // grid, MCP and any import cannot answer it three different ways.
           });
           written += res.written;
           skipped += res.skipped.length;

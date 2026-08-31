@@ -25,21 +25,25 @@
 >
 > ### Open, in the order they will hurt
 >
-> 1. **The weekend annual-leave fork (needs an owner ruling, not code).** 86 of
->    419 imported AL days fall on a Saturday or Sunday, plus 4 on public
->    holidays, because the workbook charged a holiday block in **calendar** days.
->    The recording path refuses to and says so on screen. So the same two-week
->    holiday costs 12 days in the imported history and about 9 if recorded today,
->    and the common UAE reading counts the weekend inside an annual-leave block
->    as leave — which would make the app the deviation, quietly granting roughly
->    a fifth more annual leave than each imported balance assumes.
-> 2. **The year-end roll worker.** `planYearRoll` exists as a pure function; the
+> 1. **CLOSED, Aug 31 2026 (owner): annual leave is charged for every day in the
+>    block.** A holiday from Monday the 6th to Friday the 17th costs 12 days, not
+>    10. This matches the workbook, which is what every imported balance was
+>    calculated from, so a holiday recorded today costs the same as one recorded
+>    last year. The scope came from the data rather than the ruling: 86 of 419
+>    imported ANNUAL days fall on a weekend and only 2 of 45 sick days do, so the
+>    rule is annual-specific and sick leave stays working-days-only. Implemented
+>    as `rangeCoversCalendarDays()` in `hr-constants.ts`, resolved in the SERVICE
+>    so the grid, MCP and any importer cannot answer it three different ways.
+> 2. **A leaver's entitlement (OPEN).** Owner ruling Aug 31: a leaver gets
+>    nothing for their exit year, and Muthu must be able to override it by hand.
+>    Needs a per-employee entitlement field; not built yet.
+> 3. **The year-end roll worker.** `planYearRoll` exists as a pure function; the
 >    DB service and `worker/jobs/hr-year-roll.ts` do not. 1 January is a real
 >    deadline.
-> 3. **The privacy paragraph** in `docs/SECURITY_AND_PRIVACY_POSTURE.md` (§10
+> 4. **The privacy paragraph** in `docs/SECURITY_AND_PRIVACY_POSTURE.md` (§10
 >    here). That database now holds colleagues' sick-leave records while the
 >    document handed to a federal health authority describes it as event data.
-> 4. HR settings screens (holidays, leave codes), dashboard tiles, and the MCP
+> 5. HR settings screens (holidays, leave codes), dashboard tiles, and the MCP
 >    tools of §12. None is blocking.
 >
 > **Sequencing note.** `docs/PLATFORM_DECISIONS.md` §7 records per-tenant Stripe
