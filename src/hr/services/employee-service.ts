@@ -322,6 +322,12 @@ export interface UpdateEmployeeInput {
   organizationId: string;
   actorUserId: string;
   employeeId: string;
+  /**
+   * Stamped on the audit row. A workbook re-sync writes "import", and the
+   * next sync reads it back to tell its own earlier write from a person's
+   * decision, which it must never overwrite (scripts/hr-sync-plan.ts).
+   */
+  source?: "ui" | "mcp" | "import";
   patch: Partial<
     Pick<
       CreateEmployeeInput,
@@ -453,7 +459,7 @@ export async function updateEmployee(
             action: "UPDATE",
             entityType: "Employee",
             entityId: row.id,
-            changes: { changed },
+            changes: { changed, source: input.source ?? "ui" },
           },
         })
         .catch((err) => apiLogger.error({ msg: "hr-employee:audit-failed", err }));

@@ -719,10 +719,13 @@ person and HR data is about people.
 
 ## 13. Excel import, and the gate that makes it trustworthy
 
-`scripts/import-hr-excel.ts`, run once, against the v5.1 workbook. The workbook
-is a zip of XML, so it can be read with the standard library; no new dependency
-is needed, and reading the **formulas** rather than only the cached values is
-what produced §3.
+`scripts/import-hr-excel.ts`, run once against the v5.1 workbook to seed the
+org, and `--sync` for every workbook sent after it (§13.2). The workbook is a
+zip of XML, so it can be read with the standard library; no new dependency is
+needed, and reading the **formulas** rather than only the cached values is
+what produced §3. The reading itself lives in `scripts/hr-workbook.ts`, shared
+by the import, the sync and the gate, so there is one parse and one statement
+of what "agrees with the workbook" means.
 
 1. Employee Master into `Employee`, including joining, exit, carryover, opening
    sick used and opening comp-off. **Skip EMP024 and EMP025**, which are
@@ -791,6 +794,58 @@ different plausible bug:
 
 The importer needs an **explicit bypass** for §5.5's write-time window
 rejection, plus a pre-flight report of any row it would otherwise refuse.
+
+**A gate defect found by the second workbook (Aug 31, 2026).** Leave Summary D
+is `G + H`: the year's entitlement PLUS the carryover. The gate read its
+entitlement from D and then added the engine's own carried-in figure, so a
+carryover counted twice. Every H was 0 in the first workbook, which is why 22 of
+23 reconciled and nobody saw it; the second carried -10 and +3 and the gate
+reported both as engine variances. It now reads the entitlement from Employee
+Master G. The same workbook also had a Leave Summary cell typed over its formula
+(an entitlement of 0 where the formula gives 30), which the gate reports as
+**WORKBOOK**, the sheet disagreeing with itself, holds the engine to the formula,
+and never treats as a reason to refuse: the app was left alone, and a typed
+figure that is meant is recorded as an agreed entitlement on the person's page.
+
+### 13.2 Re-syncing a later workbook
+
+The workbook did not stop when the import ran. It keeps being re-sent with more
+data, on the same days people are recording in the app, so the two diverge in
+BOTH directions: the second workbook carried two carryovers, seven opening
+comp-offs and two removed leave days the app did not have, while the app held a
+carryover, three leaver statuses and full names the workbook did not. A second
+import is refused (it would create duplicate people), and applying the workbook
+blindly would have undone a person's work.
+
+    npx tsx scripts/import-hr-excel.ts --file <path> --org <id> --sync
+    npx tsx scripts/import-hr-excel.ts --file <path> --org <id> --sync --actor <email> --write
+
+The rule the sync exists for: **the app wins where a person edited it.** A
+field with an `Employee` audit row written after the import (either audit
+shape; a row the sync itself stamped `source: "import"` does not count) is a
+decision and is reported as a CONFLICT, never overwritten. A recorded day whose
+`source` is not `import` (the grid and the API write `ui`, and re-coding an
+import row flips it) is app-owned: absent from the workbook it is kept and
+listed as app-only; coded differently it is a conflict. Only rows the import
+wrote may be changed or removed. There is deliberately **no force flag**: the
+place to overrule a decision is the employee's page, by a person, and the
+dry run says exactly which decisions are in the way.
+
+Everything it does apply goes through the services the screens use
+(`updateEmployee`, `createEmployee`, `setAttendance`, `clearAttendance`), so the
+status/last-working-day pair, the stranded-entries refusal, the range budget and
+the audit trail all hold, and every write is attributed to the `--actor`. The
+gate still runs first and an UNEXPECTED variance still refuses the write. The
+planners are pure (`scripts/hr-sync-plan.ts`) and the two refusals are
+mutation-verified in `__tests__/hr/hr-sync-plan.test.ts`. Re-running the sync
+after a write converges to the conflicts alone, which is how the result is
+checked.
+
+On the box the workbook has to reach the worker container first:
+
+    scp <workbook> ubuntu@<box>:/home/ubuntu/hr.xlsx
+    docker cp /home/ubuntu/hr.xlsx ea-sys-worker:/tmp/hr.xlsx
+    docker exec ea-sys-worker npx tsx scripts/import-hr-excel.ts --file /tmp/hr.xlsx --org <id> --sync
 
 ## 14. Testing
 

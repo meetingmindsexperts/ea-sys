@@ -2714,6 +2714,13 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <p>Moving a joining date later, or a last working day earlier, is refused if days are
       already recorded outside the new dates. The message says how many and when. Clear or
       move those days first; nothing is ever hidden or deleted for you.</p>
+      <p><b>If a newer copy of the old Excel tracker arrives</b> after go-live, it is not
+      imported again; it is <em>synced</em>. The sync lists every difference first and writes
+      nothing until told to. It brings in what changed in the sheet, and it leaves alone
+      anything that was changed in the app since the import: a carryover you typed, a status
+      you set, a day you recorded on the grid. Those are listed as conflicts for you to look
+      at, and if the sheet is the one that is right, you change it on the person&rsquo;s page.
+      What was decided in the app is never overwritten by a spreadsheet.</p>
 
       <h3>Who can see this</h3>
       <p>Only an <b>HR</b> user, an admin, or a super-admin. An HR user sees nothing else in

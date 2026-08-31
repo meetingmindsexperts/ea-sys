@@ -183,7 +183,7 @@ describe("the write is org-bound in the WHERE (M6)", () => {
     // The audit is a diff of the read and the re-read: what changed, from
     // what, to what.
     const changes = mockDb.auditLog.create.mock.calls[0][0].data.changes;
-    expect(changes).toEqual({ changed: { name: { from: "Someone", to: "Renamed" } } });
+    expect(changes).toEqual({ changed: { name: { from: "Someone", to: "Renamed" } }, source: "ui" });
   });
 
   it("a write that matched no row in this org is NOT FOUND, not a silent success", async () => {
@@ -201,7 +201,7 @@ describe("the audit row is a field diff that never quotes free text (M7)", () =>
       .mockResolvedValueOnce(row({ notes: "Was off sick with a named condition." }));
     await updateEmployee({ ...base, patch: { notes: "Was off sick with a named condition." } });
     const audit = JSON.stringify(mockDb.auditLog.create.mock.calls[0][0].data.changes);
-    expect(JSON.parse(audit)).toEqual({ changed: { notes: "changed" } });
+    expect(JSON.parse(audit)).toEqual({ changed: { notes: "changed" }, source: "ui" });
     expect(audit).not.toContain("named condition");
     expect(audit).not.toContain("old");
   });
