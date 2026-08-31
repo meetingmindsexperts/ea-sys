@@ -28,7 +28,11 @@ async function validateToken(rawToken: string, clientIp: string) {
   }
 
   if (tokenRecord.expires < new Date()) {
-    await db.verificationToken.delete({ where: { token: hashedToken } }).catch(() => {});
+    await db.verificationToken.delete({ where: { token: hashedToken } }).catch((err) => {
+      // The expiry check remains authoritative; cleanup failure is operational
+      // debt and must be visible without exposing the token itself.
+      apiLogger.warn({ err, msg: "presenter-agreement:expired-token-cleanup-failed", identifier: tokenRecord.identifier });
+    });
     apiLogger.info({ msg: "Expired presenter agreement token accessed", identifier: tokenRecord.identifier, ip: clientIp });
     return { error: "This link has expired. Please contact the event organizer for a new link.", status: 400 as const };
   }
@@ -214,7 +218,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (speaker.presenterAgreementAcceptedAt) {
       // Idempotent — first acceptance wins; snapshot is NOT re-written, so the
       // accepted text stays locked even if the organizer edits it afterward.
-      await db.verificationToken.delete({ where: { token: hashedToken } }).catch(() => {});
+      await db.verificationToken.delete({ where: { token: hashedToken } }).catch((err) => {
+        apiLogger.warn({
+          err,
+          msg: "presenter-agreement:accepted-token-cleanup-failed",
+          speakerId: speaker.id,
+          eventId: speaker.event.id,
+        });
+      });
       apiLogger.info({
         msg: "Presenter agreement re-acceptance attempted (already accepted)",
         speakerId: speaker.id,

@@ -29,7 +29,11 @@ async function validateToken(rawToken: string, clientIp: string) {
   }
 
   if (tokenRecord.expires < new Date()) {
-    await db.verificationToken.delete({ where: { token: hashedToken } }).catch(() => {});
+    await db.verificationToken.delete({ where: { token: hashedToken } }).catch((err) => {
+      // The expiry check still refuses the link; log failed best-effort cleanup
+      // so an incident cannot accumulate stale public tokens silently.
+      apiLogger.warn({ err, msg: "speaker-agreement:expired-token-cleanup-failed", identifier: tokenRecord.identifier });
+    });
     apiLogger.info({ msg: "Expired speaker agreement token accessed", identifier: tokenRecord.identifier, ip: clientIp });
     return { error: "This link has expired. Please contact the event organizer for a new link.", status: 400 as const };
   }
@@ -233,7 +237,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       // {{agreementBlock}} sends) can leave valid siblings behind.
       await db.verificationToken
         .deleteMany({ where: { identifier: `${IDENTIFIER_PREFIX}${speaker.id}` } })
-        .catch(() => {});
+        .catch((err) => apiLogger.warn({
+          err,
+          msg: "speaker-agreement:accepted-token-cleanup-failed",
+          speakerId: speaker.id,
+          eventId: speaker.event.id,
+        }));
       apiLogger.info({
         msg: "Speaker agreement re-acceptance attempted (already accepted)",
         speakerId: speaker.id,

@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     if (vt.expires < new Date()) {
       await db.verificationToken
         .delete({ where: { identifier_token: { identifier, token: tokenHash } } })
-        .catch(() => {});
+        .catch((err) => apiLogger.warn({ err, msg: "verify-email:expired-token-cleanup-failed", email }));
       apiLogger.warn({ msg: "verify-email:token-expired", email });
       return NextResponse.json(
         { error: "This verification link has expired. Please request a new one." },
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     if (!user) {
       await db.verificationToken
         .delete({ where: { identifier_token: { identifier, token: tokenHash } } })
-        .catch(() => {});
+        .catch((err) => apiLogger.warn({ err, msg: "verify-email:orphaned-token-cleanup-failed", email }));
       apiLogger.warn({ msg: "verify-email:user-not-found", email });
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
     }

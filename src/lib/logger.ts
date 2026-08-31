@@ -99,6 +99,16 @@ function createDbLogStream(): Writable {
 
   const buffer: { level: string; module: string; message: string; timestamp: Date }[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Latch, so one outage produces one line rather than one per flush.
+   *
+   * This buffer drains every 2s or 20 entries, so an unlatched message would
+   * print continuously for the whole incident and bury the thing you are trying
+   * to read. Same reasoning as the analytics "no secret configured" alarm. It
+   * RESETS on the next successful write, so a second, later outage is reported
+   * again rather than swallowed by the first one's latch.
+   */
+  let persistenceBroken = false;
 
   async function flush() {
     flushTimer = null;
@@ -114,8 +124,22 @@ function createDbLogStream(): Writable {
           timestamp: e.timestamp,
         })),
       });
-    } catch {
-      // Silently fail — don't let log persistence break the app
+      persistenceBroken = false;
+    } catch (err) {
+      // stderr, NOT the pino logger. This IS a pino stream: logging through
+      // pino here would write back into the sink that just failed, fail again,
+      // and recurse. An observability failure must never take the app down, but
+      // it must not hide either.
+      //
+      // KNOWN LIMIT, so nobody mistakes this for full coverage: stderr reaches
+      // the container's stdout and therefore `docker logs`, but NOT
+      // logs/error.log, so not CloudWatch, and not SystemLog, so not /logs.
+      // When SystemLog is the thing that is broken, /logs is exactly where this
+      // cannot be reported.
+      if (!persistenceBroken) {
+        persistenceBroken = true;
+        console.error("[logger] SystemLog persistence failed; /logs will be incomplete until it recovers", err);
+      }
     }
   }
 
