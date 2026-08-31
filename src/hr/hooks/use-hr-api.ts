@@ -247,6 +247,13 @@ export interface HrEmployeeInput {
   openingSickUsed?: number;
   openingCompOff?: number;
   notes?: string | null;
+  /**
+   * Editable on the edit path, not on create: a new employee is Active by
+   * definition. Sent alongside `exitDate` so the two can be corrected together
+   * — an Active employee carrying a leaving date is the state that could not be
+   * fixed before, because neither field reached the update payload.
+   */
+  status?: "ACTIVE" | "RESIGNED" | "TERMINATED";
 }
 
 async function send<T>(url: string, method: string, body: unknown): Promise<T> {

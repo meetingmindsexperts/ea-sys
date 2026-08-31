@@ -67,7 +67,7 @@ export default function HrSummaryPage() {
   const awaitingFirstYear = rows.filter((r) => !r.balance.hasCompletedFirstYear).length;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">

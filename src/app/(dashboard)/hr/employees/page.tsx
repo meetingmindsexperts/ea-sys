@@ -37,7 +37,8 @@ import { Loader2, LogOut, Pencil, Plus, Users } from "lucide-react";
 
 const EMPTY = {
   empCode: "", name: "", department: "", jobTitle: "",
-  joiningDate: "", carryoverDays: "0", openingSickUsed: "0", openingCompOff: "0", notes: "",
+  joiningDate: "", exitDate: "", status: "ACTIVE" as "ACTIVE" | "RESIGNED" | "TERMINATED",
+  carryoverDays: "0", openingSickUsed: "0", openingCompOff: "0", notes: "",
 };
 
 export default function HrEmployeesPage() {
@@ -65,6 +66,8 @@ export default function HrEmployeesPage() {
       department: e.department ?? "",
       jobTitle: e.jobTitle ?? "",
       joiningDate: e.joiningDate,
+      exitDate: e.exitDate ?? "",
+      status: e.status as "ACTIVE" | "RESIGNED" | "TERMINATED",
       carryoverDays: String(e.carryoverDays),
       openingSickUsed: String(e.openingSickUsed),
       openingCompOff: String(e.openingCompOff),
@@ -96,7 +99,16 @@ export default function HrEmployeesPage() {
         // every report join on, and renaming it silently orphans that history.
         const { empCode: _unused, ...patch } = payload;
         void _unused;
-        await update.mutateAsync({ id: editing.id, ...patch });
+        await update.mutateAsync({
+          id: editing.id,
+          ...patch,
+          // Empty means "still employed" and must CLEAR the stored date, so it
+          // is sent as an explicit null rather than omitted. Omitting it is how
+          // an employee ends up Active with a leaving date still on file — the
+          // exact state that could not be corrected before.
+          exitDate: form.exitDate || null,
+          status: form.status,
+        });
         toast.success("Employee updated.");
       } else {
         await create.mutateAsync(payload);
@@ -132,7 +144,7 @@ export default function HrEmployeesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -145,12 +157,11 @@ export default function HrEmployeesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
-          <Button asChild variant="secondary"><Link href="/hr/attendance">Attendance</Link></Button>
           <Button variant="ghost" onClick={() => setIncludeExited((v) => !v)}>
             {includeExited ? "Active only" : "Include leavers"}
           </Button>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
+          <Button asChild variant="secondary"><Link href="/hr/attendance">Attendance</Link></Button>
           <Button onClick={openAdd}><Plus className="h-4 w-4" />Add employee</Button>
         </div>
       </div>
@@ -168,6 +179,7 @@ export default function HrEmployeesPage() {
                 <th className="px-3 py-2 text-left font-medium">Name</th>
                 <th className="px-3 py-2 text-left font-medium">Department</th>
                 <th className="px-3 py-2 text-left font-medium">Joined</th>
+                <th className="px-3 py-2 text-left font-medium">Left</th>
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Carried in</th>
                 <th className="px-3 py-2 text-right font-medium"></th>
@@ -183,13 +195,15 @@ export default function HrEmployeesPage() {
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{e.department ?? "—"}</td>
                   <td className="px-3 py-2 tabular-nums">{e.joiningDate}</td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                    {e.exitDate ?? "—"}
+                  </td>
                   <td className="px-3 py-2">
                     {e.status === "ACTIVE" ? (
                       <Badge variant="secondary">Active</Badge>
                     ) : (
                       <Badge variant="outline" className="text-muted-foreground">
                         {e.status === "RESIGNED" ? "Resigned" : "Terminated"}
-                        {e.exitDate ? ` · ${e.exitDate}` : ""}
                       </Badge>
                     )}
                   </td>
@@ -218,7 +232,7 @@ export default function HrEmployeesPage() {
               ))}
               {employees.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">
                     No employees yet. Add one, or run the workbook import.
                   </td>
                 </tr>
@@ -269,6 +283,41 @@ export default function HrEmployeesPage() {
               <Label className="text-xs">Joining date *</Label>
               <Input type="date" value={form.joiningDate} onChange={(e) => setForm((f) => ({ ...f, joiningDate: e.target.value }))} />
             </div>
+            {editing && (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">Last working day</Label>
+                  <Input
+                    type="date"
+                    value={form.exitDate}
+                    min={form.joiningDate || undefined}
+                    onChange={(e) => setForm((f) => ({ ...f, exitDate: e.target.value }))}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Leave empty if they are still employed. Clearing it is how a leaver
+                    recorded by mistake is put back &mdash; set the status to Active as well.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Status</Label>
+                  <Select
+                    value={form.status}
+                    onValueChange={(v) => setForm((f) => ({ ...f, status: v as typeof f.status }))}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="RESIGNED">Resigned</SelectItem>
+                      <SelectItem value="TERMINATED">Terminated</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    A last working day in the future with the status still Active is a
+                    person serving notice, which is a real state and is left alone.
+                  </p>
+                </div>
+              </>
+            )}
             <div className="space-y-1">
               <Label className="text-xs">Carried-in annual days</Label>
               <Input type="number" step="0.5" value={form.carryoverDays} onChange={(e) => setForm((f) => ({ ...f, carryoverDays: e.target.value }))} />
