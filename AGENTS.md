@@ -94,6 +94,10 @@ No silent `400/403/404/409/429/500`. Every `safeParse` → 400 logs its field er
 **Do not downgrade `error` → `warn` to reduce alert noise** — over-alerting is the owner's explicit
 preference. Surface it and ask instead.
 
+The empty-catch half is now enforced, not just stated: `scripts/check-no-silent-server-catches.sh`
+gates it in CI. Its allow-list carries a reason **per entry**, because one blanket justification
+stops being true the moment a second entry is added.
+
 ### 3. Guard clauses, not nested ifs
 Flatten `if (cond) { …body… }` into `if (!cond) return; …body…` so the happy path reads un-indented.
 Keep to ~one level of nesting; extract a growing branch into its own function. JSX ternaries are exempt.

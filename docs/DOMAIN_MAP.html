@@ -89,7 +89,7 @@
 
 <header>
   <h1>EA-SYS Domain Map</h1>
-  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes) the <strong>worker/job branch Aug 10, 2026</strong> (leases replaced advisory locks — see <a href="BACKGROUND_JOBS.md">BACKGROUND_JOBS.md</a>) the <strong>roles/visibility rows Aug 10, 2026</strong> (WEBINARS desk surface org-wide; <code>accessUserFrom</code>) and the <strong>registrations branch Aug 14, 2026</strong> (per-type supporting documents + the new <code>canViewSupportingDocument</code> boundary; note MEMBER is INTERNAL STAFF and ONSITE is temp/contractor, corrected the same day); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes) the <strong>worker/job branch Aug 10, 2026</strong> (leases replaced advisory locks — see <a href="BACKGROUND_JOBS.md">BACKGROUND_JOBS.md</a>) the <strong>roles/visibility rows Aug 10, 2026</strong> (WEBINARS desk surface org-wide; <code>accessUserFrom</code>) the <strong>HR branch added Aug 31, 2026</strong> (new domain 13: exception-based attendance, standing rules, the one-place precedence chain) and the <strong>registrations branch Aug 14, 2026</strong> (per-type supporting documents + the new <code>canViewSupportingDocument</code> boundary; note MEMBER is INTERNAL STAFF and ONSITE is temp/contractor, corrected the same day); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
 </header>
 
 <div class="note">
@@ -166,7 +166,7 @@
 <!-- ================= THE 11 DOMAINS ================= -->
 <div class="tree">
 <details class="group" open>
-<summary>The 12 active domains</summary>
+<summary>The 13 active domains</summary>
 <div class="kids">
 
 <!-- 1. REGISTRATIONS + SPEAKERS -->
@@ -510,6 +510,43 @@
 </div></details>
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
 <div class="leaf"><b class="k">Report</b> no standalone; the upload-hardening class (path traversal / cross-tenant upload) was closed in the certificates review (B1/H7 class)</div>
+</div></details>
+</div>
+</details>
+
+<!-- 13. HR -->
+<details class="domain">
+<summary><span class="num">13</span> HR &mdash; Attendance &amp; Leave <span class="chip">master silo only</span> <span class="chip">live aug 31</span>
+<span class="oneliner">Replaces the UAE Excel leave tracker. Exception-based: an ordinary working day has NO row. Confined <code>HR_USER</code> role; flagged by <code>HR_MODULE_ENABLED</code>.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>(dashboard)/hr/</code> — leave summary · attendance grid (drag-select, keyboard codes) · employees</div>
+<div class="leaf"><b class="k">REST</b> <code>api/hr/*</code> — employees · attendance · <b>attendance-rules</b> · balances · summary · leave-codes · holidays</div>
+<div class="leaf"><b class="k">MCP</b> none yet (plan §12, not blocking)</div>
+<div class="leaf"><b class="k">Worker</b> none yet — <b>the year-end roll is the open one</b>; <code>planYearRoll</code> is pure and written, the job is not</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>hr/lib/leave-balance.ts</code> — <b>THE balance engine.</b> Pure, one implementation, every surface calls it. Two of them would disagree and the disagreement is a payroll figure</div>
+<div class="leaf"><code>hr/lib/hr-effective-status.ts</code> — <b>precedence lives here and only here</b>: not-employed → explicit entry → public holiday → weekend → <b>standing rule</b> → assumed P. Also <code>ruleDerivedDays</code>, which is what makes a rule reach the balance</div>
+<div class="leaf"><code>hr/lib/attendance-rules.ts</code> — <code>ruleFor()</code> (EMPLOYEE beats ORG; later start wins; sorts internally so the answer never depends on caller order) · <code>candidateDates()</code></div>
+<div class="leaf"><code>hr/lib/hr-date.ts</code> — <code>CalendarDate</code> is a <b>YYYY-MM-DD string</b>, never a <code>Date</code>: <code>getDay()</code> answers in the reader's timezone</div>
+<div class="leaf"><code>hr/lib/hr-comp-off.ts</code> · <code>hr-leave-year.ts</code> · <code>hr-roles.ts</code> · <code>lib/module-flags.ts</code></div>
+<div class="leaf"><code>hr/services/</code> — employee · attendance · <b>attendance-rule</b> · leave-balance</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Employee</code> · <code>LeaveCode</code> · <code>AttendanceEntry</code> (<code>@@unique([organizationId, employeeId, date])</code>) · <code>AttendanceRule</code> · <code>LeaveGrant</code> · <code>PublicHoliday</code>. All <code>@db.Date</code>, all org-stamped, all with RLS policies</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha"><b>A rule stores NO days.</b> Creating one writes nothing per person; deleting one removes nothing. The days it covers were never rows. That is what makes it reversible and the hard delete safe</div>
+<div class="gotcha"><b>A rule can carry any leave code</b>, so a company-wide shutdown booked as AL must reach payroll. Both balance paths expand rules; the adoption is pinned at SOURCE level because skipping it fails silently</div>
+<div class="gotcha"><b>A weekend beats a rule.</b> Only an explicit OD turns a Saturday into a working day</div>
+<div class="gotcha"><b><code>-HD</code> means half DAY; <code>SL-H</code> means half PAY.</b> One character apart, different things. Never abbreviate either further</div>
+<div class="gotcha"><b>The workbook is the business-logic reference.</b> Where the plan and the workbook disagree, the workbook wins</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf">Plan of record + the standing-rule redesign: <code>docs/HR_MODULE_PLAN.md</code> (§17)</div>
+<div class="leaf"><b>OPEN, needs an owner ruling:</b> 86 of 419 imported AL days sit on a weekend because the workbook charged calendar days and the app charges working days. Same holiday, 12 days in the history vs ~9 today</div>
+<div class="leaf"><b>OPEN:</b> year-end roll worker · settings screens · MCP tools · the privacy paragraph in <code>SECURITY_AND_PRIVACY_POSTURE.md</code></div>
 </div></details>
 </div>
 </details>

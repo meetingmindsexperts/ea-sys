@@ -1,34 +1,50 @@
 # HR Module: Attendance & Leave Tracker (UAE)
 
-> **Status: IN BUILD, step 1 of 7 complete (August 27, 2026).** This file is the
-> plan of record; the source it was written from is the
+> **Status: LIVE on the master silo (August 31, 2026).** `HR_MODULE_ENABLED` is
+> set on production, which holds **23 employees and 943 attendance entries**
+> imported from the workbook. All seven build steps shipped, plus one
+> post-launch redesign of the recording model that this plan did not anticipate
+> (§17).
+>
+> This file is the plan of record; the source it was written from is the
 > validated Excel tracker `UAE_Employee_Attendance_Leave_Tracker_2026` (v5.1),
-> which is the business-logic reference. Where this document and the workbook
-> disagree, the workbook wins and this document is wrong.
+> which remains the business-logic reference. Where this document and the
+> workbook disagree, the workbook wins and this document is wrong.
 >
-> **D1 and D2 are CLOSED** (owner rulings, Aug 27) and **§3 now records what the
-> workbook actually does, read from its formulas rather than its numbers.** That
-> reading overturned a premise: the leave year is the **calendar year**, not the
-> service year, so the anniversary-lump model in the first draft was wrong and
-> §5.1 is rewritten. It also found a live defect in the workbook: one employee
-> holds a comp-off that the owner's own rule does not award (§3.2).
->
-> **All rules are now CLOSED** (§3.3, §3.4): a negative balance carries into the
-> new year, positive carryover is capped at 30 days, and days stay derived with
+> **All rules are CLOSED.** §3 records what the workbook actually does, read
+> from its formulas rather than its numbers. That reading overturned a premise:
+> the leave year is the **calendar year**, not the service year, so the
+> anniversary-lump model in the first draft was wrong and §5.1 is rewritten. It
+> also found a live defect in the workbook: one employee holds a comp-off the
+> owner's own rule does not award (§3.2). A negative balance carries into the new
+> year, positive carryover is capped at 30 days, and days stay derived with
 > month-finalisation deferred as a purely additive follow-on.
 >
-> **Steps 1 and 2 are BUILT.** Step 1: schema, two additive migrations, five RLS
-> policies, the availability gate, the import boundary, the seed catalogue.
-> Step 2: the pure balance engine, tested against the §13.1 baseline, with five
-> guards mutation-verified. Step 3, the DB-backed services and REST routes, is
-> next.
+> **The import reconciled 22 of 23 employees to the digit** against the
+> workbook's own Leave Summary, with the single predicted comp-off variance.
 >
-> **Nothing is reachable yet**: no routes exist and `HR_MODULE_ENABLED` is unset.
+> ### Open, in the order they will hurt
+>
+> 1. **The weekend annual-leave fork (needs an owner ruling, not code).** 86 of
+>    419 imported AL days fall on a Saturday or Sunday, plus 4 on public
+>    holidays, because the workbook charged a holiday block in **calendar** days.
+>    The recording path refuses to and says so on screen. So the same two-week
+>    holiday costs 12 days in the imported history and about 9 if recorded today,
+>    and the common UAE reading counts the weekend inside an annual-leave block
+>    as leave — which would make the app the deviation, quietly granting roughly
+>    a fifth more annual leave than each imported balance assumes.
+> 2. **The year-end roll worker.** `planYearRoll` exists as a pure function; the
+>    DB service and `worker/jobs/hr-year-roll.ts` do not. 1 January is a real
+>    deadline.
+> 3. **The privacy paragraph** in `docs/SECURITY_AND_PRIVACY_POSTURE.md` (§10
+>    here). That database now holds colleagues' sick-leave records while the
+>    document handed to a federal health authority describes it as event data.
+> 4. HR settings screens (holidays, leave codes), dashboard tiles, and the MCP
+>    tools of §12. None is blocking.
 >
 > **Sequencing note.** `docs/PLATFORM_DECISIONS.md` §7 records per-tenant Stripe
-> and AI keys as the next build priority. The CRM, which is the closest
-> comparable in scope, took roughly a month. Building HR first reorders that,
-> and that is an owner decision, recorded here so nobody later assumes it was an
+> and AI keys as the next build priority. Building HR first reordered that, and
+> that is an owner decision, recorded here so nobody later assumes it was an
 > oversight.
 
 ---
@@ -769,3 +785,101 @@ Payroll integration, WPS files, gratuity calculation (balances feed it, the
 calculation itself is a separate piece of work), employee self-service portal,
 biometric device ingestion, and a leave request and approval workflow. HR enters
 attendance directly, exactly as today.
+
+---
+
+## 17. Standing rules: the redesign this plan did not anticipate (August 31, 2026)
+
+The plan assumed one recording primitive, an `AttendanceEntry` per person per
+day. That shipped, and the owner reported it as "a nightmare". **The data said
+the form was not the problem.**
+
+### 17.1 The measurement
+
+Of the 386 work-from-home days imported from the workbook:
+
+| shape | days | what it actually is |
+| --- | ---: | --- |
+| Twelve company-wide dates | 252 | 20 to 22 people all remote together: Ramadan Fridays, the full week 2–6 March, and 24–27 March after Eid |
+| One permanently remote employee | 120 | spread evenly across every weekday, all year |
+| Genuinely ad hoc | 14 | five people, scattered |
+
+**386 rows were holding 27 facts.** March alone is 243 rows for what is 3
+company days, 1 standing arrangement and 12 individual entries. The other 359
+existed only because the schema had no way to say *"the company"* or
+*"always"* — so every company decision was retyped once per person.
+
+Annual leave, by contrast, was already well served: 34 recordings produced 419
+days at an average block of 12.3. The range form was right for it all along.
+**The entire complaint was WFH, and 97% of WFH volume was two missing concepts.**
+
+### 17.2 `AttendanceRule`
+
+Scope `ORG` or `EMPLOYEE`, a date range (`endDate` null means open-ended), a
+leave code, and the organiser's own words for why. Migration
+`20260831120000_add_attendance_rule`, additive and DO-guarded; RLS policy in
+`prisma/rls/attendancerule.sql`; five harness assertions.
+
+**It stores no days.** Creating a rule writes nothing per person and removing
+one deletes nothing, because the days it covers were never rows — they are
+derived at read time. That is what makes a rule reversible, and it is why the
+delete is safe as a hard delete: nothing an operator typed can be lost, because
+a rule is not a record of what somebody typed.
+
+### 17.3 Precedence, which lives in exactly one place
+
+`src/hr/lib/hr-effective-status.ts`, extended from §4:
+
+1. Outside the employment window → `NOT_EMPLOYED`
+2. An explicit `AttendanceEntry` → that entry
+3. A public holiday → `PH`
+4. A weekend → `OFF`. **A rule must never turn a Saturday into a working day**;
+   only an explicit entry (an OD) can do that.
+5. A standing rule → its code. `EMPLOYEE` beats `ORG`, because the narrower
+   statement is the more specific one; within a scope the later start date wins,
+   with the id as a stable tiebreak.
+6. Otherwise → assumed `P`
+
+`ruleFor` sorts internally rather than trusting the caller's ordering: a pure
+function whose answer depends on the order it was handed is not pure enough to
+trust with a payroll number.
+
+### 17.4 The half that costs money
+
+A rule can carry **any** leave code, so a company-wide shutdown booked as `AL`
+has to reach the balance engine. Both paths — one employee, and the org summary
+— expand rules through `ruleDerivedDays`, bounded by `candidateDates` rather
+than by the employment window (walking every day since 2010 for a long-serving
+employee is ~5,800 iterations per person, and a day no rule covers cannot be
+changed by one).
+
+Skipping this would let ONE record hand twenty-three people free annual leave
+with nothing on screen to show it. Because that failure is silent, the adoption
+is asserted at **source level in both places** and mutation-verified: dropping it
+from the summary path alone fails the guard while every other test stays green.
+This is the "a guard that exists but is never called" lesson applied in advance.
+
+### 17.5 The grid became the input
+
+Drag across cells and press a key. The five codes that are 99.3% of every entry
+(`AL`, `WFH`, `SL-F`, `OD`, `CO`) carry shortcuts; the other sixteen sit behind
+an inline "Another code" list. The grid now imports the shared resolver instead
+of the second copy of the precedence its own header had already worried about.
+
+**A bug worth keeping for its shape.** The secondary codes were first a Radix
+`Select`, and picking one silently did nothing — not for one code, for all
+sixteen. Radix renders the list in a **portal**, so an option is not a DOM
+descendant of the popover; the click-away handler read the click as "outside",
+unmounted the popover and took the `Select` with it before `onValueChange` could
+fire. Popover closed, no toast, no error, **zero network requests**. Generalise
+it: **a portal breaks every "is this click inside me?" check**, and *zero*
+requests is what distinguishes "the handler never ran" from "it ran and failed".
+The guard is structural — that popover may contain no `Select`, `Popover`,
+`Dialog`, `DropdownMenu`, `Tooltip` or `createPortal`.
+
+### 17.6 Deliberately not built
+
+**A weekday filter ("every Friday").** The imported data refuses it: individual
+non-company WFH is spread evenly across all five weekdays, and a contiguous
+range covers every real case in the file. It is an additive column the day that
+stops being true.

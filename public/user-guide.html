@@ -323,6 +323,11 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <div class="nav-lbl">Reference</div>
     <a class="nav-a" href="#s16"><span class="nav-n">16</span>Editing Conflicts</a>
     <a class="nav-a" href="#s17"><span class="nav-n">17</span>Known Limitations</a>
+    <a class="nav-a" href="#s18"><span class="nav-n">18</span>Certificates</a>
+    <a class="nav-a" href="#s19"><span class="nav-n">19</span>CRM &mdash; Sales Pipeline</a>
+    <a class="nav-a" href="#s20"><span class="nav-n">20</span>Where is my email?</a>
+    <div class="nav-lbl">Internal</div>
+    <a class="nav-a" href="#s21"><span class="nav-n">21</span>HR &mdash; Attendance &amp; Leave</a>
     <a class="nav-a" href="#img-ref"><span class="nav-n">&#x1F5BC;</span>Screenshot Index</a>
     <a class="nav-a" href="#platform-scale"><span class="nav-n">&#9881;</span>Platform Scale</a>
   </nav>
@@ -2568,6 +2573,88 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>The two causes that actually occur are the account&rsquo;s AWS credentials being rejected, and the daily send quota being exhausted by a very large blast. Neither is fixable from the dashboard &mdash; send the log line to whoever runs the infrastructure and they have a runbook for it.</p>
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Nothing is lost while mail is down</div><div class="c-text">Queued sends keep retrying, and every attempt &mdash; including the failures &mdash; is recorded against the person on their <strong>Email History</strong>. Once sending is restored you can see exactly who did and did not receive each message, so nobody gets silently skipped and nobody needs a blind re-send to everyone.</div></div></div>
       </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- HR -->
+    <div class="section" id="s21">
+      <div class="sec-hd"><div class="sec-num">21</div><div class="sec-meta">
+        <div class="sec-title">HR &mdash; Attendance &amp; Leave</div>
+        <div class="sec-desc">Recording who was in, who was on leave, and what everyone has left.</div>
+        <span class="sec-badge b-ops">Internal</span>
+      </div></div>
+
+      <p>This replaces the Excel attendance tracker. It is <b>internal staff only</b> and does
+      not appear for anyone outside the HR role, an admin, or a super-admin. Find it at
+      <b>HR</b> in the sidebar.</p>
+
+      <h3>The idea that makes it quick</h3>
+      <p><b>You only record the exceptions.</b> An ordinary working day has no record at all
+      &mdash; the grid works it out. Faint cells were worked out; solid cells are things
+      somebody typed. That is why a whole year for twenty-three people is a few hundred
+      records rather than nine thousand.</p>
+
+      <h3>Recording a day, or a block of days</h3>
+      <ol>
+        <li>Go to <b>HR &rsaquo; Attendance</b> and pick the month with the arrows.</li>
+        <li><b>Drag across the cells</b> you want &mdash; across days, across people, or both.</li>
+        <li>Press a key, or pick from the box that appears:
+          <b>A</b> annual leave &middot; <b>W</b> from home &middot; <b>S</b> sick &middot;
+          <b>O</b> on duty &middot; <b>C</b> comp-off. Everything else is behind
+          &ldquo;Another code&rdquo;.</li>
+      </ol>
+      <p>Press <b>Backspace</b>, or use <b>Clear these days</b>, to remove a record. Clearing is
+      not the same as marking somebody Present: clearing means &ldquo;there is nothing to say
+      about this day&rdquo;, and the grid goes back to working it out. An explicit
+      <b>P</b> means &ldquo;I checked, they were here&rdquo;.</p>
+
+      <div class="callout">
+        <b>A range covers working days only.</b> Twelve calendar days of annual leave is not
+        charged as twelve days &mdash; weekends and public holidays inside the block are
+        skipped. On-duty and comp-off are the exceptions, because those codes describe the
+        day itself rather than an absence from it.
+      </div>
+
+      <h3>When the whole company is out: use a Company day</h3>
+      <p>If everyone is working from home for a week, or the office is closed, do <b>not</b>
+      record it person by person. Click <b>Company day</b>, give the dates and a reason, and
+      one record covers everybody employed on those dates.</p>
+      <p>Anything already recorded for a person still wins, so somebody on annual leave that
+      week stays on annual leave. Weekends and public holidays inside the range are left
+      alone. Removing the rule later puts every day back exactly as it was, because nothing
+      was written per person.</p>
+
+      <h3>When one person is permanently different: use a Standing arrangement</h3>
+      <p>For somebody who always works remotely, click <b>Standing arrangement</b>, pick the
+      person, and leave &ldquo;Until&rdquo; empty. It fills every working day until you end
+      it. One record instead of roughly two hundred and forty a year.</p>
+
+      <div class="callout">
+        <b>How to tell where a cell came from.</b> A small dot in the corner means a rule put
+        it there. No dot and faint means nobody wrote anything down. Solid means somebody
+        recorded it for that person on that day. Hovering any cell tells you which.
+      </div>
+
+      <h3>Leave balances</h3>
+      <p><b>HR &rsaquo; Leave summary</b> shows everyone's annual leave, sick-leave tiers and
+      comp-off. Entitlement is 30 days a calendar year, and it starts once someone has
+      completed their first year. Unused days carry into the new year up to a maximum of 30;
+      a negative balance carries over in full and is not written off.</p>
+      <p>Sick leave follows UAE law: the first 15 days at full pay, the next 30 at half pay,
+      then 45 unpaid. Comp-off is earned by working <b>both</b> days of the same weekend.</p>
+
+      <div class="callout">
+        <b>Adding people.</b> <b>HR &rsaquo; Employees</b>. Joining date matters: nothing can be
+        recorded before it, and leave entitlement is measured from it. When somebody leaves,
+        set their exit date rather than deleting them &mdash; the record of what they took
+        has to survive.
+      </div>
+
+      <h3>Who can see this</h3>
+      <p>Only an <b>HR</b> user, an admin, or a super-admin. An HR user sees nothing else in
+      the system: no events, no registrations, no invoices. Sick-leave records are personal
+      data about colleagues; treat exports the same way you would treat a payslip.</p>
     </div>
 
     <div class="divider"></div>
