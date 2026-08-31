@@ -2625,9 +2625,11 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       record it person by person. Click <b>Company day</b>, give the dates and a reason, and
       one record covers everybody employed on those dates.</p>
       <p>Anything already recorded for a person still wins, so somebody on annual leave that
-      week stays on annual leave. Weekends and public holidays inside the range are left
-      alone. Removing the rule later puts every day back exactly as it was, because nothing
-      was written per person.</p>
+      week stays on annual leave. For a working code such as WFH, weekends and public holidays
+      inside the range are left alone. For annual leave, on-duty and comp-off the rule covers
+      every day in the range, exactly as the same block recorded on the grid would, so a
+      company shutdown costs the same however it was recorded. Removing the rule later puts
+      every day back exactly as it was, because nothing was written per person.</p>
 
       <h3>When one person is permanently different: use a Standing arrangement</h3>
       <p>For somebody who always works remotely, click <b>Standing arrangement</b>, pick the
@@ -2645,6 +2647,12 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       comp-off. Entitlement is 30 days a calendar year, and it starts once someone has
       completed their first year. Unused days carry into the new year up to a maximum of 30;
       a negative balance carries over in full and is not written off.</p>
+      <p>The carry-over is worked out automatically every night through January, so a
+      December leave day entered on 5 January corrects it by itself. If a correction is made
+      later in the year, <b>Re-run carry-over</b> on the Leave summary recomputes it; it is
+      safe to press twice. The figures typed in when the module went live (carried-in days,
+      opening sick days) belong to that first year only; every later year carries in what
+      the previous year closed at.</p>
 
       <div class="callout">
         <b>When a different figure has been agreed.</b> A leaver's final year is usually

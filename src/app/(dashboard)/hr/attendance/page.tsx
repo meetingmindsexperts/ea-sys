@@ -35,6 +35,7 @@ import {
   type HrAttendanceRule,
   type HrEmployee,
 } from "@/hr/hooks/use-hr-api";
+import type { LeaveCategory } from "@prisma/client";
 import { effectiveStatusFor } from "@/hr/lib/hr-effective-status";
 import type { AttendanceRuleLike } from "@/hr/lib/attendance-rules";
 import type { CalendarDate } from "@/hr/lib/hr-date";
@@ -122,6 +123,10 @@ export default function HrAttendancePage() {
   const [companyOpen, setCompanyOpen] = useState(false);
   const [standingOpen, setStandingOpen] = useState(false);
   const dragging = useRef(false);
+  /* Set synchronously for the whole of one apply(), so a second keypress or a
+     double-click on the popover cannot start a second run over the same cells
+     while the first is still writing. `isPending` flips too late for that. */
+  const applying = useRef(false);
   const busy = setAttendance.isPending || clearAttendance.isPending;
 
   /* ---------------------------------------------------------- derivation */
@@ -149,6 +154,11 @@ export default function HrAttendancePage() {
         scope: r.scope,
         employeeId: r.employeeId,
         code: r.code,
+        // The category decides whether the rule reaches the weekend (annual
+        // leave, on-duty, comp-off) or stops at working days; without it the
+        // grid would draw an AL shutdown one way and the balance charge it
+        // another.
+        category: r.category as LeaveCategory,
         startDate: r.startDate as CalendarDate,
         endDate: (r.endDate ?? null) as CalendarDate | null,
       })),
@@ -201,52 +211,57 @@ export default function HrAttendancePage() {
    * would be "some of it worked", which is worse than being slightly chattier.
    */
   async function apply(code: string | null) {
-    if (!cellsInSel.length) return;
-    const byEmployee = new Map<string, CalendarDate[]>();
-    for (const c of cellsInSel) {
-      const list = byEmployee.get(c.employee.id) ?? [];
-      list.push(c.date);
-      byEmployee.set(c.employee.id, list);
-    }
-    setPop(null);
-    let written = 0, skipped = 0, failed = 0;
-    for (const [employeeId, dates] of byEmployee) {
-      const sorted = [...dates].sort();
-      try {
-        if (code) {
-          const res = await setAttendance.mutateAsync({
-            employeeId,
-            from: sorted[0],
-            to: sorted[sorted.length - 1],
-            code,
-            // Deliberately NOT passed: whether a range covers calendar days or
-            // only working days is a policy, and it lives in the service so the
-            // grid, MCP and any import cannot answer it three different ways.
-          });
-          written += res.written;
-          skipped += res.skipped.length;
-        } else {
-          const res = await clearAttendance.mutateAsync({
-            employeeId,
-            from: sorted[0],
-            to: sorted[sorted.length - 1],
-          });
-          written += res.removed;
-        }
-      } catch (err) {
-        failed++;
-        toast.error((err as Error).message);
+    if (!cellsInSel.length || applying.current) return;
+    applying.current = true;
+    try {
+      const byEmployee = new Map<string, CalendarDate[]>();
+      for (const c of cellsInSel) {
+        const list = byEmployee.get(c.employee.id) ?? [];
+        list.push(c.date);
+        byEmployee.set(c.employee.id, list);
       }
+      setPop(null);
+      let written = 0, skipped = 0, failed = 0;
+      for (const [employeeId, dates] of byEmployee) {
+        const sorted = [...dates].sort();
+        try {
+          if (code) {
+            const res = await setAttendance.mutateAsync({
+              employeeId,
+              from: sorted[0],
+              to: sorted[sorted.length - 1],
+              code,
+              // Deliberately NOT passed: whether a range covers calendar days or
+              // only working days is a policy, and it lives in the service so the
+              // grid, MCP and any import cannot answer it three different ways.
+            });
+            written += res.written;
+            skipped += res.skipped.length;
+          } else {
+            const res = await clearAttendance.mutateAsync({
+              employeeId,
+              from: sorted[0],
+              to: sorted[sorted.length - 1],
+            });
+            written += res.removed;
+          }
+        } catch (err) {
+          failed++;
+          toast.error((err as Error).message);
+        }
+      }
+      if (failed === 0) {
+        toast.success(
+          code
+            ? `${written} day${written === 1 ? "" : "s"} set to ${code}` +
+                (skipped ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped` : "")
+            : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
+        );
+      }
+      setSel(null);
+    } finally {
+      applying.current = false;
     }
-    if (failed === 0) {
-      toast.success(
-        code
-          ? `${written} day${written === 1 ? "" : "s"} set to ${code}` +
-              (skipped ? `, ${skipped} non-working day${skipped === 1 ? "" : "s"} skipped` : "")
-          : `Cleared ${written} ${written === 1 ? "day" : "days"}`,
-      );
-    }
-    setSel(null);
   }
 
   /* Keyboard is bound at the document, so a shortcut works wherever the pointer
@@ -255,7 +270,13 @@ export default function HrAttendancePage() {
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
       if (ev.key === "Escape") { setPop(null); setSel(null); return; }
-      if (!sel || companyOpen || standingOpen) return;
+      // The browser owns Cmd/Ctrl/Alt combinations. Without this, Cmd+C on a
+      // selection wrote comp-off, Cmd+A annual leave, Cmd+S sick leave and
+      // Cmd+W work-from-home as the tab closed (review H4, Aug 31 2026). A held
+      // key auto-repeats keydown, so `repeat` is refused too, and nothing is
+      // accepted while a write is already in flight.
+      if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat) return;
+      if (!sel || companyOpen || standingOpen || applying.current) return;
       const el = ev.target as HTMLElement | null;
       if (el && el.closest("input,select,textarea,[role=dialog]")) return;
       const code = KEY_TO_CODE[ev.key.toLowerCase()];
@@ -780,8 +801,10 @@ function CompanyDayDialog(props: {
               onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
           </div>
           <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-            Weekends and public holidays inside the range are left alone. Nothing is written per
-            person, so ending this rule later puts every day back exactly as it was.
+            A working code such as WFH covers working days only. Annual leave, on-duty and
+            comp-off cover every day in the range, weekends and public holidays included,
+            exactly as the same block recorded on the grid would. Nothing is written per person,
+            so ending this rule later puts every day back exactly as it was.
           </p>
         </div>
         <DialogFooter>
@@ -834,7 +857,8 @@ function StandingDialog(props: {
           </DialogTitle>
           <DialogDescription>
             Something permanently true about one person. It fills every working day until you end
-            it, and any individual record still overrides it.
+            it (every day, for annual leave, on-duty or comp-off), and any individual record still
+            overrides it.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

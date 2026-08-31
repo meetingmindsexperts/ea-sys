@@ -4659,6 +4659,15 @@ model Employee {
   openingSickUsed Decimal       @default(0) @db.Decimal(5, 1)
   /// Comp-off days already earned before go-live.
   openingCompOff  Decimal       @default(0) @db.Decimal(5, 1)
+  /// The leave year `carryoverDays` and `openingSickUsed` belong to: the year
+  /// this record was created (2026 for the workbook import). They count in
+  /// THAT year only; every later year reads its carry-in from `LeaveGrant`,
+  /// written by the year-end roll. Without this the seeds applied to every
+  /// year forever, so 1 January would silently reset every balance to the
+  /// go-live figures (review H6, Aug 31 2026). Null only on a row created by a
+  /// path that forgot to set it, and treated as "applies to the year asked
+  /// for" so a typed figure is never silently ignored.
+  seedLeaveYear   Int?
   /// Link to the core User this employee signs in as, when they have one.
   /// Used from day one: the person who records attendance (Muthu) is himself an
   /// employee, so his entries are self-entries and the audit trail is what makes

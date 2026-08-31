@@ -241,6 +241,60 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### HR module review (Aug 31, 2026): highs shipped as batch 1, the rest recorded here
+
+First adversarial review of the HR module (security/tenancy/privacy · correctness/maths/concurrency ·
+UI/drift/tests): **0 BLOCKER / 6 HIGH / 14 MED / 13 LOW**. Full report, with the reproduced numbers and a
+"what to learn" box per finding: [docs/CODE_REVIEW_HR.html](CODE_REVIEW_HR.html).
+
+**Shipped, batch 1 (same day):**
+- **✅ H1**: a year the person was not employed in summed their ENTIRE history against a fresh 30 (a 2025 leaver
+  showed entitlement 30, taken 5, balance 29 on the 2026 "Show leavers" view). The engine now returns
+  `employedInYear: false` with zeros, and the summary says "Not employed in {year}".
+- **✅ H2**: the first-year gate was judged at today, so an 11-month leaver flipped from 0 to 30 the day the
+  calendar passed the anniversary they never reached. Now judged at the earlier of today and the exit date.
+- **✅ H4**: the grid's key handler ignored modifiers, so Cmd+C wrote comp-off, Cmd+A annual leave, Cmd+S sick
+  leave, Cmd+W work-from-home as the tab closed. Modifiers and key repeat are refused; `apply()` is single-flight.
+- **✅ H5**: clearing was an unbounded, unthrottled hard delete audited by count; an overwrite recorded only the
+  new code and wiped the remark. Clear now has the 366-day cap and the write rate bucket; both write and clear
+  snapshot the previous code of every affected day onto the audit row; remarks are touched only when supplied.
+- **✅ H3**: an explicit AL range charged every calendar day while a Company-day RULE carrying AL charged
+  working days only, so a two-week shutdown cost 12 from the grid and 10 as a rule. Owner ruling: calendar days
+  everywhere. A rule whose code covers calendar days now beats the holiday and the weekend in the resolver (a WFH
+  rule still stops at working days); the docs, dialog copy and user guide say so.
+
+**Needs an owner ruling before code (M9):**
+
+| # | Sev | Finding |
+|---|-----|---------|
+| M9 | MED | **Rule precedence.** An EMPLOYEE standing WFH rule exempts that person from an ORG AL shutdown (pinned by test); defensible if a shutdown means "the office is unavailable", not if it means "the company is on leave". Within one scope the comment says "most recent decision wins" but the code compares start dates, so an older WFH rule beats a newer AL rule on their overlap, and overlaps are never surfaced at create. |
+
+- **✅ H6**: 1 January 2027 was a cliff: `LeaveGrant` was never read or written and the go-live seeds applied to
+  every year. Owner decision: the seed year lives on the row (`Employee.seedLeaveYear`, additive migration,
+  backfilled from `createdAt`). The seeds now count in that year only; `leave-year-roll-service.ts` writes one
+  grant per employee from `planYearRoll`; both balance paths read the grant; the `hr-year-roll` worker job (1018)
+  runs it nightly through January; `POST /api/hr/leave-year/roll` + a summary-page button re-run it later.
+
+**Deferred MEDs:**
+
+| # | Sev | Finding |
+|---|-----|---------|
+| M1 | MED | Leavers vanish from the attendance grid (`useHrEmployees()` defaults to active only), so notice-period leave cannot be entered and past months cannot be corrected; the "records" tile still counts their entries. Fix: fetch leavers and filter rows to those whose employment overlaps the visible month. |
+| M2 | MED | `status` and `exitDate` are independently editable and the two halves read different fields: RESIGNED with no date is employed forever for the balance engine and hidden from every list; POST accepts `status` and drops it. Enforce the pair in `updateEmployee`; drop `status` from the create schema. |
+| M3 | MED | Moving `joiningDate` later or `exitDate` earlier strands recorded leave: hidden in the grid (NOT_EMPLOYED beats an explicit entry), excluded from the balance, rows still in the table, no warning. Count entries outside the resulting window and refuse, or require an explicit force recorded in the audit. |
+| M4 | MED | `?year=` on the summary and balance APIs returns figures labelled with a year they were not computed for (`asOf` is always today). The UI never sends it. Clamp `asOf` to the year end and refuse years with no grant once H6 ships. |
+| M5 | MED | `POST /api/hr/employees` links any `userId` with no org or existence check (global unique: a cross-tenant squat and an existence oracle on the platform; P2003 becomes a paging 500), cannot be unlinked (no `userId` on PATCH), and nothing reads the column. Verify the user is in the org; allow null on PATCH. |
+| M6 | MED | `updateEmployee` writes by bare id; its own comment claims the org binding is "part of the write". Not exploitable today; the harness has no defence-#1-in-isolation assertion for it. `updateMany({ where: { id, organizationId } })` plus the assertion. |
+| M7 | MED | Employee edits persist the full before/after view, free-text `notes` included, into `AuditLog` (no prune) on every save; rule creation audits the free-text label; rule deletion audits nothing about the rule. Field-level diff with `notes`/`label` redacted; snapshot the rule inside the delete transaction. |
+| M8 | MED | Public holidays: POST has no audit and no rate limit, there is no DELETE or edit route, no UI calls the POST, 2027 is unseeded. Audit + limit the POST, add DELETE (refused while referenced), a settings screen. |
+| M10 | MED | `apply()` partial failure loses the selection with no summary and no employee name; each of N mutations invalidates every HR query (a 23-row drag is ~69 refetches). Warn with counts, keep the selection, invalidate once. |
+| M11 | MED | Comp-off is bounded by `asOf` while annual is not, so a comp-off booked for next week is invisible until then. Bound by the employment window only. |
+| M12 | MED | A full-year range is up to 366 sequential upserts in one interactive transaction with Prisma's default 5 s timeout; the largest legitimate range is the one most likely to fail as `UNKNOWN`. Longer timeout or one `deleteMany` + `createMany`; map P2028 to its own code. |
+| M13 | MED | The code popover is `absolute` in an unpositioned tree with a dead `window.scrollY` term: correct at open, pinned while `<main>` scrolls under it, can overflow at the bottom. Worth a browser check; `position: fixed` with a clamped `top`. |
+| M14 | MED | No route-level test for any HR route; the source-grep adoption guards pass an `explicitDates: new Set()` mutation; the flag-off 404 is not pinned for a non-HR role; no e2e spec. |
+
+**Deferred LOWs (L1–L13, detail in the report):** the `module-flags.ts` proxy-redirect claim is false and `/hr` is not in the matcher (no server page gate); the grid's UTC "today", hardcoded Sat/Sun header and duplicated date helpers; an impossible-but-well-formed date on the attendance GET 500s and pages; `check-tenant-als.sh` `SWEPT_MODELS` lacks the six HR models; uneven rate limits and log fields; `openingSickUsed` above 15 has no waterfall and no warnings exist; OD on a public holiday earns no comp-off despite the seeded label; row-index selection and mouse-only drag; accessibility of the cells and dark-mode variants on the error cards; the sidebar's duplicated `HR_ROLES`; pre-existing org-level reads (`GET /api/organization` returns the raw org row including the settings blob, `GET /api/organization/users` gates only on org membership, `POST /api/upload/photo` has no role guard); `Number(x) || 0` zeroing cleared fields; `HTTP_STATUS_FOR_EMPLOYEE_ERROR` exported from a `route.ts`.
+
 ### DTCM spare pool — deferred findings (Aug 26, 2026)
 
 The pool is complete end to end: codes can be imported, are claimed

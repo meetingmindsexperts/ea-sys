@@ -35,6 +35,9 @@ export const HR_SICK_TIER_DAYS = { full: 15, half: 30, unpaid: 45 } as const;
  */
 export const HR_DEFAULT_WEEKEND_DAYS: readonly number[] = [6, 0];
 
+/** The org's own working week. HR reads dates in the week its people work. */
+export const HR_DEFAULT_TIMEZONE = "Asia/Dubai";
+
 /**
  * Rounded to one decimal everywhere. Half days are the only fraction the module
  * admits, and a float sum of thirty 0.5s is not 15, which is why every day count

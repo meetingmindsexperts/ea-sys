@@ -10,14 +10,32 @@
 import type { LeaveCategory } from "@prisma/client";
 import { db } from "@/lib/db";
 import { type CalendarDate, fromCalendarDate, toCalendarDate, todayInTimezone, yearOf } from "../lib/hr-date";
+import { HR_DEFAULT_TIMEZONE } from "../lib/hr-constants";
 import { leaveYearBounds } from "../lib/hr-leave-year";
 import { ruleDerivedDays } from "../lib/hr-effective-status";
 import { computeLeaveBalance, type LeaveBalance } from "../lib/leave-balance";
 import type { AttendanceRuleLike } from "../lib/attendance-rules";
 import { EMPLOYEE_SELECT, toEmployeeView, type EmployeeView } from "./employee-service";
 
-/** The org's own working week. HR reads dates in the week its people work. */
-const DEFAULT_TIMEZONE = "Asia/Dubai";
+const DEFAULT_TIMEZONE = HR_DEFAULT_TIMEZONE;
+
+/**
+ * What the year-end roll carried into `leaveYear`, per employee. A grant is
+ * the ONLY source of carry-in for any year other than an employee's seed year;
+ * absent, the engine carries nothing in (see `BalanceEmployee.seedLeaveYear`).
+ */
+async function loadCarriedIn(
+  organizationId: string,
+  employeeIds: string[],
+  leaveYear: number,
+): Promise<Map<string, number>> {
+  if (employeeIds.length === 0) return new Map();
+  const grants = await db.leaveGrant.findMany({
+    where: { organizationId, leaveYear, employeeId: { in: employeeIds } },
+    select: { employeeId: true, carriedInDays: true },
+  });
+  return new Map(grants.map((g) => [g.employeeId, Number(g.carriedInDays)]));
+}
 
 export interface BalanceForEmployee {
   employee: EmployeeView;
@@ -128,7 +146,10 @@ export async function getLeaveBalance(params: {
     dayWeight: Number(e.leaveCode.dayWeight),
   }));
 
-  const ruleCtx = await loadRuleContext(params.organizationId);
+  const [ruleCtx, carriedIn] = await Promise.all([
+    loadRuleContext(params.organizationId),
+    loadCarriedIn(params.organizationId, [employee.id], leaveYear),
+  ]);
   const fromRules = ruleEntriesFor({
     employeeId: employee.id,
     employment: { joiningDate: employee.joiningDate, exitDate: employee.exitDate },
@@ -147,10 +168,12 @@ export async function getLeaveBalance(params: {
       openingSickUsed: employee.openingSickUsed,
       openingCompOff: employee.openingCompOff,
       annualEntitlementDays: employee.annualEntitlementDays,
+      seedLeaveYear: employee.seedLeaveYear,
     },
     leaveYear,
     asOf,
     entries: [...explicit, ...fromRules],
+    carriedInDays: carriedIn.get(employee.id),
     weekendDays: params.weekendDays,
   });
 
@@ -209,7 +232,10 @@ export async function getOrgLeaveSummary(params: {
     byEmployee.set(e.employeeId, list);
   }
 
-  const ruleCtx = await loadRuleContext(params.organizationId);
+  const [ruleCtx, carriedIn] = await Promise.all([
+    loadRuleContext(params.organizationId),
+    loadCarriedIn(params.organizationId, rows.map((r) => r.id), leaveYear),
+  ]);
 
   return rows.map((row) => {
     const employee = toEmployeeView(row);
@@ -233,10 +259,12 @@ export async function getOrgLeaveSummary(params: {
           openingSickUsed: employee.openingSickUsed,
           openingCompOff: employee.openingCompOff,
           annualEntitlementDays: employee.annualEntitlementDays,
+          seedLeaveYear: employee.seedLeaveYear,
         },
         leaveYear,
         asOf,
         entries: [...explicit, ...fromRules],
+        carriedInDays: carriedIn.get(row.id),
         weekendDays: params.weekendDays,
       }),
     };

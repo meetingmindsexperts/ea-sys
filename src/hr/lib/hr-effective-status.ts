@@ -12,14 +12,21 @@
  *      about somebody who did not work here.
  *   2. An explicit entry -> that entry. This is what lets OD on a Saturday
  *      override the weekend, which is the whole point of the OD code.
- *   3. A public holiday -> PH.
- *   4. A weekend day -> OFF. A rule must not turn a Saturday into a working
- *      day; only an explicit entry (an OD) can do that.
- *   5. A STANDING RULE -> its code. "Everyone remote, 2 to 6 March" and "Jinan
- *      works remotely" are single records that speak for many days, so the day
- *      they describe is derived here rather than stored 252 times. See
+ *   3. A STANDING RULE whose code COVERS CALENDAR DAYS (annual leave, on-duty,
+ *      comp-off: `rangeCoversCalendarDays`) -> its code, weekend or holiday
+ *      included. Owner ruling, Aug 31 2026 ("calendar days everywhere"): a
+ *      company shutdown recorded as an AL rule costs exactly what the same
+ *      block dragged on the grid costs, twelve days for two weeks, not ten.
+ *      Before this step existed the two paths priced the same leave
+ *      differently (review H3).
+ *   4. A public holiday -> PH.
+ *   5. A weekend day -> OFF. A WORKING-day rule must not turn a Saturday into a
+ *      working day; only an explicit entry (an OD) can do that.
+ *   6. Any other STANDING RULE -> its code. "Everyone remote, 2 to 6 March" and
+ *      "Jinan works remotely" are single records that speak for many days, so
+ *      the day they describe is derived here rather than stored 252 times. See
  *      `attendance-rules.ts` for why EMPLOYEE scope beats ORG.
- *   6. Otherwise -> P.
+ *   7. Otherwise -> P.
  *
  * KNOWN AND ACCEPTED: a derived P means "nobody wrote anything down", which is
  * usually but not always the same as "they were here". §3.4 records the
@@ -28,7 +35,7 @@
 
 import { type CalendarDate } from "./hr-date";
 import { dayOfWeek } from "./hr-date";
-import { HR_DEFAULT_WEEKEND_DAYS } from "./hr-constants";
+import { HR_DEFAULT_WEEKEND_DAYS, rangeCoversCalendarDays } from "./hr-constants";
 import { isWithinEmployment } from "./hr-leave-year";
 import { type AttendanceRuleLike, candidateDates, ruleFor } from "./attendance-rules";
 
@@ -76,13 +83,19 @@ export function effectiveStatusFor(
   }
   const entry = ctx.entriesByDate.get(date);
   if (entry) return { date, code: entry.code, derived: false };
+  const rule =
+    ctx.rules?.length && ctx.employeeId ? ruleFor(ctx.employeeId, date, ctx.rules) : null;
+  // A rule whose code covers calendar days speaks for the weekend and the
+  // holiday inside its window, as the same code dragged on the grid would be
+  // written. A working-day rule falls through: it cannot make a Saturday a
+  // working day.
+  if (rule?.category && rangeCoversCalendarDays(rule.category)) {
+    return { date, code: rule.code, derived: true, ruleId: rule.id };
+  }
   if (ctx.holidays.has(date)) return { date, code: "PH", derived: true };
   const weekendDays = ctx.weekendDays ?? HR_DEFAULT_WEEKEND_DAYS;
   if (weekendDays.includes(dayOfWeek(date))) return { date, code: "OFF", derived: true };
-  if (ctx.rules?.length && ctx.employeeId) {
-    const rule = ruleFor(ctx.employeeId, date, ctx.rules);
-    if (rule) return { date, code: rule.code, derived: true, ruleId: rule.id };
-  }
+  if (rule) return { date, code: rule.code, derived: true, ruleId: rule.id };
   return { date, code: "P", derived: true };
 }
 
@@ -95,8 +108,9 @@ export function effectiveStatusFor(
  * and every balance in the org would be wrong with nothing on screen to show it.
  *
  * It resolves through `effectiveStatusFor`, so the days it returns are exactly
- * the days the grid draws from a rule — explicit entries, holidays and weekends
- * excluded by the same precedence, not by a second copy of it.
+ * the days the grid draws from a rule: explicit entries always excluded, and
+ * holidays and weekends excluded or charged by the same precedence (charged
+ * when the rule's code covers calendar days), not by a second copy of it.
  *
  * Bounded by `candidateDates` rather than by the employment window: walking
  * every day since 2010 for a long-serving employee is ~5,800 iterations per

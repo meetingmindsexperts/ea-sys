@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adversarial Code Review: HR Module (Aug 31, 2026)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --ink:#1b1f24; --muted:#5b6470; --line:#dfe3e8; --bg:#fff; --code:#f4f6f8;
+          --block:#7a1f1f; --high:#b3261e; --med:#9a6700; --low:#3b6ea5; --ok:#1e6f3a; }
+  body { font: 15px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg); max-width:1040px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:26px; margin:0 0 6px; } h2 { font-size:20px; margin:40px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { font-size:16px; margin:26px 0 8px; } p { margin:8px 0; } .sub { color:var(--muted); }
+  code, pre { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  code { background:var(--code); padding:1px 5px; border-radius:4px; }
+  pre { background:var(--code); padding:12px 14px; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+  th, td { border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th { background:#f7f8fa; }
+  .sev { display:inline-block; font-weight:700; font-size:12px; letter-spacing:.04em; padding:2px 8px; border-radius:999px; color:#fff; vertical-align:middle; }
+  .sev.high { background:var(--high);} .sev.med { background:var(--med);} .sev.low { background:var(--low);} .sev.ok { background:var(--ok);}
+  .finding { border:1px solid var(--line); border-left:4px solid var(--line); border-radius:6px; padding:12px 16px; margin:14px 0; }
+  .finding.high { border-left-color:var(--high);} .finding.med { border-left-color:var(--med);} .finding.low { border-left-color:var(--low);}
+  .finding h3 { margin:0 0 6px; }
+  .learn { background:#fbf7ec; border:1px solid #ecdcb0; border-radius:6px; padding:10px 14px; margin:10px 0 0; font-size:14px; }
+  .learn b { color:#6b4e00; }
+  .where { color:var(--muted); font-size:13px; margin:0 0 6px; }
+  ul { margin:6px 0 6px 20px; } li { margin:3px 0; }
+  .toc li { margin:2px 0; } .toc a { text-decoration:none; color:#1a4d8f; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:12px 0; }
+  .stat { border:1px solid var(--line); border-radius:6px; padding:10px 12px; } .stat b { display:block; font-size:22px; }
+</style>
+</head>
+<body>
+
+<h1>Adversarial Code Review: HR Module</h1>
+<p class="sub">Attendance and UAE leave tracking (<code>/hr</code>, <code>/hr/employees</code>, <code>/hr/attendance</code>, <code>/api/hr/*</code>, <code>src/hr/**</code>). Reviewed at <code>main</code> = <code>9de399c3</code> on Aug 31, 2026, which includes the same-day rulings <code>644bd60a</code> (annual leave charged across a block) and <code>9de399c3</code> (agreed entitlement override). Three independent reviewer passes (security/tenancy/privacy, correctness/maths/concurrency, UI/drift/tests) plus a consolidating pass that re-verified every finding against source; the two headline balance defects were reproduced by running <code>computeLeaveBalance</code> on the current tree. Nothing was changed in code.</p>
+
+<div class="grid">
+  <div class="stat"><b>0</b>Blocker</div>
+  <div class="stat"><b>6</b>High</div>
+  <div class="stat"><b>14</b>Medium</div>
+  <div class="stat"><b>13</b>Low</div>
+</div>
+
+<p><b>Status after batch 1 (same day).</b> <span class="sev ok">FIXED</span> all six HIGHs in code, each with pinning tests; the guards for H1 to H5 were mutation-verified (reverting the guard fails exactly that test). H3 was fixed after an owner ruling of "calendar days everywhere"; H6 after an owner decision to store each employee's seed year on the row. Nothing below H6 has been touched; the deferred list lives in <code>docs/ROADMAP.md</code> under "HR module review".</p>
+
+<p><b>The short version.</b> The foundations are sound: the role predicate is narrow and fails closed, API keys cannot reach HR at all, every route runs auth then <code>denyNonHr</code> then <code>requireOrgId</code> then <code>runWithTenant</code>, every read and write is org-bound, six RLS policies plus a harness cover the platform case, audit rows are stamped from the lane, and no non-HR role can see an HR row through any surface including the audit feed. The real defects cluster in three places: <b>(1) the balance engine fails open on two edges</b> (a year with no employment window, and the first-year gate judged at today rather than at exit), both reachable from the "Show leavers" toggle and both producing a plausible-looking wrong payroll figure; <b>(2) two recording paths for the same annual leave charge different amounts</b>, and four documents disagree about which is right; <b>(3) attendance history is not recoverable</b> once a drag lands wrong, because the grid's keyboard handler fires on Cmd/Ctrl combinations, clears are unbounded hard deletes, and the attendance audit stores no before-state.</p>
+
+<h2>Contents</h2>
+<ul class="toc">
+  <li><a href="#high">High (6)</a></li>
+  <li><a href="#med">Medium (14)</a></li>
+  <li><a href="#low">Low (13)</a></li>
+  <li><a href="#safe">Verified safe</a></li>
+  <li><a href="#lessons">Lessons</a></li>
+</ul>
+
+<h2 id="high">High</h2>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H1. A year the person was not employed in gets a full balance with <code>taken</code> summed over their entire history</h3>
+<p class="where"><code>src/hr/lib/leave-balance.ts</code> (window → <code>from</code>/<code>to</code> null) · <code>src/hr/lib/hr-leave-year.ts:100-109</code> · <code>src/hr/lib/hr-date.ts:95-103</code> · reachable from <code>src/app/(dashboard)/hr/page.tsx</code> "Show leavers" → <code>getOrgLeaveSummary</code> (<code>leave-balance-service.ts:181</code> filters on status only)</p>
+<p><code>employedWindowInYear</code> correctly returns <code>null</code> when the employment window and the leave year do not overlap. <code>computeLeaveBalance</code> then does <code>from = window?.from ?? null; to = window?.to ?? null</code>, and <code>sumWeights</code> calls <code>isWithin(date, null, null)</code>, which is <code>true</code> for every entry. So "not employed this year" degrades to "no bound at all". Entitlement is still judged at <code>asOf</code> (30), carried-in is still the seed.</p>
+<pre><code>// reproduced on HEAD with npx tsx
+// leaver: joined 2020-01-15, exit 2025-06-30, 2 AL in 2024, 3 AL in 2025, 1 SL-F in 2025, seed carryover 4
+window 2026: null
+2026 summary row -> { entitlement: 30, carriedIn: 4, taken: 5, balance: 29, sickFullUsed: 1 }
+// a 2027 joiner with one 2027 AL entry, viewed in 2026
+2026 row -> { taken: 1, balance: -1 }</code></pre>
+<p><b>Failure scenario.</b> Today: any employee record with an exit date before 2026-01-01 shows a fabricated 2026 row under "Show leavers". From 1 January 2027: every 2026 leaver (there are several in the live data) shows Entitled 30, taken = their whole 2026 leave, balance = 30 minus that, for a year they were not employed for a single day. That is the figure somebody will read off during a final settlement query. <code>hr-date.test.ts</code> pins that the window is <code>null</code>; nothing pins what the engine does with <code>null</code>.</p>
+<p><b>Fix.</b> When the window is <code>null</code>, return a zeroed annual/sick block with an explicit <code>employedInYear: false</code> flag and have the summary render "not employed this year" rather than numbers. Pin with a test that feeds a pre-year leaver into <code>computeLeaveBalance</code> and asserts <code>taken === 0</code>.</p>
+<p><span class="sev ok">FIXED</span> batch 1: <code>computeLeaveBalance</code> now feeds an empty entry list, zero entitlement and zero carry-in through when the window is null and returns <code>employedInYear: false</code>; the summary renders "Not employed in {year} (left ...)" across the numeric columns and excludes such rows from the two warning counts. Four tests, three of which fail when the guard is reverted.</p>
+<div class="learn"><b>What to learn.</b> A guard that turns "no window" into "no bound" is the fail-open shape. <code>null</code> here means "nothing to count", and the safe translation of that is zero, never "everything". The same predicate (<code>isWithin</code> treating a null bound as open) is correct for the rule window and wrong for the year window; the caller has to decide, not the helper.</div>
+</div>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H2. The first-year entitlement gate is judged at today's date, not at the exit date, so a leaver who never completed twelve months is handed 30 days once the calendar passes the anniversary they never reached</h3>
+<p class="where"><code>src/hr/lib/leave-balance.ts</code> (<code>hasCompletedFirstYear(employee.joiningDate, asOf)</code>) · <code>src/hr/lib/hr-leave-year.ts:64-69</code></p>
+<p>Neither function looks at <code>exitDate</code>. The window bounds the <em>taken</em> sum but not the gate.</p>
+<pre><code>// reproduced on HEAD: joined 2025-09-15, last working day 2026-08-15 (11 months), one AL day in May
+asOf 2026-08-31 -> { firstYear: false, entitlement: 0,  balance: -1 }
+asOf 2026-09-15 -> { firstYear: true,  entitlement: 30, balance: 29 }   // the anniversary she never reached
+asOf 2026-10-01 -> { firstYear: true,  entitlement: 30, balance: 29 }</code></pre>
+<p><b>Failure scenario.</b> The owner's Aug 31 ruling is "zero, unless first year is completed; leaver or not". The automatic figure contradicts it for exactly the population the ruling was about: on the day after their would-be anniversary, every leaver who left inside their first year flips from 0 to 30 on the leavers view, with no marker. The new <code>annualEntitlementDays</code> override lets HR type the agreed number over it, but the default is wrong and looks like a rule.</p>
+<p><b>Fix.</b> One line: evaluate the gate at <code>min(asOf, exitDate ?? asOf)</code>. Pin "exit before anniversary, viewed after it" → entitlement 0.</p>
+<p><span class="sev ok">FIXED</span> batch 1: the gate is judged at the earlier of <code>asOf</code> and the exit date. Three tests (stays at zero after the would-be anniversary; a leaver who did complete the year keeps 30; an active employee is unchanged); reverting the gate date fails the first.</p>
+<div class="learn"><b>What to learn.</b> A balance "as at" a date has two clocks: the calendar and the employment. Anything that says "has this person reached X" must be evaluated at whichever of the two stopped first.</div>
+</div>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H3. The same annual leave costs 12 days recorded from the grid and 10 days recorded as a Company day, the grid also charges public holidays inside the block, and four documents disagree about which is right</h3>
+<p class="where"><code>src/hr/services/attendance-service.ts:133-151</code> · <code>src/hr/lib/hr-constants.ts:65-67</code> · <code>src/hr/lib/hr-effective-status.ts:79-84</code> · tests <code>__tests__/hr/hr-attendance-rules.test.ts:262-268</code> and <code>:389-403</code></p>
+<ul>
+  <li><b>Explicit range (grid, API, importer):</b> <code>rangeCoversCalendarDays("ANNUAL")</code> is <code>true</code>, so the holiday lookup is skipped entirely and every calendar day in the block is written as AL, weekends <em>and public holidays</em>. The five-day Eid al-Adha block (25 to 29 May, all seeded PH) selected as AL costs 5 AL days for a week nobody worked.</li>
+  <li><b>ORG rule carrying AL (Company day dialog; any code is selectable):</b> <code>effectiveStatusFor</code> resolves PH and OFF <em>before</em> the rule, so <code>ruleDerivedDays</code> charges working days only. Same shutdown, 10 days.</li>
+</ul>
+<p>Both behaviours are pinned by tests that pass together. And the written record contradicts itself: the <code>attendance-service.ts</code> header (lines 10-13) says "A BULK RANGE EXPANDS TO WORKING DAYS ONLY ... not twelve calendar days" (stale since <code>644bd60a</code>, which edited the same file and left the header); <code>hr-constants.ts</code> records the ruling for twelve; the root <code>CLAUDE.md</code> HR entry still calls the fork "OPEN" and says "the app's recording path explicitly refuses to"; <code>docs/HR_MODULE_PLAN.md</code> §6 still says "expands to working days only, skipping weekends and holidays"; the Company day dialog copy (<code>attendance/page.tsx:782-785</code>) promises weekends and holidays are left alone, which is true for rules and false for the grid. The user guide was updated and is the only document that matches the code.</p>
+<p><b>Failure scenario.</b> A two-week office shutdown recorded by dragging the grid charges 23 people 12 days each; the same shutdown recorded as a Company day charges 10 each. 46 days of annual leave hinge on which button was pressed, and a reader "fixing" the service to match its own header reverses a payroll ruling.</p>
+<p><b>Fix.</b> Owner call first, on two questions the Aug 31 ruling did not cover: is a public holiday inside an AL block charged, and does a rule-recorded AL block follow the same rule as an explicit one? Then make <code>ruleDerivedDays</code> honour <code>rangeCoversCalendarDays(rule.category)</code> (or refuse leave-carrying codes on ORG rules), and rewrite the header, the CLAUDE.md paragraph, plan §6 and the dialog copy in the same commit.</p>
+<p><span class="sev ok">FIXED</span> batch 1, after an owner ruling of "calendar days everywhere": <code>AttendanceRuleLike</code> carries the code's category, and a rule whose category covers calendar days now takes precedence over the holiday and the weekend in <code>effectiveStatusFor</code> (a working-day rule such as WFH still falls through to PH/OFF). An AL shutdown therefore costs 12 as a rule and 12 as a range, a public holiday inside an AL block is charged on both paths, and a rule with no category fails safe to working days. The service header, CLAUDE.md, plan §5.6/§6/§17.3, the Company-day and Standing dialog copy and the user guide all describe the one rule. Tests: the weekend-spanning AL rule now pins 12 (with a WFH sibling pinning 10), plus the Saturday, holiday and no-category cases on the resolver.</p>
+<div class="learn"><b>What to learn.</b> This module's own rule is that one fact must have one implementation. Rules and entries are two recording paths for the same fact, and the policy function exists, but only one path calls it. When a policy changes, grep for every place that answers the same question before closing the ticket.</div>
+</div>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H4. The grid's keyboard shortcuts ignore modifier keys, key repeat and the busy flag: Cmd+C writes comp-off across the selection, Cmd+A writes annual leave, Cmd+S sick leave, Cmd+W work-from-home while the tab closes</h3>
+<p class="where"><code>src/app/(dashboard)/hr/attendance/page.tsx:255-268</code></p>
+<pre><code>const code = KEY_TO_CODE[ev.key.toLowerCase()];      // ev.key is still "c" with Cmd held
+if (code) { ev.preventDefault(); void apply(code); return; }</code></pre>
+<p><b>Failure scenario.</b> HR drags across a week to copy the pattern somewhere (the spreadsheet reflex is Cmd+C) and five CO rows are written; the toast reads as success. Cmd+A writes AL and swallows select-all; Cmd+S writes SL-F and swallows the save dialog; Cmd+O writes OD. Browsers do not honour <code>preventDefault</code> on Cmd/Ctrl+W, so the tab closes with the WFH PUT in flight and nobody sees a toast. Holding <code>a</code> auto-repeats keydown and fires <code>apply()</code> on every repeat before the first resolves (the selection is only cleared at the end), issuing dozens of PUTs into the 300/hr write bucket. Pressing <code>a</code> then <code>s</code> quickly races two loops over the same cells. Combined with H5, none of it can be reconstructed.</p>
+<p><b>Fix.</b> First line of <code>onKey</code>: <code>if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || busy) return;</code> and add <code>busy</code> to the effect deps.</p>
+<p><span class="sev ok">FIXED</span> batch 1: modifier and repeat keys are refused before the lookup, and a synchronous <code>applying</code> ref makes <code>apply()</code> single-flight (a second keypress or a popover double-click during a write is ignored). Source-pinned in <code>hr-attendance-rules.test.ts</code>; deleting the guard line fails the pin.</p>
+<div class="learn"><b>What to learn.</b> A document-level key handler shares the keyboard with the browser. Anything that maps single letters must filter modifiers and repeats first, or it will eventually write data when the user meant to copy it.</div>
+</div>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H5. Attendance history is unrecoverable: clearing is an unbounded, unthrottled hard delete audited by count, and an overwrite records only the new code and wipes the remark</h3>
+<p class="where"><code>src/app/api/hr/attendance/route.ts:175-215</code> (DELETE: no rate limit) · <code>src/hr/services/attendance-service.ts:227-265</code> (<code>clearAttendance</code>: no <code>MAX_RANGE_DAYS</code>, <code>deleteMany</code>, audit <code>{ removed: count }</code>) · <code>:162-211</code> (upsert audit stores <code>{ code, from, to, days }</code>, no before-state) · <code>:182-187</code> (<code>update</code> sets <code>remarks: input.remarks?.trim() || null</code>)</p>
+<ul>
+  <li>The PUT path has a 366-day cap and a 300/hr limit; the DELETE path has neither. <code>DELETE /api/hr/attendance { employeeId, from: "2000-01-01", to: "2100-12-31" }</code> erases one person's entire recorded history in one call; ~23 calls erase the org's. The audit says "removed: 41" per person and nothing else. Recovery is the hourly DR dump, which may already contain the deletion.</li>
+  <li>A drag that lands AL over a recorded SL-F week converts sick leave into annual leave, moving both the annual balance and the sick tier, and the trail says only "AL 2026-03-02..06, 5 days". The Employee audit stores before/after; the attendance audit does not.</li>
+  <li>The grid never sends <code>remarks</code>, so every keypress on an existing entry nulls its remark ("medical certificate on file" is gone). No UI shows remarks, so the loss is invisible.</li>
+</ul>
+<p><b>Fix.</b> Apply <code>MAX_RANGE_DAYS</code> and the <code>hr-write</code> limit to DELETE; inside the transaction read the affected rows first and store <code>{ date, oldCode, newCode }[]</code> (and the deleted <code>{ date, code }[]</code>) in <code>changes</code>; only touch <code>remarks</code> when the caller supplied it.</p>
+<p><span class="sev ok">FIXED</span> batch 1: <code>clearAttendance</code> has the same 366-day ceiling as a write and runs read-then-delete in one transaction, storing every removed <code>{ date, code }</code> on the audit row; <code>setAttendance</code> reads the affected days inside its transaction and stores <code>overwritten: [{ date, previousCode }]</code>; <code>remarks</code> is written only when the caller supplied the key (an explicit null still clears); the DELETE route shares the <code>hr-write</code> rate bucket and its rejection log carries the employee and user. Seven tests in the new <code>hr-attendance-service.test.ts</code>; the range cap and the remarks guard are each mutation-verified.</p>
+<div class="learn"><b>What to learn.</b> An audit row that stores only the after-state cannot reverse anything. The test is "could I put it back from the audit alone?" Employee edits pass that test; attendance edits do not.</div>
+</div>
+
+<div class="finding high">
+<h3><span class="sev high">HIGH</span> H6. 1 January 2027 is a cliff: no year-end roll exists, <code>LeaveGrant</code> is never read or written, and the go-live seeds are re-applied to every year</h3>
+<p class="where"><code>src/hr/services/leave-balance-service.ts</code> (both callers omit <code>carriedInDays</code>) · <code>src/hr/lib/leave-balance.ts</code> (<code>carriedInDays ?? employee.carryoverDays</code>; <code>openingSickUsed</code> added for whatever <code>leaveYear</code> is asked) · <code>planYearRoll</code> has no caller · grep: zero references to <code>leaveGrant</code> outside the schema, the RLS policy and the harness cleanup</p>
+<p><b>Failure scenario.</b> First working day of 2027, no operator action: an employee who closed 2026 at -15 shows a 2027 balance of 30, not 15; every 2026 overdraft or surplus vanishes; anyone seeded with <code>openingSickUsed = 10</code> starts 2027 already 10 into the full-pay tier. With H1, every 2026 leaver's row on the same day is fabricated. CLAUDE.md lists the roll as open; this is what "open" costs on a fixed date four months away.</p>
+<p><b>Fix.</b> Ship the roll: write <code>LeaveGrant</code> from <code>planYearRoll</code>, read <code>carriedInDays</code> from it in both service paths, scope <code>carryoverDays</code> and <code>openingSickUsed</code> to their seed year only. Until then, refuse (or clearly label) any year that has no grant row.</p>
+<p><span class="sev ok">FIXED</span> batch 1, after an owner decision to store the seed year on the row: new nullable <code>Employee.seedLeaveYear</code> (additive migration, backfilled from <code>createdAt</code>; the import writes 2026; the service stamps the current year), and the engine applies the seeds in that year only. <code>leave-year-roll-service.ts</code> writes one <code>LeaveGrant</code> per employee still employed on 1 January (carry-in from <code>planYearRoll</code>, capped one way; one audit row per run with the capped set); both balance paths read <code>carriedInDays</code> from the grant. The <code>hr-year-roll</code> worker job (lease 1018, 01:05 UTC daily) runs the roll for every org in January, nightly, because it is an idempotent upsert that recomputes from the rows; <code>POST /api/hr/leave-year/roll</code> and a "Re-run carry-over" button on the summary are the manual re-run. Ten tests, incl. the roster registration and the January gate.</p>
+</div>
+
+<h2 id="med">Medium</h2>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M1. A leaver vanishes from the attendance grid the moment the exit is recorded, so notice-period leave cannot be entered and past months cannot be corrected</h3>
+<p class="where"><code>attendance/page.tsx:112</code> (<code>useHrEmployees()</code>, default <code>includeExited=false</code>) · <code>src/app/api/hr/employees/route.ts:84</code> (status filter) · <code>employee-service.ts</code> (exit sets status immediately, regardless of a future date)</p>
+<p>Record a leaver with last working day 30 September. The row disappears from <code>/hr/attendance</code> for September and every past month. The API accepts the writes (it checks only the employment window); the UI cannot reach them, and there is no other surface for a leaver's history. The "records" tile still counts their entries, so the two tiles disagree by construction. <b>Fix:</b> <code>useHrEmployees(true)</code> on the grid and filter rows to those whose employment overlaps the visible month.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M2. <code>status</code> and <code>exitDate</code> are independently editable, and the two halves of the module read different fields</h3>
+<p class="where"><code>src/app/api/hr/employees/[employeeId]/route.ts:15-28</code> · <code>src/app/api/hr/employees/route.ts:47</code> (create accepts <code>status</code>; <code>createEmployee</code> silently drops it) · <code>employee-service.ts</code> (validates only exit &lt; joining)</p>
+<p>Lists and the summary filter on <code>status</code>; every window check reads <code>exitDate</code>. <code>PATCH { status: "RESIGNED" }</code> with no date hides the person from the default views while the balance engine and the write path treat them as employed forever. The reverse (a past exit date, status still ACTIVE) keeps a leaver in the active payroll table. The edit form sends both fields on every save, so clearing the date and forgetting the dropdown produces the first state. <b>Fix:</b> enforce the pair in <code>updateEmployee</code> (non-ACTIVE requires an exit date; clearing the date restores ACTIVE, or reject) and drop <code>status</code> from the create schema.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M3. Moving the joining date later or the exit date earlier silently strands recorded leave: hidden in the grid, excluded from the balance, rows still in the table</h3>
+<p class="where"><code>employee-service.ts</code> <code>updateEmployee</code> (never counts entries outside the resulting window) · <code>hr-effective-status.ts:74-78</code> (NOT_EMPLOYED beats an explicit entry) · <code>attendance/page.tsx:446, 470</code> (rendered <code>opacity-0</code>, unselectable)</p>
+<p>The write path refuses out-of-window rows precisely so "the data cannot contain a leave day for somebody who did not work here"; the edit path lets the window move under existing rows. Setting an exit to 31 October by mistake for someone with AL recorded through 20 November drops their taken figure, flips a negative balance positive, and blanks the November cells with no warning. <b>Fix:</b> count entries outside the resulting window and refuse (<code>ENTRIES_OUTSIDE_WINDOW</code>, naming the count) or require an explicit force recorded in the audit.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M4. <code>?year=</code> on <code>/api/hr/summary</code> and <code>/api/hr/balances/[id]</code> returns numbers labelled with a year they were not computed for</h3>
+<p class="where"><code>leave-balance-service.ts</code> (<code>asOf</code> is always today) · <code>summary/route.ts:29-34</code>, <code>balances/[employeeId]/route.ts:25-30</code> (accept 2000-2100)</p>
+<p>For a prior year the first-year gate is judged today, carried-in is the 2026 seed, <code>openingSickUsed</code> is re-added, <code>nextAnniversary</code> is relative to today, and H1 applies to anyone who joined after that year. The UI never sends <code>year</code>, so this is API-only today, but the routes validate and accept it as if it worked. <b>Fix:</b> clamp <code>asOf</code> to the end of the requested year and refuse years with no <code>LeaveGrant</code> until H6 ships.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M5. <code>POST /api/hr/employees</code> links any <code>userId</code> with no org or existence check, it cannot be unlinked, and nothing reads it</h3>
+<p class="where"><code>src/app/api/hr/employees/route.ts:45</code> (<code>userId: z.string().cuid().nullish()</code>) · <code>employee-service.ts</code> (<code>userId: input.userId ?? null</code>, no lookup) · <code>Employee.userId</code> is a <em>global</em> <code>@unique</code> FK</p>
+<p>On the platform, org B can bind one of its employees to an org A login; org A then gets <code>USER_ALREADY_LINKED</code> (409) for its own employee, a cross-tenant squat and an existence oracle for user ids. On master an employee can be bound to a REGISTRANT or REVIEWER account. A non-existent id is a P2003 that falls through to <code>UNKNOWN</code> (500 plus an error-level log that pages). <code>patchSchema</code> omits <code>userId</code>, so a wrong link is permanent through the API, and the schema comment ("used from day one ... self-entries") is not true: no code reads the column. <b>Fix:</b> <code>db.user.findFirst({ where: { id, organizationId } })</code> in <code>createEmployee</code>, refuse otherwise; allow <code>userId: null</code> on PATCH.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M6. <code>updateEmployee</code> writes by bare id while its own comment claims the org binding is "part of the write"</h3>
+<p class="where"><code>employee-service.ts</code>: org-bound <code>findFirst</code>, then <code>db.employee.update({ where: { id: input.employeeId } })</code>; <code>setEmployeeExit</code> inherits it. Compare <code>deleteAttendanceRule</code>, which does it correctly with <code>deleteMany({ where: { id, organizationId } })</code>.</p>
+<p>Not exploitable today (ids are immutable, the read gates, RLS would filter on the platform), but it is exactly the "org check in a preceding read that a refactor can drop" shape the codebase forbids, and <code>tests/tenancy/hr-rls.test.ts</code> has no defence-#1-in-isolation assertion for it where other domains do. <b>Fix:</b> <code>updateMany({ where: { id, organizationId } })</code> and re-read, plus the harness assertion.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M7. Employee edits copy the full record, including free-text <code>notes</code>, into <code>AuditLog</code> twice, forever; rule creation audits the free-text label; rule deletion audits nothing about the rule</h3>
+<p class="where"><code>employee-service.ts</code> (<code>before: toEmployeeView(existing), after: toEmployeeView(row)</code>; <code>EMPLOYEE_SELECT</code> includes <code>notes</code>) · <code>attendance-rule-service.ts</code> (create audits <code>label</code>; delete audits <code>{ source: "ui" }</code>)</p>
+<p>The attendance audit explicitly refuses to store <code>remarks</code> because free text will hold medical detail and the trail outlives the entry. The employee audit does the opposite: a status flip re-persists the notes field into a table with no prune job. Readers are ADMIN and SUPER_ADMIN only, so this is retention and blast radius, not a role leak; if <code>notes</code> is ever cleared for a subject-access reason, the text survives in every prior row. Meanwhile removing a company-wide AL shutdown rule (which changes every balance) leaves no record of scope, code or dates. <b>Fix:</b> audit a field-level diff with <code>notes</code> and <code>label</code> redacted; snapshot the rule row inside the delete transaction.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M8. Public holidays: POST has no audit and no rate limit, there is no DELETE or edit route, no UI calls the POST at all, and 2027 is unseeded</h3>
+<p class="where"><code>src/app/api/hr/holidays/route.ts:84-108</code> · <code>hr-seed-service.ts:42-65</code> (2026 only) · grep: no caller of <code>/api/hr/holidays</code> outside the route</p>
+<p>A holiday moves rule-derived days and the working-day expansion for the whole org with nothing in <code>/activity</code> saying who added it, and a mistyped date is permanent short of psql. The documented flow ("Islamic dates are entered by HR each year") has no screen behind it, so on 1 January 2027 there are no holidays until somebody writes SQL, and a rule-based AL block charges New Year's Day. <b>Fix:</b> audit + rate-limit the POST, add DELETE (refused while entries reference the date), and a settings screen.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M9. Rule precedence exempts a permanently remote person from a company-wide AL shutdown, the tests pin it, and "later start date wins" is not "most recent decision wins"</h3>
+<p class="where"><code>src/hr/lib/attendance-rules.ts:74-78</code> · <code>__tests__/hr/hr-attendance-rules.test.ts:65-74</code> · no overlap detection in <code>createAttendanceRule</code></p>
+<p>EMPLOYEE beats ORG regardless of code, so the office closes, 22 people are charged 5 AL days and the remote worker none. Defensible if a shutdown means "the office is unavailable"; not if it means "the company is on leave". Within one scope the comment says recency wins, but the code compares start dates: an older ORG WFH rule for 10 to 12 March beats a newer ORG AL shutdown for 2 to 13 March on those three days (reproduced). The loser is silent because overlaps are never surfaced. <b>Fix:</b> owner ruling on leave-carrying ORG rules vs work-carrying EMPLOYEE rules; surface overlaps at create; fix the comment or the tiebreak.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M10. <code>apply()</code> on a multi-person selection: partial failure loses the selection with no summary, and each of N mutations invalidates every HR query</h3>
+<p class="where"><code>attendance/page.tsx:203-250</code> · <code>src/hr/hooks/use-hr-api.ts</code> (<code>onSuccess: invalidateQueries({ queryKey: ["hr"] })</code> per mutation)</p>
+<p>The loop continues after a failure, so 4 of 5 people may be written; a failure suppresses the success toast entirely and <code>setSel(null)</code> drops the selection so the failed subset cannot be retried; the error toast does not name the employee. A 23-row drag triggers 23 invalidations, each cancelling and restarting the employees, attendance and leave-codes refetches. <b>Fix:</b> a warning toast naming written/failed counts, keep the selection on failure, invalidate once after the loop.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M11. Comp-off is bounded by <code>asOf</code> while annual leave is not, so a comp-off booked for next week is invisible until it arrives</h3>
+<p class="where"><code>src/hr/lib/leave-balance.ts</code> (<code>compTo = min(exit, asOf)</code> bounds earnings and taken; <code>annualTaken</code> is bounded by the year window only)</p>
+<p>Earned 1, one CO recorded for next Monday, viewed today: balance 1. HR approves another: still 1. Next Tuesday it reads -1. The workbook sums comp-off with no date bound at all. <b>Fix:</b> bound comp-off taken by the employment window only, matching annual.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M12. A full-year range runs up to 366 sequential upserts inside one interactive transaction with Prisma's default 5-second timeout</h3>
+<p class="where"><code>attendance-service.ts:163-190</code> (<code>tenantTransaction</code> with no <code>opts</code>) · <code>src/lib/db.ts:497-508</code> (passes through; Prisma 6.19 defaults: <code>maxWait</code> 2 s, <code>timeout</code> 5 s)</p>
+<p>At 10 to 15 ms per statement under load through the pooler (the box has hit P2024 before) a 366-day standing arrangement exceeds 5 s, rolls back as P2028 and surfaces as <code>UNKNOWN</code> / "Could not record that attendance". Atomic and safe, but the largest legitimate range is the one most likely to fail and the message says nothing about size. <b>Fix:</b> pass a longer timeout or write the range as one <code>deleteMany</code> + <code>createMany</code>; map the timeout code to a distinct error.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M13. The code popover is <code>absolute</code> in an unpositioned tree and adds a <code>window.scrollY</code> that is always 0, so it stays pinned while the grid scrolls under it and can push the shell into a window scrollbar</h3>
+<p class="where"><code>attendance/page.tsx:274</code> (<code>y: ev.clientY + window.scrollY</code>), <code>:666-669</code> · <code>src/app/(dashboard)/layout.tsx</code> (<code>h-screen</code> shell, <code>&lt;main className="flex-1 overflow-auto"&gt;</code>, no <code>relative</code> ancestor)</p>
+<p>The containing block is the initial containing block; the document does not scroll, so the position is viewport-relative at open time and correct by accident. Scrolling <code>&lt;main&gt;</code> afterwards leaves the popover where it was; opening it on a bottom row overflows the viewport; <code>left</code> is clamped, <code>top</code> is not. Worth a browser check. <b>Fix:</b> <code>position: fixed</code>, clamp <code>top</code>, drop the <code>scrollY</code> term.</p>
+</div>
+
+<div class="finding med">
+<h3><span class="sev med">MED</span> M14. Test coverage: no route-level test exists for any HR route, the H1/H2 paths are untested, and the source-grep adoption guards pass a wrong-argument mutation</h3>
+<p class="where"><code>__tests__/hr/*</code> (pure libs and source greps only) · <code>hr-attendance-rules.test.ts:297-320</code> · no HR spec under <code>e2e/</code></p>
+<ul>
+  <li>Attendance PUT/DELETE status mapping, employees PATCH/exit, holidays P2002 → 409, the <code>?year</code> validation: none exercised.</li>
+  <li><code>employedWindowInYear → null</code> is pinned but never fed into <code>computeLeaveBalance</code> (H1); <code>hasCompletedFirstYear</code> is never called with an exit before the anniversary (H2).</li>
+  <li>The "balance service adopts the resolver" guards grep for <code>ruleEntriesFor({</code> twice; replacing <code>explicitDates: new Set(explicit.map(...))</code> with <code>new Set()</code> double-charges every recorded day inside a rule window and passes the whole suite.</li>
+  <li><code>hr-rbac.test.ts</code> loops only allowed roles for the flag-off 404; an ORGANIZER with the flag off is not pinned to 404, so reordering the two checks in <code>denyNonHr</code> (role first) would leak module existence and pass.</li>
+</ul>
+</div>
+
+<h2 id="low">Low</h2>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L1. <code>module-flags.ts:40</code> claims "src/proxy.ts redirects /hr* when off"; the proxy does no such thing, <code>/hr</code> is not in the matcher, and there is no server-side page gate</h3>
+<p>Any role (REGISTRANT, REVIEWER, ONSITE, CRM_USER, WEBINARS) can render the <code>/hr</code> client shells; the API refuses, so they see the amber error card carrying the API's error string. Not a leak; a false defence-in-depth claim and an unnecessary surface, shared with <code>/crm</code>, <code>/admin</code>, <code>/activity</code>, <code>/media</code>. <b>Fix:</b> a <code>src/app/(dashboard)/hr/layout.tsx</code> that <code>notFound()</code>s when the flag is off and refuses non-HR roles, and correct the comment.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L2. The grid re-derives dates its own way: UTC "today" vs the service's Asia/Dubai, a hardcoded Sat/Sun weekend in the header vs <code>HR_DEFAULT_WEEKEND_DAYS</code> in the cells, and local copies of <code>eachDate</code>/<code>addDays</code></h3>
+<p class="where"><code>attendance/page.tsx:54-70, 106-108, 412-413</code></p>
+<p>Between 00:00 and 03:59 Dubai on the 1st the grid opens on the previous month while <code>/hr</code> says balances are "as at" the new one; a Fri/Sat org would get muted Sat/Sun headers over OFF cells on Fri/Sat. The file's own header argues against duplicating the derivation. <b>Fix:</b> <code>todayInTimezone</code>, <code>dayOfWeek</code>, <code>eachDate</code> from <code>hr-date.ts</code>.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L3. <code>GET /api/hr/attendance?from=2026-02-31</code> passes the regex, throws in <code>fromCalendarDate</code> inside the try, and returns 500 with an error-level log that pages</h3>
+<p class="where"><code>attendance/route.ts:73-79</code> (regex only) · <code>attendance-service.ts</code> <code>listAttendance</code> · every other date input goes through <code>isCalendarDate</code></p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L4. <code>scripts/check-tenant-als.sh</code> read-placement check is blind to HR models</h3>
+<p><code>SWEPT_MODELS</code> has no <code>employee|leaveCode|attendanceEntry|attendanceRule|leaveGrant|publicHoliday</code>, so an HR route that reads <code>db.employee</code> before its <code>runWithTenant</code> would pass CI (fail-closed on the platform, not a leak). The handler-count check does cover <code>src/app/api/hr</code>. <b>Fix:</b> append the six models.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L5. Rate limits and failure logs are uneven across the routes</h3>
+<p>No <code>checkRateLimit</code> on attendance DELETE, employees PATCH, exit POST, holidays POST (PUT / POST rules / POST employees have it). <code>hr/attendance:clear-rejected</code> logs the code only; the holidays warn/error lines and <code>hr/balance:failed</code> lack <code>userId</code>; the rule DELETE audit hardcodes <code>source: "ui"</code>, which will mislabel a future MCP caller.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L6. <code>openingSickUsed</code> above 15 shows as a negative full-pay remainder instead of flowing into the half-pay tier; no warning on a 16th SL-F day or a comp-off with no balance</h3>
+<p>Three independent counters, opening added only to the full tier; plan §5.4 promised a warning that does not exist. Live data (max 10) does not hit it today.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L7. OD on a public holiday earns no comp-off, but the seeded label says "On Duty (weekend or holiday work)"</h3>
+<p class="where"><code>hr-comp-off.ts:89-90</code> skips non-weekend dates · <code>hr-seed-data.ts:60</code> · plan §3.2 flags it as unconfirmed</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L8. Selection is row-index based and mouse-only</h3>
+<p>A window-focus refetch that reorders the list (a colleague recorded as a leaver meanwhile) moves the selection ring onto different people; <code>apply()</code> captures the employee ids before awaiting, so the write targets are right but the ring is not. Releasing the mouse outside the window leaves <code>dragging</code> true, so the next hover extends the selection with no button held. No touch handlers.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L9. Accessibility: cells are <code>div</code>s with no <code>role</code>, <code>tabIndex</code> or <code>aria</code>; meaning is carried by opacity, a 3 px dot and <code>title</code>; labels are 9 px; the amber error cards have no dark-mode variants</h3>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L10. The sidebar hardcodes <code>["SUPER_ADMIN","ADMIN","HR_USER"]</code> because <code>hr-roles.ts</code> imports <code>next/server</code> and pino and cannot be loaded client-side</h3>
+<p><b>Fix:</b> move <code>HR_ROLES</code>/<code>canViewHr</code> to a dependency-free file (the <code>team-roles.ts</code> precedent) and import it in both.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L11. Pre-existing, not HR-introduced: org-level reads an HR_USER can reach</h3>
+<p><code>GET /api/organization</code> returns the raw organisation row (including the <code>settings</code> JSON that holds the encrypted credential blobs, as ciphertext) plus every user's email and role to any org-bound session; <code>GET /api/organization/users</code> gates only on <code>organizationId</code> being set despite its comment; <code>POST /api/upload/photo</code> has no role guard. None is HR data and HR_USER cannot write through them, but "confined to the HR module" is read-side false for these three, as it is for CRM_USER, ONSITE and WEBINARS.</p>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L12. Employees form: <code>Number(x) || 0</code> silently zeroes a cleared carryover or opening field; a non-numeric agreed entitlement becomes <code>NaN</code> and a generic "Invalid input"; the exit dialog's date input has no <code>min</code></h3>
+</div>
+
+<div class="finding low">
+<h3><span class="sev low">LOW</span> L13. <code>HTTP_STATUS_FOR_EMPLOYEE_ERROR</code> is exported from a <code>route.ts</code> and imported by two sibling routes</h3>
+<p>Works (deploys are green) but couples route modules; the maps for the other two services live in their own route files too. A <code>src/hr/lib/hr-http.ts</code> home would hold all three.</p>
+</div>
+
+<h2 id="safe">Verified safe</h2>
+<table>
+<tr><th>Area</th><th>What holds</th></tr>
+<tr><td>Visibility predicate</td><td><code>canViewHr</code> admits exactly SUPER_ADMIN, ADMIN, HR_USER; fails closed on null, unknown and missing roles (pinned). HR routes use <code>auth()</code> only, never <code>getOrgContext</code>, so API keys get 401 everywhere.</td></tr>
+<tr><td>Route shape</td><td>All 16 handlers: auth → <code>denyNonHr</code> (404 when off, 403 otherwise, both logged with route) → <code>requireOrgId</code> → <code>runWithTenant</code>. Every Zod failure logs field errors; every catch logs.</td></tr>
+<tr><td>HR_USER confinement</td><td>In <code>RESTRICTED_WRITE_ROLES</code>; absent from finance, barcode, contacts, login-visibility, export, operator, CRM, Zoom-host and supporting-document allow-lists; <code>buildEventAccessWhere</code> → zero events; proxy redirects every matched dashboard path to <code>/hr</code>; grant refused at both org-users doors when the flag is off; ORGANIZER cannot grant it.</td></tr>
+<tr><td>Tenancy</td><td>Every read and write is org-bound; the attendance upsert keys on the composite <code>(organizationId, employeeId, date)</code> unique; <code>clearAttendance</code> and rule delete carry <code>organizationId</code> in the write. Six flat RLS policies (USING + WITH CHECK, no FORCE) applied by the harness; <code>hr-rls.test.ts</code> pins lane identity, cross-tenant miss by id, fail-closed with no lane, smuggle and re-home refusal, cross-tenant delete. <code>src/app/api/hr</code> is in the CI gate's handler-count check.</td></tr>
+<tr><td>Audit stamping and feed</td><td>Every HR <code>auditLog.create</code> runs inside the route's lane, so <code>resolveAuditOrganizationId</code> stamps it from the ambient org. <code>/api/activity</code> is SUPER_ADMIN/ADMIN only and org-scoped; the event and person activity feeds cannot surface HR rows. No HR log line carries a name, remark or note.</td></tr>
+<tr><td>Dates</td><td>Calendar dates as strings end to end; <code>isCalendarDate</code> round-trips reject impossible dates; <code>dayOfWeek</code>/<code>addDays</code>/<code>daysBetween</code> are pure UTC; <code>anniversaryOn</code> clamps 29 February; exit date inclusive everywhere; <code>nextDate</code> in <code>attendance-rules.ts</code> is equivalent to <code>addDays</code>.</td></tr>
+<tr><td>Maths</td><td>Negative balances never clamped; <code>capCarryover</code> one-directional on write and read; every stored quantity is a multiple of 0.5, so Decimal → Number cannot drift; comp-off block detection handles Fri/Sat weekends, year-straddling weekends, duplicate OD dates and exit mid-weekend; earned and taken share one window; the entitlement override treats 0 as a real agreement and outranks the gate (both mutation-verified).</td></tr>
+<tr><td>Rules</td><td><code>effectiveStatusFor</code> precedence matches plan §17.3; <code>ruleDerivedDays</code> resolves through the same function; an EMPLOYEE rule cannot leak onto another person; <code>ruleFor</code> is order-independent; both balance paths merge rule days.</td></tr>
+<tr><td>Frontend hygiene</td><td>No Node-only module reaches the client bundle; the two dialogs use the React 19 previous-render pattern; the popover contains no portalling primitive (pinned); month navigation clears the selection; DELETE with a JSON body passes the proxy's size and CSRF checks.</td></tr>
+<tr><td>Migrations and seeds</td><td>All three migrations additive and idempotent (blue/green safe); leave-code and holiday seeding is seed-once, race-safe via <code>skipDuplicates</code>, and the 2026 holiday seed matches the workbook's thirteen dates.</td></tr>
+</table>
+
+<h2 id="lessons">Lessons</h2>
+<ul>
+  <li><b>A null bound is not a zero bound.</b> The engine's only two wrong figures come from <code>null</code> meaning "open" in one helper and "nothing" in the caller's intent. Name the case (<code>employedInYear: false</code>) instead of letting it fall through.</li>
+  <li><b>"As at" has two clocks.</b> Anything gated on elapsed service must be judged at the earlier of today and the exit date.</li>
+  <li><b>One fact, one implementation, including the second path.</b> The policy function existed; the rule path never called it. A policy change is not done until every path that answers the question has been grepped.</li>
+  <li><b>An audit you cannot restore from is a log, not an audit.</b> Store the before-state on overwrite and delete, and cap and throttle the destructive verb the same as the constructive one.</li>
+  <li><b>Comments are load-bearing here.</b> Four documents describe the annual-leave rule and three are wrong after a same-day ruling. The header of the file that implements it is the one a future engineer will trust.</li>
+</ul>
+
+<p class="sub">Report written Aug 31, 2026 against <code>9de399c3</code>. No code was changed. Fix batches should be picked by the owner; H1, H2 and H4 are each one-line fixes with a pinning test, H3 and M9 need rulings before code.</p>
+</body>
+</html>

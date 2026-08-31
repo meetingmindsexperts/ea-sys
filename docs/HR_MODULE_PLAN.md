@@ -45,9 +45,12 @@
 >    should not overrule a decision made between two people. Shown on the summary
 >    with an "agreed" marker rather than as a bare number: one person legitimately
 >    differing from everyone else has to explain itself, or it reads as a bug.
-> 3. **The year-end roll worker.** `planYearRoll` exists as a pure function; the
->    DB service and `worker/jobs/hr-year-roll.ts` do not. 1 January is a real
->    deadline.
+> 3. ~~**The year-end roll worker.**~~ Shipped Aug 31 2026 (review H6):
+>    `src/hr/services/leave-year-roll-service.ts` writes one `LeaveGrant` per
+>    employee from `planYearRoll`, both balance paths read it, and the
+>    `hr-year-roll` worker job runs it nightly through January. The go-live
+>    seeds are scoped to `Employee.seedLeaveYear` (owner decision: a column,
+>    so a figure typed for someone added later is never silently ignored).
 > 4. **The privacy paragraph** in `docs/SECURITY_AND_PRIVACY_POSTURE.md` (§10
 >    here). That database now holds colleagues' sick-leave records while the
 >    document handed to a federal health authority describes it as event data.
@@ -511,9 +514,11 @@ three, because "days of sick leave left" is not one number.
   moon-dependent, so HR confirms them annually and a generated guess would be
   wrong in a way that silently shifts a payroll month.
 - **Effective status for an (employee, date) with no entry:** outside the
-  employment window gives not-applicable; a public holiday gives `PH`; a
-  weekend gives `OFF`; otherwise `P`. An explicit entry always wins, so `OD` on
-  a Saturday overrides `OFF`.
+  employment window gives not-applicable; a standing rule carrying a
+  calendar-day code (annual leave, on-duty, comp-off) gives that code; a public
+  holiday gives `PH`; a weekend gives `OFF`; any other standing rule gives its
+  code; otherwise `P`. An explicit entry always wins, so `OD` on a Saturday
+  overrides `OFF`. The full chain is §17.3.
 
 ---
 
@@ -524,8 +529,13 @@ no service imports `next/server`. Same contract as `src/services/README.md`.
 
 - **`employeeService`**: CRUD, exit flow, carryover updates.
 - **`attendanceService`**: upsert one entry (validating window and code),
-  bulk range entry (for example "AL from Sep 7 to 18" expands to working days
-  only, skipping weekends and holidays), delete.
+  bulk range entry (how far a range reaches is decided per leave category by
+  `rangeCoversCalendarDays`, owner ruling Aug 31 2026: an ANNUAL block is
+  charged for every calendar day in it, weekends included; ON_DUTY and COMP_OFF
+  reach the weekend; everything else, sick leave included, expands to working
+  days only), delete. Both the write and the delete record in the audit row the
+  code each affected day held before, so a mistaken drag can be reversed from
+  the trail.
 - **`leaveBalanceService`**: **the single source of truth for every balance**:
   annual, the three sick tiers, comp-off. Pure functions over queried data,
   exhaustively unit-tested. Every UI, report, MCP tool and export calls it.
@@ -844,13 +854,19 @@ a rule is not a record of what somebody typed.
 
 1. Outside the employment window → `NOT_EMPLOYED`
 2. An explicit `AttendanceEntry` → that entry
-3. A public holiday → `PH`
-4. A weekend → `OFF`. **A rule must never turn a Saturday into a working day**;
-   only an explicit entry (an OD) can do that.
-5. A standing rule → its code. `EMPLOYEE` beats `ORG`, because the narrower
-   statement is the more specific one; within a scope the later start date wins,
-   with the id as a stable tiebreak.
-6. Otherwise → assumed `P`
+3. A standing rule whose code **covers calendar days** (annual leave, on-duty,
+   comp-off: `rangeCoversCalendarDays`) → its code, weekend or holiday
+   included. Owner ruling, Aug 31 2026, "calendar days everywhere": a company
+   shutdown recorded as an AL rule costs exactly what the same block dragged on
+   the grid costs. Before this step existed the two paths priced the same leave
+   differently (12 days as a range, 10 as a rule; review H3).
+4. A public holiday → `PH`
+5. A weekend → `OFF`. **A working-day rule must never turn a Saturday into a
+   working day**; only an explicit entry (an OD) can do that.
+6. Any other standing rule → its code. `EMPLOYEE` beats `ORG`, because the
+   narrower statement is the more specific one; within a scope the later start
+   date wins, with the id as a stable tiebreak.
+7. Otherwise → assumed `P`
 
 `ruleFor` sorts internally rather than trusting the caller's ordering: a pure
 function whose answer depends on the order it was handed is not pure enough to

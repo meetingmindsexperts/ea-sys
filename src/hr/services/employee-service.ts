@@ -7,7 +7,15 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { type CalendarDate, fromCalendarDate, isCalendarDate, toCalendarDate } from "../lib/hr-date";
+import {
+  type CalendarDate,
+  fromCalendarDate,
+  isCalendarDate,
+  toCalendarDate,
+  todayInTimezone,
+  yearOf,
+} from "../lib/hr-date";
+import { HR_DEFAULT_TIMEZONE } from "../lib/hr-constants";
 import { capCarryover } from "../lib/leave-balance";
 
 export type EmployeeErrorCode =
@@ -37,6 +45,12 @@ export interface CreateEmployeeInput {
   openingCompOff?: number;
   /** Null clears the override and returns the person to the standard rule. */
   annualEntitlementDays?: number | null;
+  /**
+   * The leave year the seeds (`carryoverDays`, `openingSickUsed`) belong to.
+   * Defaults to the current leave year, which is when a figure typed at
+   * creation is true. The workbook import passes 2026 explicitly.
+   */
+  seedLeaveYear?: number;
   userId?: string | null;
   notes?: string | null;
 }
@@ -55,6 +69,7 @@ export interface EmployeeView {
   openingSickUsed: number;
   openingCompOff: number;
   annualEntitlementDays: number | null;
+  seedLeaveYear: number | null;
   userId: string | null;
   notes: string | null;
 }
@@ -63,7 +78,7 @@ type EmployeeRow = {
   id: string; empCode: string; name: string; department: string | null;
   jobTitle: string | null; joiningDate: Date; exitDate: Date | null; status: string;
   carryoverDays: unknown; openingSickUsed: unknown; openingCompOff: unknown;
-  annualEntitlementDays: unknown;
+  annualEntitlementDays: unknown; seedLeaveYear: number | null;
   userId: string | null; notes: string | null;
 };
 
@@ -89,6 +104,7 @@ export function toEmployeeView(row: EmployeeRow): EmployeeView {
       row.annualEntitlementDays === null || row.annualEntitlementDays === undefined
         ? null
         : num(row.annualEntitlementDays),
+    seedLeaveYear: row.seedLeaveYear ?? null,
     userId: row.userId,
     notes: row.notes,
   };
@@ -98,7 +114,7 @@ export const EMPLOYEE_SELECT = {
   id: true, empCode: true, name: true, department: true, jobTitle: true,
   joiningDate: true, exitDate: true, status: true, carryoverDays: true,
   openingSickUsed: true, openingCompOff: true, annualEntitlementDays: true,
-  userId: true, notes: true,
+  seedLeaveYear: true, userId: true, notes: true,
 } as const;
 
 export async function createEmployee(
@@ -134,6 +150,8 @@ export async function createEmployee(
         openingSickUsed: input.openingSickUsed ?? 0,
         openingCompOff: input.openingCompOff ?? 0,
         annualEntitlementDays: input.annualEntitlementDays ?? null,
+        // The seeds are true for the year they were typed in, and no other.
+        seedLeaveYear: input.seedLeaveYear ?? yearOf(todayInTimezone(HR_DEFAULT_TIMEZONE)),
         userId: input.userId ?? null,
         notes: input.notes?.trim() || null,
       },

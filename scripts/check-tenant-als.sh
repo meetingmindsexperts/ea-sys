@@ -425,6 +425,7 @@ OPERATOR_LANE_ALLOWLIST=(
   # worker/jobs/*.ts, not by job name.
   "src/lib/certificates/survey-thankyou-sweep.ts"  # dedup + candidate scans, which must share one lane
   "src/lib/refund-reconciliation.ts"               # stale-refund sweep (money: an empty lane reads as "nothing stuck")
+  "src/hr/hr-year-roll-worker.ts"                  # which-orgs-have-employees scan; each roll then runs in that org's lane (Aug 31, 2026)
   # Operator read surfaces. Both pair the lane with an RBAC wall: the queries
   # route calls denyNonOperator(); aws-ops is scope-aware and only takes the
   # privileged path for the platform view, so its caller decides the audience.

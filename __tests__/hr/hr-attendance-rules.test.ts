@@ -26,12 +26,12 @@ const d = (s: string) => s as CalendarDate;
 
 /** The real shape from production: everyone remote 2-6 March 2026. */
 const companyWeek: AttendanceRuleLike = {
-  id: "r-company", scope: "ORG", code: "WFH",
+  id: "r-company", scope: "ORG", code: "WFH", category: "WORK",
   startDate: d("2026-03-02"), endDate: d("2026-03-06"),
 };
 /** Jinan, permanently remote. Open-ended by design. */
 const standing: AttendanceRuleLike = {
-  id: "r-standing", scope: "EMPLOYEE", employeeId: "e-jinan", code: "WFH",
+  id: "r-standing", scope: "EMPLOYEE", employeeId: "e-jinan", code: "WFH", category: "WORK",
   startDate: d("2023-05-01"), endDate: null,
 };
 
@@ -129,15 +129,52 @@ describe("effectiveStatusFor with rules", () => {
     expect(s.code).toBe("PH");
   });
 
-  it("a weekend beats a rule: a company day does not create a working Saturday", () => {
+  it("a weekend beats a WORKING-day rule: a company WFH day does not create a working Saturday", () => {
     const spanningWeekend: AttendanceRuleLike = {
-      id: "r-span", scope: "ORG", code: "WFH",
+      id: "r-span", scope: "ORG", code: "WFH", category: "WORK",
       startDate: d("2026-03-02"), endDate: d("2026-03-13"),
     };
     // 7 March 2026 is a Saturday.
     const s = effectiveStatusFor(d("2026-03-07"), ctx({ rules: [spanningWeekend] }));
     expect(s.code).toBe("OFF");
     expect(s.ruleId).toBeUndefined();
+  });
+
+  /**
+   * Owner ruling, Aug 31 2026 ("calendar days everywhere", review H3): a rule
+   * whose code covers calendar days reaches the weekend and the holiday inside
+   * its window, exactly as the same block dragged on the grid is written. Before
+   * this, a two-week shutdown cost 12 days from the grid and 10 as a rule.
+   */
+  it("an annual-leave rule reaches the Saturday inside it", () => {
+    const shutdown: AttendanceRuleLike = {
+      id: "r-al", scope: "ORG", code: "AL", category: "ANNUAL",
+      startDate: d("2026-03-02"), endDate: d("2026-03-13"),
+    };
+    const s = effectiveStatusFor(d("2026-03-07"), ctx({ rules: [shutdown] }));
+    expect(s.code).toBe("AL");
+    expect(s.ruleId).toBe("r-al");
+  });
+
+  it("an annual-leave rule reaches a public holiday inside it", () => {
+    const shutdown: AttendanceRuleLike = {
+      id: "r-al", scope: "ORG", code: "AL", category: "ANNUAL",
+      startDate: d("2026-03-02"), endDate: d("2026-03-06"),
+    };
+    const s = effectiveStatusFor(d("2026-03-04"), ctx({
+      rules: [shutdown], holidays: new Set([d("2026-03-04")]),
+    }));
+    expect(s.code).toBe("AL");
+    expect(s.ruleId).toBe("r-al");
+  });
+
+  it("a rule that cannot say what it is stays working-days-only (fails safe)", () => {
+    const uncategorised: AttendanceRuleLike = {
+      id: "r-unknown", scope: "ORG", code: "AL",
+      startDate: d("2026-03-02"), endDate: d("2026-03-13"),
+    };
+    const s = effectiveStatusFor(d("2026-03-07"), ctx({ rules: [uncategorised] }));
+    expect(s.code).toBe("OFF");
   });
 
   it("outside employment beats everything, rules included", () => {
@@ -212,7 +249,7 @@ describe("a rule reaches the balance", () => {
 
   /** 2 to 6 March 2026 is Monday to Friday: five working days. */
   const shutdown: AttendanceRuleLike = {
-    id: "r-shutdown", scope: "ORG", code: "AL",
+    id: "r-shutdown", scope: "ORG", code: "AL", category: "ANNUAL",
     startDate: d("2026-03-02"), endDate: d("2026-03-06"),
   };
 
@@ -241,7 +278,7 @@ describe("a rule reaches the balance", () => {
   });
 
   it("a WFH rule costs nothing, because working from home is working", () => {
-    const wfh: AttendanceRuleLike = { ...shutdown, id: "r-wfh", code: "WFH" };
+    const wfh: AttendanceRuleLike = { ...shutdown, id: "r-wfh", code: "WFH", category: "WORK" };
     const derived = days([wfh]);
     expect(derived).toHaveLength(5);
     const balance = balanceWith(
@@ -259,12 +296,35 @@ describe("a rule reaches the balance", () => {
     expect(derived.map((x) => x.date)).not.toContain("2026-03-04");
   });
 
-  it("a rule spanning a weekend charges only the working days inside it", () => {
-    // 2 to 13 March is twelve calendar days but ten working ones.
+  it("an AL rule spanning a weekend charges the weekend too: twelve days, as the grid would", () => {
+    // 2 to 13 March is twelve calendar days. Owner ruling, Aug 31 2026: annual
+    // leave is charged for every day in the block whichever way it was
+    // recorded, so a shutdown costs the same as a rule and as a dragged range.
     const long: AttendanceRuleLike = {
       ...shutdown, id: "r-long", endDate: d("2026-03-13"),
     };
+    expect(days([long])).toHaveLength(12);
+  });
+
+  it("a WFH rule spanning a weekend still covers only the ten working days", () => {
+    const long: AttendanceRuleLike = {
+      ...shutdown, id: "r-long-wfh", code: "WFH", category: "WORK", endDate: d("2026-03-13"),
+    };
     expect(days([long])).toHaveLength(10);
+  });
+
+  it("an AL rule over a public holiday charges the holiday, as a dragged range does", () => {
+    const derived = ruleDerivedDays({
+      employeeId: "e-a",
+      employment: { joiningDate: employee.joiningDate, exitDate: null },
+      rules: [shutdown],
+      explicitDates: new Set<CalendarDate>(),
+      holidays: new Set([d("2026-03-04")]),
+      from: d("2026-01-01"),
+      to: d("2026-12-31"),
+    });
+    expect(derived.map((x) => x.date)).toContain("2026-03-04");
+    expect(derived).toHaveLength(5);
   });
 
   it("a rule cannot charge leave for somebody who had not joined yet", () => {
@@ -495,5 +555,45 @@ describe("an agreed annual entitlement", () => {
     });
     expect(b.annual.entitlement).toBe(0);
     expect(b.annual.entitlementOverridden).toBe(false);
+  });
+});
+
+/**
+ * Review H4 (Aug 31 2026). The grid binds single letters at the document. With
+ * no modifier check, Cmd+C on a selection wrote comp-off, Cmd+A annual leave,
+ * Cmd+S sick leave and Cmd+W work-from-home as the tab closed; a held key
+ * auto-repeated the write. Pinned at source because the page has no component
+ * test, and the regression is silent: the grid looks identical either way.
+ */
+describe("the grid's keyboard shortcuts leave the browser's combinations alone", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/app/(dashboard)/hr/attendance/page.tsx"),
+    "utf8",
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const start = source.indexOf("function onKey(");
+  const end = source.indexOf("document.addEventListener(\"keydown\"", start);
+  const handler = source.slice(start, end);
+
+  it("is actually where we think it is", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(handler).toContain("KEY_TO_CODE[");
+  });
+
+  it("refuses modifier keys and key repeat BEFORE looking a letter up", () => {
+    const guard = handler.indexOf("ev.metaKey");
+    const lookup = handler.indexOf("KEY_TO_CODE[");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(lookup);
+    for (const flag of ["ev.metaKey", "ev.ctrlKey", "ev.altKey", "ev.repeat"]) {
+      expect(handler).toContain(flag);
+    }
+  });
+
+  it("does not start a second run while one is writing", () => {
+    expect(handler).toContain("applying.current");
+    const apply = source.slice(source.indexOf("async function apply("));
+    expect(apply).toContain("if (!cellsInSel.length || applying.current) return;");
   });
 });

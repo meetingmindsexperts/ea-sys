@@ -307,6 +307,8 @@ async function writeToDatabase(input: {
         carryoverDays: e.carryoverDays,
         openingSickUsed: e.openingSickUsed,
         openingCompOff: e.openingCompOff,
+        // The workbook's seeds are true for its own year and no other.
+        seedLeaveYear: 2026,
       })),
     });
     const created = await db.employee.findMany({

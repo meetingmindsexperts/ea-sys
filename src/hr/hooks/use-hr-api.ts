@@ -22,6 +22,8 @@ export interface HrEmployee {
   openingCompOff: number;
   /** An agreed figure replacing the standard entitlement; null means use the rule. */
   annualEntitlementDays: number | null;
+  /** The leave year the carry-over and opening-sick seeds belong to. */
+  seedLeaveYear: number | null;
   userId: string | null;
   notes: string | null;
 }
@@ -35,6 +37,9 @@ export interface HrTier {
 export interface HrBalance {
   leaveYear: number;
   asOf: string;
+  /** False when the person was not employed at any point in `leaveYear`; every
+   *  annual and sick figure is then zero and must be rendered as "not employed". */
+  employedInYear: boolean;
   hasCompletedFirstYear: boolean;
   nextAnniversary: string;
   annual: {
@@ -285,6 +290,30 @@ export function useUpdateHrEmployee() {
   return useMutation({
     mutationFn: ({ id, ...patch }: Partial<HrEmployeeInput> & { id: string }) =>
       send<{ employee: HrEmployee }>(`/api/hr/employees/${id}`, "PATCH", patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
+  });
+}
+
+export interface HrYearRollResult {
+  fromYear: number;
+  toYear: number;
+  granted: number;
+  skipped: number;
+  capped: { employeeId: string; empCode: string; closing: number; carried: number }[];
+}
+
+/**
+ * Re-run the year-end roll for one closed year. The worker does this nightly
+ * through January; this is the manual re-run after a later correction, and it
+ * is idempotent, so pressing it twice cannot do harm.
+ */
+export function useRollHrLeaveYear() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fromYear: number) =>
+      send<{ result: HrYearRollResult }>("/api/hr/leave-year/roll", "POST", { fromYear }).then(
+        (r) => r.result,
+      ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
 }

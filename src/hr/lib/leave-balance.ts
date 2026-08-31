@@ -49,6 +49,14 @@ export interface BalanceEmployee {
    * negotiated rather than calculated).
    */
   annualEntitlementDays?: number | null;
+  /**
+   * The leave year `carryoverDays` and `openingSickUsed` belong to. They count
+   * in that year only; any other year gets its carry-in from `carriedInDays`
+   * (the `LeaveGrant` the year-end roll wrote) and no opening sick figure.
+   * Null means "the year asked for", so a typed figure is never silently
+   * ignored on a row created by a path that forgot to stamp it.
+   */
+  seedLeaveYear?: number | null;
 }
 
 export interface BalanceInput {
@@ -61,12 +69,13 @@ export interface BalanceInput {
   /**
    * What was carried into THIS leave year, when a `LeaveGrant` row records it.
    *
-   * `Employee.carryoverDays` is only the SEED, for the year before the module
-   * went live. From the first year-end roll onwards the figure lives on the
-   * grant, and the seed is never overwritten. That is deliberate: overwriting it
-   * would make last year's closing balance unrecomputable the moment it was
-   * written, so a December leave day entered in January could never be
-   * reconciled. Non-destructive means the roll can simply be recomputed.
+   * `Employee.carryoverDays` is only the SEED, for the year the record was
+   * created (`seedLeaveYear`). From the first year-end roll onwards the figure
+   * lives on the grant, and the seed is never overwritten. That is deliberate:
+   * overwriting it would make last year's closing balance unrecomputable the
+   * moment it was written, so a December leave day entered in January could
+   * never be reconciled. Non-destructive means the roll can simply be
+   * recomputed, which is what the worker does every night through January.
    */
   carriedInDays?: number;
   weekendDays?: readonly number[];
@@ -83,6 +92,13 @@ export interface SickTier {
 export interface LeaveBalance {
   leaveYear: number;
   asOf: CalendarDate;
+  /**
+   * False when the employment window and the leave year do not overlap (an
+   * exit before the year, or a joining date after it). Every annual and sick
+   * figure is then zero BY CONSTRUCTION, and a surface must say "not employed
+   * this year" rather than render the zeros as a balance.
+   */
+  employedInYear: boolean;
   hasCompletedFirstYear: boolean;
   nextAnniversary: CalendarDate;
   annual: {
@@ -151,29 +167,62 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   // so an exit in August cannot pick up September rows and a joiner in March is
   // not judged against January.
   const window = employedWindowInYear(leaveYear, employee);
+  const employedInYear = window !== null;
+  // NO window means NOTHING to count, not "no bound". `isWithin` treats a null
+  // bound as open, which is right for a rule window and wrong here: passing
+  // `null, null` through summed the person's ENTIRE history against a fresh
+  // entitlement, which is what the leavers view showed for anyone whose exit
+  // preceded the year (review H1, Aug 31 2026). A year the person was not
+  // employed in gets zeros, and `employedInYear` says why.
+  const yearEntries = employedInYear ? entries : [];
   const from = window?.from ?? null;
   const to = window?.to ?? null;
 
-  const completedFirstYear = hasCompletedFirstYear(employee.joiningDate, asOf);
+  // The first-year gate is judged at the EARLIER of `asOf` and the exit date.
+  // Somebody who left after eleven months never completed a year, and must not
+  // flip to 30 days on the leavers view the day the calendar passes an
+  // anniversary they never reached (review H2; owner ruling Aug 31 2026:
+  // "zero, unless first year is completed", leaver or not).
+  const gateDate =
+    employee.exitDate && employee.exitDate < asOf ? employee.exitDate : asOf;
+  const completedFirstYear = hasCompletedFirstYear(employee.joiningDate, gateDate);
   const overridden =
-    employee.annualEntitlementDays !== undefined && employee.annualEntitlementDays !== null;
-  const entitlement = overridden
-    ? roundDays(employee.annualEntitlementDays as number)
-    : completedFirstYear
-      ? HR_ANNUAL_ENTITLEMENT_DAYS
-      : 0;
-  const carriedInRaw = input.carriedInDays ?? employee.carryoverDays;
-  const carriedIn = capCarryover(carriedInRaw);
-  const annualTaken = sumWeights(entries, "ANNUAL", from, to);
+    employedInYear &&
+    employee.annualEntitlementDays !== undefined &&
+    employee.annualEntitlementDays !== null;
+  // An agreement is about a year the person worked in. It outranks the
+  // first-year gate, not the employment window: it cannot make a year they
+  // were never employed in worth anything.
+  const entitlement = !employedInYear
+    ? 0
+    : overridden
+      ? roundDays(employee.annualEntitlementDays as number)
+      : completedFirstYear
+        ? HR_ANNUAL_ENTITLEMENT_DAYS
+        : 0;
+  // The go-live seeds belong to ONE year. A grant written by the year-end roll
+  // always wins; otherwise the seed counts only in its own year, and any other
+  // year carries nothing in (review H6: before this, 1 January re-applied the
+  // seeds to everyone and every prior year's overdraft or surplus vanished).
+  const seedsApply =
+    employee.seedLeaveYear === undefined ||
+    employee.seedLeaveYear === null ||
+    employee.seedLeaveYear === leaveYear;
+  const carriedInRaw =
+    input.carriedInDays ?? (seedsApply ? employee.carryoverDays : 0);
+  const carriedIn = employedInYear ? capCarryover(carriedInRaw) : 0;
+  const annualTaken = sumWeights(yearEntries, "ANNUAL", from, to);
 
   // NEVER clamped. A negative balance is leave taken in advance, which is legal
   // by agreement and present in the live data (four employees). A Math.max(0)
   // anywhere in this module is a bug.
   const annualBalance = roundDays(entitlement + carriedIn - annualTaken);
 
-  const sickFullUsed = sumWeights(entries, "SICK_FULL", from, to) + employee.openingSickUsed;
-  const sickHalfUsed = sumWeights(entries, "SICK_HALF", from, to);
-  const sickUnpaidUsed = sumWeights(entries, "SICK_UNPAID", from, to);
+  const sickFullUsed =
+    sumWeights(yearEntries, "SICK_FULL", from, to) +
+    (employedInYear && seedsApply ? employee.openingSickUsed : 0);
+  const sickHalfUsed = sumWeights(yearEntries, "SICK_HALF", from, to);
+  const sickUnpaidUsed = sumWeights(yearEntries, "SICK_UNPAID", from, to);
 
   // Comp-off is a RUNNING balance, not an annual one: the workbook sums it with
   // no year bound and carries an opening figure. So it is bounded only by the
@@ -191,6 +240,7 @@ export function computeLeaveBalance(input: BalanceInput): LeaveBalance {
   return {
     leaveYear,
     asOf,
+    employedInYear,
     hasCompletedFirstYear: completedFirstYear,
     nextAnniversary: nextAnniversary(employee.joiningDate, asOf),
     annual: {

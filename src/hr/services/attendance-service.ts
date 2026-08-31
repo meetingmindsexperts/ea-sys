@@ -7,10 +7,19 @@
  * strictly better place to enforce it, and it is why the one-time import needs
  * an explicit bypass.
  *
- * A BULK RANGE EXPANDS TO WORKING DAYS ONLY. "AL from 7 to 18 September" means
- * the working days in that span, not twelve calendar days: weekends and public
- * holidays inside a holiday are not annual leave, and charging them would
- * quietly cost the employee four days.
+ * HOW FAR A RANGE REACHES IS A POLICY, NOT A CALLER CHOICE. `rangeCoversCalendarDays`
+ * (hr-constants.ts, owner ruling Aug 31 2026) decides it per leave category: an
+ * ANNUAL block is charged for every calendar day in it, weekends included,
+ * because the person was away and that is how every imported balance was
+ * computed; ON_DUTY and COMP_OFF reach the weekend because they describe the
+ * day itself; everything else, sick leave included, expands to working days
+ * only. The explicit `includeNonWorkingDays` flag stays as an override.
+ *
+ * EVERY WRITE AND EVERY CLEAR RECORDS WHAT IT REPLACED. The audit row carries the
+ * previous code of each overwritten day and the code of each deleted day, so a
+ * drag that lands wrong can be put back from the trail alone. Codes only, never
+ * remarks: free text is where a medical detail would land, and the trail
+ * outlives the entry.
  */
 
 import { Prisma } from "@prisma/client";
@@ -19,6 +28,7 @@ import { apiLogger } from "@/lib/logger";
 import {
   type CalendarDate,
   dayOfWeek,
+  daysBetween,
   eachDate,
   fromCalendarDate,
   isCalendarDate,
@@ -77,14 +87,16 @@ export async function setAttendance(
     return { ok: false, code: "REVERSED_RANGE", message: "The end date is before the start date." };
   }
 
-  const dates = eachDate(input.from, to);
-  if (dates.length > MAX_RANGE_DAYS) {
+  // Checked before the range is expanded, so a hundred-year request costs a
+  // subtraction rather than 36,000 strings.
+  if (daysBetween(input.from, to) + 1 > MAX_RANGE_DAYS) {
     return {
       ok: false,
       code: "RANGE_TOO_LONG",
       message: `A range may cover at most ${MAX_RANGE_DAYS} days.`,
     };
   }
+  const dates = eachDate(input.from, to);
 
   const [employee, leaveCode] = await Promise.all([
     db.employee.findFirst({
@@ -160,7 +172,25 @@ export async function setAttendance(
   }
 
   try {
-    await tenantTransaction(async (tx) => {
+    // What each written day held BEFORE, read inside the same transaction as
+    // the write. Without it an accidental overwrite (AL dragged across a
+    // recorded sick week) was unrecoverable: the audit said what was written
+    // and never what it replaced (review H5, Aug 31 2026).
+    const overwritten = await tenantTransaction(async (tx) => {
+      const existing = await tx.attendanceEntry.findMany({
+        where: {
+          organizationId: input.organizationId,
+          employeeId: input.employeeId,
+          date: { in: target.map(fromCalendarDate) },
+        },
+        select: { date: true, leaveCode: { select: { code: true } } },
+        orderBy: { date: "asc" },
+      });
+      const previous = existing.map((e) => ({
+        date: toCalendarDate(e.date),
+        previousCode: e.leaveCode.code,
+      }));
+
       for (const date of target) {
         await tx.attendanceEntry.upsert({
           where: {
@@ -181,12 +211,16 @@ export async function setAttendance(
           },
           update: {
             leaveCodeId: leaveCode.id,
-            remarks: input.remarks?.trim() || null,
+            // Touched only when the caller SAID something about remarks. The
+            // grid never sends them, so re-coding a day used to null the note
+            // that explained it. An explicit null still clears.
+            ...(input.remarks !== undefined && { remarks: input.remarks?.trim() || null }),
             approvedById: input.actorUserId,
             source: input.source,
           },
         });
       }
+      return previous;
     });
 
     await db.auditLog
@@ -196,8 +230,10 @@ export async function setAttendance(
           action: "UPDATE",
           entityType: "AttendanceEntry",
           entityId: `employee:${input.employeeId}`,
-          // The CODE, never the remarks. A medical detail would realistically
-          // land in free text, and the audit trail outlives the entry.
+          // CODES, never remarks. A medical detail would realistically land in
+          // free text, and the audit trail outlives the entry. `overwritten`
+          // lists only the days that already had a row, with the code they
+          // held, which is exactly what a reversal needs.
           changes: {
             source: input.source,
             employeeId: input.employeeId,
@@ -205,6 +241,7 @@ export async function setAttendance(
             from: input.from,
             to,
             days: target.length,
+            overwritten,
           },
         },
       })
@@ -238,13 +275,31 @@ export async function clearAttendance(input: {
   if (to < input.from) {
     return { ok: false, code: "REVERSED_RANGE", message: "The end date is before the start date." };
   }
+  // The same ceiling a write has. Clearing is a hard delete, and without a cap
+  // one request could erase a person's entire recorded history (review H5).
+  if (daysBetween(input.from, to) + 1 > MAX_RANGE_DAYS) {
+    return {
+      ok: false,
+      code: "RANGE_TOO_LONG",
+      message: `A range may cover at most ${MAX_RANGE_DAYS} days.`,
+    };
+  }
   try {
-    const { count } = await db.attendanceEntry.deleteMany({
-      where: {
-        organizationId: input.organizationId,
-        employeeId: input.employeeId,
-        date: { gte: fromCalendarDate(input.from), lte: fromCalendarDate(to) },
-      },
+    const where = {
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      date: { gte: fromCalendarDate(input.from), lte: fromCalendarDate(to) },
+    };
+    // Snapshot what is about to go, in the same transaction as the delete, so
+    // the audit can put it back. Codes only, never remarks.
+    const removed = await tenantTransaction(async (tx) => {
+      const rows = await tx.attendanceEntry.findMany({
+        where,
+        select: { date: true, leaveCode: { select: { code: true } } },
+        orderBy: { date: "asc" },
+      });
+      await tx.attendanceEntry.deleteMany({ where });
+      return rows.map((r) => ({ date: toCalendarDate(r.date), code: r.leaveCode.code }));
     });
     await db.auditLog
       .create({
@@ -253,11 +308,17 @@ export async function clearAttendance(input: {
           action: "DELETE",
           entityType: "AttendanceEntry",
           entityId: `employee:${input.employeeId}`,
-          changes: { employeeId: input.employeeId, from: input.from, to, removed: count },
+          changes: {
+            employeeId: input.employeeId,
+            from: input.from,
+            to,
+            removed: removed.length,
+            entries: removed,
+          },
         },
       })
       .catch((err) => apiLogger.error({ msg: "hr-attendance:audit-failed", err }));
-    return { ok: true, result: { removed: count } };
+    return { ok: true, result: { removed: removed.length } };
   } catch (err) {
     apiLogger.error({ msg: "hr-attendance:clear-failed", err, employeeId: input.employeeId });
     return { ok: false, code: "UNKNOWN", message: "Could not clear that attendance." };

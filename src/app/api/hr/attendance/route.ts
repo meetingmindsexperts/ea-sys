@@ -183,6 +183,17 @@ export async function DELETE(req: NextRequest) {
   const org = requireOrgId(session, { route: "hr/attendance" });
   if ("error" in org) return org.error;
 
+  // Same bucket as the writes: a clear is a hard delete and deserves at least
+  // the throttle a write has (review H5, Aug 31 2026).
+  const rl = checkRateLimit({
+    key: `hr-write:${session.user.id}`,
+    limit: 300,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!rl.allowed) {
+    return rateLimited(rl, { route: "hr/attendance:DELETE", userId: session.user.id, limit: 300, windowSeconds: 3600 });
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = clearSchema.safeParse(body);
   if (!parsed.success) {
@@ -204,7 +215,12 @@ export async function DELETE(req: NextRequest) {
       ...parsed.data,
     });
     if (!result.ok) {
-      apiLogger.warn({ msg: "hr/attendance:clear-rejected", code: result.code });
+      apiLogger.warn({
+        msg: "hr/attendance:clear-rejected",
+        code: result.code,
+        employeeId: parsed.data.employeeId,
+        userId: session.user.id,
+      });
       return NextResponse.json(
         { error: result.message, code: result.code },
         { status: HTTP_STATUS_FOR_ATTENDANCE_ERROR[result.code] },

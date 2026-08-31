@@ -12,6 +12,7 @@
  * fourteen times the information they carried.
  */
 
+import type { LeaveCategory } from "@prisma/client";
 import { type CalendarDate, isWithin } from "./hr-date";
 
 export type AttendanceRuleScope = "ORG" | "EMPLOYEE";
@@ -23,6 +24,15 @@ export interface AttendanceRuleLike {
   /** Set when scope is EMPLOYEE. */
   employeeId?: string | null;
   code: string;
+  /**
+   * The code's category. Decides how far the rule reaches: a category that
+   * covers calendar days (annual leave, on-duty, comp-off, see
+   * `rangeCoversCalendarDays`) speaks for the weekend and the public holiday
+   * inside its window too, exactly as an explicit range of that code would be
+   * written. Absent means working days only, which is the safe direction: a
+   * rule that cannot say what it is cannot charge a Saturday.
+   */
+  category?: LeaveCategory;
   startDate: CalendarDate;
   /** Null means open-ended: it holds until somebody ends it. */
   endDate?: CalendarDate | null;

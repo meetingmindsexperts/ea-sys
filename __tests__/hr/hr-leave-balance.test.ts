@@ -369,3 +369,173 @@ describe("effective status for a day with no row", () => {
     expect(effectiveStatusFor("2026-10-01", ctx).code).toBe("NOT_EMPLOYED");
   });
 });
+
+/**
+ * Review H1 (Aug 31 2026). `employedWindowInYear` returns null when the
+ * employment window and the leave year do not overlap. The engine used to turn
+ * that into `from = null, to = null`, and `isWithin(date, null, null)` is true
+ * for every entry, so a 2025 leaver's 2026 row summed their ENTIRE history
+ * against a fresh 30. Reachable from "Show leavers" for anyone whose exit
+ * preceded the year, and for every 2026 leaver from 1 January 2027.
+ */
+describe("a year the person was not employed in", () => {
+  const history: BalanceEntry[] = [
+    { date: "2024-03-04", category: "ANNUAL", dayWeight: 1 },
+    { date: "2025-02-10", category: "ANNUAL", dayWeight: 1 },
+    { date: "2025-02-11", category: "ANNUAL", dayWeight: 1 },
+    { date: "2025-04-01", category: "SICK_FULL", dayWeight: 1 },
+  ];
+  const leaver = {
+    joiningDate: "2020-01-15",
+    exitDate: "2025-06-30",
+    carryoverDays: 4,
+    openingSickUsed: 2,
+    openingCompOff: 0,
+  };
+
+  it("is flagged, and counts NOTHING rather than everything", () => {
+    const b = computeLeaveBalance({ employee: leaver, leaveYear: 2026, asOf: "2026-08-31", entries: history });
+    expect(b.employedInYear).toBe(false);
+    expect(b.annual.entitlement).toBe(0);
+    expect(b.annual.carriedIn).toBe(0);
+    expect(b.annual.taken).toBe(0);
+    expect(b.annual.balance).toBe(0);
+    expect(b.sick.full.used).toBe(0);
+    expect(b.sick.half.used).toBe(0);
+  });
+
+  it("the year they actually left in is unchanged", () => {
+    const b = computeLeaveBalance({ employee: leaver, leaveYear: 2025, asOf: "2026-08-31", entries: history });
+    expect(b.employedInYear).toBe(true);
+    expect(b.annual.taken).toBe(2);
+    expect(b.sick.full.used).toBe(3); // 1 recorded + 2 opening
+  });
+
+  it("a joiner dated after the year is treated the same way", () => {
+    const b = computeLeaveBalance({
+      employee: { joiningDate: "2027-02-01", exitDate: null, carryoverDays: 0, openingSickUsed: 0, openingCompOff: 0 },
+      leaveYear: 2026,
+      asOf: "2026-08-31",
+      entries: [{ date: "2027-03-01", category: "ANNUAL", dayWeight: 1 }],
+    });
+    expect(b.employedInYear).toBe(false);
+    expect(b.annual.taken).toBe(0);
+    expect(b.annual.balance).toBe(0);
+  });
+
+  it("an agreed entitlement cannot make an unemployed year worth anything", () => {
+    const b = computeLeaveBalance({
+      employee: { ...leaver, annualEntitlementDays: 12 },
+      leaveYear: 2026,
+      asOf: "2026-08-31",
+      entries: history,
+    });
+    expect(b.annual.entitlement).toBe(0);
+    expect(b.annual.entitlementOverridden).toBe(false);
+  });
+});
+
+/**
+ * Review H2 (Aug 31 2026). The first-year gate was judged at `asOf`, so a
+ * leaver who left after eleven months flipped from 0 to 30 on the leavers view
+ * the day the calendar passed an anniversary they never reached. Owner ruling
+ * the same day: "zero, unless first year is completed", leaver or not.
+ */
+describe("the first-year gate stops at the exit date", () => {
+  const elevenMonths = {
+    joiningDate: "2025-09-15",
+    exitDate: "2026-08-15",
+    carryoverDays: 0,
+    openingSickUsed: 0,
+    openingCompOff: 0,
+  };
+  const one: BalanceEntry[] = [{ date: "2026-05-04", category: "ANNUAL", dayWeight: 1 }];
+
+  it("stays at zero after the would-be anniversary", () => {
+    for (const asOf of ["2026-09-15", "2026-10-01", "2026-12-31"]) {
+      const b = computeLeaveBalance({ employee: elevenMonths, leaveYear: 2026, asOf, entries: one });
+      expect(b.hasCompletedFirstYear, asOf).toBe(false);
+      expect(b.annual.entitlement, asOf).toBe(0);
+      expect(b.annual.balance, asOf).toBe(-1);
+    }
+  });
+
+  it("a leaver who DID complete the year before leaving keeps the 30", () => {
+    const b = computeLeaveBalance({
+      employee: { ...elevenMonths, exitDate: "2026-10-31" },
+      leaveYear: 2026,
+      asOf: "2026-12-31",
+      entries: one,
+    });
+    expect(b.hasCompletedFirstYear).toBe(true);
+    expect(b.annual.entitlement).toBe(30);
+  });
+
+  it("someone still employed is judged at asOf, as before", () => {
+    const b = computeLeaveBalance({
+      employee: { ...elevenMonths, exitDate: null },
+      leaveYear: 2026,
+      asOf: "2026-09-15",
+      entries: one,
+    });
+    expect(b.hasCompletedFirstYear).toBe(true);
+    expect(b.annual.entitlement).toBe(30);
+  });
+});
+
+/**
+ * Review H6 (Aug 31 2026). The go-live seeds (`carryoverDays`,
+ * `openingSickUsed`) were applied to EVERY leave year because nothing recorded
+ * which year they belonged to, and `LeaveGrant` was never read. On 1 January
+ * every overdraft or surplus would have vanished and the opening sick figure
+ * charged again. The seeds now count in `seedLeaveYear` only; any other year
+ * reads its carry-in from the grant the year-end roll wrote.
+ */
+describe("the go-live seeds belong to one year", () => {
+  const seeded = {
+    joiningDate: "2020-01-15",
+    exitDate: null,
+    carryoverDays: 4,
+    openingSickUsed: 2,
+    openingCompOff: 1,
+    seedLeaveYear: 2026,
+  };
+  const sick2027: BalanceEntry[] = [{ date: "2027-03-02", category: "SICK_FULL", dayWeight: 1 }];
+
+  it("count in their own year", () => {
+    const b = computeLeaveBalance({ employee: seeded, leaveYear: 2026, asOf: "2026-12-31", entries: [] });
+    expect(b.annual.carriedIn).toBe(4);
+    expect(b.sick.full.used).toBe(2);
+  });
+
+  it("do NOT count in the next year: no grant means nothing carried in", () => {
+    const b = computeLeaveBalance({ employee: seeded, leaveYear: 2027, asOf: "2027-06-30", entries: sick2027 });
+    expect(b.annual.carriedIn).toBe(0);
+    expect(b.annual.balance).toBe(30);
+    expect(b.sick.full.used).toBe(1);
+    // Comp-off is a running balance, so its opening figure is not year-bound.
+    expect(b.compOff.opening).toBe(1);
+  });
+
+  it("a grant written by the roll is what the next year carries in", () => {
+    const b = computeLeaveBalance({
+      employee: seeded, leaveYear: 2027, asOf: "2027-06-30", entries: [], carriedInDays: -11,
+    });
+    expect(b.annual.carriedIn).toBe(-11);
+    expect(b.annual.balance).toBe(19);
+  });
+
+  it("a grant beats the seed even in the seed year", () => {
+    const b = computeLeaveBalance({
+      employee: seeded, leaveYear: 2026, asOf: "2026-12-31", entries: [], carriedInDays: 7,
+    });
+    expect(b.annual.carriedIn).toBe(7);
+  });
+
+  it("a row with no seed year keeps the old reading, so a typed figure is never ignored", () => {
+    const b = computeLeaveBalance({
+      employee: { ...seeded, seedLeaveYear: null }, leaveYear: 2027, asOf: "2027-06-30", entries: [],
+    });
+    expect(b.annual.carriedIn).toBe(4);
+  });
+});

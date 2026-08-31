@@ -21,10 +21,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useHrSummary, type HrSummaryRow } from "@/hr/hooks/use-hr-api";
+import { toast } from "sonner";
+import { useHrSummary, useRollHrLeaveYear, type HrSummaryRow } from "@/hr/hooks/use-hr-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CalendarClock, Loader2, TriangleAlert, CalendarDays, Users
+import { CalendarClock, Loader2, TriangleAlert, CalendarDays, RefreshCw, Users
 } from "lucide-react";
 
 function Days({ value, highlightNegative = false }: { value: number; highlightNegative?: boolean }) {
@@ -44,6 +45,21 @@ function Days({ value, highlightNegative = false }: { value: number; highlightNe
 export default function HrSummaryPage() {
   const [includeExited, setIncludeExited] = useState(false);
   const { data, isLoading, isError, error } = useHrSummary(undefined, includeExited);
+  const roll = useRollHrLeaveYear();
+
+  async function rerunRoll(fromYear: number) {
+    try {
+      const r = await roll.mutateAsync(fromYear);
+      toast.success(
+        `Carried ${fromYear} into ${r.toYear} for ${r.granted} ${r.granted === 1 ? "person" : "people"}` +
+          (r.capped.length ? `, ${r.capped.length} capped at the carry-over limit` : "") +
+          (r.skipped ? `, ${r.skipped} skipped` : "") +
+          ".",
+      );
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -68,8 +84,19 @@ export default function HrSummaryPage() {
   }
 
   const rows = data ?? [];
-  const negatives = rows.filter((r) => r.balance.annual.balance < 0).length;
-  const awaitingFirstYear = rows.filter((r) => !r.balance.hasCompletedFirstYear).length;
+  // Rows for a year the person was not employed in carry zeros by construction
+  // (review H1); they are neither "in advance" nor "awaiting an anniversary".
+  const negatives = rows.filter((r) => r.balance.employedInYear && r.balance.annual.balance < 0).length;
+  const awaitingFirstYear = rows.filter(
+    (r) => r.balance.employedInYear && !r.balance.hasCompletedFirstYear,
+  ).length;
+  // The roll carries the PREVIOUS year in. On the go-live year there is no
+  // previous year in the system (the carry-in is the typed seed), so the
+  // button is offered only once somebody's seed year is behind the view.
+  const leaveYear = rows[0]?.balance.leaveYear;
+  const rollable =
+    leaveYear !== undefined &&
+    rows.some((r) => r.employee.seedLeaveYear === null || r.employee.seedLeaveYear < leaveYear);
 
   return (
     <div className="space-y-5">
@@ -101,6 +128,21 @@ export default function HrSummaryPage() {
           <Button variant="ghost" onClick={() => setIncludeExited((v) => !v)}>
             {includeExited ? "Hide leavers" : "Show leavers"}
           </Button>
+          {/* The worker rolls the previous year into this one every night
+              through January. This re-runs it after a later correction (a
+              December entry fixed in March). Idempotent: it recomputes the
+              carry-in from the rows, so pressing it twice cannot do harm. */}
+          {rollable && (
+            <Button
+              variant="ghost"
+              disabled={roll.isPending}
+              title={`Recompute what ${leaveYear - 1} carried into ${leaveYear}`}
+              onClick={() => void rerunRoll(leaveYear - 1)}
+            >
+              {roll.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Re-run carry-over
+            </Button>
+          )}
         </div>
       </div>
 
@@ -147,6 +189,20 @@ export default function HrSummaryPage() {
                     {employee.exitDate ? ` · left ${employee.exitDate}` : ""}
                   </div>
                 </td>
+                {!balance.employedInYear ? (
+                  /* A year the person was not employed in has no balance to show.
+                     Rendering the engine's zeros as numbers would read as "took
+                     nothing, owed thirty", which is the figure that used to be
+                     shown for every pre-year leaver (review H1). Say what it is. */
+                  <td colSpan={10} className="px-3 py-2 text-xs text-muted-foreground">
+                    Not employed in {balance.leaveYear}
+                    {employee.exitDate && employee.exitDate < `${balance.leaveYear}-01-01`
+                      ? ` (left ${employee.exitDate})`
+                      : ` (joins ${employee.joiningDate})`}
+                    . Nothing is counted for this year.
+                  </td>
+                ) : (
+                  <>
                 <td className="px-3 py-2 text-right">
                   {/* An agreed figure is shown with a marker rather than silently:
                       a number that differs from everyone else's needs to explain
@@ -188,6 +244,8 @@ export default function HrSummaryPage() {
                 <td className="px-3 py-2 text-xs text-muted-foreground">
                   {balance.nextAnniversary}
                 </td>
+                  </>
+                )}
               </tr>
             ))}
             {rows.length === 0 && (
