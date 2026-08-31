@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
+import { isTeamRole } from "@/lib/team-roles";
 import { isHrModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 
@@ -24,6 +25,16 @@ const updateUserSchema = z.object({
    * `User.deactivatedAt`.
    */
   deactivated: z.boolean().optional(),
+  /**
+   * Grant or revoke the HR module for this person (owner, Aug 31 2026).
+   *
+   * SUPER_ADMIN ONLY, and that restriction is the whole mechanism rather than
+   * caution. HR is no longer implied by ADMIN precisely so that some admins can
+   * be kept out of it; if an ADMIN could set this flag, the ones being kept out
+   * could simply tick their own box and the change would be decoration. See
+   * `User.hrAccess`.
+   */
+  hrAccess: z.boolean().optional(),
 });
 
 interface RouteParams {
@@ -109,6 +120,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    if (validated.data.hrAccess !== undefined) {
+      // Only a SUPER_ADMIN decides who reads colleagues' sick leave. An ADMIN
+      // being excluded from HR must not be able to re-admit themselves, which
+      // is exactly what an ADMIN-writable flag would allow.
+      if (session.user.role !== "SUPER_ADMIN") {
+        apiLogger.warn({
+          msg: "organization/users:hr-access-grant-refused",
+          callerRole: session.user.role,
+          callerId: session.user.id,
+          targetUserId: userId,
+        });
+        return NextResponse.json(
+          { error: "Only a super admin can change HR access." },
+          { status: 403 },
+        );
+      }
+      if (!isHrModuleEnabled()) {
+        apiLogger.warn({
+          msg: "organization/users:hr-access-not-available-on-this-deployment",
+          targetUserId: userId,
+        });
+        return NextResponse.json(
+          { error: "The HR module is not available on this deployment." },
+          { status: 400 },
+        );
+      }
+    }
+
     // Regular users can only update their own name, not role
     if (session.user.id === userId && validated.data.role && session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
@@ -150,6 +189,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Staff only, checked once the target is known. The flag would otherwise
+    // work on an org-null reviewer or a registrant, who have no business in
+    // there and no screen that offers it, so this keeps the reachable set equal
+    // to the offered set.
+    if (validated.data.hrAccess !== undefined && !isTeamRole(user.role)) {
+      apiLogger.warn({
+        msg: "organization/users:hr-access-non-team-target",
+        targetUserId: userId,
+        targetRole: user.role,
+      });
+      return NextResponse.json(
+        { error: "HR access can only be granted to a team member." },
+        { status: 400 },
+      );
+    }
+
     const { deactivated, ...rest } = validated.data;
 
     const updatedUser = await db.user.update({
@@ -179,6 +234,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         firstName: true,
         lastName: true,
         role: true,
+        hrAccess: true,
         deactivatedAt: true,
         createdAt: true,
       },

@@ -89,6 +89,14 @@ async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // Every HR page renders the thrown message, so the one refusal a person is
+    // actually likely to meet is worded here rather than three times over.
+    // "Forbidden" is accurate and tells them nothing about what to do next.
+    if (res.status === 403) {
+      throw new Error(
+        "You do not have access to the HR module. If you need it, ask a system administrator to grant it under Settings, Users.",
+      );
+    }
     throw new Error(body?.error ?? `Request failed (${res.status})`);
   }
   return res.json();

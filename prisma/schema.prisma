@@ -138,6 +138,22 @@ model User {
   /// already reads this row for `role`, so this is one more column in the same
   /// `select`. See docs/SESSION_ARCHITECTURE.md.
   tokenVersion    Int       @default(0)
+  /// May this person see the HR module? (owner, Aug 31 2026)
+  ///
+  /// HR used to follow from being an ADMIN. That was the mistake `hr-roles.ts`
+  /// warns about in general terms: ADMIN means "runs the events business", it
+  /// has never meant "may read a colleague's sick leave", and deriving one from
+  /// the other made the population accidental. There are three admins and only
+  /// two of them should be in there.
+  ///
+  /// So the grant is now explicit and per person, and it FAILS CLOSED: nobody
+  /// is backfilled, a new admin gets nothing, and the box has to be ticked.
+  /// SUPER_ADMIN and HR_USER do not need it (see `canViewHr`).
+  ///
+  /// It rides the session re-validation query that already reads this row, so
+  /// it costs no extra round trip and a change takes effect on an internal
+  /// user's next request rather than at their next sign-in.
+  hrAccess        Boolean   @default(false)
   /// Set to deactivate an INTERNAL user without deleting them (Aug 11, 2026).
   /// Null means active. Their access stops immediately and they cannot sign
   /// back in, but the row and every foreign key pointing at it survive.

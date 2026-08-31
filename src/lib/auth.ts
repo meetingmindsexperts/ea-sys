@@ -126,6 +126,7 @@ export const {
               // Session revocation counter — stamped into the token below and
               // compared on every periodic re-validation. See the jwt callback.
               tokenVersion: true,
+              hrAccess: true,
               deactivatedAt: true,
               organizationId: true,
               organization: {
@@ -276,6 +277,7 @@ export const {
           name: `${user.firstName} ${user.lastName}`,
           role: user.role,
           tokenVersion: user.tokenVersion,
+          hrAccess: user.hrAccess,
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
           organizationLogo: user.organization?.logo ?? null,
@@ -303,6 +305,7 @@ export const {
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.tokenVersion = user.tokenVersion ?? 0;
+        token.hrAccess = user.hrAccess ?? false;
         token.roleCheckedAt = Date.now();
       }
 
@@ -319,6 +322,7 @@ export const {
           token.firstName = dbUser.firstName;
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;
+          token.hrAccess = dbUser.hrAccess;
           token.roleCheckedAt = Date.now();
         }
       }
@@ -359,7 +363,7 @@ export const {
         try {
           const dbUser = await db.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, tokenVersion: true, deactivatedAt: true },
+            select: { role: true, tokenVersion: true, deactivatedAt: true, hrAccess: true },
           });
 
           // The truth table lives in `decideSessionValidity` (pure, unit
@@ -385,6 +389,11 @@ export const {
           }
 
           token.role = decision.role;
+          // Only when the row was actually read. The catch below keeps the
+          // cached role on a pooler blip for the same reason, and silently
+          // revoking somebody's HR access because a query failed would be the
+          // same mistake in the other direction.
+          if (dbUser) token.hrAccess = dbUser.hrAccess;
           // Only the periodic pass moves the clock. If a staff per-request
           // check refreshed it, `dueForPeriodicCheck` would never come true
           // for staff and they would stop being stamped as online.

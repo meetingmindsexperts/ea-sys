@@ -47,6 +47,7 @@ import {
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewCrm } from "@/crm/lib/crm-roles";
+import { canViewHr } from "@/hr/lib/hr-visibility";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
@@ -233,7 +234,11 @@ export function Sidebar() {
   // Read at request time on the server and handed down, because a NEXT_PUBLIC_
   // constant is baked at build and master and the platform share one image.
   const { hrEnabled } = useRuntimeFlags();
-  const canHr         = hrEnabled && ["SUPER_ADMIN", "ADMIN", "HR_USER"].includes(session?.user?.role ?? "");
+  // Asks the SAME predicate the API guard asks, rather than a hand-written copy
+  // of the role list. The copy is how a nav entry ends up disagreeing with the
+  // server about who is allowed in, which is precisely what happened here: this
+  // line said ADMIN and the rule no longer does.
+  const canHr         = hrEnabled && canViewHr(session?.user);
   const isHrUser      = session?.user?.role === "HR_USER";
 
   // Fetch all orgs for SUPER_ADMIN switcher

@@ -20,9 +20,50 @@ const EVERY_ROLE = [
 ] as const;
 
 describe("who may reach the HR module", () => {
-  it("admits exactly SUPER_ADMIN, ADMIN and HR_USER", () => {
+  /**
+   * ADMIN used to be enough on its own. It is not (owner, Aug 31 2026): there
+   * are three admins and only two of them belong in HR, so the grant became an
+   * explicit per-person flag rather than a side effect of a role that exists to
+   * run the events business.
+   */
+  it("admits, on role alone, exactly SUPER_ADMIN and HR_USER", () => {
     const allowed = EVERY_ROLE.filter((role) => canViewHr({ role }));
-    expect([...allowed].sort()).toEqual(["ADMIN", "HR_USER", "SUPER_ADMIN"]);
+    expect([...allowed].sort()).toEqual(["HR_USER", "SUPER_ADMIN"]);
+  });
+
+  it("no longer lets ADMIN in without an explicit grant", () => {
+    expect(canViewHr({ role: "ADMIN" })).toBe(false);
+    expect(canWriteHr({ role: "ADMIN" })).toBe(false);
+    expect(canViewHr({ role: "ADMIN", hrAccess: true })).toBe(true);
+    expect(canWriteHr({ role: "ADMIN", hrAccess: true })).toBe(true);
+  });
+
+  /** The two role-based grants stand without a flag: SUPER_ADMIN could set its
+   *  own anyway, and a HR_USER without HR access could reach nothing at all. */
+  it("does not require the flag from the roles that carry access themselves", () => {
+    expect(canViewHr({ role: "SUPER_ADMIN" })).toBe(true);
+    expect(canViewHr({ role: "HR_USER" })).toBe(true);
+    expect(canViewHr({ role: "SUPER_ADMIN", hrAccess: false })).toBe(true);
+    expect(canViewHr({ role: "HR_USER", hrAccess: false })).toBe(true);
+  });
+
+  /**
+   * THE ONE THAT MATTERS MOST. An API key is admin-equivalent everywhere else,
+   * and the flag must not become a second way in for one: a key has no user
+   * row, so an `hrAccess: true` arriving alongside a null role is either a bug
+   * or a forgery. Refuse on the role, before the flag is ever consulted.
+   */
+  it("refuses a null role even when a grant is claimed alongside it", () => {
+    expect(canViewHr({ role: null, hrAccess: true })).toBe(false);
+    expect(canViewHr({ role: undefined, hrAccess: true })).toBe(false);
+    expect(canWriteHr({ role: null, hrAccess: true })).toBe(false);
+  });
+
+  /** An absent flag is a refusal, so a caller that forgot to select the column
+   *  fails closed rather than granting on undefined. */
+  it("treats a missing flag as no grant", () => {
+    expect(canViewHr({ role: "ADMIN", hrAccess: undefined })).toBe(false);
+    expect(canViewHr({ role: "ADMIN", hrAccess: null })).toBe(false);
   });
 
   /**
@@ -33,6 +74,13 @@ describe("who may reach the HR module", () => {
   it("refuses ORGANIZER, which every write guard in the app permits", () => {
     expect(canViewHr({ role: "ORGANIZER" })).toBe(false);
     expect(canWriteHr({ role: "ORGANIZER" })).toBe(false);
+  });
+
+  /** The grant is per person, not per role, so it works on any team role a
+   *  super admin deliberately ticks. The route restricts WHO may tick it. */
+  it("honours an explicit grant on a role that has none by default", () => {
+    expect(canViewHr({ role: "ORGANIZER", hrAccess: true })).toBe(true);
+    expect(canViewHr({ role: "MEMBER", hrAccess: true })).toBe(true);
   });
 
   /**

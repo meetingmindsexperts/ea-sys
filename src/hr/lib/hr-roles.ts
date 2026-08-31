@@ -13,15 +13,28 @@
  *   - `canViewFinance` includes MEMBER and ONSITE.
  *   - `isTeamRole` is every org employee, which is the population this excludes.
  *
- * The answer here is deliberately narrow: SUPER_ADMIN, ADMIN, HR_USER. Nobody
- * else, in either direction.
+ * The answer here is deliberately narrow: SUPER_ADMIN, HR_USER, and anyone
+ * explicitly granted. Nobody else, in either direction.
+ *
+ * ⚠ ADMIN IS NOT ENOUGH ON ITS OWN (owner, Aug 31 2026). It used to be, and
+ * that was this file's own warning coming true one level up: ADMIN means "runs
+ * the events business" and has never meant "may read a colleague's sick leave",
+ * so deriving one from the other made the population accidental rather than
+ * chosen. There were three admins and only two of them belonged in here.
+ *
+ * The grant is now a per-person flag (`User.hrAccess`), ticked in
+ * Settings → Users by a SUPER_ADMIN. It FAILS CLOSED in the direction that
+ * matters: a newly hired admin, a promoted organiser and a restored backup all
+ * start with no HR access, and somebody has to decide to give it. The previous
+ * shape failed OPEN, which is how this came up at all.
  *
  * ⚠ API KEYS ARE EXCLUDED, like the platform-operator predicate and unlike
  * everywhere else in this codebase. `getOrgContext` returns `role: null` for a
  * key and the rest of the app treats that as admin-equivalent. That equivalence
  * stops here: an API key is not a person, HR data is about people, and a key
  * leaked into an integration should not be able to read who was off sick. A
- * null or unknown role fails closed.
+ * null or unknown role fails closed, and the per-person grant cannot rescue it
+ * either: a key has no user row, so it has no flag to carry.
  *
  * ⚠ AVAILABILITY IS A SEPARATE GATE. Passing this check does not mean the module
  * is switched on: `isHrModuleEnabled()` is checked first, and on a deployment
@@ -32,30 +45,15 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { isHrModuleEnabled } from "@/lib/module-flags";
+import { canViewHr, canWriteHr } from "./hr-visibility";
 
-const HR_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "HR_USER"]);
-
-/** May this user see the HR module at all? Fails closed on unknown roles. */
-export function canViewHr(
-  user: { role?: string | null } | null | undefined,
-): boolean {
-  return !!user?.role && HR_ROLES.has(user.role);
-}
-
-/**
- * May this user change HR data?
- *
- * Currently identical to read access, and that is a decision rather than an
- * oversight: the module has exactly one operator (Muthu) plus admins, and a
- * read-only HR role has no described user. Kept as a separate function so the
- * day somebody wants an auditor who can look and not touch, the call sites are
- * already asking the right question.
+/*
+ * The predicate itself lives in `hr-visibility.ts`, with no server-only
+ * imports, so the sidebar can ask exactly the question this guard asks. It is
+ * re-exported here because every existing caller imports it from this file and
+ * one answer in two places is the whole point.
  */
-export function canWriteHr(
-  user: { role?: string | null } | null | undefined,
-): boolean {
-  return canViewHr(user);
-}
+export { canViewHr, canWriteHr, HR_SELF_SUFFICIENT_ROLES } from "./hr-visibility";
 
 /**
  * The route guard. Returns a response to send, or null to continue.

@@ -119,6 +119,8 @@ interface User {
   role: string;
   /** Non-null when deactivated. Role is preserved, so reactivating restores it. */
   deactivatedAt?: string | null;
+  /** Explicit per-person HR grant. Not implied by any role except SUPER_ADMIN. */
+  hrAccess?: boolean;
   createdAt: string;
 }
 
@@ -403,6 +405,37 @@ export default function SettingsPage() {
     } catch (error) {
       console.error("Error revoking sessions:", error);
       toast.error("Couldn't sign this user out");
+    }
+  };
+
+  const handleToggleHrAccess = async (user: User) => {
+    const granting = !user.hrAccess;
+    const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
+    if (
+      !confirm(
+        granting
+          ? `Give ${name} access to HR?\n\nThey will be able to see every employee's attendance and leave, including sick leave. This takes effect on their next click.`
+          : `Remove ${name}'s access to HR?\n\nThe HR pages disappear for them on their next click. Nothing recorded in HR is changed.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/organization/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hrAccess: granting }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(body?.error || "Couldn't change HR access");
+        return;
+      }
+      toast.success(granting ? `${name} can now open HR` : `${name} can no longer open HR`);
+      fetchUsers();
+    } catch (error) {
+      console.error("Error updating HR access:", error);
+      toast.error("Couldn't change HR access");
     }
   };
 
@@ -1091,6 +1124,15 @@ export default function SettingsPage() {
                               Deactivated
                             </Badge>
                           )}
+                          {/* Shown only where it is not implied by the role, so
+                              the badge always marks a decision somebody made
+                              rather than repeating what SUPER_ADMIN already
+                              means. */}
+                          {hrEnabled && user.hrAccess && user.role !== "SUPER_ADMIN" && (
+                            <Badge variant="outline" className="border-teal-300 bg-teal-50 text-teal-700">
+                              HR
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -1121,6 +1163,27 @@ export default function SettingsPage() {
                             >
                               <LogOut className="h-4 w-4" />
                             </Button>
+                            {/* Only a super admin decides who reads colleagues'
+                                sick leave: HR is deliberately not implied by
+                                ADMIN, so an admin who can grant it could simply
+                                re-admit themselves. Hidden for SUPER_ADMIN
+                                targets, whose access comes from the role. */}
+                            {isSuperAdmin && hrEnabled && user.role !== "SUPER_ADMIN" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={
+                                  user.hrAccess
+                                    ? "Remove HR access"
+                                    : "Give HR access: they will see everyone's attendance and leave"
+                                }
+                                onClick={() => handleToggleHrAccess(user)}
+                              >
+                                <CalendarClock
+                                  className={`h-4 w-4 ${user.hrAccess ? "text-teal-600" : "text-muted-foreground"}`}
+                                />
+                              </Button>
+                            )}
                             {user.id !== session?.user?.id && (
                               <Button
                                 variant="ghost"

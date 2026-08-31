@@ -80,6 +80,8 @@ export async function GET() {
         firstName: true,
         lastName: true,
         role: true,
+        // So Settings can show who has been granted HR without a second call.
+        hrAccess: true,
         createdAt: true,
         image: true,
       },

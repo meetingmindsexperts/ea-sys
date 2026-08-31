@@ -12,6 +12,8 @@ declare module "next-auth" {
       organizationPrimaryColor?: string | null;
       firstName: string;
       lastName: string;
+      /** Explicit per-person HR grant. See User.hrAccess in the schema. */
+      hrAccess?: boolean;
     } & DefaultSession["user"];
   }
 
@@ -25,6 +27,7 @@ declare module "next-auth" {
     organizationPrimaryColor?: string | null;
     firstName?: string;
     lastName?: string;
+    hrAccess?: boolean;
   }
 }
 
@@ -46,5 +49,11 @@ declare module "next-auth/jwt" {
     organizationPrimaryColor?: string | null;
     firstName?: string;
     lastName?: string;
+    /**
+     * Explicit per-person HR grant, refreshed on the same re-validation pass as
+     * `role`. Unlike `tokenVersion` this IS exposed on Session, because the
+     * sidebar and the middleware both have to decide whether to show HR.
+     */
+    hrAccess?: boolean;
   }
 }

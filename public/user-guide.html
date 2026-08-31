@@ -2723,9 +2723,25 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       What was decided in the app is never overwritten by a spreadsheet.</p>
 
       <h3>Who can see this</h3>
-      <p>Only an <b>HR</b> user, an admin, or a super-admin. An HR user sees nothing else in
-      the system: no events, no registrations, no invoices. Sick-leave records are personal
-      data about colleagues; treat exports the same way you would treat a payslip.</p>
+      <p>Access is <b>given to one person at a time</b>, not handed out by job title. Three
+      kinds of people can open HR:</p>
+      <ul>
+        <li>an <b>HR</b> user, whose account exists for nothing else: no events, no
+        registrations, no invoices;</li>
+        <li>a <b>super-admin</b>;</li>
+        <li>anyone a super-admin has <b>ticked</b> under Settings &rsaquo; Users.</li>
+      </ul>
+      <p><b>Being an admin is not enough on its own</b> (changed 31 August 2026). It used to
+      be, which meant every admin could read everyone&rsquo;s sick leave whether that was
+      intended or not. Now somebody has to decide. A newly invited admin starts with no HR
+      access at all.</p>
+      <p>To give or remove it: <b>Settings &rsaquo; Users</b>, then the small calendar button on
+      that person&rsquo;s row. It turns teal when they have access, and a teal <b>HR</b> tag
+      appears next to their role. Only a super-admin sees that button, deliberately: if an
+      admin could tick it, an admin you had kept out of HR could simply let themselves back
+      in. The change takes effect on their next click, with no need to sign out.</p>
+      <p>Sick-leave records are personal data about colleagues; treat exports the same way you
+      would treat a payslip.</p>
     </div>
 
     <div class="divider"></div>
