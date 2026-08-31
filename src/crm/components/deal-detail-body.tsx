@@ -76,7 +76,7 @@ import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { DealProducts } from "@/crm/components/crm-deal-products";
-import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/components/record-layout";
 
 /**
  * Project date + location are DERIVED from the linked event — never stored on the

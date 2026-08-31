@@ -276,6 +276,25 @@ async function send<T>(url: string, method: string, body: unknown): Promise<T> {
   return parsed as T;
 }
 
+/**
+ * One employee's balance, for their record page.
+ *
+ * Its own query rather than filtering the org summary: the page is opened for a
+ * LEAVER as often as for anybody, and the summary excludes them by default. A
+ * shared cache would have to be fetched with includeExited just in case, which
+ * is the whole table for one row.
+ */
+export function useHrBalance(employeeId: string | undefined, year?: number) {
+  return useQuery({
+    queryKey: ["hr", "balance", employeeId ?? "none", year ?? "current"],
+    enabled: !!employeeId,
+    queryFn: () =>
+      get<{ employee: HrEmployee; balance: HrBalance }>(
+        `/api/hr/balances/${employeeId}${year ? `?year=${year}` : ""}`,
+      ),
+  });
+}
+
 export function useCreateHrEmployee() {
   const qc = useQueryClient();
   return useMutation({

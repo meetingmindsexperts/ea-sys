@@ -21,6 +21,13 @@
  * Presentational only — no data, no hooks — so all three record bodies compose the
  * same shell and stay visually consistent.
  */
+/*
+ * Promoted out of src/crm/ on Aug 31 2026 when HR needed the same shell.
+ * It is purely presentational — ReactNode, LucideIcon and `cn`, nothing from
+ * either module — so it was already core-shaped and only filed in the wrong
+ * place. Two modules cannot import each other (the boundaries are one-way to
+ * core), so the alternative was a second copy that would drift.
+ */
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";

@@ -48,7 +48,7 @@ import {
   formatDealValue,
 } from "@/crm/lib/crm-types";
 import { contactScoreColor } from "@/crm/lib/contact-score";
-import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 
 export function ContactDetailBody({

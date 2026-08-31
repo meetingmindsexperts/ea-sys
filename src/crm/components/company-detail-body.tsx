@@ -44,7 +44,7 @@ import {
 } from "@/crm/components/crm-company-form-fields";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { companyDealValueBreakdown } from "@/crm/lib/company-rollup";
-import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";

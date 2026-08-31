@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RecordCard } from "@/crm/components/record-layout";
+import { RecordCard } from "@/components/record-layout";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { ACTIVITY_TYPE_LABELS, personName, type CrmActivityType } from "@/crm/lib/crm-types";
 import { useCreateNote, useCrmNotes, useDeleteNote } from "@/crm/hooks/use-crm-api";
