@@ -846,11 +846,11 @@ function CodePopover(props: {
           <button
             key={h.code}
             onClick={() => props.onPick(h.code)}
-            title={`${h.code} \u2014 half a day, full pay`}
+            title={`${h.code}: half a day, full pay`}
             className="flex items-center gap-1.5 rounded-md border px-1.5 py-1.5 text-left text-[11px] hover:border-primary"
           >
             <span className={`rounded px-1 py-0.5 font-mono text-[9px] font-semibold ${CODE_STYLE[h.code]}`}>
-              \u00bd
+              ½
             </span>
             {h.label}
           </button>

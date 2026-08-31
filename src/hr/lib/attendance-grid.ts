@@ -38,7 +38,7 @@ export const PRIMARY: readonly GridCode[] = [
  * The two half-day codes, which get their own labelled row in the picker.
  *
  * They have always existed in the seed and the balance engine already halves
- * them, but they were reachable only as bare chips behind "Another code" —
+ * them, but they were reachable only as bare chips behind "Another code",
  * sitting beside SL-H, which is a FULL day at half pay. One character apart,
  * both unlabelled.
  *
@@ -85,7 +85,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
  * Move the selection. No new state was needed for keyboard navigation:
  * `Selection` was always an anchor and a head, and only the mouse could drive
  * it. A plain arrow moves both and collapses to one cell; Shift moves the head
- * alone and extends. Both clamp at the edges rather than wrapping — wrapping
+ * alone and extends. Both clamp at the edges rather than wrapping, because wrapping
  * from the last day of the month to the first would look like a bug.
  */
 export function moveSelection(
@@ -108,7 +108,7 @@ export function collapseToHead(s: Selection): Selection {
 /** Every code the grid offers by shortcut, for the seed drift guard. */
 export const GRID_SHORTCUT_CODES: readonly string[] = [...PRIMARY, ...HALF_DAY].map((c) => c.code);
 
-/** True when the seed actually defines this code — a typo here is a dead button. */
+/** True when the seed actually defines this code. A typo here is a dead button. */
 export function seedHasCode(code: string): boolean {
   return HR_LEAVE_CODE_SEED.some((c) => c.code === code);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /hr/employees/[employeeId] — one person's record.
+ * /hr/employees/[employeeId]: one person's record.
  *
  * A page, not a dialog. The dialog it replaces held eleven fields including the
  * three seed figures that decide somebody's leave balance, and a modal is the
@@ -9,11 +9,11 @@
  * numbers it changes, and gives no room to show what those numbers currently
  * are. The record layout is the one the CRM already uses for deals and accounts,
  * promoted to `@/components/record-layout` when this needed it rather than
- * copied — two modules cannot import each other, so the alternative was a second
+ * copied. Two modules cannot import each other, so the alternative was a second
  * copy that would drift.
  *
- * WHY THE BALANCE SITS BESIDE THE FORM. The three seeds — carried-in days,
- * opening sick used, opening comp-off — are meaningless on their own; what they
+ * WHY THE BALANCE SITS BESIDE THE FORM. The three seeds (carried-in days,
+ * opening sick used, opening comp-off) are meaningless on their own; what they
  * do is move a balance. Editing them next to the balance they move means a typo
  * is visible immediately rather than at year end.
  */
@@ -310,7 +310,7 @@ export default function HrEmployeePage({
               placeholder="Standard rule"
               value={form.annualEntitlementDays}
               onChange={set("annualEntitlementDays")}
-              hint={`Empty uses the rule: ${HR_ANNUAL_ENTITLEMENT_DAYS} days once the first year is complete, none before it. A number is a figure agreed with management — a leaver's final year is usually negotiated. Zero is a valid agreement and is not the same as empty.`}
+              hint={`Empty uses the rule: ${HR_ANNUAL_ENTITLEMENT_DAYS} days once the first year is complete, none before it. A number is a figure agreed with management, and a leaver's final year is usually negotiated. Zero is a valid agreement and is not the same as empty.`}
             />
             <Field
               label="Carried-in annual days"
