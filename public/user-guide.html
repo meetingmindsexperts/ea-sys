@@ -2711,6 +2711,26 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         has to survive.
       </div>
 
+      <h3>Getting it into Excel</h3>
+      <p><b>Export</b>, top right of the Attendance page, offers two things: the month you are
+      looking at, or the <b>whole year</b>. Either downloads a spreadsheet file that opens in
+      Excel on a double-click &mdash; one row per person, one column per day, the code in each
+      cell, exactly the grid you were just looking at.</p>
+      <p>The derived days are filled in for you. A weekend reads <b>OFF</b>, a public holiday
+      reads <b>PH</b>, an ordinary day reads <b>P</b>, even though none of those are stored
+      anywhere. Days before somebody joined or after they left are left blank rather than
+      marked, so nobody reads a placeholder as a leave code.</p>
+      <div class="callout">
+        <b>Two things the file deliberately does not carry.</b> There is no mark separating a
+        day a standing arrangement produced from one somebody typed &mdash; on screen that is
+        the little dot, but putting it in the file would break the first thing anyone does with
+        it, which is filter a column for a code. And there are no remarks: those are free text
+        about a named person and they stay in the system. <br><br>
+        A year is the most you can export at once. Every export is recorded &mdash; who took it,
+        when, and for which dates &mdash; because it is sick-leave data about colleagues leaving
+        the building.
+      </div>
+
       <h3>Public holidays</h3>
       <p>Under <b>HR &rsaquo; Holidays</b>, add each year&rsquo;s public holidays with the exact
       date and a name. The fixed ones (New Year, National Day) are already there; the Islamic

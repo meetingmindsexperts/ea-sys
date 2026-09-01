@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Leave &amp; Attendance — The Rules</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.65; color: #1a1a2e; background: #f8f9fa; }
+    .container { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }
+    h1 { font-size: 2rem; color: #00aade; margin-bottom: 6px; }
+    h1 span { font-size: 0.9rem; color: #6b7280; font-weight: normal; display: block; margin-top: 6px; line-height: 1.5; }
+    h2 { font-size: 1.35rem; color: #1a1a2e; margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #00aade; }
+    h3 { font-size: 1.05rem; color: #374151; margin: 26px 0 10px; }
+    p, li { color: #4b5563; }
+    ul, ol { padding-left: 24px; margin: 12px 0; }
+    li { margin: 6px 0; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: #1f2937; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 14px 0; font-size: 0.85em; line-height: 1.6; }
+    pre code { background: none; padding: 0; color: inherit; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.9rem; background: #fff; }
+    th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    td code { font-size: 0.85em; }
+    .wrap { overflow-x: auto; }
+    .note { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; font-size: 0.93rem; }
+    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; font-size: 0.93rem; }
+    .trap { background: #fee2e2; border-left: 4px solid #ef4444; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; font-size: 0.93rem; }
+    .note strong, .warning strong, .trap strong { color: #111827; }
+    .chain { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 4px 0; margin: 16px 0; }
+    .chain div { padding: 12px 18px; border-bottom: 1px solid #f3f4f6; font-size: 0.93rem; }
+    .chain div:last-child { border-bottom: none; }
+    .chain b { color: #1a1a2e; }
+    .n { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: #00aade; color: #fff; border-radius: 50%; font-weight: 700; font-size: 0.78rem; margin-right: 10px; flex-shrink: 0; }
+    .lead { font-size: 1.02rem; color: #374151; }
+    .src { font-size: 0.85rem; color: #6b7280; margin-top: 6px; }
+    .src code { background: #eef2f7; }
+    footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #6b7280; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <h1>HR — Leave &amp; Attendance Rules
+    <span>How the module decides what somebody was doing on a given day, and what they have left.
+    A reference for anyone maintaining or extending it. Last updated 1 September 2026.</span>
+  </h1>
+
+  <p class="lead">This is the ERP sub-module that replaced the UAE Excel leave tracker
+  (<code>UAE_Employee_Attendance_Leave_Tracker_2026 v5.1</code>). That workbook remains the
+  business-logic reference: <strong>where this document and the workbook disagree, the workbook
+  wins</strong> — except in the two places noted below, where the workbook was found to be wrong
+  and the owner ruled otherwise.</p>
+
+  <h2>1. The one idea the whole module rests on</h2>
+
+  <p><strong>Only exceptions are stored.</strong> An ordinary working day has no row in the
+  database at all. The system derives it.</p>
+
+  <p>The numbers are why. A year for twenty-three people is 9,125 day-cells, and of those
+  <strong>943 carried information</strong>. The other 8,182 were the word "Present" repeated.
+  Storing them would have been storing a fact nobody had decided.</p>
+
+  <p>Everything downstream follows from this. There is no "attendance table" to read a day out
+  of; there is a <em>resolver</em> that answers what a day was, and it is the same resolver for
+  the grid on screen, the balance engine, the CSV export and the reports.</p>
+
+  <div class="note">
+    <strong>Why one resolver and not several.</strong> Two implementations of "was she at work
+    on the 3rd" will eventually disagree, and the disagreement surfaces as a payroll figure that
+    nobody can trace. So the precedence lives in exactly one function and every surface calls it.
+    <div class="src">Source: <code>src/hr/lib/hr-effective-status.ts</code></div>
+  </div>
+
+  <h2>2. Precedence — how a day is decided</h2>
+
+  <p>Given a date and a person, the answer is the <em>first</em> of these that applies. Order is
+  the whole rule.</p>
+
+  <div class="chain">
+    <div><span class="n">1</span><b>Outside employment</b> — before joining, or after the last
+      working day. Answers <code>NOT_EMPLOYED</code>; nothing is counted and nothing is shown.</div>
+    <div><span class="n">2</span><b>An explicit entry</b> — somebody recorded a code for that
+      person on that day. A human decision always beats a derivation.</div>
+    <div><span class="n">3</span><b>A standing rule whose code covers calendar days</b> — a
+      company shutdown booked as annual leave speaks for the weekend inside it, because that is
+      how the same block would be charged if it were dragged on the grid. See §6.</div>
+    <div><span class="n">4</span><b>A public holiday</b> — <code>PH</code>.</div>
+    <div><span class="n">5</span><b>A weekend</b> — <code>OFF</code>. Saturday and Sunday by
+      default, configurable per organisation because some GCC entities run Friday and Saturday.</div>
+    <div><span class="n">6</span><b>A standing rule that describes working</b> — a permanently
+      remote employee's <code>WFH</code>. It falls to here on purpose: a working arrangement
+      cannot turn a Saturday into a working day.</div>
+    <div><span class="n">7</span><b>Otherwise</b> — <code>P</code>, present.</div>
+  </div>
+
+  <div class="warning">
+    <strong>Step 3 versus step 6 is the subtle one.</strong> Both are standing rules. What
+    separates them is whether the rule's code describes <em>time not worked</em> (annual leave,
+    sick, a shutdown) or <em>working</em> (present, work-from-home, on-duty). Time not worked
+    outranks the calendar; working does not. That is what makes a company-wide shutdown charge
+    the permanently remote employee too, while her WFH arrangement still stops at working days.
+    <div class="src">Owner ruling, 31 August 2026: "the shutdown wins."</div>
+  </div>
+
+  <h2>3. Leave codes</h2>
+
+  <p>Twenty-one codes, seeded from the workbook's own Leave Codes sheet. Each carries a
+  <strong>category</strong> (what the balance engine counts it as), a <strong>day weight</strong>
+  (1.0, or 0.5 for the two half-day codes) and whether it is paid.</p>
+
+  <div class="wrap">
+  <table>
+    <tr><th>Code</th><th>Meaning</th><th>Counts as</th><th>Weight</th></tr>
+    <tr><td><code>P</code></td><td>Present</td><td>Work</td><td>1</td></tr>
+    <tr><td><code>WFH</code></td><td>Work from home</td><td>Work</td><td>1</td></tr>
+    <tr><td><code>OFF</code></td><td>Weekly off</td><td>Rest</td><td>1</td></tr>
+    <tr><td><code>PH</code></td><td>Public holiday</td><td>Public holiday</td><td>1</td></tr>
+    <tr><td><code>AL</code></td><td>Annual leave</td><td>Annual</td><td>1</td></tr>
+    <tr><td><code>AL-HD</code></td><td>Annual leave, half day</td><td>Annual</td><td>0.5</td></tr>
+    <tr><td><code>SL-F</code></td><td>Sick, full pay</td><td>Sick (full)</td><td>1</td></tr>
+    <tr><td><code>SL-HD</code></td><td>Sick, half <em>day</em></td><td>Sick (full)</td><td>0.5</td></tr>
+    <tr><td><code>SL-H</code></td><td>Sick, half <em>pay</em></td><td>Sick (half)</td><td>1</td></tr>
+    <tr><td><code>SL-U</code></td><td>Sick, unpaid</td><td>Sick (unpaid)</td><td>1</td></tr>
+    <tr><td><code>OD</code></td><td>On duty (weekend work)</td><td>On duty</td><td>1</td></tr>
+    <tr><td><code>CO</code></td><td>Comp-off taken</td><td>Comp-off</td><td>1</td></tr>
+    <tr><td colspan="4" style="color:#6b7280;font-size:0.88rem">Plus <code>ML</code> maternity,
+      <code>PL</code> parental, <code>CL-S</code> / <code>CL-F</code> bereavement,
+      <code>Hajj</code>, <code>ST</code> study, <code>NS</code> national service,
+      <code>UL</code> unpaid, <code>ABS</code> absent.</td></tr>
+  </table>
+  </div>
+
+  <div class="trap">
+    <strong>The naming trap. Do not "tidy" this.</strong> <code>-HD</code> means half a
+    <em>day</em>. <code>SL-H</code> means half <em>pay</em>. They differ by one character and
+    they are different things: <code>SL-HD</code> is half a day charged to the full-pay tier;
+    <code>SL-H</code> is a whole day charged to the half-pay tier. Renaming either for
+    consistency would silently re-price somebody's sick leave.
+  </div>
+
+  <div class="note">
+    <strong>Why <code>paid</code> is a coarse boolean.</strong> <code>SL-H</code> is recorded as
+    paid, because the <em>rate</em> lives in its category (<code>SICK_HALF</code>) where the tier
+    maths can read it. Squeezing a pay rate into a boolean is how a payroll figure ends up wrong.
+    <div class="src">Source: <code>src/hr/lib/hr-seed-data.ts</code></div>
+  </div>
+
+  <h2>4. Comp-off — how it is earned</h2>
+
+  <p class="lead">Working <strong>both days of the same weekend</strong> earns exactly one
+  comp-off. A lone Saturday earns none. Two working days marked <code>OD</code> earn none.</p>
+
+  <p>The mechanism generalises rather than hardcoding Saturday and Sunday. A <em>weekend block</em>
+  is a maximal run of consecutive weekend days. A block earns one comp-off when
+  <strong>every</strong> day in it is <code>OD</code>. For a two-day weekend that is exactly the
+  ruling; for a one-day or three-day weekend it stays sensible.</p>
+
+  <pre><code>Sat OD + Sun OD          → 1 comp-off
+Sat OD + Sun (nothing)   → 0        a weekend half-worked is a weekend not given back
+Wed OD + Thu OD          → 0        not a weekend
+Sat OD + Sun OD + Sat OD + Sun OD (two weekends) → 2</code></pre>
+
+  <div class="warning">
+    <strong>The workbook computes this differently, and it is wrong.</strong> Its formula asks
+    <em>"was yesterday also OD?"</em>:
+    <pre style="margin-top:10px"><code>IF(AND(F="OD", COUNTIFS(sameEmp, date-1, "OD") &gt; 0), 1, 0)</code></pre>
+    That agrees on every Saturday-plus-Sunday pair, which is the overwhelming majority of real
+    data, so the difference is invisible until something else happens. Across 58 on-duty days for
+    16 employees, <strong>exactly one row diverges</strong>: EMP002 worked Wednesday 14 and
+    Thursday 15 January 2026 and was credited a comp-off this rule does not award. The one-time
+    import therefore <em>expects</em> that single variance rather than treating it as a failure.
+    <br><br>
+    The previous-day rule also compounds: a three-day run earns two under it and one here.
+  </div>
+
+  <h3>Balance, not a counter</h3>
+
+  <p>Comp-off earned is <strong>always derived from the <code>OD</code> entries</strong>, never
+  stored as a running number. A stored counter can drift away from the days that justify it; a
+  derived one cannot. The engine returns the earning <em>blocks</em>, not just a count, so the UI
+  can say <em>which</em> weekends earned them — "17–18 Jan, 14–15 Feb" is an answer, "3" is a
+  number.</p>
+
+  <p>Three further properties, each deliberate:</p>
+  <ul>
+    <li><strong>It is a running balance, not an annual one.</strong> Unlike annual leave it is
+      never bounded by the leave year, matching the workbook, which sums it with no year bound and
+      carries an opening figure.</li>
+    <li><strong>It is not bounded by today either.</strong> A comp-off approved for next Monday is
+      a decision already made. Bounding by the clock once showed "balance 1" for somebody who had
+      already spent it.</li>
+    <li><strong>A weekend block straddling New Year</strong> is attributed to the year of its
+      last day, the day the entitlement completes. Because comp-off is a running balance this is
+      a consistency rule rather than a policy.</li>
+  </ul>
+
+  <div class="note">
+    <strong>Working a public holiday earns nothing back.</strong> Only both days of one weekend
+    do. The seeded label for <code>OD</code> said "weekend or holiday work" until 31 August 2026,
+    which promised staff a day the rule never granted.
+    <div class="src">Source: <code>src/hr/lib/hr-comp-off.ts</code></div>
+  </div>
+
+  <h2>5. Annual leave</h2>
+
+  <div class="wrap">
+  <table>
+    <tr><th>Rule</th><th>Value</th><th>Note</th></tr>
+    <tr><td>Entitlement</td><td>30 days</td><td>Flat, not accrued monthly.</td></tr>
+    <tr><td>Leave year</td><td><strong>Calendar</strong> year</td><td>1 Jan – 31 Dec, not the service year.</td></tr>
+    <tr><td>Gate</td><td>First anniversary</td><td>0 days until twelve months are complete.</td></tr>
+    <tr><td>Carry-over cap</td><td>30 days</td><td>Positive only.</td></tr>
+    <tr><td>Negative balance</td><td>Carries in full</td><td>Never floored, never written off.</td></tr>
+  </table>
+  </div>
+
+  <p>The calendar-year finding overturned the original plan, and it came from reading the
+  workbook's <em>formulas</em> rather than its numbers: entitlement is
+  <code>IF(EDATE(joining,12) &lt;= TODAY(), 30, 0)</code>, and the annual-leave
+  <code>COUNTIFS</code> has no lower date bound. An anniversary-based accrual model would have
+  been internally consistent and wrong.</p>
+
+  <div class="trap">
+    <strong>The carry-over asymmetry is the policy, not an oversight.</strong> A positive
+    carry-over is capped at 30. A <em>negative</em> one carries in full and is never clamped,
+    because capping a debt would forgive it — and that would cancel the companion ruling that
+    leave taken in advance follows the employee into the new year. Four people in the live data
+    carry a negative balance. <strong>A <code>Math.max(0, …)</code> anywhere in this module is a
+    bug.</strong>
+  </div>
+
+  <h3>The agreed override</h3>
+
+  <p>A leaver's final year is usually negotiated rather than calculated. Setting
+  <strong>Annual entitlement</strong> on the employee record replaces the standard 30 and is
+  marked <em>agreed</em> on the summary so nobody later reads it as a mistake.</p>
+
+  <ul>
+    <li>It <strong>beats the first-year gate</strong>, because a human decision should not be
+      overruled by a rule.</li>
+    <li>It does <strong>not</strong> beat the employment window: it cannot make a year the person
+      was never employed in worth anything.</li>
+    <li><strong>Empty and zero are different.</strong> Empty means "use the rule"; zero means "we
+      agreed on none".</li>
+  </ul>
+
+  <h2>6. Calendar days versus working days</h2>
+
+  <p>When a <em>range</em> is recorded, does it charge every day in the block or only working
+  days? The answer differs by category, and it was decided from the data rather than from a
+  principle.</p>
+
+  <div class="wrap">
+  <table>
+    <tr><th>Category</th><th>Charges</th><th>Why</th></tr>
+    <tr><td>Annual leave</td><td><strong>Calendar days</strong></td><td>A holiday booked Monday the 6th to Friday the 17th costs 12, not 10. The person was away.</td></tr>
+    <tr><td>On duty, comp-off</td><td><strong>Calendar days</strong></td><td>These describe the day itself rather than an absence from it. A Saturday is exactly when they belong.</td></tr>
+    <tr><td>Sick leave, everything else</td><td>Working days only</td><td>The workbook recorded it that way.</td></tr>
+  </table>
+  </div>
+
+  <p>The evidence: of the imported rows, <strong>86 of 419 annual-leave days fall on a weekend,
+  while only 2 of 45 sick days do</strong>. So the workbook charged annual leave across a block
+  and recorded sick leave on working days. Applying the calendar rule to sick leave would have
+  invented a policy nobody has.</p>
+
+  <div class="note">
+    <strong>Both recording paths must agree.</strong> A company shutdown booked as annual leave
+    costs the same whether it was dragged on the grid or created as a standing rule. Until 31
+    August 2026 it did not — the rule path resolved weekends and holidays <em>before</em> the
+    rule, so the same two-week shutdown cost 10 as a rule and 12 from the grid. That is why a
+    calendar-day rule now sits at step 3 of the precedence chain, above the holiday and the
+    weekend.
+  </div>
+
+  <h2>7. Sick leave</h2>
+
+  <p>Article 31 of Federal Decree-Law 33/2021, per leave year:
+  <strong>15 days full pay, then 30 at half pay, then 45 unpaid.</strong></p>
+
+  <div class="warning">
+    <strong>The system warns; it never converts.</strong> Which tier somebody is on <em>is</em>
+    which code was recorded. Recording a 16th <code>SL-F</code> day stops and shows how many have
+    been used, what this would make it, and offers <code>SL-H</code> instead. Full pay can still
+    be recorded deliberately. Nothing is written until a human chooses.
+    <br><br>
+    Automatic conversion was considered and rejected: the grid would show <code>SL-F</code> while
+    payroll paid half, and the record would stop being the thing you can trust. That property is
+    what the whole module rests on.
+  </div>
+
+  <p>Two details in the check itself, each of which would be silently wrong if omitted:</p>
+  <ul>
+    <li><strong>Half days weigh 0.5.</strong> Counting days rather than weight would warn on six
+      half-days as though they were six full ones, blocking a legal write.</li>
+    <li><strong>It subtracts what is being overwritten.</strong> Otherwise re-saving a day that is
+      already sick reads as adding a new one.</li>
+  </ul>
+
+  <p>A tier's <em>remaining</em> figure may go negative, when more days were coded to a tier than
+  it holds. That is a real data problem — somebody picked the wrong code — and it is shown rather
+  than hidden.</p>
+
+  <h2>8. Standing rules</h2>
+
+  <p>A standing rule is a statement like <em>"the company is remote from 12 to 23 March"</em> or
+  <em>"Jinan works from home, permanently"</em>. It has a scope (<code>ORG</code> or
+  <code>EMPLOYEE</code>), a date range, a leave code, and the organiser's own words for why.</p>
+
+  <p class="lead"><strong>A rule stores no days at all.</strong></p>
+
+  <p>This is the second-biggest idea in the module after exception-only storage, and the numbers
+  again are why. Of 386 imported work-from-home days:</p>
+
+  <ul>
+    <li><strong>252 were twelve company-wide dates</strong> on which 20–22 people were all remote
+      together (Ramadan, and the week after Eid).</li>
+    <li><strong>120 belonged to one permanently remote employee.</strong></li>
+    <li>14, across five people, were genuinely one-off.</li>
+  </ul>
+
+  <p>So <strong>386 rows were holding 27 facts</strong>. The other 359 existed only because the
+  schema had no way to say "the company" or "always". Creating a rule writes nothing per person
+  and deleting one removes nothing, which is what makes a rule reversible.</p>
+
+  <div class="warning">
+    <strong>Rules reach the balance.</strong> A rule can carry any leave code, so a company-wide
+    shutdown booked as annual leave has to reach payroll. If it did not, one record would quietly
+    give twenty-three people free annual leave with nothing on screen to show it. Both balance
+    paths — one employee, and the org summary — expand rules through the same resolver.
+  </div>
+
+  <h3>Which rule wins when two overlap</h3>
+
+  <ol>
+    <li><strong>Time not worked beats working</strong> — regardless of scope. This is what puts
+      the permanently remote employee on leave during a company shutdown.</li>
+    <li>Then <strong>employee scope beats organisation scope</strong> — the narrower statement.</li>
+    <li>Then the <strong>later start date</strong>.</li>
+  </ol>
+
+  <p>And an explicit entry always beats every rule, as step 2 of the precedence chain.</p>
+
+  <h2>9. The leave-year roll</h2>
+
+  <p>On 1 January the closing annual balance becomes next year's carried-in figure, capped in one
+  direction. This is the piece the workbook has no equivalent for, because it only ever holds one
+  year and the previous one arrives as a number somebody typed.</p>
+
+  <p>The roll writes a <code>LeaveGrant</code> row per employee still employed. It runs
+  <strong>every night through January</strong>, not once, because it is an idempotent upsert that
+  recomputes from the rows — so a December leave day entered on 5 January corrects the grant by
+  itself.</p>
+
+  <div class="trap">
+    <strong>The seed is never overwritten.</strong> <code>Employee.carryoverDays</code> and
+    <code>openingSickUsed</code> are the figures typed in at go-live, and they belong to
+    <strong>one</strong> leave year (<code>seedLeaveYear</code>). From the first roll onwards the
+    carried-in figure lives on the grant. Overwriting the seed would make last year's closing
+    balance unrecomputable the moment it was written, and a December day entered in January could
+    never be reconciled. Non-destructive is what makes the roll re-runnable.
+  </div>
+
+  <h2>10. Edge cases worth knowing before you touch this</h2>
+
+  <ul>
+    <li><strong>A year the person was not employed in gives zeros, and says so.</strong> The
+      employment window helper returns <code>null</code> for such a year, and <code>null</code>
+      means <em>nothing</em>, not <em>no bound</em>. Treating it as an open bound once summed a
+      leaver's entire history against a fresh 30-day entitlement.</li>
+    <li><strong>The first-year gate is judged at the earlier of today and the exit date.</strong>
+      Somebody who left after eleven months never completed a year and must not flip to 30 days
+      the day the calendar passes an anniversary they never reached.</li>
+    <li><strong>29 February.</strong> Someone who joined on 29 February has no anniversary three
+      years in four. It is resolved in one place, by clamping to the last real day of the intended
+      month, because Postgres, JavaScript and a human all answer differently.</li>
+    <li><strong>The exit date is the last <em>working</em> day and is inclusive.</strong></li>
+    <li><strong>Calendar dates are <code>YYYY-MM-DD</code> strings, never <code>Date</code>
+      objects.</strong> <code>getDay()</code> answers in the reader's timezone; a string does not
+      move. Columns are <code>@db.Date</code>.</li>
+    <li><strong>Every day count is a decimal, rounded to one place.</strong> Half days are the
+      only fraction admitted, and a float sum of thirty 0.5s is not 15.</li>
+  </ul>
+
+  <h2>11. Where each rule lives</h2>
+
+  <div class="wrap">
+  <table>
+    <tr><th>File</th><th>Owns</th></tr>
+    <tr><td><code>src/hr/lib/hr-effective-status.ts</code></td><td>The precedence chain. The one place a day is decided.</td></tr>
+    <tr><td><code>src/hr/lib/leave-balance.ts</code></td><td>The balance engine. Pure functions over already-queried rows; no second implementation anywhere.</td></tr>
+    <tr><td><code>src/hr/lib/hr-comp-off.ts</code></td><td>Comp-off earning, weekend blocks.</td></tr>
+    <tr><td><code>src/hr/lib/hr-leave-year.ts</code></td><td>Anniversaries, the employment window, the first-year gate.</td></tr>
+    <tr><td><code>src/hr/lib/hr-constants.ts</code></td><td>The numbers: 30, 15/30/45, the carry-over cap, the weekend, calendar-vs-working-day categories.</td></tr>
+    <tr><td><code>src/hr/lib/attendance-rules.ts</code></td><td>Standing rules and which one wins.</td></tr>
+    <tr><td><code>src/hr/lib/hr-seed-data.ts</code></td><td>The leave-code catalogue and the public holidays.</td></tr>
+    <tr><td><code>src/hr/services/leave-year-roll-service.ts</code></td><td>The year-end roll.</td></tr>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>If you are adding a rule, add it to one of these and call it from everywhere.</strong>
+    The module has survived one adversarial review largely because the maths has a single home.
+    The findings that did land were, without exception, in places where something had been
+    resolved a second time.
+  </div>
+
+  <h2>12. Further reading</h2>
+  <ul>
+    <li><code>docs/HR_MODULE_PLAN.md</code> — the plan of record, the workbook reconciliation
+      baseline (§13.1) and the privacy posture (§10).</li>
+    <li><code>docs/CODE_REVIEW_HR.html</code> — the adversarial review and what each finding
+      taught.</li>
+    <li><strong>User guide §21</strong> — the operator-facing version: how to record a day, a
+      company day, a standing arrangement, and how to read the summary.</li>
+  </ul>
+
+  <footer>
+    EA-SYS — HR module. Master silo only, gated by <code>HR_MODULE_ENABLED</code>.
+    This database holds colleagues' sick-leave records: health-adjacent personal data about named
+    employees. Treat exports and screenshots accordingly.
+  </footer>
+
+</div>
+</body>
+</html>
