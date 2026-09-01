@@ -331,3 +331,44 @@ describe("GET /api/hr/attendance?export=csv", () => {
     expect(recordExportMock).not.toHaveBeenCalled();
   });
 });
+
+describe("GET /api/hr/attendance?export=csv — range ceiling", () => {
+  beforeEach(() => {
+    mockDb.employee.findMany.mockResolvedValue([
+      {
+        id: "e1", empCode: "EMP001", name: "Ana Silva", department: "Ops",
+        joiningDate: new Date("2020-01-01T00:00:00Z"), exitDate: null,
+      },
+    ]);
+  });
+
+  it("exports a whole leap year, which is the largest legitimate range", async () => {
+    const res = await getAttendance(
+      req("http://t/api/hr/attendance?export=csv&from=2028-01-01&to=2028-12-31"),
+    );
+    expect(res.status).toBe(200);
+    const header = (await res.text()).split("\n")[0];
+    // 3 identity columns + 366 days.
+    expect(header.split(",")).toHaveLength(369);
+  });
+
+  it("refuses a range past a year before reading anything", async () => {
+    // The JSON read is uncapped on purpose (it returns only rows that exist),
+    // but a FILE materialises every cell, so an unbounded range would build
+    // tens of thousands of columns and produce something Excel cannot open.
+    const res = await getAttendance(
+      req("http://t/api/hr/attendance?export=csv&from=2026-01-01&to=2027-12-31"),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("RANGE_TOO_LONG");
+    expect(mockDb.employee.findMany).not.toHaveBeenCalled();
+    expect(recordExportMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the uncapped JSON read alone", async () => {
+    const res = await getAttendance(
+      req("http://t/api/hr/attendance?from=2020-01-01&to=2027-12-31"),
+    );
+    expect(res.status).toBe(200);
+  });
+});

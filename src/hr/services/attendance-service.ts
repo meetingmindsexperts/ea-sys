@@ -61,8 +61,14 @@ export type AttendanceResult<T> =
 /**
  * A whole year for one person is 365; anything past that is a mistake or an
  * attempt to write the entire table in one request.
+ *
+ * Exported because the CSV export needs the same ceiling for the same reason,
+ * and two numbers that mean "one year" drift. The read path is otherwise
+ * uncapped, which is correct for a query and wrong for a file: a request for a
+ * century would build 23 x 37,000 cells on the box that also serves the grid,
+ * and land past Excel's 16,384-column limit so nobody could open it anyway.
  */
-const MAX_RANGE_DAYS = 366;
+export const MAX_RANGE_DAYS = 366;
 
 /**
  * The transaction budget for a range write. A full year is up to 366

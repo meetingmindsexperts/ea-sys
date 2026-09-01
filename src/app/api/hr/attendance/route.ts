@@ -20,11 +20,12 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { denyNonHr } from "@/hr/lib/hr-roles";
-import { toCalendarDate, calendarDateSchema } from "@/hr/lib/hr-date";
+import { toCalendarDate, calendarDateSchema, daysBetween } from "@/hr/lib/hr-date";
 import {
   clearAttendance,
   listAttendance,
   setAttendance,
+  MAX_RANGE_DAYS,
   type AttendanceErrorCode,
 } from "@/hr/services/attendance-service";
 import { listAttendanceRules } from "@/hr/services/attendance-rule-service";
@@ -115,6 +116,29 @@ export async function GET(req: NextRequest) {
   // same set, and an audit row instead.
   const wantsCsv = sp.get("export") === "csv";
   if (wantsCsv) {
+    // The JSON read is deliberately uncapped: it returns only the rows that
+    // exist, so a wide range is cheap. A FILE is not the same thing — every
+    // cell is materialised, so a century would build tens of thousands of
+    // columns per person and produce something Excel cannot open anyway
+    // (16,384 columns). One year, the same ceiling a range write uses, from
+    // the same constant so the two cannot drift.
+    const span = daysBetween(parsed.data.from, parsed.data.to) + 1;
+    if (span > MAX_RANGE_DAYS) {
+      apiLogger.warn({
+        msg: "hr/attendance:export-range-too-long",
+        userId: session.user.id,
+        from: parsed.data.from,
+        to: parsed.data.to,
+        days: span,
+      });
+      return NextResponse.json(
+        {
+          error: `An export may cover at most ${MAX_RANGE_DAYS} days.`,
+          code: "RANGE_TOO_LONG",
+        },
+        { status: 400 },
+      );
+    }
     const rl = checkRateLimit({
       key: `hr-export:${session.user.id}`,
       limit: 20,

@@ -69,6 +69,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Building2, CalendarClock, ChevronLeft, ChevronRight, Download, Loader2, TableProperties, Trash2, UserCog,
 } from "lucide-react";
 
@@ -95,6 +98,16 @@ function monthBounds(year: number, month: number) {
     to: iso(new Date(Date.UTC(year, month + 1, 0))),
   };
 }
+
+/** 1 January to 31 December. A leap year is 366 days, which is the export cap. */
+function yearBounds(year: number) {
+  return { from: iso(new Date(Date.UTC(year, 0, 1))), to: iso(new Date(Date.UTC(year, 11, 31))) };
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 /**
  * The DOM cell at a grid coordinate, for focus-scrolling and popover anchoring.
@@ -576,17 +589,36 @@ export default function HrAttendancePage() {
               setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth()); setSel(null);
             }}><ChevronRight className="h-4 w-4" /></Button>
           </div>
-          {/* A plain link, not a fetch-and-blob: the browser downloads it, and
+          {/* Plain links, not fetch-and-blob: the browser downloads them, and
               the file is BUILT ON THE SERVER so the export is gated, rate
               limited and audited. Building it here from data already in the
               page would be quicker and would leave no trace of who took a copy
               of the org's sick leave, which is the mistake the registrations
-              export was moved server-side to fix. */}
-          <Button asChild variant="secondary">
-            <a href={`/api/hr/attendance?export=csv&from=${from}&to=${to}`} download>
-              <Download className="h-4 w-4" />Export
-            </a>
-          </Button>
+              export was moved server-side to fix.
+
+              The year option asks for a range the page never loads, which is
+              fine: the export resolves its own rows from the database rather
+              than from whatever the grid happens to be showing. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary"><Download className="h-4 w-4" />Export</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <a href={`/api/hr/attendance?export=csv&from=${from}&to=${to}`} download>
+                  {MONTH_NAMES[month]} {year}
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a
+                  href={`/api/hr/attendance?export=csv&from=${yearBounds(year).from}&to=${yearBounds(year).to}`}
+                  download
+                >
+                  Whole year ({year})
+                </a>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
           <Button asChild variant="secondary"><Link href="/hr/employees">Employees</Link></Button>
           <Button asChild variant="secondary"><Link href="/hr/holidays">Holidays</Link></Button>
