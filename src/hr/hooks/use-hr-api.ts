@@ -4,9 +4,26 @@
  * React Query hooks for the HR module. Mirrors src/hooks/use-api.ts in shape;
  * separate file because the import boundary is one-way and core must not reach
  * in here.
+ *
+ * EVERY fetch in this file goes through `get` or `send`, and both throw
+ * core's `ApiError`, which carries the HTTP `status`. That is not tidiness.
+ * `QueryCache.onError` reads `.status` to tell an expired session from a real
+ * fault (`src/lib/session-expiry.ts`), so an error thrown without one leaves a
+ * stale tab rendering EMPTY HR screens instead of sending the person to sign
+ * in. This module shipped with eight hand-written `new Error(...)` throw sites
+ * and none of them carried a status, which is how production logged a burst of
+ * `hr/*:unauthorized` with nobody being told they were logged out. It is the
+ * same defect the CRM had in Aug 2026, reintroduced by a module written after
+ * the fix, because a cross-cutting handler that reads a convention only
+ * protects code that happens to follow it.
+ *
+ * So: no `new Error(` below this line. Pinned by a source-level guard in
+ * `__tests__/lib/query-fetcher-status.test.ts`, which covers every React Query
+ * fetch layer in the app for the same reason.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError, apiFetch } from "@/lib/api-fetch";
 
 export interface HrEmployee {
   id: string;
@@ -85,21 +102,52 @@ export interface HrAttendanceEntry {
   remarks: string | null;
 }
 
-async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    // Every HR page renders the thrown message, so the one refusal a person is
-    // actually likely to meet is worded here rather than three times over.
-    // "Forbidden" is accurate and tells them nothing about what to do next.
-    if (res.status === 403) {
-      throw new Error(
-        "You do not have access to the HR module. If you need it, ask a system administrator to grant it under Settings, Users.",
-      );
+/**
+ * Every HR page renders the thrown message, so the one refusal a person is
+ * actually likely to meet is worded once here rather than at each call site.
+ * "Forbidden" is accurate and tells them nothing about what to do next.
+ */
+const HR_FORBIDDEN_MESSAGE =
+  "You do not have access to the HR module. If you need it, ask a system administrator to grant it under Settings, Users.";
+
+/** Exported as a test seam only; hooks are the intended way in. */
+export async function get<T>(url: string): Promise<T> {
+  try {
+    return await apiFetch<T>(url);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      throw new ApiError(HR_FORBIDDEN_MESSAGE, err.status, err.data);
     }
-    throw new Error(body?.error ?? `Request failed (${res.status})`);
+    throw err;
   }
-  return res.json();
+}
+
+/**
+ * The one write path. `fallback` replaces the generic message ONLY when the
+ * server sent no `error` field at all, which is what an unhandled 500 looks
+ * like: Next answers with HTML, the parse falls back to `{}`, and a bare
+ * "Request failed" is the least useful thing to put in front of somebody.
+ *
+ * The condition reads `err.data`, the same thing `apiFetch` reads, rather than
+ * comparing against its fallback STRING. A string comparison would go quietly
+ * dead the day core reworded it.
+ */
+/** Exported as a test seam only; hooks are the intended way in. */
+export async function send<T>(url: string, method: string, body?: unknown, fallback?: string): Promise<T> {
+  try {
+    return await apiFetch<T>(url, {
+      method,
+      ...(body !== undefined && {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    });
+  } catch (err) {
+    if (fallback && err instanceof ApiError && typeof err.data?.error !== "string") {
+      throw new ApiError(fallback, err.status, err.data);
+    }
+    throw err;
+  }
 }
 
 export const hrKeys = {
@@ -181,14 +229,12 @@ export function useCreateHrAttendanceRule() {
       endDate?: string | null;
       label: string;
     }) => {
-      const res = await fetch("/api/hr/attendance-rules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not save that rule.");
-      return data as { rule: HrAttendanceRule };
+      return send<{ rule: HrAttendanceRule }>(
+        "/api/hr/attendance-rules",
+        "POST",
+        input,
+        "Could not save that rule.",
+      );
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
@@ -197,12 +243,13 @@ export function useCreateHrAttendanceRule() {
 export function useDeleteHrAttendanceRule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (ruleId: string) => {
-      const res = await fetch(`/api/hr/attendance-rules/${ruleId}`, { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not remove that rule.");
-      return data as { ok: true };
-    },
+    mutationFn: (ruleId: string) =>
+      send<{ ok: true }>(
+        `/api/hr/attendance-rules/${ruleId}`,
+        "DELETE",
+        undefined,
+        "Could not remove that rule.",
+      ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
 }
@@ -214,13 +261,12 @@ export function useDeleteHrAttendanceRule() {
  * HR query 23 times over (review M10).
  */
 /**
- * An HR write failure carrying the service's own error code, and the response
- * body it came with, rather than only a sentence.
+ * An HR write failure is core's `ApiError`: it already carries `status`, the
+ * service's own `code`, and the response `data` it came with. Re-exported under
+ * the module's own name so HR callers do not each reach across the boundary,
+ * and so there is ONE error shape rather than a fifth one invented here.
  */
-export interface HrWriteError extends Error {
-  code?: string;
-  body?: Record<string, unknown>;
-}
+export { ApiError as HrWriteError } from "@/lib/api-fetch";
 
 export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
   const { invalidate = true } = opts;
@@ -236,26 +282,14 @@ export function useSetHrAttendance(opts: { invalidate?: boolean } = {}) {
       /** Proceed past the 15-day full-pay sick limit; see SetAttendanceInput. */
       acknowledgeSickTier?: boolean;
     }) => {
-      const res = await fetch("/api/hr/attendance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // The service's CODE travels with the error, because one of them is not
-        // a failure at all: SICK_FULL_TIER_EXCEEDED is a question the grid has
-        // to put to the operator, and prose cannot be branched on without
-        // matching a message string.
-        //
-        // Note the route SPREADS `meta` at the top level of the body rather
-        // than nesting it, so the numbers are read from there.
-        const err = new Error(body?.error ?? `Request failed (${res.status})`) as HrWriteError;
-        err.code = typeof body?.code === "string" ? body.code : undefined;
-        err.body = body;
-        throw err;
-      }
-      return body as { written: number; skipped: string[] };
+      // The service's CODE travels with the error, because one of them is not
+      // a failure at all: SICK_FULL_TIER_EXCEEDED is a question the grid has to
+      // put to the operator, and prose cannot be branched on without matching a
+      // message string. `ApiError` carries both the code and the whole body.
+      //
+      // Note the route SPREADS `meta` at the top level of the body rather than
+      // nesting it, so the numbers are read from `err.data` directly.
+      return send<{ written: number; skipped: string[] }>("/api/hr/attendance", "PUT", input);
     },
     onSuccess: () => {
       if (invalidate) void qc.invalidateQueries({ queryKey: ["hr"] });
@@ -267,16 +301,8 @@ export function useClearHrAttendance(opts: { invalidate?: boolean } = {}) {
   const { invalidate = true } = opts;
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { employeeId: string; from: string; to?: string }) => {
-      const res = await fetch("/api/hr/attendance", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
-      return body as { removed: number };
-    },
+    mutationFn: (input: { employeeId: string; from: string; to?: string }) =>
+      send<{ removed: number }>("/api/hr/attendance", "DELETE", input),
     onSuccess: () => {
       if (invalidate) void qc.invalidateQueries({ queryKey: ["hr"] });
     },
@@ -302,17 +328,6 @@ export interface HrEmployeeInput {
    * fixed before, because neither field reached the update payload.
    */
   status?: "ACTIVE" | "RESIGNED" | "TERMINATED";
-}
-
-async function send<T>(url: string, method: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const parsed = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(parsed?.error ?? `Request failed (${res.status})`);
-  return parsed as T;
 }
 
 /**
@@ -410,12 +425,8 @@ export function useCreateHrHoliday() {
 export function useDeleteHrHoliday() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (holidayId: string) => {
-      const res = await fetch(`/api/hr/holidays/${holidayId}`, { method: "DELETE" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
-      return body as { ok: true };
-    },
+    mutationFn: (holidayId: string) =>
+      send<{ ok: true }>(`/api/hr/holidays/${holidayId}`, "DELETE"),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["hr"] }),
   });
 }

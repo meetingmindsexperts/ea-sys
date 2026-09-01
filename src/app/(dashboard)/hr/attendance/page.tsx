@@ -363,10 +363,10 @@ export default function HrAttendancePage() {
               from: sorted[0],
               to: sorted[sorted.length - 1],
               code,
-              used: Number(e.body?.used ?? 0),
-              wouldBe: Number(e.body?.wouldBe ?? 0),
-              limit: Number(e.body?.limit ?? 15),
-              leaveYear: Number(e.body?.leaveYear ?? 0),
+              used: Number(e.data?.used ?? 0),
+              wouldBe: Number(e.data?.wouldBe ?? 0),
+              limit: Number(e.data?.limit ?? 15),
+              leaveYear: Number(e.data?.leaveYear ?? 0),
             });
             continue;
           }

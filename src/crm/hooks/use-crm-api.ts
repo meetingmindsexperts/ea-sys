@@ -962,9 +962,22 @@ export function useUploadCrmDealDocument(dealId: string) {
       fd.append("kind", input.kind);
       if (input.label) fd.append("label", input.label);
       const res = await fetch(`/api/crm/deals/${dealId}/documents`, { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      return data as { document: CrmDealDocumentRow };
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      // `ApiError`, not a bare Error, so the thrown value carries the HTTP
+      // status. `QueryCache.onError` reads `.status` to tell an expired session
+      // from a real fault; without it a logged-out upload just toasts "Upload
+      // failed" and leaves the person on a dead page. Every other fetch in this
+      // file already goes through `apiFetch`; this one is hand-rolled because
+      // the file rides as multipart FormData, which is exactly how it got
+      // missed. See __tests__/lib/query-fetcher-status.test.ts.
+      if (!res.ok) {
+        throw new ApiError(
+          typeof data.error === "string" ? data.error : "Upload failed",
+          res.status,
+          data,
+        );
+      }
+      return data as unknown as { document: CrmDealDocumentRow };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });

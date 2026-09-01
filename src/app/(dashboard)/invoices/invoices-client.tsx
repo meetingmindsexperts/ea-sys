@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api-fetch";
 import { Receipt, Download, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useEvents } from "@/hooks/use-api";
@@ -114,12 +115,17 @@ export default function OrgInvoicesClient() {
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["org-invoices", query],
     queryFn: async () => {
+      // `ApiError` rather than a hand-assigned `.status`: one error shape
+      // across every fetch layer, so `QueryCache.onError` has one thing to
+      // recognise. See __tests__/lib/query-fetcher-status.test.ts.
       const res = await fetch(`/api/invoices?${query}`);
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const err = new Error(body.error || "Failed to load invoices") as Error & { status?: number };
-        err.status = res.status;
-        throw err;
+        const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        throw new ApiError(
+          typeof body.error === "string" ? body.error : "Failed to load invoices",
+          res.status,
+          body,
+        );
       }
       return res.json() as Promise<{ invoices: OrgInvoice[]; earliestYear: number }>;
     },

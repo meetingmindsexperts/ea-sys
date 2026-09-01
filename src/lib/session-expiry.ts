@@ -15,14 +15,20 @@
  * client-side fetches never pass through that guard. So the fix belongs at
  * the one place every client query failure lands: `QueryCache.onError`.
  *
- * WHY THE STATUS READ IS STRUCTURAL, not `instanceof ApiError`. This app has
- * three fetchers that each shape their errors differently:
- *   - `src/lib/api-fetch.ts`      → `ApiError` (CRM, and mutations that branch on code)
- *   - `src/hooks/use-api.ts`      → also `ApiError` as of this change (the core dashboard)
- *   - `invoices-client.tsx`       → a hand-rolled `Error & { status }`
- * A check that recognises only one of them fixes one module and silently
- * misses the others, which is the precise failure this whole change is about.
- * Reading `.status` structurally covers all three and anything added later.
+ * WHY THE STATUS READ IS STRUCTURAL, not `instanceof ApiError`. The app has
+ * four fetch layers that reach this handler: `src/lib/api-fetch.ts` (the
+ * shared helper), `src/hooks/use-api.ts` (the core dashboard),
+ * `src/crm/hooks/use-crm-api.ts` and `src/hr/hooks/use-hr-api.ts`, plus the
+ * hand-built query in `invoices-client.tsx`. They now all throw the SAME
+ * `ApiError`, but they did not always, and reading `.status` structurally is
+ * what keeps this working for whichever shape arrives next.
+ *
+ * That is not a hypothetical. The HR module, written a week after this fix,
+ * threw bare `Error` from eight sites and was invisible here: production
+ * logged a burst of `hr/*:unauthorized` while the person just saw empty
+ * screens. A comment cannot stop that recurring, so the convention is now
+ * pinned by `__tests__/lib/query-fetcher-status.test.ts` over a named list of
+ * layers. Add a layer, add it there.
  */
 
 /**
