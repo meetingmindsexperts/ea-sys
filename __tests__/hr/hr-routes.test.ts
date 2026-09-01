@@ -7,34 +7,47 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
  * route decides: who gets in, and what HTTP status each service answer maps to.
  */
 
-const { mockDb, mockAuth, rateLimit, seed, svc } = vi.hoisted(() => ({
+const { mockDb, mockAuth, rateLimit, recordExportMock, seed, svc } = vi.hoisted(() => ({
   mockDb: {
     employee: { findMany: vi.fn(), findFirst: vi.fn() },
-    publicHoliday: { create: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn() },
+    publicHoliday: { create: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
     attendanceEntry: { count: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockAuth: vi.fn(),
   rateLimit: vi.fn(),
+  recordExportMock: vi.fn(),
   seed: { ensureLeaveCodes: vi.fn(), ensurePublicHolidays: vi.fn() },
   svc: {
     updateEmployee: vi.fn(),
     getOrgLeaveSummary: vi.fn(),
     getLeaveBalance: vi.fn(),
     setAttendance: vi.fn(),
+    listAttendance: vi.fn(),
+    listAttendanceRules: vi.fn(),
   },
 }));
 
-vi.mock("next/server", () => ({
-  NextRequest: class {},
-  NextResponse: {
-    json: (b: unknown, i?: { status?: number; headers?: Record<string, string> }) => ({
-      status: i?.status ?? 200,
-      json: async () => b,
-      headers: { get: (k: string) => i?.headers?.[k] ?? null, set: () => {} },
-    }),
-  },
-}));
+vi.mock("next/server", () => {
+  // The CSV export answers with `new NextResponse(body, { headers })` rather
+  // than `.json`, so the mock has to be constructible as well as callable.
+  class Res {
+    status: number;
+    body: unknown;
+    headers: { get: (k: string) => string | null; set: () => void };
+    constructor(body?: unknown, init?: { status?: number; headers?: Record<string, string> }) {
+      this.body = body;
+      this.status = init?.status ?? 200;
+      this.headers = { get: (k) => init?.headers?.[k] ?? null, set: () => {} };
+    }
+    async json() { return this.body; }
+    async text() { return String(this.body); }
+    static json(b: unknown, i?: { status?: number; headers?: Record<string, string> }) {
+      return new Res(b, i);
+    }
+  }
+  return { NextRequest: class {}, NextResponse: Res };
+});
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
@@ -60,7 +73,13 @@ vi.mock("@/hr/services/leave-balance-service", async (orig) => ({
 vi.mock("@/hr/services/attendance-service", async (orig) => ({
   ...(await orig<typeof import("@/hr/services/attendance-service")>()),
   setAttendance: svc.setAttendance,
+  listAttendance: svc.listAttendance,
 }));
+vi.mock("@/hr/services/attendance-rule-service", async (orig) => ({
+  ...(await orig<typeof import("@/hr/services/attendance-rule-service")>()),
+  listAttendanceRules: svc.listAttendanceRules,
+}));
+vi.mock("@/lib/audit-data-transfer", () => ({ recordExport: recordExportMock }));
 
 import { GET as listEmployees } from "@/app/api/hr/employees/route";
 import { PATCH as patchEmployee } from "@/app/api/hr/employees/[employeeId]/route";
@@ -68,7 +87,7 @@ import { POST as postHoliday } from "@/app/api/hr/holidays/route";
 import { DELETE as deleteHoliday } from "@/app/api/hr/holidays/[holidayId]/route";
 import { GET as getSummary } from "@/app/api/hr/summary/route";
 import { GET as getBalance } from "@/app/api/hr/balances/[employeeId]/route";
-import { PUT as putAttendance } from "@/app/api/hr/attendance/route";
+import { PUT as putAttendance, GET as getAttendance } from "@/app/api/hr/attendance/route";
 import { LeaveYearNotHeldError } from "@/hr/services/leave-balance-service";
 
 const ORIGINAL_FLAG = process.env.HR_MODULE_ENABLED;
@@ -91,7 +110,10 @@ beforeEach(() => {
   seed.ensureLeaveCodes.mockResolvedValue(0);
   seed.ensurePublicHolidays.mockResolvedValue(0);
   mockDb.employee.findMany.mockResolvedValue([]);
+  mockDb.publicHoliday.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockResolvedValue({});
+  svc.listAttendance.mockResolvedValue([]);
+  svc.listAttendanceRules.mockResolvedValue([]);
 });
 
 describe("GET /api/hr/employees", () => {
@@ -242,5 +264,70 @@ describe("PUT /api/hr/attendance", () => {
     );
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: "WRITE_TIMED_OUT" });
+  });
+});
+
+describe("GET /api/hr/attendance?export=csv", () => {
+  const url = "http://t/api/hr/attendance?export=csv&from=2026-09-01&to=2026-09-02";
+
+  beforeEach(() => {
+    mockDb.employee.findMany.mockResolvedValue([
+      {
+        id: "e1", empCode: "EMP001", name: "Ana Silva", department: "Ops",
+        joiningDate: new Date("2020-01-01T00:00:00Z"), exitDate: null,
+      },
+    ]);
+  });
+
+  it("404s while the module is off, and 403s a non-HR role", async () => {
+    delete process.env.HR_MODULE_ENABLED;
+    expect((await getAttendance(req(url))).status).toBe(404);
+    process.env.HR_MODULE_ENABLED = "true";
+    mockAuth.mockResolvedValue(session("ORGANIZER"));
+    expect((await getAttendance(req(url))).status).toBe(403);
+  });
+
+  it("returns a CSV attachment named for the range", async () => {
+    const res = await getAttendance(req(url));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/csv");
+    expect(res.headers.get("Content-Disposition")).toContain(
+      'filename="attendance-2026-09-01-to-2026-09-02.csv"',
+    );
+    const body = await res.text();
+    expect(body.split("\n")[0]).toBe("Employee code,Name,Department,2026-09-01,2026-09-02");
+    expect(body).toContain("EMP001,Ana Silva,Ops,P,P");
+  });
+
+  it("audits the export with the row count and the range", async () => {
+    await getAttendance(req(url));
+    expect(recordExportMock).toHaveBeenCalledTimes(1);
+    expect(recordExportMock.mock.calls[0][1]).toMatchObject({
+      entityType: "HrAttendance",
+      organizationId: "org1",
+      userId: "u1",
+      rowCount: 1,
+      filters: { from: "2026-09-01", to: "2026-09-02" },
+    });
+  });
+
+  it("spends the rate-limit budget BEFORE reading anything", async () => {
+    // The pre-flight matters: a refused export must not first run an unbounded
+    // read on the box that also serves the grid.
+    rateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 60, remaining: 0 });
+    const res = await getAttendance(req(url));
+    expect(res.status).toBe(429);
+    expect(mockDb.employee.findMany).not.toHaveBeenCalled();
+    expect(svc.listAttendance).not.toHaveBeenCalled();
+    expect(recordExportMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the ordinary JSON read alone", async () => {
+    const res = await getAttendance(req("http://t/api/hr/attendance?from=2026-09-01&to=2026-09-02"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBeNull();
+    expect(await res.json()).toMatchObject({ entries: [], holidays: [], rules: [] });
+    // No file left the building, so nothing to audit.
+    expect(recordExportMock).not.toHaveBeenCalled();
   });
 });

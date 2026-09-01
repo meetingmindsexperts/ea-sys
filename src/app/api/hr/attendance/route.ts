@@ -1,5 +1,6 @@
 /**
  * GET    /api/hr/attendance?from&to&employeeId  — the grid's entries.
+ * GET    /api/hr/attendance?export=csv&from&to    — the same grid as a file.
  * PUT    /api/hr/attendance                      — record a day or a range.
  * DELETE /api/hr/attendance                      — clear a day or a range.
  *
@@ -27,6 +28,10 @@ import {
   type AttendanceErrorCode,
 } from "@/hr/services/attendance-service";
 import { listAttendanceRules } from "@/hr/services/attendance-rule-service";
+import { buildAttendanceCsv } from "@/hr/lib/attendance-csv";
+import { recordExport } from "@/lib/audit-data-transfer";
+import type { CalendarDate } from "@/hr/lib/hr-date";
+import type { LeaveCategory } from "@prisma/client";
 
 const ISO_DATE = calendarDateSchema;
 
@@ -97,8 +102,101 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Export is its own pre-flight: the gate and the budget are spent BEFORE the
+  // query, so a refused export never runs an unbounded read on the box that
+  // also serves the grid. Same shape as the registrations export.
+  //
+  // WHO MAY EXPORT. Elsewhere in this codebase export is deliberately a
+  // NARROWER boundary than read (an ONSITE temp can page the registrations
+  // list and gets 403 on the file), because the read population there is wide.
+  // Here it is not: `canViewHr` is SUPER_ADMIN, HR_USER, or a person somebody
+  // ticked by hand, and every one of them already sees every cell on screen.
+  // Narrowing further would lock out the HR officer this exists for. So the
+  // same set, and an audit row instead.
+  const wantsCsv = sp.get("export") === "csv";
+  if (wantsCsv) {
+    const rl = checkRateLimit({
+      key: `hr-export:${session.user.id}`,
+      limit: 20,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimited(rl, { route: "hr/attendance:export", userId: session.user.id, limit: 20, windowSeconds: 3600 });
+    }
+  }
+
   return runWithTenant(org.orgId, async () => {
     try {
+      if (wantsCsv) {
+        const [employees, entries, holidays, rules] = await Promise.all([
+          db.employee.findMany({
+            where: { organizationId: org.orgId },
+            select: {
+              id: true, empCode: true, name: true, department: true,
+              joiningDate: true, exitDate: true,
+            },
+            orderBy: { empCode: "asc" },
+          }),
+          listAttendance({ organizationId: org.orgId, ...parsed.data }),
+          db.publicHoliday.findMany({
+            where: { organizationId: org.orgId },
+            select: { date: true, label: true },
+            orderBy: { date: "asc" },
+          }),
+          listAttendanceRules({ organizationId: org.orgId }),
+        ]);
+
+        const { csv, rowCount } = buildAttendanceCsv({
+          employees: employees.map((e) => ({
+            id: e.id,
+            empCode: e.empCode,
+            name: e.name,
+            department: e.department,
+            joiningDate: toCalendarDate(e.joiningDate),
+            exitDate: e.exitDate ? toCalendarDate(e.exitDate) : null,
+          })),
+          from: parsed.data.from as CalendarDate,
+          to: parsed.data.to as CalendarDate,
+          entries,
+          holidays: holidays.map((h) => ({ date: toCalendarDate(h.date), label: h.label })),
+          rules: rules.map((r) => ({
+            id: r.id,
+            scope: r.scope,
+            employeeId: r.employeeId,
+            code: r.code,
+            category: r.category as LeaveCategory,
+            startDate: r.startDate as CalendarDate,
+            endDate: (r.endDate ?? null) as CalendarDate | null,
+          })),
+        });
+
+        // Sick leave about named colleagues leaving the system. Fire-and-forget
+        // by contract; the file is already built either way.
+        recordExport(req, {
+          entityType: "HrAttendance",
+          organizationId: org.orgId,
+          userId: session.user.id,
+          role: session.user.role ?? null,
+          rowCount,
+          filters: { from: parsed.data.from, to: parsed.data.to },
+        });
+        apiLogger.info({
+          msg: "hr/attendance:exported",
+          userId: session.user.id,
+          from: parsed.data.from,
+          to: parsed.data.to,
+          rowCount,
+        });
+
+        return new NextResponse(csv, {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="attendance-${parsed.data.from}-to-${parsed.data.to}.csv"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+
       const [entries, holidays, rules] = await Promise.all([
         listAttendance({ organizationId: org.orgId, ...parsed.data }),
         db.publicHoliday.findMany({

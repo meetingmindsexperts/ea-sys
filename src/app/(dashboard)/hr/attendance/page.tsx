@@ -69,7 +69,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Building2, CalendarClock, ChevronLeft, ChevronRight, Loader2, TableProperties, Trash2, UserCog,
+  Building2, CalendarClock, ChevronLeft, ChevronRight, Download, Loader2, TableProperties, Trash2, UserCog,
 } from "lucide-react";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10) as CalendarDate;
@@ -576,6 +576,17 @@ export default function HrAttendancePage() {
               setYear(d.getUTCFullYear()); setMonth(d.getUTCMonth()); setSel(null);
             }}><ChevronRight className="h-4 w-4" /></Button>
           </div>
+          {/* A plain link, not a fetch-and-blob: the browser downloads it, and
+              the file is BUILT ON THE SERVER so the export is gated, rate
+              limited and audited. Building it here from data already in the
+              page would be quicker and would leave no trace of who took a copy
+              of the org's sick leave, which is the mistake the registrations
+              export was moved server-side to fix. */}
+          <Button asChild variant="secondary">
+            <a href={`/api/hr/attendance?export=csv&from=${from}&to=${to}`} download>
+              <Download className="h-4 w-4" />Export
+            </a>
+          </Button>
           <Button asChild variant="secondary"><Link href="/hr">Leave summary</Link></Button>
           <Button asChild variant="secondary"><Link href="/hr/employees">Employees</Link></Button>
           <Button asChild variant="secondary"><Link href="/hr/holidays">Holidays</Link></Button>

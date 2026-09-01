@@ -46,6 +46,14 @@ CRITICAL_TABLES=(
   "Abstract"
   "CertificateTemplate"
   "AuditLog"
+  # HR. Backed up since the module shipped (pg_dump takes all of `public`), but
+  # unverified until now, and "backed up" and "proven restorable" are different
+  # claims. Employee is the roster the whole module hangs off; AttendanceEntry
+  # is the part that cannot be reconstructed from anywhere else, because the
+  # workbook it was imported from is a point-in-time file and every day
+  # recorded since exists only here.
+  "Employee"
+  "AttendanceEntry"
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────
