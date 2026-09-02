@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** July 29, 2026 — `create_registration.ticketTypeId` now optional (typeless/uncategorised registrations) + server-side Faculty-type refusal. **71 tools** across 11 domains.
+**Last updated:** September 2, 2026. **113 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -109,33 +109,37 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
-## Tools (70 total)
+## Tools (113 total)
 
-### Organization-level (3)
+### Organization-level (6)
 
 | Tool | Description |
 |---|---|
 | `list_events` | All events with status, dates, registration/speaker/session counts |
 | `create_event` | Create a new event — slug auto-generated, WEBINAR type auto-provisions Zoom |
+| `update_event` | Safe-to-change fields only: name, description, venue, address, city, country, tag, specialty, `code` (invoice prefix), `taxRate` (0-100), `taxLabel`. Slug, dates, eventType and org are refused by design. |
 | `list_contacts` | Search org-wide contact store by name, email, or tag |
 | `create_contact` | Add a contact to the org store |
+| `update_contact` | Any subset of title, names, organization, jobTitle, bio, specialty, phone, photo, city, state, zipCode, country, notes, tags. Email is **immutable** here. |
 
-### Event info + dashboards (4)
+### Event info + dashboards (6)
 
 | Tool | Description |
 |---|---|
 | `get_event_info` | Event details: name, dates, venue, status, counts |
 | `get_event_stats` | Basic dashboard: registration/payment/speaker/abstract status counts |
 | `get_event_dashboard` | Rich aggregate: counts + upcoming sessions + live now + recent registrations + agreement signed/unsigned. **Replaces 5-call sequences.** |
+| `get_event_analytics` | Reporting aggregate: registration funnel by status/type/tier/day, check-in metrics (rate, no-shows, hourly rush curve, peak hour, by-staff) and the per-attendee check-in log. |
 | `list_rsvps` | The event's RSVPs (a gala dinner, parallel workshops, a site visit — an event can run several, each with its own guest list). Each carries its options, per-item headcounts (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses. **Grouped by RSVP** so a dinner headcount and a workshop headcount are never summed. Optional `campaignId` (narrow to one), `status` (PENDING/RESPONDED) + `limit`. Read-only. |
 | `search_event` | Cross-domain substring search across registrations, speakers, abstracts, contacts |
 
-### Registrations & tickets (8)
+### Registrations & tickets (9)
 
 | Tool | Description |
 |---|---|
 | `list_registrations` | Filter by status, paymentStatus, ticketTypeId, and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_registration` | Register an attendee; `ticketTypeId` optional (omit ⇒ uncategorised, COMPLIMENTARY; Faculty type refused); returns `existingRegistrationId` on duplicate |
+| `create_registrations_bulk` | Up to 100 in one call, per-row `{ created, errors }`. Pre-dedups by email; a CANCELLED row does not block a re-registration. |
 | `update_registration` | Status, paymentStatus, ticketTypeId, attendee details (auto-adjusts `soldCount`) |
 | `bulk_update_registration_status` | Update status + paymentStatus on up to 200 registrations in one transaction |
 | `check_in_registration` | Mark registration as CHECKED_IN |
@@ -143,16 +147,18 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_ticket_types` | Registration types with pricing |
 | `create_ticket_type` | Auto-generates Early Bird / Standard / Onsite tiers |
 
-### Speakers (4)
+### Speakers (6)
 
 | Tool | Description |
 |---|---|
 | `list_speakers` | Filter by status (INVITED/CONFIRMED/DECLINED/CANCELLED) and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_speaker` | Add speaker; returns `existingId` on duplicate email |
+| `create_speakers_bulk` | Up to 100 in one call, per-row `{ created, errors }` so one bad row cannot kill the batch. Pre-dedups by email within the payload. |
 | `update_speaker` | Status + title/bio/org/jobTitle/phone/city/country/specialty/tags; post-update `syncToContact` |
 | `list_speaker_agreements` | `filter: signed / unsigned / all`. Reads `Speaker.agreementAcceptedAt` |
+| `upload_speaker_agreement_template` | Upload the per-event .docx mail-merge template used to generate personalized speaker agreements. 10/hr per user. |
 
-### Schedule (5)
+### Schedule (8)
 
 | Tool | Description |
 |---|---|
@@ -160,6 +166,9 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `create_session` | Includes topics (with optional per-topic `abstractId`) + per-session roles + `capacity`; validates times fall within event dates in the event's timezone. `type: WORKSHOP/SYMPOSIUM` are program types (speakers/topics/track allowed, like SESSION); `type: REGISTRATION/BREAK/LUNCH/NETWORKING` creates a **break item** — a plain agenda time block that cannot carry speakers/topics (rejected with `BREAK_ITEM_HAS_PROGRAM`) |
 | `update_session` | Name/description/times/location/capacity/trackId/status/`type` with same tz-aware date validation. Converting to a break item is rejected with `BREAK_ITEM_HAS_PROGRAM` while the session still has speakers/topics or an attached Zoom meeting, and with `WEBINAR_ANCHOR_SESSION` for a webinar's anchor session |
 | `add_topic_to_session` | Append a topic with speaker assignments. Refuses break items (`BREAK_ITEM_HAS_PROGRAM`) — as do `add_speaker_to_session` / `replace_session_speakers` |
+| `add_speaker_to_session` | Assign with a role (SPEAKER/MODERATOR/CHAIRPERSON/PANELIST). Idempotent: the same role again is a no-op, a different one updates. |
+| `remove_speaker_from_session` | Remove a speaker from a session. |
+| `replace_session_speakers` | Replace ALL speakers on a session in a single atomic operation. |
 | `list_live_sessions_now` | Currently running sessions + optional lookahead window. Break items are excluded (as they are from `get_event_dashboard` / `get_event_stats` session counts) |
 
 ### Tracks (2)
@@ -169,7 +178,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_tracks` | All tracks with session counts |
 | `create_track` | Name + color + description |
 
-### Abstracts & reviews (7)
+### Abstracts & reviews (14)
 
 | Tool | Description |
 |---|---|
@@ -181,22 +190,28 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `create_review_criterion` | Create a criterion (integer weight 1-100; weights are meant to sum to 100 across criteria) |
 | `update_review_criterion` | Update a criterion's name/weight/sortOrder |
 | `delete_review_criterion` | Delete a criterion |
+| `list_reviewers` | Users assigned via `event.settings.reviewerUserIds` |
 | `assign_reviewer_to_abstract` | Assign a reviewer to a specific abstract; **upserts** the role on re-call (PRIMARY/SECONDARY/CONSULTING) |
 | `unassign_reviewer_from_abstract` | Remove a per-abstract reviewer assignment (preserves any submission) |
-| `list_reviewers` | Users assigned via `event.settings.reviewerUserIds` |
+| `submit_abstract_review` | Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). |
+| `admin_submit_review_on_behalf` | Org-admin: record a review on behalf of a specific human reviewer. |
+| `get_abstract_scores` | Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count). |
 
-### Accommodation (6)
+### Accommodation (9)
 
 | Tool | Description |
 |---|---|
 | `list_hotels` | All event hotels |
 | `create_hotel` | Name, address, stars, contact email/phone |
 | `list_room_types` | Rooms with capacity, price, availability (totalRooms - bookedRooms) |
+| `create_room_type` | Add a room type to a hotel. |
+| `update_room_type` | Update a room type's price, capacity, totalRooms, name, description, currency, or isActive. |
+| `delete_room_type` | Delete a room type. |
 | `list_accommodations` | Room bookings (filter by status) |
 | `create_accommodation` | Book a room for a registrant or speaker — atomic overbooking guard |
 | `update_accommodation_status` | PENDING/CONFIRMED/CHECKED_IN/CHECKED_OUT/CANCELLED (releases room on cancel) |
 
-### Webinar (3, WEBINAR-type events only)
+### Webinar (3)
 
 | Tool | Description |
 |---|---|
@@ -204,12 +219,15 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_webinar_attendance` | KPIs (registered/attended/rate/avg watch time) + top-N attendee rows |
 | `list_webinar_engagement` | Polls with per-question data + Q&A list |
 
-### Sponsors (2)
+WEBINAR-type events only.
+
+### Sponsors (3)
 
 | Tool | Description |
 |---|---|
 | `list_sponsors` | `Event.settings.sponsors` grouped by tier |
 | `upsert_sponsors` | Replace-all semantics; URL scheme whitelist rejects `javascript:`/`data:` |
+| `research_sponsor` | Web-scrape a prospective sponsor for a profile to brief an approach. 30/hr per user+event. |
 
 ### Promo codes (4)
 
@@ -236,7 +254,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_email_templates` | Pre-built + event-level overrides |
 | `update_email_template` | Edit subject/htmlContent/textContent per event (creates override from default if missing) |
 | `reset_email_template` | Delete event-level override — system default used on next send |
-| `send_bulk_email` | Send to speakers or registrations with per-template variable interpolation; supports status + ticketType filters |
+| `send_bulk_email` | Send to a filtered audience (registrations or speakers). Routes through the same pipeline as the dashboard, so branding, the viability precheck and the invalid-filter guard all apply. 10/hr per event. |
 | `get_speaker_agreement_template` | Returns the uploaded `.docx` template pointer (upload stays dashboard-only — file uploads don't fit MCP transport) |
 
 ### Scheduled emails (2)
@@ -246,22 +264,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_scheduled_emails` | PENDING/PROCESSING/SENT/FAILED/CANCELLED with send stats |
 | `cancel_scheduled_email` | PENDING → CANCELLED |
 
-### Zoom (2)
-
-| Tool | Description |
-|---|---|
-| `list_zoom_meetings` | Sessions with linked Zoom meetings |
-| `create_zoom_meeting` | Attach Zoom (MEETING / WEBINAR / WEBINAR_SERIES) to a session |
-
-### Media + misc (1)
-
-| Tool | Description |
-|---|---|
-| `list_media` | Org media library (upload stays dashboard-only) |
-
 ### Certificates (5)
-
-v3 multi-template-per-category model (2026-06-02). See [`docs/CERTIFICATES.md`](CERTIFICATES.md) for the full architecture + the operator-facing guide at [user-guide.html §18](../public/user-guide.html#s18).
 
 | Tool | Description |
 |---|---|
@@ -271,9 +274,57 @@ v3 multi-template-per-category model (2026-06-02). See [`docs/CERTIFICATES.md`](
 | `delete_certificate_template` | Delete by `templateId`. Blocked with 409 if any `IssuedCertificate` or `CertificateIssueRun` references the template (audit-trail integrity). |
 | `update_cme_settings` | Event-level CME hours + accrediting bodies. Read by the `{{cmeHours}}` / `{{accreditationBody}}` / `{{accreditationReference}}` tokens on either category. |
 
-**Not exposed via MCP** — the Issue flow itself (creates a `CertificateIssueRun` and fans out PDFs + emails). Operator-only via the dashboard because the cover-email confirmation step is interactive. Once the operator confirms in the dialog, the run executes via the existing cron worker.
+### Media + misc (1)
 
-**Eligibility model** — tag-driven manual selection. ATTENDANCE template + tag X → registrations where `Attendee.tags` includes X. APPRECIATION template + tag X → speakers where `Speaker.tags` includes X. No auto-eligibility based on check-in / payment / session-role / poster-accepted. The one-cert-per-recipient-per-category invariant is enforced by `IssuedCertificate`'s dual `@@unique` constraints.
+| Tool | Description |
+|---|---|
+| `list_media` | Org media library (upload stays dashboard-only) |
+
+### CRM (26)
+
+| Tool | Description |
+|---|---|
+| `list_crm_deals` | List CRM sponsorship deals. |
+| `get_crm_deal` | Full detail for ONE deal: fields, its line-item products (with a currency-aware products total), the contacts on the deal (with roles), recent notes/activity, and open tasks. |
+| `create_crm_deal` | Create a sponsorship deal. |
+| `update_crm_deal` | Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE |
+| `move_crm_deal_stage` | Move a deal to another pipeline stage (by stage name or id). |
+| `close_crm_deal` | Close a deal as WON or LOST. |
+| `list_crm_pipeline` | List the CRM pipeline stages in board order, with each stage's deal count. |
+| `list_crm_deal_types` | List the org's configurable deal TYPES (business lines like 'Sponsorship Inquiry', 'Industry Symposium') — the admin-editable dropdown shown on deals. |
+| `list_crm_companies` | List CRM accounts (companies) with per-account deal counts AND per-currency deal value: Open (pipeline) / Won / Lost / Total. |
+| `get_crm_company` | Full detail for ONE CRM account: profile, per-currency Open/Won/Lost/Total deal value (LOST separate, never in Total), its deals, and its people. |
+| `create_crm_company` | Create a CRM account (company) — or link to the existing one if the name already exists (deduped on the normalized name; a near-duplicate is created but flagged for human review). |
+| `update_crm_company` | Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct). |
+| `list_crm_contacts` | List CRM business contacts (the people at accounts). |
+| `create_crm_contact` | Create a CRM business contact — or link to the existing one if the email already exists (deduped on the normalized email). |
+| `update_crm_contact` | Update a CRM contact's fields: firstName, lastName, email (kept deduped), companyId (re-point to another account; null unlinks), jobTitle, phone, mobile, country, notes, ownerEmail (reassign; null uno |
+| `list_crm_products` | List the org's product/service catalog (the sellable items put on deals as line items). |
+| `create_crm_product` | Add a product/service to the org catalog. |
+| `update_crm_product` | Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. |
+| `list_crm_deal_products` | List the line-item products on ONE deal, with a currency-aware products total. |
+| `add_deal_product` | Add a catalog product as a line item on a deal. |
+| `update_deal_product` | Update a deal line item's unitPrice and/or quantity. |
+| `list_crm_tasks` | List CRM follow-up tasks. |
+| `create_crm_task` | Create a CRM follow-up task. |
+| `complete_crm_task` | Mark a CRM task done. |
+| `add_crm_note` | Log a note / call / meeting on a CRM record. |
+| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. |
+
+Sponsorship pipeline. Registered from inside the CRM module (`src/crm/agent-tools.ts`) rather than the core registrar, which is why an earlier hand-maintained count missed all 26 of them.
+
+### Not on MCP: `list_zoom_meetings` and `create_zoom_meeting`
+
+Both exist and work, but only for the **in-app AI Agent** at
+`/events/[eventId]/agent`. They are in `TOOL_EXECUTOR_MAP` and in
+`WEBINAR_TOOL_DEFINITIONS`, and they are **not** registered on the MCP server,
+so an MCP call to either gets `Unknown tool`. This reference listed them as MCP
+tools until Sep 2 2026, when the inventory gate's removal check found them.
+
+Note the direction, because the mirror image has happened too: in July, five
+session tools were registered on MCP and missing from the agent's definitions,
+so n8n could call what the in-app agent could not discover. **Two surfaces, and
+each can silently omit what the other has.**
 
 ## Resources (6)
 
