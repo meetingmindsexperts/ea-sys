@@ -1,8 +1,9 @@
 # Sponsor attribution: sponsors, their promo codes, and reporting what they brought
 
-> **Status: PLANNED, NOT BUILT (September 2, 2026).** Do not start without an
-> explicit go-ahead. Three owner decisions are locked in §2; the open questions
-> in §8 do not block phase 1.
+> **Status: PHASE 1 SHIPPED September 2, 2026 (`529e490a`). Phases 2 and 3 not
+> started.** Four owner decisions are locked in §2, one of which was
+> **corrected after shipping** and left a genuine question open, see decision 3.
+> The open questions in §8 do not block anything.
 >
 > **Read first:** the current state is evidenced in §1. Every claim there was
 > read in source rather than recalled.
@@ -212,7 +213,31 @@ missing, which is exactly what that gate was built for.
 
 ## 6. Build order
 
-**Phase 1: the link and the report, no table.** Add `PromoCode.sponsorId` as a
+**Phase 1 ✅ SHIPPED September 2, 2026 (`529e490a`): the link and the report, no
+table.** What landed: `PromoCode.sponsorId` (additive migration
+`20260902120000`, validated on write); the three-arm `sponsorId` filter on the
+registrations list, gated on `canViewFinance` and logging its refusal; a
+`Sponsor` column in both exports carrying the NAME; the detail-sheet picker
+unhidden for every payment status; `sponsorId` added to `FINANCIAL_KEYS`; and
+the promo-codes GET now redacts, which it never did (it was already returning
+`discountValue` unredacted). 12 tests in
+[sponsor-attribution.test.ts](../__tests__/lib/sponsor-attribution.test.ts).
+
+**Not built, and worth being exact about, because "the column exists" is not the
+same as "you can use it".** `PromoCode.sponsorId` is currently settable through
+**one** path: `POST /api/events/[eventId]/promo-codes`. It is NOT on the promo
+PUT, so it cannot be changed after creation; NOT on MCP `create_promo_code`;
+and there is no picker on the Promo Codes page. So the reporting half is fully
+live and the setting half is an API call.
+
+**First three jobs when this is picked up**, in order, none large:
+1. `sponsorId` on the promo PUT, so an existing code can be attributed. Without
+   this every existing promo code is stuck unattributed forever.
+2. A sponsor picker on the Promo Codes create/edit dialog.
+3. `sponsorId` on MCP `create_promo_code` and `update_promo_code`, plus the
+   package version bump that acts as the client cache-invalidation hint.
+
+*Original description, for the record.* Add `PromoCode.sponsorId` as a
 nullable string against the existing JSON model **and validate it on write**
 against `readSponsors(event.settings)`, exactly as the registration path
 already does. The first draft said "a plain nullable string" with no

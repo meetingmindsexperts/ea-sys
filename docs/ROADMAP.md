@@ -239,6 +239,48 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
+## Sponsor attribution (Sep 2, 2026): phase 1 shipped, the rest recorded here
+
+Plan of record: [SPONSOR_ATTRIBUTION_PLAN.md](SPONSOR_ATTRIBUTION_PLAN.md).
+Phase 1 shipped in `529e490a`, so a sponsor's promo code, the three-arm filter
+and the Sponsor export column are live.
+
+**One OWNER DECISION is open**, and it is the only item here that is not just
+build work. `sponsorId` now sits in `FINANCIAL_KEYS` beside the payer keys, but
+`FINANCE_ROLES` includes **MEMBER, ONSITE and WEBINARS**, so all three still see
+which sponsor funds which delegate. That is the status quo, not a regression.
+The question is whether it is right. If it is not, `FINANCIAL_KEYS` is the wrong
+lever and sponsor attribution needs its own narrower predicate, the way the
+CRM's `canViewDealValues` is deliberately narrower than `canViewFinance`.
+
+*Context worth keeping, because it cost time:* this was originally raised as a
+HIGH on the ground that MEMBER could not see the payer fields. That was false.
+It came from a comment in `finance-visibility.ts` that still described the
+pre-June-2026 rule. Both the comment and the plan are corrected, and a test now
+pins the real boundary.
+
+**Finish phase 1** (small, and the feature is half-reachable without it):
+- `sponsorId` on the promo-code PUT. **Until this lands no EXISTING promo code
+  can be attributed at all**, only newly created ones.
+- A sponsor picker on the Promo Codes dialog.
+- `sponsorId` on MCP `create_promo_code` / `update_promo_code`, plus the
+  `package.json` bump that hints clients to reconnect.
+- A sponsor filter control on the registrations list UI. The API supports it and
+  nothing sends it yet.
+
+**Phase 2, sponsors as a real table.** Decided, unscheduled. §5 of the plan has
+the 13-site blast radius; §4 has the part that bites, which is that both writers
+of the sponsor list are replace-all and an FK makes them start failing. Note the
+one that fails silently: `"sponsors"` is in the clone allow-list, so once it is a
+table, clone must copy rows or cloning an event drops its sponsors.
+
+**Phase 3, the per-sponsor rollup.** Exhibitor seats taken, delegates brought by
+code, discount given, revenue net of it. Report tagged and by-code separately
+rather than as one total: a registration can carry a direct tag from one sponsor
+and a promo code from another, and summing them over-counts.
+
+---
+
 ## Deferred review findings
 
 ### HR module review (Aug 31, 2026): highs shipped as batch 1, the rest recorded here
