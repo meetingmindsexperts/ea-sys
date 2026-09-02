@@ -964,6 +964,30 @@ model TicketType {
   /// Organizer-authored instructions rendered above the file input.
   documentInstructions String? @db.Text
 
+  /// ── Identity-evidence switches (Sept 2, 2026) ──────────────────────────
+  ///
+  /// Replaces a NAME MATCH. Before this, a type whose name contained "member"
+  /// asked for a membership number and one containing "student" asked for a
+  /// student ID + expiry. Configuration encoded in a name is configuration
+  /// nobody can see, change or audit: renaming "Student" to "Undergraduate"
+  /// silently switched verification OFF, and "Trainee / Student" asked only
+  /// because of the slash in its name. Worst of all, "Resident" — the most-used
+  /// type in this family, on 19 events — matched neither pattern and so asked
+  /// for nothing at all, which is not what any organizer who created it meant.
+  ///
+  /// Same correction the supporting-document switches above made on Aug 13.
+  ///
+  /// Unlike those, there is deliberately NO separate "ask but do not block"
+  /// flag. That distinction exists for a DOCUMENT, which a delegate may not
+  /// have to hand at 11pm; an ID number is something they know by heart, so
+  /// asked means required and a second switch would be a control nobody sets.
+  requiresMemberId        Boolean @default(false)
+  /// Asks for a student/trainee ID number.
+  requiresStudentId       Boolean @default(false)
+  /// ...and its expiry date. Ignored unless `requiresStudentId` is true — an
+  /// expiry with no ID to expire is not a thing anyone means to ask for.
+  requiresStudentIdExpiry Boolean @default(false)
+
   /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
   /// Scalar, no FK — backfilled 1-hop from Event; RLS-gated on the platform.
   organizationId String?

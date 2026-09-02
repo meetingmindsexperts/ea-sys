@@ -38,6 +38,10 @@ const createTicketTypeSchema = z.object({
   // "ask but do not block" has to stay expressible. See
   // src/lib/supporting-document.ts.
   requiresDocument: z.boolean().default(false),
+  // Identity evidence — per-type switches, replacing the name match.
+  requiresMemberId: z.boolean().default(false),
+  requiresStudentId: z.boolean().default(false),
+  requiresStudentIdExpiry: z.boolean().default(false),
   documentRequired: z.boolean().default(false),
   documentLabel: z.string().max(120).optional(),
   documentInstructions: z.string().max(2000).optional(),
@@ -159,7 +163,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions } = validated.data;
+    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions, requiresMemberId, requiresStudentId, requiresStudentIdExpiry } = validated.data;
 
     // Check for duplicate name within the event
     const existing = await db.ticketType.findFirst({
@@ -184,6 +188,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         quantity,
         sortOrder: sortOrder ?? 99,
         requiresDocument,
+        requiresMemberId,
+        requiresStudentId,
+        // Collapsed here too, so the stored row can never hold an
+        // expiry requirement with no ID to expire.
+        requiresStudentIdExpiry: requiresStudentId && requiresStudentIdExpiry,
         documentRequired,
         documentLabel: documentLabel?.trim() || null,
         documentInstructions: documentInstructions?.trim() || null,

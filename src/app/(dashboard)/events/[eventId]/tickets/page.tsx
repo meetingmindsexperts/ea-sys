@@ -88,6 +88,9 @@ interface TicketType {
   requiresDocument: boolean;
   documentRequired: boolean;
   documentLabel: string | null;
+  requiresMemberId?: boolean;
+  requiresStudentId?: boolean;
+  requiresStudentIdExpiry?: boolean;
   documentInstructions: string | null;
   pricingTiers: PricingTier[];
   _count: { registrations: number };
@@ -157,6 +160,12 @@ export default function TicketsPage() {
   const [typeDocBlocks, setTypeDocBlocks] = useState(false);
   const [typeDocLabel, setTypeDocLabel] = useState("");
   const [typeDocInstructions, setTypeDocInstructions] = useState("");
+  // Identity evidence — same correction the document switches above made, one
+  // field over. Before this, a type asked for a membership number if its NAME
+  // contained "member" and a student ID if it contained "student".
+  const [typeReqMemberId, setTypeReqMemberId] = useState(false);
+  const [typeReqStudentId, setTypeReqStudentId] = useState(false);
+  const [typeReqStudentExpiry, setTypeReqStudentExpiry] = useState(false);
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
   const [editingTier, setEditingTier] = useState<PricingTier | null>(null);
@@ -197,6 +206,9 @@ export default function TicketsPage() {
     setTypeDocBlocks(!!tt.documentRequired);
     setTypeDocLabel(tt.documentLabel || "");
     setTypeDocInstructions(tt.documentInstructions || "");
+    setTypeReqMemberId(!!tt.requiresMemberId);
+    setTypeReqStudentId(!!tt.requiresStudentId);
+    setTypeReqStudentExpiry(!!tt.requiresStudentIdExpiry);
     setTypeDialogOpen(true);
   };
 
@@ -215,6 +227,11 @@ export default function TicketsPage() {
       documentRequired: typeRequiresDoc && typeDocBlocks,
       documentLabel: typeRequiresDoc ? typeDocLabel : "",
       documentInstructions: typeRequiresDoc ? typeDocInstructions : "",
+      requiresMemberId: typeReqMemberId,
+      requiresStudentId: typeReqStudentId,
+      // Never sent without the ID it belongs to — an expiry with nothing to
+      // expire is not a state the organizer can mean.
+      requiresStudentIdExpiry: typeReqStudentId && typeReqStudentExpiry,
     };
     try {
       if (editingType) {
@@ -696,6 +713,60 @@ export default function TicketsPage() {
                   A pricing tier&apos;s own approval setting overrides this when a tier is picked.
                 </p>
               </div>
+            </div>
+
+            {/* Identity evidence. Same correction as the document block
+                below, one field over: these used to be a NAME MATCH, so a type
+                called "Student" asked for a student ID and one called
+                "Resident" — the most-used type of the three, on 19 events —
+                asked for nothing at all, which nobody intended. */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="space-y-0.5">
+                <Label>Identity verification</Label>
+                <p className="text-xs text-muted-foreground">
+                  Extra ID fields on the public registration form for this type.
+                  Asked means required — unlike a document, an ID number is
+                  something the registrant knows without digging one out.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="type-requires-member-id"
+                  checked={typeReqMemberId}
+                  onCheckedChange={(checked) => setTypeReqMemberId(!!checked)}
+                />
+                <Label htmlFor="type-requires-member-id" className="cursor-pointer font-normal">
+                  Ask for a <strong>membership number</strong>
+                </Label>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="type-requires-student-id"
+                  checked={typeReqStudentId}
+                  onCheckedChange={(checked) => setTypeReqStudentId(!!checked)}
+                />
+                <Label htmlFor="type-requires-student-id" className="cursor-pointer font-normal">
+                  Ask for a <strong>student / trainee ID</strong>
+                </Label>
+              </div>
+
+              {/* Nested, because an expiry with no ID to expire is not a thing
+                  anyone means to ask for. The server collapses it the same way,
+                  so a stale checkbox can never leak into the form. */}
+              {typeReqStudentId && (
+                <div className="flex items-start gap-2 pl-6 border-l ml-1">
+                  <Checkbox
+                    id="type-requires-student-expiry"
+                    checked={typeReqStudentExpiry}
+                    onCheckedChange={(checked) => setTypeReqStudentExpiry(!!checked)}
+                  />
+                  <Label htmlFor="type-requires-student-expiry" className="cursor-pointer font-normal">
+                    ...and its <strong>expiry date</strong>
+                  </Label>
+                </div>
+              )}
             </div>
 
             {/* Supporting document. Replaces the old name-pattern guess: the

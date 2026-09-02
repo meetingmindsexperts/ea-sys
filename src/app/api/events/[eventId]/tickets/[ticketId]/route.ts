@@ -25,6 +25,9 @@ const updateTicketTypeSchema = z.object({
   // "ask but do not block" has to stay expressible. See
   // src/lib/supporting-document.ts.
   requiresDocument: z.boolean().optional(),
+  requiresMemberId: z.boolean().optional(),
+  requiresStudentId: z.boolean().optional(),
+  requiresStudentIdExpiry: z.boolean().optional(),
   documentRequired: z.boolean().optional(),
   documentLabel: z.string().max(120).optional(),
   documentInstructions: z.string().max(2000).optional(),
@@ -172,6 +175,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
         ...(data.requiresDocument !== undefined && { requiresDocument: data.requiresDocument }),
+        ...(data.requiresMemberId !== undefined && { requiresMemberId: data.requiresMemberId }),
+        ...(data.requiresStudentId !== undefined && { requiresStudentId: data.requiresStudentId }),
+        // Never store an expiry requirement without the ID it belongs
+        // to. Reads the incoming student flag when present, else the
+        // stored one, so a partial PATCH cannot create the bad pair.
+        ...(data.requiresStudentIdExpiry !== undefined && {
+          requiresStudentIdExpiry:
+            (data.requiresStudentId ?? existing.requiresStudentId) && data.requiresStudentIdExpiry,
+        }),
         ...(data.documentRequired !== undefined && { documentRequired: data.documentRequired }),
         // Empty string clears the organizer's text rather than storing "".
         ...(data.documentLabel !== undefined && { documentLabel: data.documentLabel.trim() || null }),

@@ -25,6 +25,11 @@ import {
   supportingDocumentBlocks,
   supportingDocumentLabel,
 } from "@/lib/supporting-document";
+import {
+  readIdentityEvidencePolicy,
+  missingIdentityEvidence,
+  hasInvalidExpiryDate,
+} from "@/lib/identity-evidence";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -348,27 +353,39 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Derive registrationType from the selected ticket type name
     const registrationType = ticketType.name;
-    const regTypeLower = registrationType.toLowerCase();
 
-    // Validate conditional required fields
-    if (regTypeLower.includes("member") && !memberId?.trim()) {
-      apiLogger.warn({ msg: "Member registration missing memberId", email, registrationType });
-      return NextResponse.json({ error: "Member ID is required for member registration" }, { status: 400 });
+    // Identity evidence is a per-type SWITCH now, not a guess at the type's
+    // name. The name match this replaced was invisible (renaming a type turned
+    // verification off silently), accidental ("Trainee / Student" matched on
+    // the slash) and incomplete ("Resident" matched neither pattern, on 19
+    // events, so it asked for nothing at all).
+    const evidencePolicy = readIdentityEvidencePolicy(ticketType);
+    const missingEvidence = missingIdentityEvidence(evidencePolicy, {
+      memberId,
+      studentId,
+      studentIdExpiry,
+    });
+    if (missingEvidence.length > 0) {
+      apiLogger.warn({
+        msg: "public/register:identity-evidence-missing",
+        email,
+        registrationType,
+        missing: missingEvidence,
+      });
+      return NextResponse.json(
+        {
+          error: `${missingEvidence.join(" and ")} ${missingEvidence.length > 1 ? "are" : "is"} required for this registration type`,
+          code: "IDENTITY_EVIDENCE_REQUIRED",
+          missing: missingEvidence,
+        },
+        { status: 400 },
+      );
     }
-    if (regTypeLower.includes("student")) {
-      if (!studentId?.trim()) {
-        apiLogger.warn({ msg: "Student registration missing studentId", email, registrationType });
-        return NextResponse.json({ error: "Student ID is required for student registration" }, { status: 400 });
-      }
-      if (!studentIdExpiry?.trim()) {
-        apiLogger.warn({ msg: "Student registration missing studentIdExpiry", email, registrationType });
-        return NextResponse.json({ error: "Student ID expiry date is required for student registration" }, { status: 400 });
-      }
-      // Validate date format
-      if (isNaN(new Date(studentIdExpiry).getTime())) {
-        apiLogger.warn({ msg: "Invalid studentIdExpiry date", email, studentIdExpiry });
-        return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
-      }
+    // A different failure from "you left it blank", and naming the wrong one
+    // sends the registrant looking in the wrong place.
+    if (hasInvalidExpiryDate({ studentIdExpiry })) {
+      apiLogger.warn({ msg: "public/register:invalid-expiry-date", email, studentIdExpiry });
+      return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
     }
 
     // Supporting document. Whether one is asked for is a property of the

@@ -44,6 +44,7 @@ import {
   supportingDocumentLabel,
   supportingDocumentInstructions,
 } from "@/lib/supporting-document";
+import { readIdentityEvidencePolicy, missingIdentityEvidence } from "@/lib/identity-evidence";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
@@ -91,6 +92,11 @@ interface TicketType {
   documentRequired?: boolean;
   documentLabel?: string | null;
   documentInstructions?: string | null;
+  // Identity-evidence policy — same reasoning as the document block above:
+  // read off the picked TYPE, never guessed from its name.
+  requiresMemberId?: boolean;
+  requiresStudentId?: boolean;
+  requiresStudentIdExpiry?: boolean;
   pricingTiers?: PricingTierData[];
 }
 
@@ -152,6 +158,10 @@ interface RegTypeOption {
   documentRequired: boolean;
   documentLabel: string | null;
   documentInstructions: string | null;
+  /** Identity-evidence policy, carried from the ticket type. */
+  requiresMemberId: boolean;
+  requiresStudentId: boolean;
+  requiresStudentIdExpiry: boolean;
 }
 
 const registrationSchema = z.object({
@@ -305,6 +315,9 @@ function CategoryRegistrationContent() {
                 documentRequired: tt.documentRequired === true,
                 documentLabel: tt.documentLabel ?? null,
                 documentInstructions: tt.documentInstructions ?? null,
+                requiresMemberId: tt.requiresMemberId === true,
+                requiresStudentId: tt.requiresStudentId === true,
+                requiresStudentIdExpiry: tt.requiresStudentIdExpiry === true,
               });
             }
           }
@@ -357,6 +370,9 @@ function CategoryRegistrationContent() {
               documentRequired: t.documentRequired === true,
               documentLabel: t.documentLabel ?? null,
               documentInstructions: t.documentInstructions ?? null,
+              requiresMemberId: t.requiresMemberId === true,
+              requiresStudentId: t.requiresStudentId === true,
+              requiresStudentIdExpiry: t.requiresStudentIdExpiry === true,
             }));
 
           setRegTypeOptions(options);
@@ -421,21 +437,26 @@ function CategoryRegistrationContent() {
   }
 
   async function onSubmit(data: RegistrationForm) {
-    // Validate conditional required fields based on registration type
-    const selectedName = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId)?.regTypeName?.toLowerCase() ?? "";
-    if (selectedName.includes("member") && !data.memberId?.trim()) {
-      form.setError("memberId", { message: "Member ID is required" });
-      return;
-    }
-    if (selectedName.includes("student")) {
-      if (!data.studentId?.trim()) {
-        form.setError("studentId", { message: "Student ID is required" });
-        return;
-      }
-      if (!data.studentIdExpiry?.trim()) {
+    // Identity evidence: the SELECTED TYPE's own switches, checked with the
+    // same helper the server enforces with, so the form cannot ask for
+    // something the route ignores or the reverse.
+    const submitEvidencePolicy = readIdentityEvidencePolicy(
+      regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId),
+    );
+    const missingEvidence = missingIdentityEvidence(submitEvidencePolicy, {
+      memberId: data.memberId,
+      studentId: data.studentId,
+      studentIdExpiry: data.studentIdExpiry,
+    });
+    if (missingEvidence.length > 0) {
+      // On the FIELD, not a form-level banner, so the page takes the
+      // registrant to the box they have to fill.
+      if (missingEvidence.includes("Member ID")) form.setError("memberId", { message: "Member ID is required" });
+      if (missingEvidence.includes("Student ID")) form.setError("studentId", { message: "Student ID is required" });
+      if (missingEvidence.includes("Student ID expiry date")) {
         form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
-        return;
       }
+      return;
     }
 
     // The upload appears whenever the type asks for one; whether a MISSING
@@ -607,9 +628,12 @@ function CategoryRegistrationContent() {
   const selectedTicketId = form.watch("ticketTypeId");
   const selectedSpecialty = form.watch("specialty");
   const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
-  const selectedRegTypeName = selectedOption?.regTypeName?.toLowerCase() ?? "";
-  const isMember = selectedRegTypeName.includes("member");
-  const isStudent = selectedRegTypeName.includes("student");
+  // Which evidence fields to render, from the type's switches rather than its
+  // name — the same correction the supporting-document block below made.
+  const evidencePolicy = readIdentityEvidencePolicy(selectedOption);
+  const isMember = evidencePolicy.requiresMemberId;
+  const isStudent = evidencePolicy.requiresStudentId;
+  const showStudentExpiry = evidencePolicy.requiresStudentIdExpiry;
   // Read off the SELECTED TYPE's own policy. This used to match the type's
   // NAME against /resident|trainee/i, which meant renaming a type silently
   // switched the requirement off, and made "ask Members but not Residents"
@@ -1371,14 +1395,19 @@ function CategoryRegistrationContent() {
                               <FormMessage />
                             </FormItem>
                           )} />
-                        <FormField control={form.control} name="studentIdExpiry"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
+                        {/* Its own switch: an organizer can ask for the ID
+                            without demanding an expiry date, which the name
+                            match could never express. */}
+                        {showStudentExpiry && (
+                          <FormField control={form.control} name="studentIdExpiry"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
+                                <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                        )}
                       </div>
                     </div>
                   )}

@@ -410,6 +410,8 @@ const CLONED_TICKET_FIELDS = [
   "salesStart", "salesEnd", "requiresApproval",
   // Supporting-document policy (Aug 13, 2026).
   "requiresDocument", "documentRequired", "documentLabel", "documentInstructions",
+  // Identity-evidence policy (Sept 2, 2026).
+  "requiresMemberId", "requiresStudentId", "requiresStudentIdExpiry",
 ];
 
 describe("ticket-type clone completeness", () => {
@@ -438,6 +440,16 @@ describe("ticket-type clone completeness", () => {
     // for free, because the requirement lived in the NAME and clone copies
     // names. Making the policy a column is what broke it.
     for (const f of ["requiresDocument", "documentRequired", "documentLabel", "documentInstructions"]) {
+      expect(CLONED_TICKET_FIELDS).toContain(f);
+    }
+  });
+
+  it("carries the identity-evidence policy across a clone", () => {
+    // Exactly the same trap as the document policy above, and for exactly the
+    // same reason: the name match it replaced survived a clone for free
+    // because the rule lived in the NAME. A cloned "Student" rate that quietly
+    // stopped asking for a student ID would look completely normal.
+    for (const f of ["requiresMemberId", "requiresStudentId", "requiresStudentIdExpiry"]) {
       expect(CLONED_TICKET_FIELDS).toContain(f);
     }
   });

@@ -183,6 +183,13 @@ export async function POST(
               documentRequired: tt.documentRequired,
               documentLabel: tt.documentLabel,
               documentInstructions: tt.documentInstructions,
+              // Identity evidence (Sept 2, 2026) — same reasoning, same trap.
+              // The name match this replaced survived a clone for free because
+              // the rule lived in the NAME; a column does not, so a cloned
+              // "Student" rate would quietly stop verifying anyone.
+              requiresMemberId: tt.requiresMemberId,
+              requiresStudentId: tt.requiresStudentId,
+              requiresStudentIdExpiry: tt.requiresStudentIdExpiry,
               pricingTiers: {
                 create: tt.pricingTiers.map((tier) => ({
                   organizationId: event.organizationId,

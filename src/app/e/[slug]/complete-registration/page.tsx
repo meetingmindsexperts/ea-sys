@@ -28,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { readIdentityEvidencePolicy, missingIdentityEvidence } from "@/lib/identity-evidence";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -79,7 +80,17 @@ interface PrefilledData {
   // from a file with no registrationType column). Reading `.name` off this
   // unguarded used to throw during render — a white screen for the registrant,
   // with no way to complete.
-  ticketType: { id: string; name: string } | null;
+  ticketType:
+    | {
+        id: string;
+        name: string;
+        // Identity-evidence switches, so the form asks for exactly what the
+        // route enforces.
+        requiresMemberId?: boolean;
+        requiresStudentId?: boolean;
+        requiresStudentIdExpiry?: boolean;
+      }
+    | null;
   /** Populated only when `ticketType` is null — the types this person may
    *  choose from, priced at whichever tier is on sale today. Display only:
    *  the server re-resolves the price on submit. */
@@ -91,6 +102,9 @@ interface PrefilledData {
     currency: string;
     tierName: string | null;
     available: boolean;
+    requiresMemberId?: boolean;
+    requiresStudentId?: boolean;
+    requiresStudentIdExpiry?: boolean;
   }[];
 }
 
@@ -217,25 +231,26 @@ function CompleteRegistrationContent() {
       return;
     }
 
-    // Validate conditional required fields. When the type is being chosen now,
-    // the member/student rules follow the CHOSEN type, not the stored one.
+    // Identity evidence, from the type's SWITCHES. When the type is being
+    // chosen now, the rules follow the CHOSEN type, not the stored one. Same
+    // helper the route enforces with — and the route enforces it as of today;
+    // this check used to be the only one anywhere.
     const chosenType = formData.ticketTypeId
       ? data?.selectableTicketTypes?.find((t) => t.id === formData.ticketTypeId)
       : undefined;
-    const regTypeName = (chosenType?.name ?? data?.ticketType?.name ?? "").toLowerCase();
-    if (regTypeName.includes("member") && !formData.memberId?.trim()) {
-      form.setError("memberId", { message: "Member ID is required" });
-      return;
-    }
-    if (regTypeName.includes("student")) {
-      if (!formData.studentId?.trim()) {
-        form.setError("studentId", { message: "Student ID is required" });
-        return;
-      }
-      if (!formData.studentIdExpiry?.trim()) {
+    const submitEvidencePolicy = readIdentityEvidencePolicy(chosenType ?? data?.ticketType);
+    const missingEvidence = missingIdentityEvidence(submitEvidencePolicy, {
+      memberId: formData.memberId,
+      studentId: formData.studentId,
+      studentIdExpiry: formData.studentIdExpiry,
+    });
+    if (missingEvidence.length > 0) {
+      if (missingEvidence.includes("Member ID")) form.setError("memberId", { message: "Member ID is required" });
+      if (missingEvidence.includes("Student ID")) form.setError("studentId", { message: "Student ID is required" });
+      if (missingEvidence.includes("Student ID expiry date")) {
         form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
-        return;
       }
+      return;
     }
 
     setSubmitting(true);
@@ -305,9 +320,10 @@ function CompleteRegistrationContent() {
   const mustChooseType = !data.ticketType;
   const chosenTypeId = form.watch("ticketTypeId");
   const chosenType = selectableTypes.find((t) => t.id === chosenTypeId);
-  const regTypeName = (chosenType?.name ?? data.ticketType?.name ?? "").toLowerCase();
-  const isMember = regTypeName.includes("member");
-  const isStudent = regTypeName.includes("student");
+  const evidencePolicy = readIdentityEvidencePolicy(chosenType ?? data.ticketType);
+  const isMember = evidencePolicy.requiresMemberId;
+  const isStudent = evidencePolicy.requiresStudentId;
+  const showStudentExpiry = evidencePolicy.requiresStudentIdExpiry;
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
@@ -599,14 +615,18 @@ function CompleteRegistrationContent() {
                             <FormMessage />
                           </FormItem>
                         )} />
-                      <FormField control={form.control} name="studentIdExpiry"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                      {/* Its own switch — an organizer can ask for the ID
+                          without demanding an expiry date. */}
+                      {showStudentExpiry && (
+                        <FormField control={form.control} name="studentIdExpiry"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
+                              <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      )}
                     </div>
                   </div>
                 )}

@@ -14,6 +14,11 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
+import {
+  readIdentityEvidencePolicy,
+  missingIdentityEvidence,
+  IDENTITY_EVIDENCE_SELECT,
+} from "@/lib/identity-evidence";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -57,6 +62,7 @@ interface SelectableTicketType {
 
 /** Prisma select for a type + the tier fields `pickCurrentPricingTier` needs. */
 const SELECTABLE_TICKET_TYPE_SELECT = {
+  ...IDENTITY_EVIDENCE_SELECT,
   id: true,
   name: true,
   description: true,
@@ -95,6 +101,11 @@ async function loadSelectableTicketTypes(eventId: string): Promise<SelectableTic
       currency: tier?.currency ?? tt.currency,
       tierName: tier?.name ?? null,
       available: tt.soldCount < tt.quantity,
+      // The form renders its evidence fields from these, and the POST enforces
+      // the same switches — one rule, both ends.
+      requiresMemberId: tt.requiresMemberId,
+      requiresStudentId: tt.requiresStudentId,
+      requiresStudentIdExpiry: tt.requiresStudentIdExpiry,
     };
   });
 }
@@ -156,7 +167,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: true,
         userId: true,
         ticketTypeId: true,
-        ticketType: { select: { id: true, name: true } },
+        ticketType: { select: { id: true, name: true, ...IDENTITY_EVIDENCE_SELECT } },
         attendee: {
           select: {
             firstName: true,
@@ -401,7 +412,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // (CSV paymentStatus column / admin detail sheet — PAID, INCLUSIVE, …)
         // must survive completion; only the typeless default is recomputed.
         paymentStatus: true,
-        ticketType: { select: { id: true, name: true, price: true, currency: true } },
+        ticketType: { select: { id: true, name: true, price: true, currency: true, ...IDENTITY_EVIDENCE_SELECT } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
     });
@@ -434,6 +445,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       | { id: string; name: string; price: unknown; currency: string; quantity: number; requiresApproval: boolean }
       | null = null;
     let resolvedTier: { id: string; name: string; price: unknown; currency: string } | null = null;
+    /** The just-self-selected type, kept in scope for the evidence check below. */
+    let evidenceCandidate: {
+      id: string;
+      requiresMemberId: boolean;
+      requiresStudentId: boolean;
+      requiresStudentIdExpiry: boolean;
+    } | null = null;
 
     if (!registration.ticketTypeId) {
       if (!chosenTicketTypeId) {
@@ -456,10 +474,42 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
+      evidenceCandidate = chosen;
       const tier = pickCurrentPricingTier(chosen.pricingTiers, new Date());
       resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity, requiresApproval: chosen.requiresApproval };
       resolvedTier = tier ? { id: tier.id, name: tier.name, price: tier.price, currency: tier.currency } : null;
     }
+    // Identity evidence, enforced SERVER-side. Until now the completion form
+    // required these fields in the browser and this route only checked that a
+    // supplied expiry parsed — so the requirement was one crafted request away
+    // from being skipped entirely. The policy comes from whichever type
+    // applies: the one already on the row, or the one just self-selected.
+    const evidenceTicketType = registration.ticketTypeId
+      ? registration.ticketType
+      : evidenceCandidate;
+    const evidencePolicy = readIdentityEvidencePolicy(evidenceTicketType);
+    const missingEvidence = missingIdentityEvidence(evidencePolicy, {
+      memberId,
+      studentId,
+      studentIdExpiry,
+    });
+    if (missingEvidence.length > 0) {
+      apiLogger.warn({
+        msg: "complete-registration:identity-evidence-missing",
+        registrationId,
+        ticketTypeId: evidenceTicketType?.id ?? null,
+        missing: missingEvidence,
+      });
+      return NextResponse.json(
+        {
+          error: `${missingEvidence.join(" and ")} ${missingEvidence.length > 1 ? "are" : "is"} required for this registration type`,
+          code: "IDENTITY_EVIDENCE_REQUIRED",
+          missing: missingEvidence,
+        },
+        { status: 400 },
+      );
+    }
+
     const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
     // Self-selecting a type that requires approval puts the row into the
     // organizer's approval queue — public-register semantics, because at

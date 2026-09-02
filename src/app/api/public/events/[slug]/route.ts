@@ -117,6 +117,11 @@ export async function GET(req: Request, { params }: RouteParams) {
             // THESE, per type, instead of matching the type's name.
             requiresDocument: true,
             documentRequired: true,
+            // Per-type identity-evidence switches, so the form asks for exactly
+            // what the server will enforce — one rule, both ends.
+            requiresMemberId: true,
+            requiresStudentId: true,
+            requiresStudentIdExpiry: true,
             documentLabel: true,
             documentInstructions: true,
             // New pricing tiers

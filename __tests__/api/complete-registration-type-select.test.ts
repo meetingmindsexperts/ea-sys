@@ -326,3 +326,94 @@ describe("already-typed registrations are untouched by the type machinery", () =
     expect((await res.json()).registration).toMatchObject({ ticketPrice: 50 });
   });
 });
+
+/**
+ * Identity evidence, enforced SERVER-side (Sept 2, 2026).
+ *
+ * Until now this route validated only that a SUPPLIED expiry parsed as a date.
+ * The requirement itself lived in the browser, which means it was one crafted
+ * request away from being skipped entirely — and the completion link is public,
+ * token-gated, and handed to people by email.
+ *
+ * The switches also replace a NAME MATCH. The tests that matter are the two
+ * that state what the name match got wrong: a type CALLED "Student" with the
+ * switch off must not demand anything, and a type called anything at all with
+ * the switch on must.
+ */
+describe("completion — identity evidence", () => {
+  const asks = (o: Record<string, unknown> = {}) =>
+    makeChosenType({
+      requiresMemberId: false,
+      requiresStudentId: true,
+      requiresStudentIdExpiry: true,
+      ...o,
+    });
+
+  it("refuses when the chosen type asks for a student ID and none was given", async () => {
+    mockTtFindFirst.mockResolvedValue(asks());
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: "IDENTITY_EVIDENCE_REQUIRED",
+      missing: ["Student ID", "Student ID expiry date"],
+    });
+    // Refused BEFORE the write, so no seat is claimed and no type is set.
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it("proceeds once the asked-for values are supplied", async () => {
+    mockTtFindFirst.mockResolvedValue(asks());
+    const res = await POST(
+      makeRequest(makeBody({ ticketTypeId: "tt-1", studentId: "STU-1", studentIdExpiry: "2028-01-31" })),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+    expect(mockTransaction).toHaveBeenCalled();
+  });
+
+  it("a type NAMED Student with the switch off demands nothing", async () => {
+    // The regression that proves the name match is gone. Before this, the name
+    // alone made these fields mandatory; now only the switch does.
+    mockTtFindFirst.mockResolvedValue(
+      makeChosenType({ name: "Student", requiresStudentId: false, requiresMemberId: false }),
+    );
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(200);
+  });
+
+  it("a type named Resident CAN now ask — the old patterns never matched it", async () => {
+    // "Resident" is the most-registered type in this family, on 19 events, and
+    // matched neither /member/ nor /student/, so it asked for nothing at all.
+    mockTtFindFirst.mockResolvedValue(asks({ name: "Resident" }));
+    const res = await POST(makeRequest(makeBody({ ticketTypeId: "tt-1" })), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "IDENTITY_EVIDENCE_REQUIRED" });
+  });
+
+  it("does not demand the expiry when only the ID is switched on", async () => {
+    mockTtFindFirst.mockResolvedValue(asks({ requiresStudentIdExpiry: false }));
+    const res = await POST(
+      makeRequest(makeBody({ ticketTypeId: "tt-1", studentId: "STU-1" })),
+      makeParams(),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("reads the policy off the STORED type when the registration already has one", async () => {
+    // The other branch: nothing is being chosen, so the rule has to come from
+    // the type already on the row.
+    mockRegFindFirst.mockResolvedValue(
+      makeRegistration({
+        ticketTypeId: "tt-9",
+        ticketType: {
+          id: "tt-9", name: "Anything", price: "100", currency: "USD",
+          requiresMemberId: true, requiresStudentId: false, requiresStudentIdExpiry: false,
+        },
+      }),
+    );
+    const res = await POST(makeRequest(makeBody()), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ missing: ["Member ID"] });
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+});

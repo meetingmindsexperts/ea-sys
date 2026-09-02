@@ -748,13 +748,19 @@ export default function EventMyRegistrationPage() {
                             <div className="space-y-1"><Label className="text-xs">Role</Label><RoleSelect value={editData.role || ""} onChange={(v) => setEditData({ ...editData, role: v })} /></div>
                           </div>
                           <div className="space-y-1"><Label className="text-xs">Dietary Requirements</Label><Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} /></div>
-                          {reg.ticketType?.name?.toLowerCase().includes("member") && (
+                          {(editData.associationName || editData.memberId) && (
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1"><Label className="text-xs">Association Name</Label><Input value={editData.associationName || ""} onChange={(e) => setEditData({ ...editData, associationName: e.target.value })} placeholder="e.g. AMA" /></div>
                               <div className="space-y-1"><Label className="text-xs">Member ID</Label><Input value={editData.memberId || ""} onChange={(e) => setEditData({ ...editData, memberId: e.target.value })} placeholder="e.g. MEM-12345" /></div>
                             </div>
                           )}
-                          {reg.ticketType?.name?.toLowerCase().includes("student") && (
+                          {/* Show it when the person HAS one, rather than
+                              re-deriving the policy here. The old name match
+                              meant a "Resident" registrant whose organizer
+                              collected a student ID could never see or edit
+                              it on their own portal — the value existed and
+                              the row simply never rendered. */}
+                          {(editData.studentId || editData.studentIdExpiry) && (
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1"><Label className="text-xs">Student ID</Label><Input value={editData.studentId || ""} onChange={(e) => setEditData({ ...editData, studentId: e.target.value })} placeholder="e.g. STU-2024-001" /></div>
                               <div className="space-y-1"><Label className="text-xs">Student ID Expiry</Label><Input type="date" value={editData.studentIdExpiry || ""} onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })} /></div>
