@@ -22,7 +22,11 @@ database, different URLs. Your MMG `npm run dev` on `localhost:3113` is unchange
   **same slug** (`annual-summit`), so `acme.localhost/e/annual-summit` and
   `globex.localhost/e/annual-summit` each serve their own org's event.
 - Seed data per org: an admin, a Contact, and a Speaker (swept tables — you see
-  them isolated immediately).
+  them isolated immediately), plus **HR fixtures**: the full leave-code
+  catalogue, two employees, a month of attendance, a standing rule and two
+  public holidays. Both orgs deliberately hold an employee `E-001` and a
+  holiday on the same date, so each host must show its OWN row for the
+  same key.
 
 | | Your MMG dev (unchanged) | Sandbox |
 |---|---|---|
@@ -99,6 +103,20 @@ npm run dev:sandbox      # acme.localhost:3114 + globex.localhost:3114 + platfor
 1. Open `http://acme.localhost:3114`, log in as `admin@acme.test` / `sandbox123`.
 2. Go to Contacts → you see **only** *Acme Contact*. Open the event → Speakers → only *Acme Speaker*. Create an event / add a contact — it's stamped to Acme.
 3. Log out, open `http://globex.localhost:3114`, log in as `admin@globex.test` → you see **only** Globex's data. Acme's is invisible, at the database level.
+
+**HR isolation (added Sep 2 2026, and the reason matters):**
+1. On `acme.localhost:3114`, open **HR → Attendance**. You see Acme's `E-001`
+   and its entries for the current month.
+2. Same page on `globex.localhost:3114` shows Globex's `E-001`, a different
+   person with different entries. Same employee code, resolved per host.
+3. **HR → Holidays** shows each org's own label on the shared date.
+
+Worth doing by hand rather than trusting the harness. HR shipped six days after
+the last sandbox rehearsal, so until now no HR query had ever run against a
+database with policies on it. Under RLS a missing lane is not an error, it is an
+empty grid and a green build, and only opening the screen finds it. Sign in as
+`admin@acme.test` (granted via `User.hrAccess`) or `super@sandbox.test`
+(sufficient by role) to exercise both arms of `canViewHr`.
 
 **Public host routing (the resolver + shared slug):**
 - `http://acme.localhost:3114/e/annual-summit` → Acme's event.

@@ -17,6 +17,9 @@
  */
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+// The REAL catalogue the HR module seeds a live org with. Imported rather
+// than retyped so the sandbox cannot drift from what an actual tenant gets.
+import { HR_LEAVE_CODE_SEED } from "../src/hr/lib/hr-seed-data";
 
 const OWNER_URL =
   process.env.SANDBOX_OWNER_URL || "postgresql://postgres:postgres@localhost:55432/sandbox";
@@ -107,7 +110,12 @@ async function main() {
 
     await db.user.upsert({
       where: { email: t.adminEmail },
-      update: { organizationId: t.orgId, role: "ADMIN", passwordHash, emailVerified: new Date() },
+      // hrAccess is the per-person grant (User.hrAccess, Aug 31 2026). Seeding
+      // it here gives the sandbox BOTH arms of canViewHr: this ADMIN passes on
+      // the flag, and super@sandbox.test passes on the role. Without one of
+      // them nobody could open the HR screens at all and the fixtures below
+      // would be unreachable.
+      update: { organizationId: t.orgId, role: "ADMIN", passwordHash, emailVerified: new Date(), hrAccess: true },
       create: {
         email: t.adminEmail,
         firstName: t.name.split(" ")[0],
@@ -116,6 +124,7 @@ async function main() {
         role: "ADMIN",
         organizationId: t.orgId,
         emailVerified: new Date(),
+        hrAccess: true,
       },
     });
 
@@ -392,6 +401,125 @@ async function main() {
         email: `speaker@${t.slug}.test`,
       },
     });
+
+    // ------------------------------------------------------------------
+    // HR fixtures.
+    //
+    // Added Sep 2 2026 for the same reason the registrant block above exists,
+    // and it is worth stating plainly because it has now happened three times:
+    // the HR module shipped on Aug 27, six days AFTER the sandbox rehearsal
+    // that found the operator lockout and the portal's missing lane. So every
+    // HR query has only ever run against a database with no policies on it.
+    //
+    // Under RLS a missing lane is not an error. It is an empty grid, a summary
+    // of nobody, and a green build. Only opening the screens finds it.
+    //
+    // The values COLLIDE across tenants on purpose: the same empCode, the same
+    // holiday date, because that is what makes isolation visible rather than
+    // merely asserted: each host must show its OWN row for the same key.
+    // ------------------------------------------------------------------
+    const leaveCodes = new Map<string, string>();
+    for (const [i, c] of HR_LEAVE_CODE_SEED.entries()) {
+      const row = await db.leaveCode.upsert({
+        where: { organizationId_code: { organizationId: t.orgId, code: c.code } },
+        update: { label: c.label, dayWeight: c.dayWeight, countsAs: c.countsAs, paid: c.paid },
+        create: {
+          organizationId: t.orgId,
+          code: c.code,
+          label: c.label,
+          lawReference: c.lawReference,
+          paid: c.paid,
+          dayWeight: c.dayWeight,
+          countsAs: c.countsAs,
+          sortOrder: i,
+        },
+      });
+      leaveCodes.set(c.code, row.id);
+    }
+
+    // Same empCode in both orgs. A lane that leaks resolves the wrong person.
+    const employees = [
+      { code: "E-001", name: `${t.name.split(" ")[0]} Bakhit`, dept: "Operations", joined: "2023-04-01" },
+      { code: `E-${t.slug.slice(0, 3).toUpperCase()}`, name: "Jinan Remote", dept: "Design", joined: "2025-01-15" },
+    ];
+    const employeeIds: string[] = [];
+    for (const e of employees) {
+      const row = await db.employee.upsert({
+        where: { organizationId_empCode: { organizationId: t.orgId, empCode: e.code } },
+        update: { name: e.name, department: e.dept },
+        create: {
+          id: `sandbox-emp-${t.slug}-${e.code.toLowerCase()}`,
+          organizationId: t.orgId,
+          empCode: e.code,
+          name: e.name,
+          department: e.dept,
+          jobTitle: "Coordinator",
+          joiningDate: new Date(`${e.joined}T00:00:00Z`),
+          seedLeaveYear: 2026,
+          carryoverDays: t.slug === "acme" ? 5 : -2,
+        },
+      });
+      employeeIds.push(row.id);
+    }
+
+    // Attendance is EXCEPTION-ONLY storage: an ordinary working day has no row,
+    // so a handful of entries is a fully populated month. Seeded in the CURRENT
+    // month so the grid has something in it whenever the sandbox is opened,
+    // rather than on a fixed date that goes quiet next year.
+    const now = new Date();
+    const ym = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const marks: [string, number, string][] = [
+      ["AL", 3, employeeIds[0]],
+      ["AL", 4, employeeIds[0]],
+      ["SL-F", 10, employeeIds[0]],
+      ["WFH", 11, employeeIds[1]],
+      ["OD", 14, employeeIds[1]],
+    ];
+    for (const [code, day, employeeId] of marks) {
+      const date = new Date(`${ym}-${String(day).padStart(2, "0")}T00:00:00Z`);
+      await db.attendanceEntry.upsert({
+        where: { organizationId_employeeId_date: { organizationId: t.orgId, employeeId, date } },
+        update: { leaveCodeId: leaveCodes.get(code)! },
+        create: {
+          organizationId: t.orgId,
+          employeeId,
+          date,
+          leaveCodeId: leaveCodes.get(code)!,
+          source: "import",
+        },
+      });
+    }
+
+    // An ORG-scoped standing rule: stores no days at all, which is the whole
+    // point of the rule model, and exercises the precedence chain on the grid.
+    const ruleId = `sandbox-rule-${t.slug}`;
+    await db.attendanceRule.upsert({
+      where: { id: ruleId },
+      update: { organizationId: t.orgId },
+      create: {
+        id: ruleId,
+        organizationId: t.orgId,
+        scope: "ORG",
+        leaveCodeId: leaveCodes.get("WFH")!,
+        startDate: new Date(`${ym}-18T00:00:00Z`),
+        endDate: new Date(`${ym}-20T00:00:00Z`),
+        label: `${t.name} remote week`,
+      },
+    });
+
+    // The SAME date in both orgs with DIFFERENT labels. Each host must show its
+    // own; seeing the other tenant's label is the leak.
+    for (const h of [
+      { date: `${ym}-25`, label: t.slug === "acme" ? "Acme Founders Day" : "Globex Foundation Day" },
+      { date: "2026-12-02", label: "UAE National Day" },
+    ]) {
+      const date = new Date(`${h.date}T00:00:00Z`);
+      await db.publicHoliday.upsert({
+        where: { organizationId_date: { organizationId: t.orgId, date } },
+        update: { label: h.label },
+        create: { organizationId: t.orgId, date, label: h.label },
+      });
+    }
   }
 
   // ------------------------------------------------------------------
@@ -491,6 +619,8 @@ async function main() {
   console.log(`   ${PLATFORM_HOST}  →  operator console (sign in HERE: operator@sandbox.test / ${PASSWORD})`);
   console.log(`   Tenant SUPER_ADMIN (must be REFUSED cross-tenant): super@sandbox.test / ${PASSWORD}  (org: Acme)`);
   console.log(`   Shared public slug: /e/${SHARED_SLUG}  (serves each org's own event by host)`);
+  console.log(`   HR (npm run dev:sandbox sets HR_MODULE_ENABLED): /hr`);
+  console.log(`     both orgs hold employee E-001 and a holiday on the same date - each host must show its OWN`);
 }
 
 main()
