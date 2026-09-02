@@ -250,7 +250,7 @@
     <h2><span class="num">3</span>Cross-cutting points</h2>
     <ol class="items">
       <li><strong>Account ownership.</strong> Every vendor account (AWS, GitHub, Stripe, Supabase, GoDaddy, Sentry) currently sits under meetingmindsdubai.com addresses.</li>
-      <li><strong>Access continuity.</strong> Administrative access today is effectively single-person. The plan is to bring Vivek into infrastructure and support with training, which also puts a second person on these vendor consoles.</li>
+      <li><strong>Access continuity.</strong> Vivek has been given infrastructure access and acts as the secondary access on our systems, so administrative access is no longer single-person. A second developer for the platform is good to have as it grows.</li>
       <li><strong>Cost growth signals</strong> (none urgent): Anthropic spend (capped), storage as media and certificates accumulate (~$1–3 today, maybe $10 at double the event count), and the Mumbai server size only if concurrent traffic outgrows it.</li>
       <li><strong>What is deliberately NOT purchased:</strong> no CDN/WAF subscription (rate limiting and IP banning are done on our own server; an onboarding playbook exists if ever needed), no vendor support contracts, no monitoring SaaS (alerting is built on AWS plus email).</li>
     </ol>

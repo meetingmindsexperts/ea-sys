@@ -38,6 +38,6 @@ No new GitHub, Sentry or domain cost (one codebase, one build, two deploy target
 ## 3. Cross-cutting points
 
 1. **Account ownership.** Every vendor account (AWS, GitHub, Stripe, Supabase, GoDaddy, Sentry) currently sits under `meetingmindsdubai.com` addresses.
-2. **Access continuity.** Administrative access today is effectively single-person. The plan is to bring Vivek into infrastructure and support with training, which also puts a second person on these vendor consoles.
+2. **Access continuity.** Vivek has been given infrastructure access and acts as the secondary access on our systems, so administrative access is no longer single-person. A second developer for the platform is good to have as it grows.
 3. **Cost growth signals** (none urgent): Anthropic spend (capped), S3 storage as media/certificates accumulate (~$1–3 today, maybe $10 at double the event count), and the Mumbai server size only if concurrent traffic outgrows it.
 4. **What is deliberately NOT purchased:** no CDN/WAF subscription (rate limiting and IP banning are done on our own server; a Cloudflare onboarding playbook exists if ever needed), no vendor support contracts, no monitoring SaaS (alerting is built on AWS + email).
