@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>EA-SYS Vendor Summary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root{
+    --ground:#f5f8f9; --surface:#ffffff; --ink:#182631; --muted:#596b76;
+    --line:#dbe4e9; --line-soft:#e8eef1;
+    --accent:#0087b8; --accent-ink:#026287; --accent-soft:#e1f2f9;
+    --good:#187a4c; --good-soft:#e1f3ea; --good-line:#bfe3d0;
+    --warn:#96570a; --warn-soft:#faefdb; --warn-line:#ecd8b3;
+    --th:#eef3f5; --row:#fafcfd;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0d1519; --surface:#141f26; --ink:#e3ecf1; --muted:#92a5b0;
+      --line:#26363f; --line-soft:#1d2b33;
+      --accent:#3dbde3; --accent-ink:#84d3ee; --accent-soft:#0e2f3d;
+      --good:#4dc98c; --good-soft:#11311f; --good-line:#1e4b32;
+      --warn:#e3a355; --warn-soft:#30230e; --warn-line:#4d3a18;
+      --th:#192730; --row:#121c22;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0d1519; --surface:#141f26; --ink:#e3ecf1; --muted:#92a5b0;
+    --line:#26363f; --line-soft:#1d2b33;
+    --accent:#3dbde3; --accent-ink:#84d3ee; --accent-soft:#0e2f3d;
+    --good:#4dc98c; --good-soft:#11311f; --good-line:#1e4b32;
+    --warn:#e3a355; --warn-soft:#30230e; --warn-line:#4d3a18;
+    --th:#192730; --row:#121c22;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    background:var(--ground); color:var(--ink);
+    font-family:"Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size:16.5px; line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:980px; margin:0 auto; padding:48px 28px 80px}
+
+  .mast{border-bottom:3px solid var(--accent); padding-bottom:26px; margin-bottom:8px}
+  .eyebrow{
+    font-family:"Libre Franklin",sans-serif; font-size:11.5px; font-weight:600;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink);
+    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .eyebrow .tag{background:var(--accent-soft); border:1px solid var(--line); padding:2px 9px; border-radius:3px}
+  h1{
+    font-family:"Libre Franklin",sans-serif; font-weight:800;
+    font-size:clamp(28px,5vw,40px); line-height:1.08; letter-spacing:-.015em; text-wrap:balance;
+  }
+  h1 .thin{font-weight:400; color:var(--muted)}
+  .meta{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:14px 26px; margin:22px 0 26px; padding:16px 18px;
+    background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  }
+  .meta div{font-family:"Libre Franklin",sans-serif; font-size:13.5px; line-height:1.45}
+  .meta .k{font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:3px}
+
+  /* Headline band */
+  .headline{
+    display:grid; grid-template-columns:auto 1fr; gap:8px 28px; align-items:center;
+    background:var(--accent-soft); border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:6px; padding:18px 22px; margin-bottom:36px;
+  }
+  .headline .big{
+    font-family:"Libre Franklin",sans-serif; font-weight:800; letter-spacing:-.02em;
+    font-size:clamp(26px,4.5vw,34px); color:var(--accent-ink); white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .headline .big small{font-size:.45em; font-weight:700; letter-spacing:.02em}
+  .headline p{font-family:"Libre Franklin",sans-serif; font-size:13.5px; line-height:1.55; color:var(--ink); max-width:none}
+  @media (max-width:620px){ .headline{grid-template-columns:1fr} }
+
+  section{margin-top:40px}
+  h2{
+    font-family:"Libre Franklin",sans-serif; font-weight:700; font-size:19px;
+    letter-spacing:-.01em; display:flex; align-items:baseline; gap:12px;
+    padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:16px;
+  }
+  h2 .num{font-size:13px; font-weight:800; color:var(--accent-ink); font-variant-numeric:tabular-nums}
+  p{max-width:70ch; margin-bottom:12px}
+  strong{font-weight:600}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; font-family:"Libre Franklin",sans-serif; font-size:13.5px; line-height:1.5}
+  th{
+    background:var(--th); text-align:left; font-size:11px; font-weight:700;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+    padding:10px 13px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  td{padding:11px 13px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  tr:nth-child(even) td{background:var(--row)}
+  tr:last-child td{border-bottom:none}
+  td.vendor{font-weight:800; font-size:14px; white-space:nowrap}
+  td.cost{font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600}
+  .vtable td:nth-child(5){min-width:320px}
+  .vtable td:nth-child(2){min-width:190px}
+
+  .pill{
+    display:inline-block; font-family:"Libre Franklin",sans-serif; font-size:10.5px;
+    font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    padding:2px 8px; border-radius:99px; white-space:nowrap;
+  }
+  .pill-confirm{color:var(--warn); background:var(--warn-soft); border:1px solid var(--warn-line)}
+  .pill-save{color:var(--good); background:var(--good-soft); border:1px solid var(--good-line)}
+
+  ol.items{counter-reset:item; list-style:none; display:flex; flex-direction:column; gap:10px; margin-top:4px}
+  ol.items>li{
+    counter-increment:item; position:relative; padding:13px 16px 13px 52px;
+    background:var(--surface); border:1px solid var(--line); border-radius:6px; max-width:none;
+  }
+  ol.items>li::before{
+    content:counter(item); position:absolute; left:16px; top:14px;
+    font-family:"Libre Franklin",sans-serif; font-weight:800; font-size:13px;
+    color:var(--accent-ink); background:var(--accent-soft);
+    width:24px; height:24px; border-radius:5px;
+    display:flex; align-items:center; justify-content:center;
+    font-variant-numeric:tabular-nums;
+  }
+  ol.items>li strong{font-weight:700; font-family:"Libre Franklin",sans-serif; font-size:15px}
+  ul.checks{list-style:none; display:flex; flex-direction:column; gap:8px; margin-top:4px}
+  ul.checks>li{
+    padding:11px 16px; background:var(--surface); border:1px solid var(--line);
+    border-radius:6px; border-left:3px solid var(--warn);
+    font-family:"Libre Franklin",sans-serif; font-size:14px;
+  }
+
+  footer{
+    margin-top:56px; padding-top:16px; border-top:1px solid var(--line);
+    font-family:"Libre Franklin",sans-serif; font-size:12px; color:var(--muted);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  @media print{ body{background:#fff} .page{padding:0} }
+</style>
+
+<div class="page">
+  <header class="mast">
+    <div class="eyebrow"><span class="tag">MM Group · EA-SYS</span><span>Internal · Finance briefing</span></div>
+    <h1>Vendor summary <span class="thin">· one-pager for Muthu</span></h1>
+  </header>
+
+  <div class="meta">
+    <div><span class="k">Prepared by</span>Krishna, Development Manager</div>
+    <div><span class="k">Date</span>2 September 2026</div>
+    <div><span class="k">Audience</span>Muthu (finance)</div>
+    <div><span class="k">Figures</span>Confirmed against current bills, 2 Sep 2026</div>
+  </div>
+
+  <div class="headline">
+    <div class="big">~$380<small>/month</small></div>
+    <p><strong>Total spend</strong> (~$370–400): infrastructure is ~$170, and the Anthropic line is ~$210–220, most of which is the engineering Claude plan (development tooling) rather than in-app AI usage. Engineering time is the dominant real cost and is not in that number. <strong>Zoom ($450/month) is the company-wide account for all MM Group meetings and webinars</strong>; EA-SYS rides on it at no incremental cost, so it is listed below but not counted in the EA-SYS total. There are no vendor support contracts anywhere (deliberate at this scale). A projected addition for the multi-tenant platform is in §2: forecast only, not in today's spend.</p>
+  </div>
+
+  <section>
+    <h2><span class="num">1</span>The vendors</h2>
+    <div class="tablewrap"><table class="vtable">
+      <thead><tr><th>Vendor</th><th>What it does for us</th><th>Billing model</th><th>Est. monthly</th><th>Watch at renewal / ongoing</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="vendor">AWS</td>
+          <td>Production server (Mumbai), disaster-recovery standby and backups (Singapore), encrypted S3 document storage, email sending, logs, encryption keys</td>
+          <td>Pay-as-you-go, no renewal date</td>
+          <td class="cost">~$85–90 all-in</td>
+          <td>CPU credits on the server before big events (upgrade path ~$120/mo, only if traffic ~10x). Delete the retained unencrypted disk and snapshots from the August encryption work (small cost, open compliance item). The static IP must stay attached: it is the DNS target.</td>
+        </tr>
+        <tr>
+          <td class="vendor">Supabase</td>
+          <td>Managed PostgreSQL: the primary database (Mumbai) plus the EU marketing-contact mirror</td>
+          <td>Monthly subscription</td>
+          <td class="cost">~$75–85</td>
+          <td>Point-in-time-recovery upsell (~$25–50/mo) was evaluated and deferred; revisit only if a sub-hour recovery need appears. No Middle East region exists, which caps our UAE data-residency answer.</td>
+        </tr>
+        <tr>
+          <td class="vendor">Stripe</td>
+          <td>Card payments for registrations</td>
+          <td>Per transaction (~2.9% + $0.30), no fixed fee</td>
+          <td class="cost">$0 fixed</td>
+          <td>Nothing renews. When the multi-tenant platform launches, tenants can bring their own Stripe keys, so our account does not become a bottleneck.</td>
+        </tr>
+        <tr>
+          <td class="vendor">GitHub</td>
+          <td>Code repository plus the automated build and deploy pipeline</td>
+          <td>Covered by existing organisational subscription</td>
+          <td class="cost">$0 incremental</td>
+          <td>Build minutes (~19 per deploy) are well within quota today. Deploy credentials live in repo secrets; rotate on any personnel change.</td>
+        </tr>
+        <tr>
+          <td class="vendor">GoDaddy</td>
+          <td>Domains: meetingmindsgroup.com, meetingmindsexperts.com</td>
+          <td>Annual renewal, AED 50–60 per domain per year</td>
+          <td class="cost">~$2–3</td>
+          <td><strong>Auto-renew must stay on for both.</strong> A lapsed domain takes down the platform AND all email. DNS points directly at our server's static IP (no CDN in front), so any registrar or DNS change needs coordination with engineering.</td>
+        </tr>
+        <tr>
+          <td class="vendor">Sentry</td>
+          <td>Real-time application error tracking</td>
+          <td>Free tier</td>
+          <td class="cost">$0</td>
+          <td>Free tier has an event quota; a sustained error spike silently drops reports. Upgrade only if volume grows.</td>
+        </tr>
+        <tr>
+          <td class="vendor">Anthropic</td>
+          <td>AI features (staff help assistant, event AI agent) plus the engineering Claude plan</td>
+          <td>Subscription + usage-based API</td>
+          <td class="cost">~$210–220</td>
+          <td><strong>Now the largest line.</strong> Most of this is the engineering Claude plan (development tooling); in-app API usage remains small (~$5–20). A $300/month hard cap with a $200 alert is being set on the API side.</td>
+        </tr>
+        <tr>
+          <td class="vendor">Zoom</td>
+          <td>All MM Group meetings and webinars, including EA-SYS webinar and hybrid events</td>
+          <td>Subscription, company-wide</td>
+          <td class="cost">$450 <span class="pill pill-save">Shared</span></td>
+          <td>Serves the whole company, so not attributed to EA-SYS. Large webinars need capacity add-on licences (500 / 1,000 / 10k tiers): check before committing to a big virtual event. The EA-SYS apps in the Zoom Marketplace must never be deleted: removing one broke a live webinar in August.</td>
+        </tr>
+        <tr>
+          <td class="vendor">ipapi.co</td>
+          <td>Approximate location of staff sign-ins (security feature)</td>
+          <td>Free tier</td>
+          <td class="cost">$0</td>
+          <td>Can be switched off with one setting; no commitment.</td>
+        </tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span>Forecast: the multi-tenant platform <span style="font-weight:400;color:var(--muted);font-size:14px">(projected, NOT in today's spend)</span></h2>
+    <p style="font-family:'Libre Franklin',sans-serif;font-size:14px;max-width:none;margin-bottom:14px">When the multi-tenant platform launches it runs as a second, separate production stack: its own server and its own Supabase database (the agreed two-silo model, so a platform incident can never touch MMG's own events). Projected addition:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:40%">Item</th><th>Est. monthly</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Second production server</strong> (AWS)</td><td class="cost">~$100–150</td><td>Bigger box than today's (t3.xlarge class); cost scales with tenant count</td></tr>
+        <tr><td><strong>Second Supabase project</strong> (platform database)</td><td class="cost">~$70–90</td><td>Fresh, isolated database sized like today's; scales with tenant usage</td></tr>
+        <tr><td>Backups, email, storage increments</td><td class="cost">~$5–10</td><td>DR mirror, email sending and document storage for the new silo</td></tr>
+        <tr><td><strong>Projected addition</strong></td><td class="cost"><strong>~$175–250</strong></td><td><strong>Combined total roughly $560–630/month once the platform is live</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-family:'Libre Franklin',sans-serif;font-size:13px;color:var(--muted);max-width:none;margin-top:12px">No new GitHub, Sentry or domain cost (one codebase, one build, two deploy targets). On the platform, tenants can bring their own Stripe and AI keys, so those variable costs sit with the tenant rather than us.</p>
+  </section>
+
+  <section>
+    <h2><span class="num">3</span>Cross-cutting points</h2>
+    <ol class="items">
+      <li><strong>Account ownership.</strong> Every vendor account (AWS, GitHub, Stripe, Supabase, GoDaddy, Sentry) currently sits under meetingmindsdubai.com addresses.</li>
+      <li><strong>Access continuity.</strong> Administrative access today is effectively single-person. The plan is to bring Vivek into infrastructure and support with training, which also puts a second person on these vendor consoles.</li>
+      <li><strong>Cost growth signals</strong> (none urgent): Anthropic spend (capped), storage as media and certificates accumulate (~$1–3 today, maybe $10 at double the event count), and the Mumbai server size only if concurrent traffic outgrows it.</li>
+      <li><strong>What is deliberately NOT purchased:</strong> no CDN/WAF subscription (rate limiting and IP banning are done on our own server; an onboarding playbook exists if ever needed), no vendor support contracts, no monitoring SaaS (alerting is built on AWS plus email).</li>
+    </ol>
+  </section>
+
+
+  <footer>
+    <span>MM Group · EA-SYS · Vendor summary</span>
+    <span>Detail: docs/SUPPORT_AND_MAINTENANCE.md §8 in the EA-SYS repository</span>
+  </footer>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Q4 Compliance Readiness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root{
+    --ground:#f5f8f9; --surface:#ffffff; --ink:#182631; --muted:#596b76;
+    --line:#dbe4e9; --line-soft:#e8eef1;
+    --accent:#0087b8; --accent-ink:#026287; --accent-soft:#e1f2f9;
+    --good:#187a4c; --good-soft:#e1f3ea; --good-line:#bfe3d0;
+    --warn:#96570a; --warn-soft:#faefdb; --warn-line:#ecd8b3;
+    --dec:#6b4da5; --dec-soft:#eee9f8; --dec-line:#d8ccee;
+    --th:#eef3f5; --row:#fafcfd;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0d1519; --surface:#141f26; --ink:#e3ecf1; --muted:#92a5b0;
+      --line:#26363f; --line-soft:#1d2b33;
+      --accent:#3dbde3; --accent-ink:#84d3ee; --accent-soft:#0e2f3d;
+      --good:#4dc98c; --good-soft:#11311f; --good-line:#1e4b32;
+      --warn:#e3a355; --warn-soft:#30230e; --warn-line:#4d3a18;
+      --dec:#b49ce2; --dec-soft:#241a38; --dec-line:#3b2d58;
+      --th:#192730; --row:#121c22;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0d1519; --surface:#141f26; --ink:#e3ecf1; --muted:#92a5b0;
+    --line:#26363f; --line-soft:#1d2b33;
+    --accent:#3dbde3; --accent-ink:#84d3ee; --accent-soft:#0e2f3d;
+    --good:#4dc98c; --good-soft:#11311f; --good-line:#1e4b32;
+    --warn:#e3a355; --warn-soft:#30230e; --warn-line:#4d3a18;
+    --dec:#b49ce2; --dec-soft:#241a38; --dec-line:#3b2d58;
+    --th:#192730; --row:#121c22;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    background:var(--ground); color:var(--ink);
+    font-family:"Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size:16.5px; line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:900px; margin:0 auto; padding:48px 28px 80px}
+  .sans{font-family:"Libre Franklin","Helvetica Neue",Arial,sans-serif}
+
+  /* Masthead */
+  .mast{border-bottom:3px solid var(--accent); padding-bottom:26px; margin-bottom:8px}
+  .eyebrow{
+    font-family:"Libre Franklin",sans-serif; font-size:11.5px; font-weight:600;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink);
+    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .eyebrow .tag{
+    background:var(--accent-soft); border:1px solid var(--line);
+    padding:2px 9px; border-radius:3px;
+  }
+  h1{
+    font-family:"Libre Franklin",sans-serif; font-weight:800;
+    font-size:clamp(28px,5vw,40px); line-height:1.08; letter-spacing:-.015em;
+    text-wrap:balance;
+  }
+  h1 .thin{font-weight:400; color:var(--muted)}
+  .meta{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:14px 26px; margin:22px 0 34px; padding:16px 18px;
+    background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  }
+  .meta div{font-family:"Libre Franklin",sans-serif; font-size:13.5px; line-height:1.45}
+  .meta .k{font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:3px}
+
+  /* Sections */
+  section{margin-top:40px}
+  h2{
+    font-family:"Libre Franklin",sans-serif; font-weight:700; font-size:19px;
+    letter-spacing:-.01em; display:flex; align-items:baseline; gap:12px;
+    padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:16px;
+  }
+  h2 .num{
+    font-size:13px; font-weight:800; color:var(--accent-ink);
+    font-variant-numeric:tabular-nums;
+  }
+  p{max-width:70ch; margin-bottom:12px}
+  p:last-child{margin-bottom:0}
+  strong{font-weight:600}
+  .note{font-family:"Libre Franklin",sans-serif; font-size:13px; color:var(--muted); max-width:none}
+
+  /* Tables */
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; font-family:"Libre Franklin",sans-serif; font-size:14px; line-height:1.5}
+  th{
+    background:var(--th); text-align:left; font-size:11px; font-weight:700;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+    padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  td{padding:11px 14px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  tr:nth-child(even) td{background:var(--row)}
+  tr:last-child td{border-bottom:none}
+  td.num{font-weight:800; color:var(--accent-ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+  /* Pills */
+  .pill{
+    display:inline-block; font-family:"Libre Franklin",sans-serif; font-size:11px;
+    font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    padding:2.5px 9px; border-radius:99px; white-space:nowrap;
+  }
+  .pill-done{color:var(--good); background:var(--good-soft); border:1px solid var(--good-line)}
+  .pill-due{color:var(--warn); background:var(--warn-soft); border:1px solid var(--warn-line)}
+  .pill-dec{color:var(--dec); background:var(--dec-soft); border:1px solid var(--dec-line)}
+  td .when{display:block; color:var(--muted); font-size:12.5px; margin-top:3px}
+
+  /* Lists */
+  ol.items{counter-reset:item; list-style:none; display:flex; flex-direction:column; gap:10px; margin-top:4px}
+  ol.items>li{
+    counter-increment:item; position:relative; padding:13px 16px 13px 52px;
+    background:var(--surface); border:1px solid var(--line); border-radius:6px;
+    max-width:none;
+  }
+  ol.items>li::before{
+    content:counter(item); position:absolute; left:16px; top:14px;
+    font-family:"Libre Franklin",sans-serif; font-weight:800; font-size:13px;
+    color:var(--accent-ink); background:var(--accent-soft);
+    width:24px; height:24px; border-radius:5px;
+    display:flex; align-items:center; justify-content:center;
+    font-variant-numeric:tabular-nums;
+  }
+  ul.plain{list-style:none; display:flex; flex-direction:column; gap:8px; margin-top:4px}
+  ul.plain>li{
+    padding:11px 16px; background:var(--surface); border:1px solid var(--line);
+    border-radius:6px; border-left:3px solid var(--accent);
+  }
+  li strong{font-weight:700; font-family:"Libre Franklin",sans-serif; font-size:15px}
+  .flag{
+    display:inline-block; font-family:"Libre Franklin",sans-serif; font-size:10.5px;
+    font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--warn); background:var(--warn-soft); border:1px solid var(--warn-line);
+    padding:1.5px 8px; border-radius:99px; vertical-align:2px; margin-left:6px;
+  }
+
+  .closing{
+    margin-top:16px; padding:18px 20px; background:var(--accent-soft);
+    border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:6px;
+  }
+  footer{
+    margin-top:56px; padding-top:16px; border-top:1px solid var(--line);
+    font-family:"Libre Franklin",sans-serif; font-size:12px; color:var(--muted);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  @media print{ body{background:#fff} .page{padding:0} }
+</style>
+
+<div class="page">
+  <header class="mast">
+    <div class="eyebrow"><span class="tag">MM Group · EA-SYS</span><span>Internal</span></div>
+    <h1>Compliance readiness <span class="thin">· Q4 revisit</span></h1>
+  </header>
+
+  <div class="meta">
+    <div><span class="k">Prepared by</span>Krishna, Development Manager</div>
+    <div><span class="k">Date</span>2 September 2026</div>
+    <div><span class="k">Audience</span>Medhat</div>
+    <div><span class="k">Source of truth</span>Security &amp; privacy posture, verified against production 19–24 Aug 2026</div>
+  </div>
+
+  <section>
+    <h2><span class="num">1</span>Where we stand</h2>
+    <p>EA-SYS has a full, honest security and privacy posture document, originally built for the Emirates Health Services vendor assessment and verified against the live system in August. The engineering controls are strong: role-based access with nine roles enforced server-side, encryption at rest and in transit on every path carrying personal data, a complete audit trail, automated retention and deletion, geographically separated hourly backups with quarterly restore drills, and a rollback drilled at roughly 20 seconds.</p>
+    <p>What we lack is not controls but <strong>attestation and paperwork</strong>: no certification, no independent penetration test, no published privacy policy, and two policy-level gaps (MFA, data residency) that need a business decision rather than engineering.</p>
+  </section>
+
+  <section>
+    <h2><span class="num">2</span>Closed since August</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:72%">Item</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Server disk encryption (the last &ldquo;no&rdquo; on encryption at rest)</td><td><span class="pill pill-done">Done</span><span class="when">21 Aug, planned 8-minute window</span></td></tr>
+        <tr><td>Account-wide default disk encryption (the setting an assessor checks)</td><td><span class="pill pill-done">Done</span><span class="when">20 Aug</span></td></tr>
+        <tr><td>Database backups moved to hourly; worst-case loss under 1 hour</td><td><span class="pill pill-done">Live</span><span class="when">since end of July</span></td></tr>
+        <tr><td>Sensitive-document serving flipped to an allow-list (private by default)</td><td><span class="pill pill-done">Done</span><span class="when">19 Aug</span></td></tr>
+        <tr><td>Session revocation (a compromised account can now be signed out)</td><td><span class="pill pill-done">Done</span><span class="when">web 11 Aug · mobile 25 Aug</span></td></tr>
+        <tr><td>Visitor analytics kept in-house: no Google Analytics, no cookies, no IP retained</td><td><span class="pill pill-done">Live</span><span class="when">20 Aug</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2><span class="num">3</span>Remaining engineering items <span style="font-weight:400;color:var(--muted);font-size:14px">(cheap: configuration or days of work)</span></h2>
+    <p class="note" style="margin-bottom:12px">None of these need budget or a decision; they are scheduled inside the agreed Monday/Wednesday/Thursday maintenance windows.</p>
+    <ol class="items">
+      <li><strong>Require TLS on the database connection.</strong> One configuration value plus a redeploy. Traffic is already encrypted in practice; this makes it enforced, which is the answer that survives an audit.</li>
+      <li><strong>Delete the retained unencrypted disk and snapshots</strong> from the encryption work.<span class="flag">Now due</span><br>They were kept as the rollback; the bake period ended 28 August. Until deleted, encryption at rest is true of the live system but not of every historical copy.</li>
+      <li><strong>Move uploaded documents to encrypted object storage.</strong> Code is written, tested and deployed; what remains is creating the bucket and one setting. This is the item that specifically covers passport scans and bank details, none of which have been collected yet, so the control lands before the first sensitive document does.</li>
+      <li><strong>Settle the live-stream position.</strong> Self-hosted streaming is unencrypted; it has never carried a real audience. Either enable the encrypted variant or leave it off until needed.</li>
+      <li><strong>Automate dependency vulnerability scanning</strong> (currently run manually before releases).</li>
+      <li><strong>Update the posture document itself:</strong> (a) the HR module now holds staff sick-leave records, which is health-adjacent personal data, while the document describes the database as event data; (b) remove the stale &ldquo;no session revocation&rdquo; gap, which has been fixed since August.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2><span class="num">4</span>Remaining documentation items <span style="font-weight:400;color:var(--muted);font-size:14px">(no engineering)</span></h2>
+    <ul class="plain">
+      <li>Privacy policy and data-processing agreement template (likely to be requested by any client assessment).</li>
+      <li>Breach-notification procedure. UAE PDPL requires notification; our process is not written down.</li>
+      <li>Data-subject-request procedure with a response-time commitment.</li>
+      <li>A defined maximum retention period for uploaded documents.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="num">5</span>Decisions needed at the Q4 revisit</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th style="width:30%">Decision</th><th>Context</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><strong>Multi-factor authentication</strong> for staff accounts <span class="pill pill-dec">Decide</span></td><td>The most common hard requirement in public-sector questionnaires. An engineering task; needs prioritisation against feature work.</td></tr>
+        <tr><td class="num">2</td><td><strong>Independent penetration test</strong>, and whether to pursue certification (ISO 27001 / SOC 2) <span class="pill pill-dec">Budget</span></td><td>We have practices and documentation, not attestation. A pen test is a bounded purchase and the usual first step; certification is a programme.</td></tr>
+        <tr><td class="num">3</td><td><strong>Data residency position</strong> <span class="pill pill-dec">Decide</span></td><td>No data is in the UAE. The AWS UAE region is currently non-operational (AWS&rsquo;s own notice, multi-month recovery), Bahrain is a different country, and our database provider has no Middle East region at all. We are prepared: once the region recovers, moving uploaded documents in-country is a configuration change. Full residency would mean changing providers. Recommend deciding only when a client actually requires it.</td></tr>
+        <tr><td class="num">4</td><td><strong>Data Protection Officer</strong> <span class="pill pill-dec">Decide</span></td><td>None appointed. Decide whether one is needed at current scale or deferred.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2><span class="num">6</span>Suggested sequence for Q4</h2>
+    <div class="closing">
+      <p style="max-width:none"><strong>Cheapest first:</strong> the six engineering items in §3 (all configuration or days), then the documentation set in §4, then MFA, then the pen-test decision. Residency stays a client-driven decision, not a default project.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>MM Group · EA-SYS · Compliance readiness note</span>
+    <span>Full detail: docs/SECURITY_AND_PRIVACY_POSTURE.md in the EA-SYS repository</span>
+  </footer>
+</div>
+
+</body>
+</html>
