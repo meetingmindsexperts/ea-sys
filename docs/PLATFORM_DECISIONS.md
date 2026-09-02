@@ -4,7 +4,8 @@
 > domains — see [MULTI_TENANCY.md](MULTI_TENANCY.md) §13). What remained before the
 > future **platform** instance (the second silo hosting external tenants under RLS)
 > can launch was a list of 8 items — decisions, one infrastructure build, and one
-> ops step. This document records that round: **what is done, what the owner
+> ops step. A ninth (per-tenant email, §9) was added Sep 2, 2026. This
+> document records that round: **what is done, what the owner
 > decided, what inputs were exchanged, and what is still open** — so the
 > discussion can be revisited without re-deriving it.
 >
@@ -23,6 +24,7 @@
 | 6 | Phase-1 identity model | ✅ **BUILT** Aug 21, 2026 — per-tenant accounts, enforced by a column (§6) |
 | 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ **IMPLEMENTED** Aug 4, 2026 (§7) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
+| 9 | Per-tenant email (no fallback, onboarding gate) | ✅ **DECIDED** Sep 2, 2026 — not built (§9) |
 
 ---
 
@@ -695,6 +697,152 @@ row is a stray with 1 test event — never use it for platform config).
 
 ---
 
+## 9. Per-tenant email: ✅ DECIDED (Sep 2, 2026), NOT BUILT
+
+**Owner decisions, verbatim:**
+- *"no defaults, fail loudly, make sure email must be set as part of onboarding"*
+- *"for acme should have one aws ses account and globex has one ses account
+  then? by the way we manage that. we pay for it."*
+
+**The decision, in four parts:**
+
+1. **No tenant-mail fallback.** A tenant with no email configured cannot send.
+   There is no shared platform sender that tenant mail falls through to.
+2. **Email configuration is an onboarding gate.** A tenant cannot publish an
+   event or invite a user until a real test send has round-tripped. This is
+   what makes part 1 safe: it makes "live tenant with no sender" unreachable
+   rather than merely loud.
+3. **Two senders, structurally separate.** Platform-operational mail (the
+   tenant invitation, billing, the "your email is broken" alert) uses a
+   platform identity. Tenant mail uses the tenant's own. They never mix.
+4. **One AWS account per tenant, under AWS Organizations, MMG-created and
+   MMG-paid.** Acme gets an account, Globex gets an account, billing
+   consolidates to MMG.
+
+### Why account-per-tenant, and why the platform's own account got simpler
+
+SES sending quota and complaint-rate enforcement are **account-level**.
+Configuration sets and dedicated IPs do not isolate them, because AWS can
+suspend an entire account over complaint rates regardless of how it is
+partitioned inside. A separate account is the only mechanism that genuinely
+stops Acme's list quality from reaching Globex.
+
+**The no-fallback rule then simplified the platform's own account.** The
+recommendation here started as a separate AWS account for the platform silo,
+on the grounds that tenants sharing a default sender would share reputation
+with MMG's own conference mail. With no tenant mail flowing through platform
+SES at all, there is nothing left to isolate: the platform identity carries
+only operational mail, which is platform-authored, low volume, and goes to
+people who have just signed up. So **platform-operational email is a new
+identity in the existing account**, not a new account. A new account would
+also have started in the SES sandbox and needed its own production-access
+request for no benefit.
+
+### Why email cannot follow the Stripe rule exactly
+
+Item 7 settled that platform has **no** Stripe fallback: an unconfigured
+tenant simply cannot take payments, which is contained. Email differs in one
+way that matters. An unconfigured tenant cannot send password resets or
+verification links, so its users have no route back into their own accounts.
+That is why part 2 exists. **The gate is the protection; the send-time refusal
+is only the backstop.**
+
+### The mechanism, and a correction found while writing this
+
+The refusal cannot key on the env sender being absent, because platform still
+needs `EMAIL_FROM` set for its own operational mail.
+
+The first proposal was to key it on the **ambient tenant lane**
+(`getTenantOrgId()` non-null means tenant mail), reasoning that `logEmail`
+already resolves org in exactly that order and operational sends run outside
+any lane. **Reading `src/lib/tenant-context.ts` before writing it down showed
+that would have broken master.** `runWithTenant` populates the
+AsyncLocalStorage store unconditionally; `RLS_SET_LOCAL` only controls whether
+the Prisma extension issues `SET LOCAL`. So on master every swept route
+already carries MMG's org in the lane, none of them have `settings.email`, and
+the refusal would have stopped all production email on deploy.
+
+**Use the mechanism Stripe already proved, not a new flag.** The fix for that
+was going to be a boolean `REQUIRE_TENANT_EMAIL_CONFIG` set only on platform.
+`src/lib/stripe.ts` had already solved the identical problem better on Aug 24,
+2026: the env key is an **allow-list of one**. Only the org named by
+`STRIPE_ENV_FALLBACK_ORG_ID` may use the shared key, and every other org with no
+key of its own is refused. Email mirrors it as `EMAIL_ENV_FALLBACK_ORG_ID`:
+
+- **Master** names MM Group, so MMG resolves the env sender and behaves
+  byte-identically to today's singleton. The stray second "Meeting Minds" org
+  row noted in §8 is then refused rather than silently sending as MMG.
+- **Platform** leaves it unset, so no tenant can ever send as the operator. The
+  platform's own operational mail is not lane-bound, so it keeps using
+  `EMAIL_FROM` untouched.
+
+That file also records why the boolean would have been worse. It warns against
+overloading a tenancy flag, because "a tenancy flag toggled for a test changes
+where money lands". The same argument applies to where mail appears to come
+from.
+
+Copy the two safety rails with it: the boot-time check in
+`src/instrumentation.ts` that errors when a key exists with no org allowed to
+use it, and the **master deploy order**, meaning set `EMAIL_ENV_FALLBACK_ORG_ID`
+before deploying or MMG's sends refuse.
+
+### Operational facts to plan onboarding around
+
+- **Every new AWS account starts in the SES sandbox**: 200 emails a day, only
+  to addresses already verified. Leaving it needs a production-access request
+  that a human at AWS reviews, usually about a day, occasionally longer, and it
+  can be refused. Raise it when the account is created, not when the tenant
+  needs to send.
+- **DNS is the tenant's and cannot be delegated.** Mail from
+  `noreply@acme.com` requires records on acme.com, which at a hospital or a
+  pharma company can take weeks. Offer both: their own domain, or a subdomain
+  we control such as `acme.mail.<platform-domain>`, which works the same day
+  and reads as less theirs. Starting on ours and migrating later is a
+  reasonable default.
+- **Cost is time, not money.** SES is roughly $0.10 per 1,000 emails, so a
+  tenant sending 50,000 a month costs about five dollars. The real cost is
+  about an hour of setup per tenant plus the two waits. Comfortable to roughly
+  twenty tenants; past that, script account creation and the IAM key, since the
+  AWS approval and the DNS are the only parts that cannot be automated.
+
+### Blast radius when this is built
+
+- `getSesClient()` ([email.ts:276](../src/lib/email.ts)) is a module singleton
+  with no org parameter. It becomes `getEmailProvider(orgId)` with an org-keyed
+  bounded TTL cache, the same shape as `getStripe(orgId)`.
+- The fallback expression `params.from?.email || DEFAULT_FROM_EMAIL` appears at
+  email.ts lines 141, 193, 232 and 379, once per provider path. Each is a
+  refusal point under the flag.
+- `DEFAULT_FROM_EMAIL` falls back to a **hardcoded personal address**
+  (email.ts:32). That must not resolve on the platform silo.
+- `emailFromAddress` is validated as a well-formed address and nothing more.
+  `brandingFrom()` (email.ts:3581) hands it straight to `SendEmailCommand`, and
+  nothing anywhere checks it is a verified SES identity. **Precedent:** the
+  Aug 6, 2026 group-registration coordinator email fell through to an
+  unverified sender and SES rejected it after the registration had already
+  committed.
+- **36 files call `sendEmail`**, many fire-and-forget by contract, because a
+  failed confirmation must never roll back a committed registration. A
+  send-time throw therefore produces silent non-delivery plus log noise, which
+  is exactly why the gate belongs at configuration time.
+- Storage follows item 7 exactly:
+  `settings.email = { provider, apiKeyEncrypted, fromAddress, fromName, verifiedAt }`,
+  AES-256-GCM through `updateOrganizationSettings`.
+- **Verification must be a real send, not a credential probe.** A valid SES key
+  passes an API call while the from-address is still unverified, which is
+  precisely the Aug 6 failure. Only a delivered test email stamps `verifiedAt`,
+  and that stamp is what unblocks publishing an event and inviting a user.
+- One synchronously user-visible path needs its own answer: forgot-password
+  returns the non-enumerable "if that email exists, we sent a link", which on an
+  unconfigured tenant is a lie told to someone locked out. Saying the
+  organisation has not configured email leaks nothing about whether the account
+  exists.
+
+**Not started.** No code, no schema. Buildable on master as a no-op under the
+flag, exactly as item 7 was.
+
+---
+
 ## Rehearsal, Aug 21 2026 — five defects before any infrastructure was bought
 
 Phase A of [PLATFORM_PROVISIONING.md](PLATFORM_PROVISIONING.md) ran against the
@@ -827,18 +975,23 @@ standing question below.
 - **Build-later (decided, not scheduled):** items 1, 2 and the §3 stamp. Each
   has its "build-time items" listed in its section, and all three now depend
   on the privileged lane that item 5 shipped, so they are unblocked whenever
-  they are scheduled.
+  they are scheduled. **Item 9 (per-tenant email) joins them**, and unlike the
+  other three it is buildable on master today as a no-op under its flag, the
+  way item 7 was.
 - **Then it is the platform instance itself**, which is mostly not application
   code: second box + fresh DB, the two DB roles, applying `prisma/rls/*.sql`,
   turning on `RLS_SET_LOCAL` and `TENANCY_ENFORCE_HOST`, DR/monitoring/runbooks
   before tenant #1 (guardrail 2), a tenant-onboarding flow, per-tenant custom
   domain TLS, and dogfooding one real MMG event on it (guardrail 3). See
   [MULTI_TENANCY.md](MULTI_TENANCY.md) §0.
-- **Still globally shared, and each a precondition:** SES + the CRM's single
+- **Still globally shared, and each a precondition:** the CRM's single
   `CRM_EMAIL_FROM_ADDRESS` reply-forward mailbox (a real cross-tenant leak on a
   shared instance, see `MULTI_TENANCY_IMPACT.md` §7.1), MediaMTX as a singleton,
   and the globally-unique `invoiceNumber` / `qrCode` / `dtcmBarcode` /
-  `stripePaymentId` namespaces.
+  `stripePaymentId` namespaces. **SES came off this list on Sep 2, 2026**:
+  item 9 (§9) decided one AWS account per tenant with no shared tenant-mail
+  sender, so it is now scheduled build work rather than an undecided
+  precondition.
 - **The eight unpoliced models: audited Aug 21, 2026. No new decisions.**
   They were recorded as eight open questions; they are three, and two of the
   three are already-scheduled work rather than a gap:

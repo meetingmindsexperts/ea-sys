@@ -203,6 +203,16 @@ Organization, a SUPER_ADMIN, and a `TenantDomain` row for its hostname.
 > its own key under Settings → Integrations → Stripe Payments. See
 > [PAYMENT_FLOW.md](PAYMENT_FLOW.md) "allow-list of one".
 
+> **Email: leave `EMAIL_ENV_FALLBACK_ORG_ID` unset here, and keep `EMAIL_FROM`
+> set.** Those two are not in tension. `EMAIL_FROM` is the platform's OWN
+> operational sender, used for the tenant invitation, billing and alerts, and
+> those sends are not lane-bound so they always resolve it. Tenant mail is
+> lane-bound, so with no org named in `EMAIL_ENV_FALLBACK_ORG_ID` it can never
+> fall through to that sender: a tenant with no email of its own is refused, by
+> design, and cannot finish onboarding until it configures one. Same
+> allow-list-of-one shape as Stripe above. See
+> [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) §9.
+
 
 | Variable | Master | Platform |
 |---|---|---|
@@ -212,6 +222,7 @@ Organization, a SUPER_ADMIN, and a `TenantDomain` row for its hostname.
 | `RLS_SET_LOCAL` | unset | **`1`** |
 | `TENANCY_ENFORCE_HOST` | unset | **`1`** — unknown Host resolves nothing (404 semantics) |
 | `DEFAULT_ORG_ID` | MMG's org | **unset** — a default org would defeat `TENANCY_ENFORCE_HOST` |
+| `EMAIL_ENV_FALLBACK_ORG_ID` | MMG's org | **unset** — no tenant may send as the operator (§9) |
 
 `DATABASE_URL_OPERATOR` is what makes `dbOperator` a real second lane. While it
 is unset, `dbOperator` **is the same object as `db`** and the privileged lane is
@@ -371,10 +382,16 @@ in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
   are policied independently, so a leaked Event row does not cascade into
   registrations. What is cross-readable at the DB layer is Event rows: names,
   dates, venues, and the `settings` JSON. Not a blocker for tenant #1, who has
-  nobody to leak to. A before-tenant-#2 item, same shelf as the shared SES
-  sender and the CRM reply mailbox.
+  nobody to leak to. A before-tenant-#2 item, same shelf as the CRM
+  reply mailbox (the shared SES sender left this shelf on Sep 2, 2026, decided
+  in PLATFORM_DECISIONS.md §9).
 - **Tenant management and onboarding** (§1). Nothing exists. This is the largest
   remaining product gap and the reason B2 is a manual seed.
+- **Per-tenant email** (§9). Decided Sep 2, 2026: one AWS account per tenant
+  under AWS Organizations, MMG-created and MMG-paid, no shared tenant-mail
+  sender, and a configured-and-verified sender as a hard gate on onboarding.
+  Buildable on master today as a no-op, the way item 7 was. It is part of the
+  onboarding gap above rather than separate from it.
 - **The synthetic platform org** (§3) for ownerless rows, plus `PLATFORM_ORG_ID`
   and the audit-stamp null branch that reads it.
 - **Tenant offboarding** (§1) and the **NULL-org purge** (§2), both archive-to-S3.
