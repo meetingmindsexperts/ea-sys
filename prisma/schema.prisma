@@ -496,6 +496,7 @@ model Event {
   zoomAttendances              ZoomAttendance[]
   webinarPresences             WebinarPresence[]
   promoCodes                   PromoCode[]
+  sponsors                         Sponsor[]
   scheduledEmails              ScheduledEmail[]
   eventStats                   EventStats?
   emailLogs                    EmailLog[]
@@ -1222,6 +1223,7 @@ model Registration {
   attendee                 Attendee                  @relation(fields: [attendeeId], references: [id])
   user                     User?                     @relation(fields: [userId], references: [id])
   promoCode                PromoCode?                @relation(fields: [promoCodeId], references: [id])
+  sponsor                  Sponsor?                  @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
   billingAccount           BillingAccount?           @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
   group                    RegistrationGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
   payments                 Payment[]
@@ -2900,6 +2902,48 @@ enum StreamStatus {
 
 // ==================== PROMO CODES ====================
 
+/// An event's sponsor. Promoted out of `Event.settings.sponsors[]` JSON on
+/// Sep 2 2026 (docs/SPONSOR_ATTRIBUTION_PLAN.md phase 2), because reporting an
+/// organiser invoices against should not rest on a string pointer into a JSON
+/// array with no referential integrity: removing a sponsor from that array
+/// silently orphaned every registration pointing at it, which the registration
+/// detail sheet already anticipated by rendering "(sponsor removed)".
+///
+/// NO DATABASE UNIQUE on (eventId, name, tier), deliberately. The identity the
+/// application uses is CASE-INSENSITIVE on that composite (MCP `upsert_sponsors`
+/// merge mode matches "by case-insensitive (name, tier) composite"), and a plain
+/// unique index is case-SENSITIVE, so it would happily admit "Abbott" beside
+/// "abbott" while the app treats them as one row: a constraint that does not
+/// enforce the rule in force. A functional index over `lower(...)` would match,
+/// and cannot be expressed in schema.prisma, which is exactly the shape that
+/// made `db:push` permanently unusable on the local copy once already
+/// (CLAUDE.md, the CertificateIssueRunItem partial-index caveat). Uniqueness is
+/// enforced in the service, where the case rule already lives.
+model Sponsor {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// Denormalized tenant key, the house convention. Scalar, no FK.
+  organizationId String?
+  name           String
+  /// One of SPONSOR_TIERS in src/lib/webinar.ts. A string rather than an enum
+  /// because the JSON it was promoted from never constrained it and a legacy
+  /// row may carry anything; the writers validate.
+  tier           String?
+  logoUrl        String?
+  websiteUrl     String?
+  description    String?  @db.Text
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+  promoCodes    PromoCode[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
 model PromoCode {
   id              String       @id @default(cuid())
   eventId         String
@@ -2934,6 +2978,7 @@ model PromoCode {
   organizationId String?
 
   event         Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sponsor       Sponsor?              @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
   ticketTypes   PromoCodeTicketType[]
   redemptions   PromoCodeRedemption[]
   registrations Registration[]
