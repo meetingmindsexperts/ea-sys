@@ -35,6 +35,12 @@ export async function POST(
         ticketTypes: { include: { pricingTiers: true } },
         speakers: true,
         tracks: true,
+        // Sponsors are a TABLE since Sep 2 2026. They used to ride along inside
+        // `settings` (the clone allow-list carried "sponsors"), so without this
+        // the promotion would have made cloning an event silently DROP its
+        // sponsor list: nothing errors, the new event just has none. That is
+        // the site in the whole migration that fails quietly rather than loudly.
+        sponsors: true,
         // Custom/edited email templates (Communications → Email Templates).
         emailTemplates: true,
         hotels: { include: { roomTypes: true } },
@@ -254,6 +260,25 @@ export async function POST(
             },
           });
           trackMap.set(tr.id, created.id);
+        }
+
+        // 4b. Clone sponsors. New ids on purpose: a sponsor row belongs to one
+        // event, and Registration.sponsorId / PromoCode.sponsorId are foreign
+        // keys, so reusing the source ids would either collide or point a
+        // clone's rows at the original event's sponsors.
+        for (const sp of source.sponsors) {
+          await tx.sponsor.create({
+            data: {
+              eventId: event.id,
+              organizationId: event.organizationId,
+              name: sp.name,
+              tier: sp.tier,
+              logoUrl: sp.logoUrl,
+              websiteUrl: sp.websiteUrl,
+              description: sp.description,
+              sortOrder: sp.sortOrder,
+            },
+          });
         }
 
         // 5. Clone hotels + room types

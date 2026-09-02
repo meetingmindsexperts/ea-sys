@@ -6,9 +6,9 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
-import { updateEventSettings } from "@/lib/event-settings";
-import { readWebinarSettings, readSponsors, webinarSecondRoomViolation, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import { readWebinarSettings, webinarSecondRoomViolation, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
+import { saveSponsors } from "@/services/sponsor-service";
 import type { ToolExecutor } from "./_shared";
 
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
@@ -418,7 +418,14 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       return { error: "sponsors must be an array" };
     }
 
-    const mode = input.mode ? String(input.mode) : "replace";
+    // DEFAULT FLIPPED to merge on Sep 2 2026. "replace" deletes anything the
+    // caller omits, which was survivable while sponsors were a JSON array and
+    // became destructive the moment registrations and promo codes carried a
+    // foreign key to these rows: an agent adding ONE sponsor, and not thinking
+    // to re-send the other nine, used to remove nine sponsors and their
+    // attribution. A destructive default is the wrong default for a caller
+    // that composes its own payloads.
+    const mode = input.mode ? String(input.mode) : "merge";
     if (!UPSERT_SPONSORS_MODES.has(mode)) {
       return {
         error: `Invalid mode. Must be one of: ${[...UPSERT_SPONSORS_MODES].join(", ")}`,
@@ -443,7 +450,9 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
     };
 
     const tierSet = new Set<string>(SPONSOR_TIERS);
-    const incoming: SponsorEntry[] = [];
+    // `id` is optional now: a row without one is a CREATE, and the service
+    // assigns the cuid.
+    const incoming: Array<Omit<SponsorEntry, "id" | "sortOrder"> & { id?: string }> = [];
     for (let i = 0; i < (input.sponsors as unknown[]).length; i++) {
       const raw = (input.sponsors as unknown[])[i];
       if (!raw || typeof raw !== "object") return { error: `sponsors[${i}] is not an object` };
@@ -464,62 +473,36 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       }
 
       incoming.push({
-        id: r.id ? String(r.id) : `sponsor-${crypto.randomUUID()}`,
+        // No client-side id for a new row: the service creates it, so the
+        // database assigns the cuid rather than the agent inventing one.
+        id: r.id ? String(r.id) : undefined,
         name: name.slice(0, 255),
         tier: tier as SponsorEntry["tier"],
         logoUrl,
         websiteUrl,
         description: r.description ? String(r.description).slice(0, 1000) : undefined,
-        sortOrder: i, // Provisional — finalised below
       });
     }
 
-    // Mode: replace (default) = incoming wins, outgoing are deleted.
-    //       merge            = incoming is overlaid onto existing list
-    //                          matched by id first, then by case-insensitive
-    //                          (name, tier) composite. Unmatched rows in the
-    //                          existing list are kept; unmatched rows in the
-    //                          incoming list are appended.
-    let sanitized: SponsorEntry[];
-    let mergeReport: { updated: number; added: number; kept: number } | undefined;
-    if (mode === "replace") {
-      sanitized = incoming.map((s, i) => ({ ...s, sortOrder: i }));
-    } else {
-      const existing = readSponsors(event.settings);
-      const byId = new Map(existing.map((s) => [s.id, s]));
-      const compositeKey = (s: Pick<SponsorEntry, "name" | "tier">) =>
-        `${s.name.toLowerCase().trim()}::${s.tier ?? ""}`;
-      const byComposite = new Map(existing.map((s) => [compositeKey(s), s]));
-
-      const touchedIds = new Set<string>();
-      const merged: SponsorEntry[] = [...existing];
-      let updated = 0;
-      let added = 0;
-      for (const row of incoming) {
-        const idMatch = byId.get(row.id);
-        const match = idMatch ?? byComposite.get(compositeKey(row));
-        if (match) {
-          const idx = merged.findIndex((m) => m.id === match.id);
-          if (idx >= 0) {
-            merged[idx] = { ...match, ...row, id: match.id };
-            touchedIds.add(match.id);
-            updated++;
-          }
-        } else {
-          merged.push(row);
-          touchedIds.add(row.id);
-          added++;
-        }
-      }
-      sanitized = merged.map((s, i) => ({ ...s, sortOrder: i }));
-      mergeReport = {
-        updated,
-        added,
-        kept: sanitized.length - updated - added,
-      };
+    const saved = await saveSponsors({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      source: "mcp",
+      sponsors: incoming.map((r) => ({
+        id: r.id,
+        name: r.name,
+        tier: r.tier ?? null,
+        logoUrl: r.logoUrl ?? null,
+        websiteUrl: r.websiteUrl ?? null,
+        description: r.description ?? null,
+      })),
+      mode: mode as "replace" | "merge",
+    });
+    if (!saved.ok) {
+      return { error: saved.message, code: saved.code, ...(saved.inUse ? { inUse: saved.inUse } : {}) };
     }
-
-    await updateEventSettings(event.id, { sponsors: sanitized });
+    const sanitized = saved.sponsors;
 
     await db.auditLog.create({
       data: {
@@ -530,10 +513,9 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
         entityId: event.id,
         changes: {
           source: "mcp",
-          field: "settings.sponsors",
+          field: "sponsors",
           mode,
           count: sanitized.length,
-          ...(mergeReport ?? {}),
         },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:upsert_sponsors audit-log-failed"));
@@ -543,7 +525,6 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       mode,
       sponsors: sanitized,
       total: sanitized.length,
-      ...(mergeReport ? { mergeReport } : {}),
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:upsert_sponsors failed");

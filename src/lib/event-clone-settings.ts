@@ -54,7 +54,10 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "notifyOnSessionCreated",
   "emailNotifications",
   // Content / operations config
-  "sponsors",
+  // "sponsors" was here until Sep 2 2026, when sponsors became a table. It is
+  // NOT re-added: the clone route copies Sponsor ROWS directly, and leaving the
+  // key would have the clone carry a stale JSON copy alongside the real rows,
+  // which is the two-sources-of-truth state the promotion exists to end.
   "cme",
   "badge",
   "travelGrant",

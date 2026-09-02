@@ -9,6 +9,7 @@ const { mockAuth, mockDb } = vi.hoisted(() => ({
     ticketType: { create: vi.fn() },
     speaker: { create: vi.fn() },
     track: { create: vi.fn() },
+    sponsor: { create: vi.fn() },
     hotel: { create: vi.fn() },
     roomType: { create: vi.fn() },
     eventSession: { create: vi.fn() },
@@ -199,6 +200,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
         externalId: null,
       },
     ],
+    sponsors: [{ id: "sp-src", name: "Abbott", tier: "gold", logoUrl: null, websiteUrl: null, description: null, sortOrder: 0 }],
     tracks: [
       { id: "tr-1", name: "Track A", description: "Main track", color: "#FF0000", sortOrder: 0 },
       { id: "tr-2", name: "Track B", description: null, color: "#3B82F6", sortOrder: 1 },
@@ -377,6 +379,9 @@ describe("POST /api/events/[eventId]/clone", () => {
               return { id: `new-tr-${trIndex}` };
             }),
           },
+          sponsor: {
+            create: vi.fn().mockImplementation(async () => ({ id: "new-sponsor-1" })),
+          },
           hotel: {
             create: vi.fn().mockResolvedValue({ id: "new-h-1" }),
           },
@@ -442,6 +447,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -464,6 +470,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -489,6 +496,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -529,6 +537,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -568,6 +577,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "new-tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -605,6 +615,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "new-tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -632,6 +643,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -656,6 +668,37 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(sp2Data.status).toBe("INVITED");
     });
 
+    it("clones SPONSOR ROWS, with new ids", async () => {
+      // The site in the settings-to-table promotion that fails QUIETLY.
+      // "sponsors" used to ride along in the cloned settings blob; once it
+      // became a table, a clone with no explicit copy step produces an event
+      // with no sponsors and no error at all. New ids because a sponsor row
+      // belongs to one event and both Registration.sponsorId and
+      // PromoCode.sponsorId are foreign keys, so reusing the source id would
+      // point the clone's rows at the original event's sponsors.
+      setupSuccessfulClone();
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "new-tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+      };
+      await txFn(mockTx);
+
+      expect(mockTx.sponsor.create).toHaveBeenCalledTimes(1);
+      const data = mockTx.sponsor.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ eventId: "new-evt", name: "Abbott", tier: "gold", sortOrder: 0 });
+      expect(data).not.toHaveProperty("id");
+    });
+
     it("clones tracks preserving color and sort order", async () => {
       setupSuccessfulClone();
       await POST(makeRequest(), makeParams("evt-1"));
@@ -666,6 +709,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "new-tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -692,6 +736,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "new-h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "new-rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -728,6 +773,7 @@ describe("POST /api/events/[eventId]/clone", () => {
             return { id: `new-tr-${trackIndex}` };
           }),
         },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "new-sess" }) },
@@ -765,6 +811,7 @@ describe("POST /api/events/[eventId]/clone", () => {
           }),
         },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: {
@@ -800,6 +847,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -878,6 +926,7 @@ describe("POST /api/events/[eventId]/clone", () => {
           }),
         },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "new-sess-1" }) },
@@ -915,6 +964,7 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       mockDb.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "new-sponsor-1" }) },
           event: { create: vi.fn().mockImplementation(async (args: { data: { slug: string } }) => {
             return { id: "new-evt", name: "Test (Copy)", slug: args.data.slug };
           })},
@@ -942,6 +992,7 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       mockDb.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "new-sponsor-1" }) },
           event: { create: vi.fn().mockImplementation(async (args: { data: { slug: string } }) => {
             return { id: "new-evt", name: "Test (Copy)", slug: args.data.slug };
           })},
@@ -973,6 +1024,7 @@ describe("POST /api/events/[eventId]/clone", () => {
             ticketTypes: [],
             speakers: [],
             tracks: [],
+            sponsors: [],
             hotels: [],
             eventSessions: [],
           })
@@ -981,6 +1033,7 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       mockDb.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "new-sponsor-1" }) },
           event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
           ticketType: { create: vi.fn() },
           speaker: { create: vi.fn() },
@@ -1005,6 +1058,7 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       mockDb.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "new-sponsor-1" }) },
           event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
           ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
           speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
@@ -1027,6 +1081,7 @@ describe("POST /api/events/[eventId]/clone", () => {
         ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
         speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
         track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
         hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
         roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
         eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
@@ -1048,6 +1103,7 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       mockDb.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          sponsor: { create: vi.fn().mockResolvedValue({ id: "new-sponsor-1" }) },
           event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
           ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
           speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },

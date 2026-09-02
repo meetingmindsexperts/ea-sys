@@ -56,7 +56,6 @@ describe("cloneEventSettings", () => {
 
   it("keeps the config keys a clone should carry", () => {
     const src = {
-      sponsors: [{ name: "Acme", tier: "gold" }],
       cme: { hours: 3 },
       groupRegistration: { enabled: true, minMembers: 2, maxMembers: 10 },
       maxAttendees: 500,
@@ -71,11 +70,21 @@ describe("cloneEventSettings", () => {
 
   it("DROPS an unknown/new key (allow-list fail-safe — the anti-deny-list property)", () => {
     const out = cloneEventSettings({
-      sponsors: [{ name: "Acme" }],
+      cme: { hours: 3 },
       someBrandNewFeatureFlagNobodyListedYet: { live: "token" },
     });
-    expect(out.sponsors).toBeDefined();
+    expect(out.cme).toBeDefined();
     expect(out).not.toHaveProperty("someBrandNewFeatureFlagNobodyListedYet");
+  });
+
+  it("no longer carries `sponsors`, which is a table now", () => {
+    // Sponsors were promoted out of settings on Sep 2 2026 and the clone route
+    // copies ROWS. Carrying the key too would give a clone a stale JSON copy
+    // beside the real rows, which is the two-sources-of-truth state the
+    // promotion exists to end. Pinned so nobody "restores" it while chasing a
+    // clone that appears to lose its sponsors.
+    const out = cloneEventSettings({ sponsors: [{ id: "s1", name: "Acme", sortOrder: 0 }] });
+    expect(out).not.toHaveProperty("sponsors");
   });
 
   it("returns {} for a null / non-object / array source", () => {

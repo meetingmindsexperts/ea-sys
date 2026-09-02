@@ -6,9 +6,9 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
-import { updateEventSettings } from "@/lib/event-settings";
-import {SPONSOR_TIERS, type SponsorEntry} from "@/lib/webinar";
+import { SPONSOR_TIERS } from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
+import { saveSponsors, type SaveSponsorsErrorCode } from "@/services/sponsor-service";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -59,6 +59,18 @@ const sponsorsPutSchema = z.object({
 });
 
 // ── GET — return the current sponsor list ────────────────────────
+
+/** Exhaustive over the service's error union, so a new code fails the build. */
+const HTTP_STATUS_FOR_SAVE_SPONSORS: Record<SaveSponsorsErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  INVALID_NAME: 400,
+  INVALID_TIER: 400,
+  DUPLICATE_NAME: 409,
+  // 409, not 400: the payload is well-formed and the CONFLICT is with data the
+  // organiser has not seen. The body carries `inUse` so the UI can say which.
+  SPONSOR_IN_USE: 409,
+  UNKNOWN: 500,
+};
 
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -162,38 +174,32 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Normalize empty strings to undefined so the stored JSON stays tidy,
-    // and re-assign sortOrder to the array index so the client doesn't
-    // have to keep counters in sync.
-    const normalizedSponsors: SponsorEntry[] = validated.data.sponsors.map(
-      (row, index) => ({
-        id: row.id,
-        name: row.name.trim(),
-        logoUrl: row.logoUrl?.trim() || undefined,
-        websiteUrl: row.websiteUrl?.trim() || undefined,
-        tier: row.tier,
-        description: row.description?.trim() || undefined,
-        sortOrder: index,
-      }),
-    );
+    // The list is now a TABLE, so replace-all becomes a diff with a refusal:
+    // a sponsor the payload drops but a registration or promo code still
+    // references stops the whole save (services/sponsor-service.ts §4).
+    const result = await saveSponsors({
+      eventId,
+      organizationId,
+      actorUserId: session.user.id,
+      source: "rest",
+      sponsors: validated.data.sponsors,
+      mode: "replace",
+    });
 
-    // JSON.parse(JSON.stringify(...)) strips undefined — Prisma's Json
-    // type rejects them. Apply it to the sponsors value before the
-    // atomic merge so the persisted blob stays clean.
-    const cleanSponsors = JSON.parse(JSON.stringify(normalizedSponsors));
-
-    await updateEventSettings(eventId, { sponsors: cleanSponsors });
-
-    apiLogger.info(
-      {
+    if (!result.ok) {
+      apiLogger.warn({
+        msg: "sponsors:update-rejected",
         eventId,
         userId: session.user.id,
-        count: normalizedSponsors.length,
-      },
-      "sponsors:updated",
-    );
+        code: result.code,
+      });
+      return NextResponse.json(
+        { error: result.message, code: result.code, ...(result.inUse ? { inUse: result.inUse } : {}) },
+        { status: HTTP_STATUS_FOR_SAVE_SPONSORS[result.code] },
+      );
+    }
 
-    return NextResponse.json({ sponsors: normalizedSponsors });
+    return NextResponse.json({ sponsors: result.sponsors });
   } catch (err) {
     apiLogger.error({ err }, "sponsors:update-failed");
     return NextResponse.json(
