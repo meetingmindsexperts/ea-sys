@@ -62,7 +62,23 @@ a number that holds and one that quietly shrinks.
    add a delete guard" option. This is the larger of the two and it is taken
    deliberately: reporting an organiser bills against should not rest on a
    string pointer into a JSON array with no referential integrity.
-3. **A paying delegate can be tagged to a sponsor directly.** The picker is
+3. **Sponsor attribution is finance-redacted, like the payer already is.**
+   `sponsorId` joins `FINANCIAL_KEYS`, so MEMBER stops seeing it. This resolves
+   a **pre-existing inconsistency** rather than inventing a rule: `billingAccount`,
+   `billingAccountId`, `payerReference` and `attendeeIsGuarantor` are all
+   redacted today with the recorded reason "MEMBER never sees who funds a
+   doctor, Mecomed-sensitive", and sponsor attribution is that same fact.
+   **It is a behaviour change on a live system**: MEMBER can see this field
+   today and will stop.
+
+   **Only `sponsorId` on a registration, never the sponsor LIST.** Who sponsors
+   an event is public, their logos are on the public session page. What is
+   private is which sponsor funded which delegate. `redactFinancialFields` is a
+   recursive strip by key NAME, so adding a bare `sponsors` would blank the
+   public sponsor list wherever it appears. That file's own header warns about
+   exactly this after `value` nearly blanked every survey answer.
+
+4. **A paying delegate can be tagged to a sponsor directly.** The picker is
    shown for any payment status, not only INCLUSIVE. **Consequence to state
    plainly: "sponsored by" stops meaning "this sponsor paid".** It becomes
    attribution, and the money question is answered by `paymentStatus`. The
@@ -91,15 +107,23 @@ model Sponsor {
   registrations Registration[]
   promoCodes    PromoCode[]
 
-  @@unique([eventId, name])
+  @@unique([eventId, name, tier])
   @@index([eventId])
   @@index([organizationId])
 }
 ```
 
-`Registration.sponsorId` becomes a real FK with **`onDelete: Restrict`**, which
-is what decision 2 is actually buying. `PromoCode.sponsorId` is a new nullable
-FK, `Restrict` for the same reason.
+`Registration.sponsorId` and `PromoCode.sponsorId` become real FKs, both
+**`onDelete: SetNull`**, with the "do not delete a referenced sponsor" rule
+enforced at the **application** layer.
+
+**Corrected from `Restrict`, which the first draft proposed and which was
+wrong twice over.** Deleting an Event cascades to `Registration` and `Sponsor`
+as siblings, and SQL `RESTRICT` is checked immediately rather than deferred to
+the end of the statement, so if the Sponsor rows go first the whole event
+delete fails. And the precedent §4 cites, the abstract sub-theme, is
+`SetNull` **plus an application-level refuse-while-in-use guard**. The draft
+quoted the right precedent and then proposed the opposite mechanism.
 
 **Keep the existing ids during the backfill.** The JSON entries already have
 `id` values that live rows point at, so the migration inserts `Sponsor` rows
@@ -107,10 +131,14 @@ carrying those same ids and every existing `Registration.sponsorId` resolves
 without being rewritten. Minting fresh ids would need a second update pass over
 registrations and a window where the pointer is wrong.
 
-**`@@unique([eventId, name])` is a real constraint on existing data.** The JSON
-model never enforced it, so a duplicate name is possible today. The migration
-has to detect that and stop rather than silently merge two sponsors, because
-merging is a decision about someone's money.
+**The uniqueness key is `(eventId, name, tier)`, not `(eventId, name)`.**
+Corrected after audit: MCP `upsert_sponsors` merge mode already matches rows
+"by case-insensitive (name, tier) composite", so the current model treats name
+plus tier as identity and a constraint on name alone would reject data today's
+writers can legitimately produce, and stop the migration on it. The JSON model
+enforced nothing, so the migration must still detect a genuine duplicate under
+the chosen key and **stop rather than silently merge**, because merging two
+sponsors is a decision about someone's money.
 
 ---
 
@@ -169,7 +197,12 @@ missing, which is exactly what that gate was built for.
 ## 6. Build order
 
 **Phase 1: the link and the report, no table.** Add `PromoCode.sponsorId` as a
-plain nullable string against the existing JSON model, add the `sponsorId`
+nullable string against the existing JSON model **and validate it on write**
+against `readSponsors(event.settings)`, exactly as the registration path
+already does. The first draft said "a plain nullable string" with no
+validation, which would have added a **second** unvalidated pointer, the very
+defect this plan exists to remove. Given the stabilization-first posture phase 2
+may not follow soon, so phase 1 has to be correct standing alone. add the `sponsorId`
 filter and the Sponsor column to both exports, and unhide the picker. This
 delivers the whole of what was asked and is reversible. *Recommended as a
 separate shippable step even though decision 2 is taken*, because it is small,
@@ -186,8 +219,35 @@ the sponsors page or in analytics is §8.
 The union query the whole thing exists for, available from the end of phase 1:
 
 ```ts
-where: { OR: [{ sponsorId }, { promoCode: { sponsorId } }] }
+where: {
+  OR: [
+    { sponsorId },                          // tagged directly, incl. INCLUSIVE
+    { promoCode: { sponsorId } },           // used the sponsor's code
+    { group: { promoCode: { sponsorId } } },// a group used it, see below
+  ],
+}
 ```
+
+**The third arm is not optional, and the first draft omitted it.** A group
+registration puts the promo code on `RegistrationGroup.promoCodeId`
+([group-registration-service.ts](../src/services/group-registration-service.ts)),
+and every member registration has `promoCodeId = null`. A two-arm query returns
+**zero** members of a twenty-person sponsor delegation, which is precisely the
+shape a sponsor delegation takes. It would have demoed correctly on a single
+registration and under-reported the case the feature exists for.
+
+**Precedence when two sponsors both have a claim.** A registration can carry
+`sponsorId = Pfizer` and have used `ABBOTT20`. Both arms match, so naive
+per-sponsor totals sum to more than the event and an organiser billing off them
+over-bills. **The direct `sponsorId` wins**, because it is the only one a human
+chose; the code is circumstantial. Reports state the two numbers separately
+(tagged / by code) rather than one total, so the ambiguity is visible instead of
+averaged away.
+
+**A redacted field must not stay filterable.** Once `sponsorId` is stripped for
+MEMBER, a sponsor FILTER would hand the same fact back: filter to Abbott, read
+the names. The filter is gated on the same predicate as the redaction. The
+export needs no separate gate, `canExportRegistrations` already excludes MEMBER.
 
 ---
 
@@ -214,13 +274,39 @@ where: { OR: [{ sponsorId }, { promoCode: { sponsorId } }] }
 3. **Does a promo code's sponsor auto-tag the registration?** Tempting, and
    rejected in this draft: it would write attribution nobody chose, and the
    union query in §6 gets the same answer without a write.
-4. **Is `@@unique([eventId, name])` right**, or do two sponsors legitimately
-   share a name at one event? It is the constraint that makes the CSV importer's
-   name resolution honest, so dropping it has a cost.
+4. ~~Is `@@unique([eventId, name])` right?~~ **Answered by the audit**: the key
+   is `(eventId, name, tier)`, matching what `upsert_sponsors` already treats as
+   identity. Residual question: the CSV importer resolves a sponsor by NAME
+   alone and refuses an ambiguous match, so under this key a name held at two
+   tiers becomes permanently ambiguous to the importer. Acceptable, and worth
+   knowing before someone reports it as a bug.
 
 ---
 
-## 9. Verification
+## 9. Adversarial audit of this plan (September 2, 2026)
+
+The first draft was re-audited against source rather than re-read. Six defects,
+three of which would have shipped. All are corrected above; they are recorded
+here because the failure mode is worth naming: **the current state was verified
+carefully and the proposed design was then not stressed against it.**
+
+| | Defect | Where it is fixed |
+|---|---|---|
+| HIGH | The union query missed every group registration, so a sponsor's 20-person delegation returned zero rows | §6, third arm |
+| HIGH | Sponsor attribution was not finance-redacted while the payer is, and the plan widened access to it with a filter, an export column and a report | §2 decision 3 |
+| HIGH | `Restrict` risks failing event deletion, and contradicted the sub-theme precedent the plan itself cites | §3, now `SetNull` plus an app guard |
+| MED | `@@unique([eventId, name])` contradicted `upsert_sponsors`' own (name, tier) identity | §3 |
+| MED | Phase 1 added a second unvalidated pointer, doubling the defect if phase 2 never lands | §6 |
+| MED | Two sponsors could both claim one registration with no precedence rule, so totals over-count | §6 |
+
+One thing the draft made sound more expensive than it is: `@@index([sponsorId])`
+already exists on `Registration`, and the schema comment there already states
+the intent is to group "all Abbott-sponsored attendees". The filter needs no
+index work.
+
+---
+
+## 10. Verification
 
 Per phase: `npx tsc --noEmit`, `npm run lint`, full vitest, `npm run build`.
 Phase 2 additionally needs the tenancy harness green and a migration replayed
