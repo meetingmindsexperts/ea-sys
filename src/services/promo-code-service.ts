@@ -388,13 +388,15 @@ export interface CreatePromoCodeInput {
   isActive?: boolean;
   ticketTypeIds?: string[];
   /**
-   * Attribute this code to a sponsor, as an id into `Event.settings.sponsors[]`.
+   * Attribute this code to a sponsor, by `Sponsor.id` on this event.
    * Optional: most codes belong to nobody.
    *
-   * Validated here rather than trusted, for the reason the whole feature
-   * exists: `Registration.sponsorId` is an unvalidated-by-the-database string
-   * pointer, and adding a second one that nothing checks would double the
-   * defect instead of fixing it (docs/SPONSOR_ATTRIBUTION_PLAN.md §6).
+   * Still validated here rather than left to the foreign key, and the reason
+   * survived phase 2. The FK refuses a bad id, but it refuses it as an opaque
+   * Prisma constraint error the caller has to interpret; this returns
+   * SPONSOR_NOT_FOUND with a message naming the fix. Blank and whitespace
+   * normalise to null, so "no selection" from a form Select clears the
+   * attribution instead of being written as "" and rejected by the FK.
    */
   sponsorId?: string | null;
 }
@@ -438,7 +440,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
       return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found or access denied" };
     }
 
-    const sponsorId = input.sponsorId ?? null;
+    const sponsorId = input.sponsorId?.trim() || null;
     if (sponsorId && !(await sponsorExistsOnEvent(input.eventId, sponsorId))) {
       return {
         ok: false,

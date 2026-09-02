@@ -39,6 +39,7 @@ import {
   useUpdatePromoCode,
   useDeletePromoCode,
   useTickets,
+  useSponsors,
 } from "@/hooks/use-api";
 
 interface PromoCode {
@@ -55,6 +56,9 @@ interface PromoCode {
   validUntil: string | null;
   isActive: boolean;
   createdAt: string;
+  // Redacted away for a non-finance role by the list route, hence optional:
+  // the field can be absent rather than merely null.
+  sponsorId?: string | null;
   ticketTypes: { ticketType: { id: string; name: string } }[];
   _count: { redemptions: number };
 }
@@ -71,6 +75,8 @@ const emptyForm: {
   validUntil: string;
   isActive: boolean;
   ticketTypeIds: string[];
+  /** "" means no sponsor. The server normalises it to NULL. */
+  sponsorId: string;
 } = {
   code: "",
   description: "",
@@ -83,7 +89,15 @@ const emptyForm: {
   validUntil: "",
   isActive: true,
   ticketTypeIds: [],
+  sponsorId: "",
 };
+
+/**
+ * Radix `SelectItem` rejects value="" (it reserves the empty string for the
+ * cleared state), so "no sponsor" needs a sentinel that is mapped back to ""
+ * on the way in and out.
+ */
+const NO_SPONSOR = "__none__";
 
 interface Props {
   eventId: string;
@@ -92,6 +106,14 @@ interface Props {
 export function PromoCodesPanel({ eventId }: Props) {
   const { data: promoCodes = [], isLoading } = usePromoCodes(eventId);
   const { data: ticketTypes = [] } = useTickets(eventId);
+  const { data: sponsorData } = useSponsors(eventId);
+  const sponsors = sponsorData?.sponsors ?? [];
+  // The picker only exists when there is something to pick. That also decides
+  // whether the payload carries `sponsorId` at all: sending "" from a form that
+  // never rendered the control would silently clear an attribution set through
+  // the API, and for a non-finance role the field is redacted away entirely, so
+  // it would clear a value they cannot even see.
+  const canAttribute = sponsors.length > 0;
   const createPromo = useCreatePromoCode(eventId);
   const updatePromo = useUpdatePromoCode(eventId);
   const deletePromo = useDeletePromoCode(eventId);
@@ -126,6 +148,7 @@ export function PromoCodesPanel({ eventId }: Props) {
       validUntil: promo.validUntil ? toLocalDateTimeInput(promo.validUntil) : "",
       isActive: promo.isActive,
       ticketTypeIds: promo.ticketTypes.map((t) => t.ticketType.id),
+      sponsorId: promo.sponsorId ?? "",
     });
     setDialogOpen(true);
   };
@@ -149,6 +172,7 @@ export function PromoCodesPanel({ eventId }: Props) {
         validUntil: fromLocalDateTimeInput(form.validUntil),
         isActive: form.isActive,
         ticketTypeIds: form.ticketTypeIds.length > 0 ? form.ticketTypeIds : undefined,
+        ...(canAttribute ? { sponsorId: form.sponsorId || null } : {}),
       };
 
       if (editingId) {
@@ -377,6 +401,26 @@ export function PromoCodesPanel({ eventId }: Props) {
                 />
               </div>
             </div>
+            {canAttribute && (
+              <div>
+                <Label>Sponsor</Label>
+                <p className="text-xs text-slate-400 mb-2">
+                  Everyone who registers with this code reports under that sponsor.
+                </p>
+                <Select
+                  value={form.sponsorId || NO_SPONSOR}
+                  onValueChange={(v) => setForm({ ...form, sponsorId: v === NO_SPONSOR ? "" : v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="No sponsor" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_SPONSOR}>No sponsor</SelectItem>
+                    {sponsors.map((sp) => (
+                      <SelectItem key={sp.id} value={sp.id}>{sp.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {(ticketTypes as { id: string; name: string }[]).length > 0 && (
               <div>
                 <Label>Applicable Registration Types</Label>

@@ -1,9 +1,24 @@
 # Sponsor attribution: sponsors, their promo codes, and reporting what they brought
 
-> **Status: PHASE 1 SHIPPED September 2, 2026 (`529e490a`). Phases 2 and 3 not
-> started.** Four owner decisions are locked in §2, one of which was
-> **corrected after shipping** and left a genuine question open, see decision 3.
-> The open questions in §8 do not block anything.
+> **Status: PHASES 1 AND 2 COMPLETE September 2, 2026** (`529e490a`, then
+> `1555199d` / `23e76172` / `78f8f1f4`, then the phase-1 leftovers). The setting
+> half is now reachable end to end: the promo-code PUT takes `sponsorId`, the
+> Promo Codes dialog has a picker, both MCP promo tools carry it, and the
+> registrations list has a sponsor filter. **Phase 3 is PARKED**, see the note
+> below. Four owner decisions are locked in §2, one of which was **corrected
+> after shipping** and left a genuine question open, see decision 3. The open
+> questions in §8 do not block anything.
+>
+> **Why the rest is parked, measured rather than assumed.** Read-only on prod
+> immediately after the phase-2 deploy: **4 sponsor rows** backfilled from JSON,
+> all of them on a sandbox test event, and **zero registrations and zero promo
+> codes carry a sponsor**. Sponsor attribution has never been used once in
+> production, so both foreign keys validated over an empty set the same day. A
+> per-sponsor revenue rollup for a programme with no participants is guessing at
+> what to count, so phase 3 waits. That also makes the phase-2 storage move **free**, which is the
+> whole argument for having done it now rather than after an organiser had
+> attributed a season of registrations. Everything outstanding is enumerated in
+> [ROADMAP.md](ROADMAP.md) § "Sponsor attribution" and picks up cold.
 >
 > **Read first:** the current state is evidenced in §1. Every claim there was
 > read in source rather than recalled.

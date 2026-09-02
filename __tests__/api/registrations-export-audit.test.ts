@@ -292,6 +292,11 @@ describe("registrations page export URL", () => {
       // filter is applied SERVER-side on the table's query, so omitting it
       // widens from "the filtered subset" to "everything".
       ["tags", "tagFilter"],
+      // Same class as tags and for a stronger reason: the sponsor filter is a
+      // three-way union the client cannot reproduce, so it is applied
+      // SERVER-side too. Omit it and an organiser filtered to one sponsor
+      // downloads the whole attendee book.
+      ["sponsorId", "sponsorFilter"],
       ["q", "searchQuery"],
     ] as const) {
       expect(body, `export URL omits ${param}`).toContain(`p.set("${param}"`);

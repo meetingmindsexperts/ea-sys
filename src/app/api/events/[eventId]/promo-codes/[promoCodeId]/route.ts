@@ -6,6 +6,8 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { runWithTenant } from "@/lib/tenant-context";
+import { sponsorExistsOnEvent } from "@/lib/sponsors";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 
 const updatePromoCodeSchema = z
   .object({
@@ -25,6 +27,14 @@ const updatePromoCodeSchema = z
     validUntil: z.string().datetime().nullable().optional(),
     isActive: z.boolean().optional(),
     ticketTypeIds: z.array(z.string()).optional(),
+    // Attribute the code to a sponsor, by `Sponsor.id` on this event.
+    //
+    // This is the half of sponsor attribution the create path had and the edit
+    // path did not, which meant an organiser could attribute a code only at the
+    // moment they made it: every code that already existed was unattributable.
+    // Blank or whitespace clears it, matching how a form Select reports "no
+    // selection"; omitting the key leaves the current sponsor alone.
+    sponsorId: z.string().max(100).nullable().optional(),
   })
   .refine(
     (d) => !d.discountType || d.discountType !== "PERCENTAGE" || !d.discountValue || d.discountValue <= 100,
@@ -95,7 +105,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(promoCode);
+    // Redact for non-finance roles, matching the list sibling. Without this the
+    // detail route hands back `discountValue`, `sponsorId` and every
+    // redemption's prices to a role the list deliberately hides them from, and
+    // a field readable one route over is not hidden at all.
+    return NextResponse.json(
+      canViewFinance(session.user.role) ? promoCode : redactFinancialFields(promoCode),
+    );
     });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to get promo code" });
@@ -157,6 +173,33 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const { ticketTypeIds, ...data } = parsed.data;
 
+    // Normalise before validating: "" and "   " both mean "no sponsor", and
+    // since phase 2 put a foreign key on this column an empty string is a
+    // constraint violation rather than a harmless blank, so it has to be
+    // turned into NULL here or it surfaces as an opaque 500.
+    const sponsorIdProvided = data.sponsorId !== undefined;
+    const sponsorId = sponsorIdProvided ? (data.sponsorId?.trim() || null) : undefined;
+
+    // Checked rather than left to the FK for the same reason the create path
+    // checks it: the FK refuses a bad id as a Prisma error the caller has to
+    // interpret, where this names the fix.
+    if (sponsorId && !(await sponsorExistsOnEvent(eventId, sponsorId))) {
+      apiLogger.warn({
+        msg: "events/promo-codes:sponsor-not-found",
+        eventId,
+        promoCodeId,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "sponsorId does not match any sponsor on this event. Add the sponsor on the event's Sponsors page first, then reference its id.",
+          code: "SPONSOR_NOT_FOUND",
+        },
+        { status: 400 },
+      );
+    }
+
     // Check for duplicate code if code is being changed
     if (data.code) {
       const duplicate = await db.promoCode.findFirst({
@@ -201,6 +244,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(data.validFrom !== undefined && { validFrom: data.validFrom ? new Date(data.validFrom) : null }),
           ...(data.validUntil !== undefined && { validUntil: data.validUntil ? new Date(data.validUntil) : null }),
           ...(data.isActive !== undefined && { isActive: data.isActive }),
+          ...(sponsorId !== undefined && { sponsorId }),
         },
         include: {
           ticketTypes: {
@@ -219,7 +263,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
           action: "UPDATE_PROMO_CODE",
           entityType: "PromoCode",
           entityId: promoCode.id,
-          changes: { code: promoCode.code },
+          changes: {
+            code: promoCode.code,
+            // Recorded explicitly: attribution decides whose report a
+            // registration lands in, so "who changed it and when" has to be
+            // answerable from the trail rather than inferred from the row.
+            ...(sponsorId !== undefined && { sponsorId }),
+          },
         },
       })
       .catch((err) => apiLogger.error({ err, msg: "Audit log failed" }));

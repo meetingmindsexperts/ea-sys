@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { createPromoCode as createPromoCodeService } from "@/services/promo-code-service";
+import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import type { ToolExecutor } from "./_shared";
 
 const DISCOUNT_TYPES = new Set(["PERCENTAGE", "FIXED_AMOUNT"]);
@@ -32,6 +33,7 @@ const listPromoCodes: ToolExecutor = async (_input, ctx) => {
         validFrom: true,
         validUntil: true,
         isActive: true,
+        sponsorId: true,
         createdAt: true,
         ticketTypes: { select: { ticketTypeId: true } },
       },
@@ -87,6 +89,10 @@ const createPromoCode: ToolExecutor = async (input, ctx) => {
       validUntil: input.validUntil ? new Date(String(input.validUntil)) : null,
       isActive: input.isActive != null ? Boolean(input.isActive) : true,
       ticketTypeIds,
+      // The service has accepted and validated this since phase 1; this
+      // boundary simply never passed it, so an agent could not attribute a code
+      // it created. Blank normalises to null inside the service.
+      sponsorId: input.sponsorId != null ? String(input.sponsorId) : null,
     });
 
     if (!result.ok) {
@@ -112,6 +118,22 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
       select: { id: true, eventId: true, discountType: true, discountValue: true },
     });
     if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };
+
+    // Attribution. Checked against the code's OWN event rather than
+    // ctx.eventId: this lookup is org-scoped, so a code from a sibling event in
+    // the same org is reachable here, and validating against the wrong event
+    // would either refuse a legitimate sponsor or accept a foreign one.
+    let sponsorId: string | null | undefined;
+    if (input.sponsorId !== undefined) {
+      sponsorId = input.sponsorId == null ? null : String(input.sponsorId).trim() || null;
+      if (sponsorId && !(await sponsorExistsOnEvent(existing.eventId, sponsorId))) {
+        return {
+          error:
+            "sponsorId does not match any sponsor on this event. Add the sponsor on the event's Sponsors page first, then reference its id.",
+          code: "SPONSOR_NOT_FOUND",
+        };
+      }
+    }
 
     const updates: Prisma.PromoCodeUpdateInput = {};
     if (input.description !== undefined) {
@@ -149,6 +171,9 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
       updates.validUntil = input.validUntil == null ? null : new Date(String(input.validUntil));
     }
     if (input.isActive != null) updates.isActive = Boolean(input.isActive);
+    if (sponsorId !== undefined) {
+      updates.sponsor = sponsorId ? { connect: { id: sponsorId } } : { disconnect: true };
+    }
 
     if (Object.keys(updates).length === 0) {
       return { error: "No fields provided to update" };
@@ -164,6 +189,7 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
         discountValue: true,
         isActive: true,
         usedCount: true,
+        sponsorId: true,
       },
     });
 

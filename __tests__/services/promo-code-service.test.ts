@@ -35,6 +35,8 @@ vi.mock("@/lib/db", () => ({
   tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
+const sponsorExistsSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/sponsors", () => ({ sponsorExistsOnEvent: sponsorExistsSpy }));
 
 import { applyPromoCodeToRegistration, createPromoCode, removePromoCodeFromRegistration } from "@/services/promo-code-service";
 
@@ -271,6 +273,37 @@ describe("createPromoCode (shared REST + MCP create path — audit-drift finding
       ticketTypes: [],
       _count: { redemptions: 0 },
     });
+    sponsorExistsSpy.mockResolvedValue(true);
+  });
+
+  /**
+   * Sponsor attribution. Blank normalisation is the case that matters: since
+   * phase 2 put a foreign key on the column, `sponsorId: ""` is a constraint
+   * violation rather than a harmless empty value, so a form Select reporting
+   * "no selection" would surface as an opaque 500 instead of clearing it.
+   */
+  it("normalises a blank sponsorId to NULL instead of writing an FK-violating empty string", async () => {
+    for (const blank of ["", "   ", null, undefined]) {
+      mockDb.promoCode.create.mockClear();
+      sponsorExistsSpy.mockClear();
+      await createPromoCode({ ...CREATE_BASE, sponsorId: blank as string | null | undefined });
+      expect(mockDb.promoCode.create.mock.calls[0][0].data.sponsorId, `blank ${JSON.stringify(blank)}`).toBeNull();
+      // Nothing to resolve, so no wasted lookup either.
+      expect(sponsorExistsSpy).not.toHaveBeenCalled();
+    }
+  });
+
+  it("refuses a sponsorId that is not a sponsor on this event", async () => {
+    sponsorExistsSpy.mockResolvedValue(false);
+    const r = await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_elsewhere" });
+    expect(r).toMatchObject({ ok: false, code: "SPONSOR_NOT_FOUND" });
+    expect(mockDb.promoCode.create).not.toHaveBeenCalled();
+  });
+
+  it("stores a valid sponsorId", async () => {
+    await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott" });
+    expect(sponsorExistsSpy).toHaveBeenCalledWith("evt-1", "spn_abbott");
+    expect(mockDb.promoCode.create.mock.calls[0][0].data.sponsorId).toBe("spn_abbott");
   });
 
   it("creates the code (normalized uppercase) AND writes the audit row — the MCP path used to skip it", async () => {

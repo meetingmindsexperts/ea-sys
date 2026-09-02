@@ -56,7 +56,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags, useSponsors } from "@/hooks/use-api";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { TagFilter } from "@/components/registrations/tag-filter";
@@ -91,6 +91,13 @@ import {
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
 import { canViewEntryBarcode } from "@/lib/barcode-visibility";
+import { canViewFinance } from "@/lib/finance-visibility";
+
+/**
+ * Radix `SelectItem` rejects value="" (it reserves the empty string for the
+ * cleared state), so "no sponsor filter" needs a sentinel mapped back to "".
+ */
+const SPONSOR_FILTER_ALL = "__all__";
 import { BadgeDialog } from "./badge-dialog";
 import { resolvePastedIds } from "./resolve-pasted-ids";
 
@@ -119,6 +126,12 @@ export default function RegistrationsPage() {
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  // "" = no filter. SERVER-side like the tag filter and for a stronger reason:
+  // "everyone this sponsor brought" is a three-way union (a direct tag on the
+  // registration, the sponsor's promo code, or a GROUP that used that code),
+  // and the group arm needs a join the client cannot do. Filtering here would
+  // silently drop every member of a sponsored delegation.
+  const [sponsorFilter, setSponsorFilter] = useState<string>("");
 
   // React Query hooks
   // NOTE: tags filter is threaded into the URL params here (NOT into
@@ -127,10 +140,14 @@ export default function RegistrationsPage() {
   // filtering in JS. The status/payment/ticket filters stay client-side
   // for now — refactoring those would invalidate cached pages on every
   // filter flip.
-  const registrationsQuery = useRegistrations(
-    eventId,
-    tagFilter.length > 0 ? { tags: tagFilter.join(",") } : undefined,
-  );
+  const serverFilters =
+    tagFilter.length > 0 || sponsorFilter
+      ? {
+          ...(tagFilter.length > 0 ? { tags: tagFilter.join(",") } : {}),
+          ...(sponsorFilter ? { sponsorId: sponsorFilter } : {}),
+        }
+      : undefined;
+  const registrationsQuery = useRegistrations(eventId, serverFilters);
   const registrations = (registrationsQuery.data ?? []) as Registration[];
   const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
   const ticketsQuery = useTickets(eventId);
@@ -146,6 +163,14 @@ export default function RegistrationsPage() {
   // and excludes ONSITE (the desk, who must see them). The two boundaries
   // genuinely disagree, which is why barcode visibility has its own predicate.
   const canSeeBarcodes = canViewEntryBarcode(roleName);
+  const { data: sponsorData } = useSponsors(eventId);
+  const sponsors = sponsorData?.sponsors ?? [];
+  // Gated on the SAME predicate the API gates the filter on, which returns 403
+  // rather than ignoring it. So this is not cosmetic hiding: rendering the
+  // control for a role the server refuses would break the whole list the moment
+  // they touched it. It also stays hidden when the event has no sponsors, since
+  // a filter that can only mean "all" is noise.
+  const canFilterBySponsor = canViewFinance(roleName) && sponsors.length > 0;
   const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {
@@ -231,6 +256,7 @@ export default function RegistrationsPage() {
       // filtered subset. Every filter the table applies must be sent.
       if (!scopeGroupId) {
         if (tagFilter.length > 0) p.set("tags", tagFilter.join(","));
+        if (sponsorFilter) p.set("sponsorId", sponsorFilter);
         if (searchQuery.trim()) p.set("q", searchQuery.trim());
       }
 
@@ -658,6 +684,22 @@ export default function RegistrationsPage() {
                 ))}
               </SelectContent>
             </Select>
+            {canFilterBySponsor && (
+              <Select
+                value={sponsorFilter || SPONSOR_FILTER_ALL}
+                onValueChange={(v) => { setSponsorFilter(v === SPONSOR_FILTER_ALL ? "" : v); setPage(1); }}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Sponsor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SPONSOR_FILTER_ALL}>All Sponsors</SelectItem>
+                  {sponsors.map((sp) => (
+                    <SelectItem key={sp.id} value={sp.id}>{sp.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <TagFilter
               tags={tagsQuery.data?.tags}
               isLoading={tagsQuery.isLoading}
@@ -962,7 +1004,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0)
+                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0 || sponsorFilter !== "")
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>

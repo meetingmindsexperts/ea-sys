@@ -156,3 +156,47 @@ describe("the Sponsor export column", () => {
     expect(cell({})).toBe("");
   });
 });
+
+/**
+ * The MCP write path. Source-asserted rather than executed: the executors are
+ * thin, and the ONE thing that is easy to get wrong here is which event the
+ * sponsor is validated against.
+ *
+ * `update_promo_code` finds the code by `{ id, event: { organizationId } }`, so
+ * a code belonging to a SIBLING event in the same org is reachable. Validating
+ * the sponsor against `ctx.eventId` would then check the wrong event's sponsor
+ * list, and it fails in both directions: refusing a sponsor that is genuinely on
+ * the code's event, and accepting one that is not. The foreign key would still
+ * catch the second, but as a 500 rather than an answer.
+ */
+describe("MCP promo-code tools carry sponsor attribution", () => {
+  const src = readFileSync(path.join(process.cwd(), "src/lib/agent/tools/promo-codes.ts"), "utf8");
+
+  it("validates the sponsor against the code's OWN event, not ctx.eventId", () => {
+    expect(src).toContain("sponsorExistsOnEvent(existing.eventId, sponsorId)");
+    expect(src, "validating against ctx.eventId checks the wrong event's sponsors").not.toContain(
+      "sponsorExistsOnEvent(ctx.eventId",
+    );
+  });
+
+  it("passes sponsorId through on create, where the service has always accepted it", () => {
+    // The service validated sponsorId from phase 1; this boundary simply never
+    // sent it, so an agent could not attribute a code it had just created.
+    const create = /const createPromoCode: ToolExecutor[\s\S]*?^};/m.exec(src);
+    expect(create, "create_promo_code executor not found").toBeTruthy();
+    expect(create![0]).toContain("sponsorId:");
+  });
+
+  it("distinguishes clearing from leaving alone on update", () => {
+    // `undefined` means the caller said nothing and the attribution must
+    // survive; `null` means clear it. Collapsing the two strips a sponsor on
+    // every unrelated edit.
+    expect(src).toContain("if (input.sponsorId !== undefined)");
+    expect(src).toContain("disconnect: true");
+  });
+
+  it("returns the resulting attribution so the caller can confirm it landed", () => {
+    const update = /const updatePromoCode: ToolExecutor[\s\S]*?^};/m.exec(src);
+    expect(update![0]).toContain("sponsorId: true");
+  });
+});

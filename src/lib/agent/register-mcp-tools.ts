@@ -536,7 +536,7 @@ export function registerAllMcpTools(
         description: z.string().optional(),
       })),
     }},
-    { name: "create_promo_code", description: "Create a discount/promo code. discountType: PERCENTAGE (value 1-100) or FIXED_AMOUNT. Optional: description, currency, maxUses, maxUsesPerEmail, validFrom, validUntil, ticketTypeIds (restricts applicability).", params: {
+    { name: "create_promo_code", description: "Create a discount/promo code. discountType: PERCENTAGE (value 1-100) or FIXED_AMOUNT. Optional: description, currency, maxUses, maxUsesPerEmail, validFrom, validUntil, ticketTypeIds (restricts applicability), sponsorId (attributes the code to a sponsor so its registrations report under them; use list_sponsors to find the id).", params: {
       code: z.string(),
       discountType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]),
       discountValue: z.number(),
@@ -548,8 +548,9 @@ export function registerAllMcpTools(
       validUntil: z.string().optional(),
       isActive: z.boolean().optional(),
       ticketTypeIds: z.array(z.string()).optional(),
+      sponsorId: z.string().optional(),
     }},
-    { name: "update_promo_code", description: "Update a promo code. Any field can be changed. Code itself is immutable — delete and recreate if needed.", params: {
+    { name: "update_promo_code", description: "Update a promo code. Any field can be changed. Code itself is immutable, delete and recreate if needed. sponsorId attributes the code to a sponsor so its registrations report under them (use list_sponsors for the id); pass null to clear the attribution.", params: {
       promoCodeId: z.string(),
       description: z.string().nullable().optional(),
       discountType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
@@ -558,6 +559,7 @@ export function registerAllMcpTools(
       validFrom: z.string().nullable().optional(),
       validUntil: z.string().nullable().optional(),
       isActive: z.boolean().optional(),
+      sponsorId: z.string().nullable().optional(),
     }},
     { name: "delete_promo_code", description: "Soft-delete a promo code by setting isActive=false. Usage history is preserved. Hard delete is dashboard-only.", params: {
       promoCodeId: z.string(),
