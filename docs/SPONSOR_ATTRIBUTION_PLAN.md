@@ -62,21 +62,37 @@ a number that holds and one that quietly shrinks.
    add a delete guard" option. This is the larger of the two and it is taken
    deliberately: reporting an organiser bills against should not rest on a
    string pointer into a JSON array with no referential integrity.
-3. **Sponsor attribution is finance-redacted, like the payer already is.**
-   `sponsorId` joins `FINANCIAL_KEYS`, so MEMBER stops seeing it. This resolves
-   a **pre-existing inconsistency** rather than inventing a rule: `billingAccount`,
-   `billingAccountId`, `payerReference` and `attendeeIsGuarantor` are all
-   redacted today with the recorded reason "MEMBER never sees who funds a
-   doctor, Mecomed-sensitive", and sponsor attribution is that same fact.
-   **It is a behaviour change on a live system**: MEMBER can see this field
-   today and will stop.
+3. **Sponsor attribution travels with the payer keys.** `sponsorId` joins
+   `FINANCIAL_KEYS` so it is treated exactly as `billingAccountId`,
+   `payerReference` and `attendeeIsGuarantor` are.
+
+   **⚠ CORRECTED, and the correction matters more than the decision.** This was
+   asked as "should MEMBER see who sponsored a delegate?", on the stated ground
+   that MEMBER cannot see the payer fields. **That ground was false.** MEMBER
+   joined `FINANCE_ROLES` with the June 17 2026 "desk staff record payments"
+   decision, so `canViewFinance("MEMBER")` is true and none of those keys has
+   been redacted for MEMBER for months. The claim came from the comment sitting
+   directly above them in `finance-visibility.ts`, which still described the
+   pre-June-17 rule. **The adversarial pass read a stale comment instead of the
+   predicate twenty lines above it and raised a HIGH that did not exist.**
+
+   So the change is real but modest: sponsor and payer are now handled
+   identically, which they were before too. It hides `sponsorId` from
+   REVIEWER, SUBMITTER, REGISTRANT, CRM_USER and HR_USER, roles that largely
+   cannot reach these routes anyway. Both comments are corrected in place.
+
+   **The genuine question is now OPEN and is the owner's:** should MEMBER,
+   ONSITE and WEBINARS be able to learn which sponsor funds which delegate? If
+   no, `FINANCIAL_KEYS` is the wrong lever entirely and it needs a narrower
+   predicate, the way the CRM's `canViewDealValues` is deliberately narrower
+   than `canViewFinance`. Nothing in this plan assumes an answer.
 
    **Only `sponsorId` on a registration, never the sponsor LIST.** Who sponsors
    an event is public, their logos are on the public session page. What is
    private is which sponsor funded which delegate. `redactFinancialFields` is a
-   recursive strip by key NAME, so adding a bare `sponsors` would blank the
-   public sponsor list wherever it appears. That file's own header warns about
-   exactly this after `value` nearly blanked every survey answer.
+   recursive strip by key NAME, so a bare `sponsors` would blank the public
+   list wherever it appears. That file's own header warns about exactly this
+   after `value` nearly blanked every survey answer.
 
 4. **A paying delegate can be tagged to a sponsor directly.** The picker is
    shown for any payment status, not only INCLUSIVE. **Consequence to state
@@ -293,11 +309,18 @@ carefully and the proposed design was then not stressed against it.**
 | | Defect | Where it is fixed |
 |---|---|---|
 | HIGH | The union query missed every group registration, so a sponsor's 20-person delegation returned zero rows | §6, third arm |
-| HIGH | Sponsor attribution was not finance-redacted while the payer is, and the plan widened access to it with a filter, an export column and a report | §2 decision 3 |
+| ~~HIGH~~ **FALSE** | "Sponsor attribution was not finance-redacted while the payer is." Withdrawn: MEMBER has been finance-capable since June 2026, so the two were always treated the same. The finding came from a stale COMMENT rather than the predicate. See §2 decision 3 |
 | HIGH | `Restrict` risks failing event deletion, and contradicted the sub-theme precedent the plan itself cites | §3, now `SetNull` plus an app guard |
 | MED | `@@unique([eventId, name])` contradicted `upsert_sponsors`' own (name, tier) identity | §3 |
 | MED | Phase 1 added a second unvalidated pointer, doubling the defect if phase 2 never lands | §6 |
 | MED | Two sponsors could both claim one registration with no precedence rule, so totals over-count | §6 |
+
+**And one finding was wrong**, which is worth as much as the five that were
+right. The redaction HIGH was raised off a comment that had outlived its rule.
+The lesson is narrow and repeatable: **in a codebase that records decisions in
+prose, a comment is evidence of what someone once decided, not of what the code
+now does.** Read the predicate. The comment has since been corrected, since the
+next person would have made the same mistake.
 
 One thing the draft made sound more expensive than it is: `@@index([sponsorId])`
 already exists on `Registration`, and the schema comment there already states

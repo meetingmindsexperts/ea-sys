@@ -2012,9 +2012,24 @@ export function RegistrationDetailSheet({
 
               {/* Sponsor picker — only relevant when the (staged) payment status
                   is INCLUSIVE. Staged into the edit form; committed by Save. */}
-              {isEditing && editData.paymentStatus === "INCLUSIVE" && (
+              {/* Shown for EVERY payment status since Sep 2 2026, not only
+                  INCLUSIVE. The service has always accepted and validated a
+                  sponsor on a paying registration; one condition here made it
+                  unreachable, so a doctor a sponsor invited and who paid their
+                  own way could not be attributed to them.
+
+                  Consequence, and it is why the wording below changed:
+                  "sponsored by" no longer implies "this sponsor paid". It is
+                  attribution; paymentStatus answers the money question.
+                  INCLUSIVE still REQUIRES a sponsor, guarded on save. */}
+              {isEditing && (
                 <div className="space-y-2">
-                  <Label>Sponsored by</Label>
+                  <Label>
+                    Sponsored by
+                    {editData.paymentStatus !== "INCLUSIVE" && (
+                      <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                    )}
+                  </Label>
                   {sponsors.length === 0 ? (
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
                       No sponsors configured for this event.{" "}
@@ -2033,7 +2048,7 @@ export function RegistrationDetailSheet({
                       disabled={updateRegistration.isPending}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Pick the sponsor that paid" />
+                        <SelectValue placeholder="Attribute this registration to a sponsor" />
                       </SelectTrigger>
                       <SelectContent>
                         {sponsors.map((s) => (

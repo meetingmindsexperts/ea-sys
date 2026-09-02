@@ -11,6 +11,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { readSponsors } from "@/lib/webinar";
 import {
   computeCancelledCreditState,
   computeRegistrationFinancials,
@@ -257,6 +258,44 @@ export async function GET(req: Request, { params }: RouteParams) {
           .slice(0, 20)
       : [];
 
+    // Sponsor attribution filter: "everyone this sponsor brought".
+    //
+    // THREE arms, and the third is not optional. A sponsor's exhibitor staff
+    // carry `Registration.sponsorId`; the doctors they invited carry the
+    // sponsor's promo code; and a GROUP that used that code puts it on
+    // `RegistrationGroup.promoCodeId`, leaving every member's own
+    // `promoCodeId` NULL. Omit the group arm and a twenty-person sponsor
+    // delegation returns zero rows, which is precisely the shape a delegation
+    // takes (docs/SPONSOR_ATTRIBUTION_PLAN.md §6).
+    //
+    // GATED on the finance predicate, because `sponsorId` is redacted for
+    // MEMBER and a filter would hand the same fact straight back: filter to
+    // Abbott, read the names off the rows. A redacted field must not stay
+    // filterable, or the filter reconstructs it.
+    const sponsorIdParam = searchParams.get("sponsorId");
+    const sponsorFilterId = sponsorIdParam?.trim() ? sponsorIdParam.trim().slice(0, 100) : null;
+    if (sponsorFilterId && !canViewFinance(orgCtx.role)) {
+      apiLogger.warn({
+        msg: "events/registrations:sponsor-filter-refused",
+        eventId,
+        userId: orgCtx.userId,
+        role: orgCtx.role,
+      });
+      return NextResponse.json(
+        { error: "Sponsor attribution is not visible to your role.", code: "SPONSOR_FILTER_FORBIDDEN" },
+        { status: 403 },
+      );
+    }
+    const sponsorWhere = sponsorFilterId
+      ? {
+          OR: [
+            { sponsorId: sponsorFilterId },
+            { promoCode: { sponsorId: sponsorFilterId } },
+            { group: { promoCode: { sponsorId: sponsorFilterId } } },
+          ],
+        }
+      : {};
+
     // Incremental-sync date filters (shared parser — also on speakers + the
     // MCP list tools). An invalid value 400s, never silently widens.
     const dateRange = parseDateRangeFilters((k) => searchParams.get(k));
@@ -288,7 +327,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         // "needs credit note" computation below (mirrors the detail route).
         // taxLabel is carried for the CSV export's financials call so the
         // numbers are computed under the event's own tax configuration.
-        select: { id: true, taxRate: true, taxLabel: true },
+        // `settings` carries the sponsor list, so the export can print a NAME
+        // rather than the raw id the row holds.
+        select: { id: true, taxRate: true, taxLabel: true, settings: true },
       }),
       db.registration.findMany({
         where: {
@@ -297,6 +338,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
           ...(groupId && { groupId }),
+          ...sponsorWhere,
           // Tags and free-text search BOTH constrain `attendee`, so they must
           // be merged into one nested filter — spreading them as two `attendee`
           // keys would let the later one silently drop the earlier (the
@@ -530,12 +572,18 @@ export async function GET(req: Request, { params }: RouteParams) {
     // about an amount or a code. It runs on the already-redacted payload, so a
     // caller who can't see money gets those columns blank rather than wrong —
     // the same contract the full export has.
+    // Built once per request rather than per row: the list is small, but a
+    // per-row readSponsors() would re-parse the settings JSON for every
+    // registration in a 2,000-row export.
+    const sponsorNameById = new Map(readSponsors(event.settings).map((sp) => [sp.id, sp.name]));
+
     if (searchParams.get("export") === "sales") {
       const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
         toSalesExportRow(
           buildRegistrationExportRow(r, {
             taxRate: event.taxRate != null ? Number(event.taxRate) : null,
             taxLabel: event.taxLabel ?? null,
+            sponsorNameById,
           }),
         ),
       );
@@ -585,6 +633,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         buildRegistrationExportRow(r, {
           taxRate: event.taxRate != null ? Number(event.taxRate) : null,
           taxLabel: event.taxLabel ?? null,
+          sponsorNameById,
         }),
       );
       const csv = [REGISTRATION_EXPORT_HEADERS.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");

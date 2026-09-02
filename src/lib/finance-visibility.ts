@@ -115,13 +115,40 @@ const FINANCIAL_KEYS = new Set<string>([
   "billingLastName",
   // "Charge to another account" — the third-party payer (with its
   // taxNumber + address), the PO/grant reference, and the guarantor flag
-  // are billing/finance context. A MEMBER inferring "Dr. X is funded by
-  // pharma Y" is exactly the Mecomed-sensitive disclosure MEMBER must not
-  // see.
+  // are billing/finance context.
+  //
+  // ⚠ CORRECTED Sep 2 2026. This comment used to end "A MEMBER inferring
+  // 'Dr. X is funded by pharma Y' is exactly the Mecomed-sensitive disclosure
+  // MEMBER must not see." That has been FALSE since June 17 2026, when the
+  // "desk staff record payments" decision put MEMBER into FINANCE_ROLES: these
+  // keys are not redacted for MEMBER and have not been for months. The
+  // sentence outlived the rule it described.
+  //
+  // It cost real time. An adversarial review on Sep 2 read this comment rather
+  // than the predicate twenty lines above it, concluded that sponsorId was
+  // inconsistent with these keys, and raised a HIGH that did not exist. **If
+  // the intent really is that MEMBER must not learn who funds a doctor, this
+  // set is the wrong lever** and it needs a narrower predicate, the way the
+  // CRM's canViewDealValues is deliberately narrower than canViewFinance.
+  // That is an owner decision. Recorded here rather than in a plan document
+  // because this is where the next person will look.
   "billingAccount",
   "billingAccountId",
   "payerReference",
   "attendeeIsGuarantor",
+  // Sponsor attribution on a REGISTRATION: which sponsor funded, or invited,
+  // this delegate. Added Sep 2 2026 so it travels with the payer keys above,
+  // which are the same class of fact. Note what that does and does not buy:
+  // every finance-capable role, MEMBER and ONSITE included, still sees it. It
+  // is consistency, not concealment. See the correction note above.
+  //
+  // ⚠ ONLY the id, never the sponsor LIST. Who sponsors an event is PUBLIC:
+  // their logos are on the public session page and the registration page. What
+  // is private is which sponsor funded which delegate. This redactor strips by
+  // key NAME recursively, so a bare "sponsors" here would blank that public
+  // list everywhere it appears, and "sponsor" would blank a resolved name on
+  // any payload that carries one. Same trap the `value` note above describes.
+  "sponsorId",
 ]);
 
 /**

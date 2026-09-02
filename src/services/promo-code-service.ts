@@ -2,6 +2,7 @@ import { PaymentStatus, Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { readSponsors } from "@/lib/webinar";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -365,6 +366,7 @@ export type CreatePromoCodeErrorCode =
   | "INVALID_DISCOUNT"
   | "INVALID_TICKET_TYPES"
   | "DUPLICATE_CODE"
+  | "SPONSOR_NOT_FOUND"
   | "UNKNOWN";
 
 export interface CreatePromoCodeInput {
@@ -384,6 +386,16 @@ export interface CreatePromoCodeInput {
   validUntil?: Date | null;
   isActive?: boolean;
   ticketTypeIds?: string[];
+  /**
+   * Attribute this code to a sponsor, as an id into `Event.settings.sponsors[]`.
+   * Optional: most codes belong to nobody.
+   *
+   * Validated here rather than trusted, for the reason the whole feature
+   * exists: `Registration.sponsorId` is an unvalidated-by-the-database string
+   * pointer, and adding a second one that nothing checks would double the
+   * defect instead of fixing it (docs/SPONSOR_ATTRIBUTION_PLAN.md §6).
+   */
+  sponsorId?: string | null;
 }
 
 const PROMO_CREATE_INCLUDE = {
@@ -417,10 +429,22 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
 
     const event = await db.event.findFirst({
       where: { id: input.eventId, organizationId: input.organizationId },
-      select: { id: true },
+      // `settings` carries the sponsor list, so the sponsorId check below costs
+      // no second query.
+      select: { id: true, settings: true },
     });
     if (!event) {
       return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found or access denied" };
+    }
+
+    const sponsorId = input.sponsorId ?? null;
+    if (sponsorId && !readSponsors(event.settings).some((s) => s.id === sponsorId)) {
+      return {
+        ok: false,
+        code: "SPONSOR_NOT_FOUND",
+        message:
+          "sponsorId does not match any sponsor on this event. Add the sponsor on the event's Sponsors page first, then reference its id.",
+      };
     }
 
     const ticketTypeIds = input.ticketTypeIds ?? [];
@@ -448,6 +472,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
         eventId: input.eventId,
         organizationId: input.organizationId,
         code,
+        sponsorId,
         description: input.description ?? null,
         discountType: input.discountType,
         discountValue: input.discountValue,

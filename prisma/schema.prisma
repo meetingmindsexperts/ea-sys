@@ -2880,6 +2880,18 @@ model PromoCode {
   id              String       @id @default(cuid())
   eventId         String
   code            String
+  /// The sponsor this code belongs to, as an id into `Event.settings.sponsors[]`
+  /// (a string, not an FK, matching `Registration.sponsorId`; both become real
+  /// FKs when sponsors are promoted to a table, see
+  /// docs/SPONSOR_ATTRIBUTION_PLAN.md phase 2). Optional: most codes are a plain
+  /// discount and belong to nobody.
+  ///
+  /// It exists so "everyone this sponsor brought" is ONE query rather than two
+  /// manual pulls: a sponsor's exhibitor staff carry Registration.sponsorId,
+  /// the doctors they invited carry the code, and before this nothing joined
+  /// the two. VALIDATED on write against the event's sponsor list, so this does
+  /// not become a second unvalidated pointer.
+  sponsorId       String?
   description     String?      @db.Text
   discountType    DiscountType
   discountValue   Decimal      @db.Decimal(10, 2)
@@ -2907,6 +2919,7 @@ model PromoCode {
   @@index([eventId])
   @@index([code])
   @@index([organizationId])
+  @@index([sponsorId])
 }
 
 enum DiscountType {

@@ -54,6 +54,7 @@ export const REGISTRATION_EXPORT_HEADERS = [
   "Registration Type",
   "Pricing Tier",
   "Payer",
+  "Sponsor",
   "Status",
   "Payment Status",
   "Amount Due",
@@ -106,6 +107,8 @@ export interface RegistrationExportRow {
   ticketType?: { id?: string; name?: string | null; isFaculty?: boolean | null; currency?: string | null; price?: unknown } | null;
   pricingTier?: { name?: string | null; currency?: string | null; price?: unknown } | null;
   billingAccount?: { name?: string | null } | null;
+  /** Redacted (undefined) for non-finance roles; see the redaction contract. */
+  sponsorId?: string | null;
   promoCode?: { code?: string | null } | null;
   payments?: Array<{ status?: string | null; amount: unknown }> | null;
 }
@@ -114,6 +117,18 @@ export interface RegistrationExportContext {
   /** Event tax rate as a number, or null when the event charges no tax. */
   taxRate: number | null;
   taxLabel: string | null;
+  /**
+   * Sponsor id to display name, from `Event.settings.sponsors[]`. The row
+   * carries only the id, and an id in a spreadsheet is useless to the person
+   * reading it.
+   *
+   * Absent for a caller that did not resolve the list, which renders the cell
+   * blank rather than leaking a raw cuid. `sponsorId` is redacted for
+   * non-finance roles, but the export is already narrower than that
+   * (`canExportRegistrations` excludes MEMBER), so this column needs no gate of
+   * its own.
+   */
+  sponsorNameById?: Map<string, string>;
 }
 
 /** Money columns render "" (not "0.00") when redaction removed the inputs. */
@@ -191,6 +206,10 @@ export function buildRegistrationExportRow(
     // Third-party payer; blank = attendee self-pays. In FINANCIAL_KEYS, so the
     // field is simply absent from a non-finance caller's payload.
     r.billingAccount?.name ?? "",
+    // Name, not id. Falls back to the id only when the caller passed no map, so
+    // a mis-wired caller shows something diagnosable rather than a blank column
+    // that reads as "no sponsor".
+    r.sponsorId ? (ctx.sponsorNameById?.get(r.sponsorId) ?? r.sponsorId) : "",
     r.status,
     r.paymentStatus,
     money(amountDue),
@@ -226,6 +245,7 @@ export const REGISTRATION_SALES_COLUMNS = [
   "Email",
   "Organization",
   "Payer",
+  "Sponsor",
   "Registration Type",
   "Payment Status",
   "Promo Code",

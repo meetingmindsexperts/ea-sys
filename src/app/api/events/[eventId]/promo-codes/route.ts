@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { createPromoCode, type CreatePromoCodeErrorCode } from "@/services/promo-code-service";
 
 const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
@@ -15,6 +16,7 @@ const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
   INVALID_DISCOUNT: 400,
   INVALID_TICKET_TYPES: 400,
   DUPLICATE_CODE: 409,
+  SPONSOR_NOT_FOUND: 400,
   UNKNOWN: 500,
 };
 
@@ -35,6 +37,10 @@ const createPromoCodeSchema = z
     validUntil: z.string().datetime().nullable().optional(),
     isActive: z.boolean().default(true),
     ticketTypeIds: z.array(z.string()).optional(),
+    // Attribute the code to a sponsor. The service validates it against the
+    // event's sponsor list; "" clears it, matching how the detail sheet's
+    // Select reports "no selection".
+    sponsorId: z.string().max(100).nullable().optional(),
   })
   .refine(
     (d) => d.discountType !== "PERCENTAGE" || d.discountValue <= 100,
@@ -82,7 +88,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return NextResponse.json(promoCodes);
+    // Redact for non-finance roles. This route had NO redaction, which was
+    // already a gap for `discountValue` (in FINANCIAL_KEYS since the finance
+    // boundary shipped) and became a second one the moment `sponsorId` landed
+    // on this payload: the whole point of redacting sponsor attribution is that
+    // MEMBER cannot learn which sponsor funds which delegate, and a promo code
+    // carrying its sponsor is the same fact one hop away.
+    return NextResponse.json(
+      canViewFinance(session.user.role) ? promoCodes : redactFinancialFields(promoCodes),
+    );
     });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to list promo codes" });
@@ -140,6 +154,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       validUntil: data.validUntil ? new Date(data.validUntil) : null,
       isActive: data.isActive,
       ticketTypeIds,
+      sponsorId: data.sponsorId?.trim() ? data.sponsorId.trim() : null,
     });
 
     if (!result.ok) {
