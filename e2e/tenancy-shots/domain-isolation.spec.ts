@@ -104,6 +104,28 @@ const DOMAINS: Domain[] = [
     path: () => "/api/contacts?page=1&limit=50",
     marker: (s) => `contact@${s}.test`,
   },
+  // HR, added Sep 2 2026. The module shipped six days AFTER the Aug 21
+  // rehearsal, so until the fixtures landed no HR query had ever run against a
+  // database with policies on it. Both tenants deliberately hold an employee
+  // `E-001` and a holiday on the same date, so the shared key is the fixture
+  // and the NAME is the discriminator: a lane that returns the wrong tenant's
+  // row fails here, which is a stronger check than one that only proves absence.
+  //
+  // AttendanceEntry is deliberately not a row here. Its endpoint takes a date
+  // range and the fixtures are seeded in the CURRENT month, so a marker would
+  // need a computed window, and the harness already covers that policy with
+  // fifteen assertions. Reads of it on the grid go through the employee lane
+  // this row exercises.
+  {
+    name: "hr employees",
+    path: () => "/api/hr/employees",
+    marker: (s) => (s === "acme" ? "Acme Bakhit" : "Globex Bakhit"),
+  },
+  {
+    name: "hr holidays",
+    path: () => "/api/hr/holidays",
+    marker: (s) => (s === "acme" ? "Acme Founders Day" : "Globex Foundation Day"),
+  },
   {
     name: "speakers",
     path: (t) => `/api/events/${t.eventId}/speakers`,

@@ -281,7 +281,7 @@ fails **open** — the id is used directly, so the tenant lane is entered for th
 
 ### What now guards against a recurrence
 
-- `npm run tenancy:isolation` — thirteen domains, both tenants, through the
+- `npm run tenancy:isolation` — fifteen domains, both tenants, through the
   running app. Asserts each tenant's own rows are **present** as well as the
   other's absent, because absence alone is satisfied by a broken app.
 - `scripts/check-tenant-als.sh` — a route in a swept domain that loses its wrap
@@ -309,6 +309,43 @@ fails **open** — the id is used directly, so the tenant lane is entered for th
   account the condition exists to refuse. *Correct and unrun* is the shape of
   every defect found on Aug 21, so a predicate ten authorisation sites now
   depend on should not have stayed in it.
+
+### A second rehearsal, HR only (Sep 2, 2026)
+
+The HR module shipped on Aug 27, **six days after** the rehearsal above, and
+`setup-sandbox` had no HR fixtures. So every HR query had only ever run against
+a database with no policies on it: six policied tables, twelve routes, seventeen
+lane wraps and fifteen harness assertions, none of it ever executed by the
+application under enforcement.
+
+That is the same gap that hid the operator lockout and the registrant portal's
+missing lane, and it recurs for a structural reason rather than by carelessness:
+**a rehearsal is a snapshot, and the codebase keeps moving.** Anything built
+after one inherits none of its assurance.
+
+Verified by hand on Sep 2: each host shows its OWN `E-001` and its own label on
+the shared holiday date, with attendance for the current month. No empty grid,
+which is what a missing lane would have produced.
+
+Made repeatable rather than left as a one-off. The sandbox now seeds the real
+leave-code catalogue, two employees, a month of attendance, an org-scoped
+standing rule and two holidays per tenant, with the employee code and one
+holiday date colliding across orgs on purpose; `npm run dev:sandbox` sets
+`HR_MODULE_ENABLED`, the tenant admin carries `User.hrAccess`, and
+`tenancy:isolation` gained two HR domains.
+
+**And the gap one layer up was closed the same day.** Every tenancy guard in the
+repo was a CONFORMANCE check, and conformance cannot see an absence: nothing in
+CI read `schema.prisma`, so a model carrying `organizationId` that never got a
+policy file was invisible. That is how the four tables in the Aug 21 audit
+(`AbstractSubTheme`, `SpeakerProfileForm`, `AbstractSerialCounter`,
+`SessionProposalSerialCounter`) reached main with the column added and the routes
+wrapped and no policy. `__tests__/lib/rls-coverage.test.ts` is that audit turned
+into a gate: it derives from the schema, resolves `@@map` (a policy targets the
+TABLE, and `RsvpItem` / `RsvpResponse` are policied as `RsvpDinner` /
+`RsvpDinnerResponse`), and carries a per-entry allow-list with a written reason
+that three tests keep honest. Today: 92 models carry the column, 85 tables are
+policied, seven documented exceptions.
 
 ### The evidence pack
 
@@ -341,11 +378,16 @@ in [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md):
 - **The synthetic platform org** (§3) for ownerless rows, plus `PLATFORM_ORG_ID`
   and the audit-stamp null branch that reads it.
 - **Tenant offboarding** (§1) and the **NULL-org purge** (§2), both archive-to-S3.
-- **The identity model** (§6) — still open. `User.email` is globally unique
-  today. This does not block tenant #1 (one tenant cannot collide with itself);
-  it blocks tenant #2. Note the trap when it is decided: Postgres treats NULLs as
-  distinct in a unique index, so a naive `(organizationId, email)` compound
-  removes uniqueness entirely for the org-null roles.
+- ~~**The identity model** (§6)~~ ✅ **DONE Aug 21, 2026**, and this bullet
+  described it as open for twelve days after it shipped. Per-tenant accounts are
+  enforced by `prisma/platform/010-user-identity.sql`, applied by the bootstrap
+  and never by the migration chain (master and the platform share one
+  `schema.prisma`, so a required-column migration would fail on master's 113
+  org-null accounts). The NULL trap this bullet warned about is defused in that
+  file by `NULLS NOT DISTINCT`, which falls an org-less row back to GLOBAL
+  uniqueness rather than to none. The code half shipped with it: one
+  tenant-aware resolver, every by-email lookup migrated, and
+  `scripts/check-user-email-scope.sh` pinning the rule.
 - **The remaining unpoliced tables.** An audit of org-bearing models against the
   policy set (Aug 21) found four genuine misses, since fixed: `AbstractSubTheme`,
   `SpeakerProfileForm`, `AbstractSerialCounter` and `SessionProposalSerialCounter`

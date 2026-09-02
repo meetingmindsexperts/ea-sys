@@ -20,7 +20,7 @@
 | 3 | Org-null audit-write loss | ✅ DECIDED: stamp a **synthetic platform org**, not MMG's (nuance resolved Aug 11) |
 | 4 | The `?? ""` fallback pass | ✅ **DONE** Aug 11, 2026. Decision CORRECTED then shipped (§4) |
 | 5 | Privileged maintenance lane | ✅ **BUILT** Aug 11, 2026. All four decisions taken, code shipped (§5) |
-| 6 | Phase-1 identity model | ✅ **DECIDED** Aug 21, 2026 — per-tenant accounts, enforced by a column (§6) |
+| 6 | Phase-1 identity model | ✅ **BUILT** Aug 21, 2026 — per-tenant accounts, enforced by a column (§6) |
 | 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ **IMPLEMENTED** Aug 4, 2026 (§7) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
 
@@ -812,9 +812,13 @@ than reasoned about.
 and the ADMIN-gate sweep it spawned is done. What remains is build work and one
 standing question below.
 
-- **No discussions left.** Item 6 (§6) closed the list. Its build is not
-  scheduled, and until it lands **the registrant portal returns nothing on the
-  platform** — that is the one consequence worth scheduling around.
+- **No discussions left.** Item 6 (§6) closed the list, and its build landed
+  the same day: the constraint, the resolver, every by-email site, the CI gate,
+  and the registrant portal's own tenant lane. This bullet used to warn that the
+  portal would return nothing on the platform until item 6 shipped. That was
+  already stale when it was written, and it is corrected in place rather than
+  deleted, because a stale caution is the kind of line that makes someone
+  re-scope finished work.
 - **One small owner call outstanding**, surfaced by the ADMIN-gate sweep and not
   acted on: `api-keys` and `oauth-clients` let a SUPER_ADMIN grant the
   `INTERNAL` rate-limit tier, which exempts a key from *our* rate limit. It is

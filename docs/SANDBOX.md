@@ -130,17 +130,33 @@ host (public). There is no in-session switcher (that's a future feature).
 
 ## Honest caveats (this is a partial platform — that's the point)
 
-Only ~14 domains are swept so far, so with RLS on:
+**Corrected Sep 2 2026.** This section used to say "only ~14 domains are swept"
+and list Survey, RSVP, Reimbursement, EmailLog and AuditLog as having no policy.
+All 20 domains finished on Aug 4 2026 and every one of those five has a policy
+file today, so the caution was describing a codebase four weeks in the past. It
+is called out rather than quietly rewritten because a stale caveat is worse than
+none: it tells the reader an empty screen is expected, which is exactly the
+symptom a real missing lane produces.
 
-- ✅ **Events + swept domains** (contacts, speakers, registrations, abstracts,
-  sessions, certificates, invoices, billing, accommodation, CRM, ticketing,
-  webinar, session-proposals) isolate correctly and work.
-- ⚠️ **Un-swept tables** (Survey, RSVP, Reimbursement, EmailLog, AuditLog,
-  EventStats…) have no policy yet → **not isolated** (would show cross-org).
-- ❌ **A page that reads a swept table via a not-yet-wrapped path** → **fail-closes**
-  (empty / 404 / error). **Finding these is genuinely useful** — each is a sweep
-  gap the automated harness can't catch. If a dashboard widget shows empty/errors
-  in the sandbox but works in MMG dev, you've found an un-wrapped reader.
+The current state, with RLS on:
+
+- ✅ **85 tables carry a policy**, covering every swept domain plus HR, travel
+  grants and the DTCM pool, which shipped after the sweep and were built
+  compliant rather than retrofitted. `__tests__/lib/rls-coverage.test.ts` fails
+  CI if a model gains `organizationId` without one.
+- ⚠️ **`Event` itself has no policy**, deliberately: 343 call sites across 201
+  files, and RLS on it would fail-close the whole dashboard. Event ROWS (names,
+  dates, venues, the `settings` JSON) are therefore cross-readable at the
+  database layer. Child tables carry their own `organizationId` and are policied
+  independently, so this does not cascade into registrations. Six more are
+  unpoliced on purpose and each has a written reason in the coverage gate's
+  allow-list; most are read *before* identity is resolved, so identity cannot
+  protect them.
+- ❌ **A page that reads a policied table through a not-yet-wrapped path**
+  → **fail-closes** (empty / 404 / error). **Finding these is genuinely
+  useful**: the harness proves isolation and never boots the app, so it cannot
+  see reachability. If a dashboard widget is empty here but works in MMG dev,
+  you have found a missing lane.
 
 So: treat rough edges as *data*, not bugs — they map the remaining sweep work.
 
