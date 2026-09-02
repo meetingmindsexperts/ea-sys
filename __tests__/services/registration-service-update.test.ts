@@ -44,6 +44,13 @@ const { mockDb } = vi.hoisted(() => {
   };
 });
 
+// Sponsors are a TABLE since Sep 2 2026; the fixture below mirrors what the
+// event's `settings.sponsors` used to hold, so the M7 change-scoped invariant
+// is still asserted against the same data.
+vi.mock("@/lib/sponsors", () => ({
+  getSponsors: vi.fn(async () => [{ id: "sp1", name: "Abbott", tier: "gold", sortOrder: 0 }]),
+  sponsorExistsOnEvent: vi.fn(async (_e: string, id: string) => id === "sp1"),
+}));
 vi.mock("@/lib/db", () => ({
   db: mockDb,
   // tenantTransaction with the flag off IS db.$transaction — delegate so the

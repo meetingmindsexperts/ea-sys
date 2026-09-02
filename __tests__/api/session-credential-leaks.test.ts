@@ -22,6 +22,14 @@ const { mockDb, mockAuth, mockOrgCtx, mockRateLimit } = vi.hoisted(() => ({
   mockRateLimit: vi.fn(),
 }));
 
+// Sponsors moved from Event.settings JSON to their own table (Sep 2 2026). These
+// suites do not exercise sponsor attribution, so the module is stubbed empty
+// rather than each db mock growing a `sponsor` delegate it never asserts on.
+vi.mock("@/lib/sponsors", () => ({
+  getSponsors: vi.fn(async () => []),
+  getSponsorNameMap: vi.fn(async () => new Map()),
+  sponsorExistsOnEvent: vi.fn(async () => false),
+}));
 vi.mock("next/server", () => ({
   NextResponse: {
     json: (b: unknown, i?: { status?: number }) => ({

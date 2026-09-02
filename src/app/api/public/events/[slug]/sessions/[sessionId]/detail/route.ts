@@ -6,7 +6,8 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
-import { readSponsors, readWebinarSettings } from "@/lib/webinar";
+import {readWebinarSettings} from "@/lib/webinar";
+import { getSponsors } from "@/lib/sponsors";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -213,7 +214,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Read sponsors from the Event.settings JSON escape hatch. The helper
     // filters malformed rows + sorts by sortOrder.
-    const sponsors = readSponsors(event.settings);
+    const sponsors = await getSponsors(event.id);
 
     return NextResponse.json({
       event: {

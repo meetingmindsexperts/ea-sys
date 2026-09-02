@@ -8,6 +8,7 @@ import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, readSponsors, webinarSecondRoomViolation, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import { getSponsors } from "@/lib/sponsors";
 import type { ToolExecutor } from "./_shared";
 
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
@@ -379,11 +380,11 @@ const listSponsors: ToolExecutor = async (_input, ctx) => {
   try {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
-      select: { settings: true },
+      select: { id: true },
     });
     if (!event) return { error: "Event not found or access denied" };
 
-    const sponsors = readSponsors(event.settings);
+    const sponsors = await getSponsors(ctx.eventId);
     const grouped: Record<string, SponsorEntry[]> = {};
     for (const s of sponsors) {
       const tier = s.tier ?? "exhibitor";

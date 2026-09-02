@@ -77,6 +77,20 @@ const {
   };
 });
 
+// Sponsors are a TABLE since Sep 2 2026. Mocked at the module boundary rather
+// than by growing `mockDb.sponsor`, because what these tests assert is the
+// service's CONTRACT (an unknown sponsor is refused, and the refusal names the
+// available ones), which is unchanged by where the list is read from.
+const SPONSOR_FIXTURES = [
+  { id: "sp-abbott", name: "Abbott", sortOrder: 0 },
+  { id: "sp-pfizer", name: "Pfizer", sortOrder: 1 },
+];
+vi.mock("@/lib/sponsors", () => ({
+  getSponsors: vi.fn(async () => SPONSOR_FIXTURES),
+  sponsorExistsOnEvent: vi.fn(async (_e: string, id: string) =>
+    SPONSOR_FIXTURES.some((s) => s.id === id),
+  ),
+}));
 vi.mock("@/lib/db", () => ({
   db: mockDb,
   // tenantTransaction with the flag off IS db.$transaction — delegate so the
@@ -121,15 +135,10 @@ const PAID_EVENT = {
   bankDetails: "Bank A details",
   supportEmail: "support@example.com",
   organizationId: "org-1",
-  // Settings include a sponsor list so INCLUSIVE tests have a valid id to
-  // reference. `readSponsors()` filters by shape so the array entry must
-  // have id + name + sortOrder.
-  settings: {
-    sponsors: [
-      { id: "sp-abbott", name: "Abbott", sortOrder: 0 },
-      { id: "sp-pfizer", name: "Pfizer", sortOrder: 1 },
-    ],
-  },
+  // Sponsors moved to their own table on Sep 2 2026, so the INCLUSIVE tests
+  // drive `getSponsors` (mocked below) rather than this blob. `settings` stays
+  // because other fixtures read it.
+  settings: {},
   organization: {
     name: "Test Org",
     companyName: "Test Co Ltd",

@@ -2,7 +2,8 @@ import { PaymentStatus, Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
-import { readSponsors } from "@/lib/webinar";
+
+import { sponsorExistsOnEvent } from "@/lib/sponsors";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -438,7 +439,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
     }
 
     const sponsorId = input.sponsorId ?? null;
-    if (sponsorId && !readSponsors(event.settings).some((s) => s.id === sponsorId)) {
+    if (sponsorId && !(await sponsorExistsOnEvent(input.eventId, sponsorId))) {
       return {
         ok: false,
         code: "SPONSOR_NOT_FOUND",

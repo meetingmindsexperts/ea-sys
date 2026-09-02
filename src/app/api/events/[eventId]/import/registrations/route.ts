@@ -20,7 +20,8 @@ import {
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
-import { readSponsors } from "@/lib/webinar";
+
+import { getSponsors } from "@/lib/sponsors";
 import type { RegistrationStatus, PaymentStatus } from "@prisma/client";
 
 // Accepted AttendeeRole ("Role"/profession) values for CSV import. Cells are
@@ -146,7 +147,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // names so we can reject ambiguous matches in the per-row loop
     // (silently picking the "first match" would corrupt money attribution
     // when two sponsors share a name prefix).
-    const sponsorList = readSponsors(event.settings);
+    const sponsorList = await getSponsors(eventId);
     const sponsorByName = new Map<string, { id: string; name: string }>();
     const ambiguousNames = new Set<string>();
     for (const s of sponsorList) {

@@ -7,7 +7,8 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { updateEventSettings } from "@/lib/event-settings";
-import { readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import {SPONSOR_TIERS, type SponsorEntry} from "@/lib/webinar";
+import { getSponsors } from "@/lib/sponsors";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -87,7 +88,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ sponsors: readSponsors(event.settings) });
+    return NextResponse.json({ sponsors: await getSponsors(eventId) });
   } catch (err) {
     apiLogger.error({ err }, "sponsors:list-failed");
     return NextResponse.json(

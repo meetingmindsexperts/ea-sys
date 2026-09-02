@@ -11,7 +11,6 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { readSponsors } from "@/lib/webinar";
 import {
   computeCancelledCreditState,
   computeRegistrationFinancials,
@@ -34,6 +33,7 @@ import {
   toSalesExportRow,
 } from "@/lib/registration-export";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { getSponsorNameMap } from "@/lib/sponsors";
 import {
   createRegistration,
   type CreateRegistrationErrorCode,
@@ -572,10 +572,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // about an amount or a code. It runs on the already-redacted payload, so a
     // caller who can't see money gets those columns blank rather than wrong —
     // the same contract the full export has.
-    // Built once per request rather than per row: the list is small, but a
-    // per-row readSponsors() would re-parse the settings JSON for every
-    // registration in a 2,000-row export.
-    const sponsorNameById = new Map(readSponsors(event.settings).map((sp) => [sp.id, sp.name]));
+    // One query per request rather than per row. Sponsors are a table since
+    // Sep 2 2026, so a per-row lookup would be a query per registration in a
+    // 2,000-row export rather than a JSON re-parse.
+    const sponsorNameById = await getSponsorNameMap(eventId);
 
     if (searchParams.get("export") === "sales") {
       const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>

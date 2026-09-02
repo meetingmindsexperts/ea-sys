@@ -33,13 +33,14 @@ import { claimSpareDtcmCode, type ClaimDtcmOutcome } from "@/lib/dtcm-pool";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
-import { readSponsors } from "@/lib/webinar";
+
 import { needsQrCode, seatCounter } from "@/lib/registration-seat";
 import { applyRegistrationTransition, claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
+import { getSponsors } from "@/lib/sponsors";
 // Leaf constants module (no agent machinery) — the admin-settable
 // paymentStatus policy (review H12) shared with the MCP boundary.
 import {
@@ -730,7 +731,7 @@ export async function createRegistration(
     };
   }
   if (sponsorId) {
-    const sponsors = readSponsors(event.settings);
+    const sponsors = await getSponsors(event.id);
     const match = sponsors.find((s) => s.id === sponsorId);
     if (!match) {
       return {
@@ -1296,7 +1297,7 @@ export async function updateRegistration(
       };
     }
     if (touchingSponsorFields && effectiveSponsorId) {
-      const sponsors = readSponsors(event.settings);
+      const sponsors = await getSponsors(event.id);
       if (!sponsors.find((s) => s.id === effectiveSponsorId)) {
         apiLogger.warn({ msg: "registration-update:sponsor-not-found", registrationId, sponsorId: effectiveSponsorId, source });
         return {

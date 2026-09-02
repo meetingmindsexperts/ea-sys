@@ -8,11 +8,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, updateEventSettingsSpy, readSponsorsSpy } = vi.hoisted(() => ({
+const { mockDb, mockAuth, updateEventSettingsSpy, getSponsorsSpy } = vi.hoisted(() => ({
   mockDb: { event: { findFirst: vi.fn() } },
   mockAuth: vi.fn(),
   updateEventSettingsSpy: vi.fn().mockResolvedValue(undefined),
-  readSponsorsSpy: vi.fn((): Array<{ id: string; name: string; sortOrder: number }> => []),
+  // The GET reads the TABLE since Sep 2 2026, so this stands in for
+  // getSponsors(eventId) rather than the JSON reader it replaced.
+  getSponsorsSpy: vi.fn(async (): Promise<Array<{ id: string; name: string; sortOrder: number }>> => []),
 }));
 
 vi.mock("next/server", () => ({
@@ -26,9 +28,9 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/event-settings", () => ({ updateEventSettings: updateEventSettingsSpy }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }) }));
 vi.mock("@/lib/webinar", () => ({
-  readSponsors: readSponsorsSpy,
   SPONSOR_TIERS: ["platinum", "gold", "silver", "bronze", "partner", "exhibitor"] as const,
 }));
+vi.mock("@/lib/sponsors", () => ({ getSponsors: getSponsorsSpy }));
 // denyReviewer is REAL (pure) — it reads session.user.role.
 
 import { GET, PUT } from "@/app/api/events/[eventId]/sponsors/route";
@@ -38,7 +40,7 @@ const req = (body?: unknown) => ({ json: async () => body }) as unknown as Reque
 
 beforeEach(() => {
   vi.clearAllMocks();
-  readSponsorsSpy.mockReturnValue([]);
+  getSponsorsSpy.mockResolvedValue([]);
 });
 
 describe("GET /api/events/[eventId]/sponsors", () => {
@@ -60,7 +62,7 @@ describe("GET /api/events/[eventId]/sponsors", () => {
   it("200 + sponsors for an org-bound user", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org-1" } });
     mockDb.event.findFirst.mockResolvedValue({ id: "ev-1", settings: {} });
-    readSponsorsSpy.mockReturnValue([{ id: "s1", name: "Acme", sortOrder: 0 }]);
+    getSponsorsSpy.mockResolvedValue([{ id: "s1", name: "Acme", sortOrder: 0 }]);
     const res = await GET(req(), { params });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ sponsors: [{ id: "s1", name: "Acme", sortOrder: 0 }] });
