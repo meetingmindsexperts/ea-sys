@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** September 2, 2026. **113 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked.
+**Last updated:** September 2, 2026. **113 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -325,6 +325,49 @@ Note the direction, because the mirror image has happened too: in July, five
 session tools were registered on MCP and missing from the agent's definitions,
 so n8n could call what the in-app agent could not discover. **Two surfaces, and
 each can silently omit what the other has.**
+
+## What MCP cannot do, and why
+
+The list above answers *what MCP can do*. This one answers the question an
+integrator actually asks next, and it separates the two things that look
+identical from outside: **a decision we took**, and **a thing nobody has built
+yet.** Without that split, a caller who hits a wall cannot tell whether to file
+a request or stop asking, and neither can the next developer.
+
+| Domain | MCP surface | Which kind, and why |
+|---|---|---|
+| **HR** (attendance + leave) | **None** | **A decision, and a shipped one.** `canViewHr` refuses API keys outright: an API key is not a person, HR data is about people, and a key leaked into an integration should not be able to read who was off sick. `HR_MODULE_PLAN.md` §12 names six tools and says the admin-equivalence of an org key "has to be re-examined here before these tools ship". It has been, and the answer was no. **Building them needs that decision reversed, not just the code written** — read §12 alone and you would ship six tools that 403 on every call. |
+| **Speaker reimbursements** | None | Not built. Also the domain with the most sensitive payload in the system (passport scans, bank details), so an API-key surface here deserves the HR question asked deliberately rather than by default. |
+| **Group registration** | None | Not built, and named: `list_groups`, `create_group`, "fast-follow when an integration needs it" (`GROUP_REGISTRATION_PLAN.md` §8). |
+| **Session proposals** | None | Not built, and named: `list_session_proposals` plus theme CRUD (`SESSION_PROPOSALS_PLAN.md` §6). |
+| **Travel grants** | None | Not built. A read-only `list_travel_grants` is called an obvious fast-follow in `TRAVEL_GRANT_PLAN.md` §7. |
+| **DTCM spare-code pool** | None | Not built, never proposed. Note what a tool here would hand out: door credentials in bulk. |
+| **Surveys** | None | Not built, never proposed. `surveyCompletedAt` is a certificate-issuing trigger, so a write tool here mints CME certificates as a side effect. |
+| **Sign-in activity** | None | **A decision.** `LOGIN_ACTIVITY.md` records that MCP, API-key and OAuth access are deliberately not in scope for that view; it is a web sign-in record, not an access log. |
+| **Certificate issuing** | Templates only | **A decision.** Template CRUD and CME settings are exposed; the Issue flow is not, because it carries an interactive review gate before a batch of real serialized certificates goes out. Operator-only by design. |
+| **Refunds and credit notes** | None | **A decision.** Money movement stays on the dashboard. `update_invoice_status` was deliberately narrowed to CANCELLED/OVERDUE in June 2026 so a status flip could not stand in for a refund. |
+| **Media** | `list_media` only | Not built. Upload has no MCP path; MCP is JSON-RPC and file bodies do not fit it cleanly, which is the same reason `upload_speaker_agreement_template` takes a URL rather than bytes. |
+| **Analytics** | `get_event_analytics` only | Partial. Event-scoped reporting is exposed; the visitor-analytics dashboard added Aug 2026 is not. |
+
+### One open question, flagged rather than answered
+
+`list_registrations` returns `qrCode` **and** `dtcmBarcode`. Both are physical
+access credentials: the first is the entry barcode scanned at the door, the
+second the Dubai DTCM compliance code. The dashboard treats them as a boundary
+narrower than finance, `canViewEntryBarcode` deliberately excludes MEMBER while
+including ONSITE, and MCP returns them anyway on the recorded ground that an org
+API key is admin-equivalent.
+
+That was a defensible call when it was made. Two things have changed since: DTCM
+codes may now be **shared between two registrations** (Aug 27), and the check-in
+gate tightened around them. So a leaked org key is now a bulk dump of door
+credentials for every attendee of every event in the org.
+
+It is written here as a **decision to re-take**, not as a finding. The precedent
+worth naming is the survey one: `surveyCompletedAt` was a harmless feedback flag
+until certificate auto-issue turned it into a credential trigger, and nobody went
+back to re-audit who was allowed to set it. **When a field's blast radius
+changes, re-audit every surface that returns it.**
 
 ## Resources (6)
 

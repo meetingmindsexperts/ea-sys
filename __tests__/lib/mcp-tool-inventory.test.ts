@@ -70,11 +70,13 @@ const PROSE_HEADINGS = ["Not on MCP"];
 function parseDoc(): DocTools {
   const md = readFileSync(DOC, "utf8");
   const declared = md.match(/^## Tools \((\d+) total\)/m);
-  // Scope to the tools block: `### Per-tool buckets` under Rate Limits is not a
-  // tool section, and counting its rows would be nonsense.
+  // Scope to the tools block, which ends at the NEXT `## ` heading whatever it
+  // happens to be. `### Per-tool buckets` under Rate Limits is not a tool
+  // section and counting its rows would be nonsense; naming the following
+  // section instead would silently widen the block the day one is inserted.
   const from = md.indexOf("## Tools (");
-  const to = md.indexOf("## Resources (");
-  const block = from >= 0 && to > from ? md.slice(from, to) : "";
+  const rest = from >= 0 ? md.indexOf("\n## ", from + 1) : -1;
+  const block = from >= 0 ? md.slice(from, rest > from ? rest : md.length) : "";
   const listed = [...block.matchAll(/^\|\s*`([a-z_]+)`\s*\|/gm)].map((m) => m[1]);
 
   const sections: DocTools["sections"] = [];
@@ -153,5 +155,62 @@ describe("MCP tool inventory", () => {
       .sections.filter((s) => s.declared !== s.actual)
       .map((s) => `${s.heading}: says ${s.declared}, lists ${s.actual}`);
     expect(wrong, "section headings disagree with the rows beneath them").toEqual([]);
+  });
+});
+
+/**
+ * Domains the reference's "What MCP cannot do" register lists as having NO
+ * tools, against the tool-name fragments that would prove otherwise.
+ *
+ * The register's whole value is separating a decision from a gap, and it is
+ * worth nothing the moment it is stale: a table still saying "travel grants:
+ * none" the week after `list_travel_grants` ships teaches the reader the exact
+ * wrong thing. Hence the direction this checks. It does NOT verify that a
+ * domain is absent for the RIGHT reason, which is a human judgement, only that
+ * it is still absent at all.
+ *
+ * The fragments are deliberately narrow. `attendance` would match
+ * `list_webinar_attendance` and make HR's row fail forever, and a row that
+ * cries wolf gets deleted rather than fixed.
+ */
+const NO_MCP_SURFACE: Record<string, string[]> = {
+  HR: ["employee", "hr_", "leave_balance", "holiday", "mark_attendance"],
+  reimbursements: ["reimburse"],
+  "group registration": ["group"],
+  "session proposals": ["proposal"],
+  "travel grants": ["travel"],
+  "DTCM spare-code pool": ["dtcm"],
+  surveys: ["survey"],
+  "sign-in activity": ["login", "sign_in"],
+  "certificate issuing": ["issue_certificate", "certificate_issue", "revoke_certificate"],
+  "refunds and credit notes": ["refund", "credit_note"],
+};
+
+describe("the 'What MCP cannot do' register", () => {
+  it("still describes domains that genuinely have no tools", async () => {
+    const names = await registeredToolNames();
+    const stale: string[] = [];
+    for (const [domain, fragments] of Object.entries(NO_MCP_SURFACE)) {
+      const hits = names.filter((n) => fragments.some((f) => n.includes(f)));
+      if (hits.length) stale.push(`${domain}: now has ${hits.join(", ")}`);
+    }
+    expect(
+      stale,
+      "The register in docs/MCP_REFERENCE.md says these domains have no MCP " +
+        "surface, and they now do. Update the table and this map together.",
+    ).toEqual([]);
+  });
+
+  it("names every one of those domains in the reference", () => {
+    // Guards the other direction: an entry here that the doc never mentions is
+    // a check protecting a sentence nobody wrote.
+    const md = readFileSync(DOC, "utf8");
+    const from = md.indexOf("## What MCP cannot do");
+    expect(from, "the register section is missing from the reference").toBeGreaterThan(0);
+    const block = md.slice(from);
+    const absent = Object.keys(NO_MCP_SURFACE).filter(
+      (d) => !block.toLowerCase().includes(d.toLowerCase()),
+    );
+    expect(absent, "listed here but not described in the reference").toEqual([]);
   });
 });
