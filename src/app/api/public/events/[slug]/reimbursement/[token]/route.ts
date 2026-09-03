@@ -25,7 +25,10 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
   claimItemLabel,
+  effectiveClaimLines,
+  formatHonorarium,
   missingDocumentKinds,
+  readHonorarium,
   reimbursementSubmitSchema,
   formatClaimTotals,
   type ClaimLine,
@@ -90,6 +93,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       status: row.status,
       submittedAt: row.submittedAt,
+      // The organiser-agreed fee (Sep 3, 2026): rendered LOCKED on the form.
+      // Null when none is agreed — the form shows 0 and offers no input.
+      honorarium: readHonorarium(row.speaker),
       // Prefill: the saved snapshot wins (reopened edits resume where the
       // speaker left off); else seed from the Speaker record.
       prefill: {
@@ -106,7 +112,10 @@ export async function GET(req: Request, { params }: RouteParams) {
         nationality: row.nationality ?? "",
         passportNumber: row.passportNumber ?? "",
         roleAtEvent: row.roleAtEvent ?? "",
-        claimLines: row.claimLines ?? [],
+        // Expense lines only. A snapshot saved before the fee lock may
+        // carry a speaker-typed SPEAKER_FEE line; the organiser's figure
+        // (`honorarium` above) is the only fee, so it is never re-offered.
+        claimLines: ((row.claimLines as ClaimLine[] | null) ?? []).filter((l) => l.item !== "SPEAKER_FEE"),
         bankDetails: row.bankDetails ?? null,
         signedName: row.signedName ?? "",
       },
@@ -180,10 +189,46 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    const d = parsed.data;
+    // The fee is the organiser's figure or nothing (Sep 3, 2026): the form
+    // renders the "Honorarium / Speaker Fee" line LOCKED, so a SPEAKER_FEE
+    // line arriving here is a pre-lock tab or a crafted request. It is
+    // dropped, never honoured, and the agreed figure is injected from the
+    // Speaker row — the same shape as the email lock above.
+    const honorarium = readHonorarium(row.speaker);
+    if (d.claimLines.some((l) => l.item === "SPEAKER_FEE")) {
+      apiLogger.warn(
+        { slug, reimbursementId: row.id, stage: "speaker-fee" },
+        "reimbursement-public:speaker-fee-in-body-ignored",
+      );
+    }
+    const claimLines: ClaimLine[] = effectiveClaimLines(
+      honorarium,
+      d.claimLines.map((l) => ({
+        item: l.item,
+        currency: l.currency,
+        amount: Math.round(l.amount * 100) / 100,
+      })),
+    );
+    if (claimLines.length === 0) {
+      apiLogger.warn(
+        { slug, reimbursementId: row.id, stage: "nothing-to-claim" },
+        "reimbursement-public:nothing-to-claim",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "There is nothing to claim yet: no expenses were selected and no honorarium has been agreed for you.",
+          code: "NOTHING_TO_CLAIM",
+        },
+        { status: 400 },
+      );
+    }
+
     // The paper form's rule, enforced: "Expenses without receipts cannot be
     // processed" — passport copy always, plus each claimed item's receipt.
-    const uploadedKinds = row.documents.map((d) => d.kind);
-    const missing = missingDocumentKinds(parsed.data.claimLines, uploadedKinds);
+    const uploadedKinds = row.documents.map((doc) => doc.kind);
+    const missing = missingDocumentKinds(claimLines, uploadedKinds);
     if (missing.length > 0) {
       apiLogger.warn(
         { slug, reimbursementId: row.id, missing, stage: "documents" },
@@ -195,12 +240,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const d = parsed.data;
-    const claimLines: ClaimLine[] = d.claimLines.map((l) => ({
-      item: l.item,
-      currency: l.currency,
-      amount: Math.round(l.amount * 100) / 100,
-    }));
     // Empty-string optionals → null so the stored snapshot is clean.
     const opt = (v: string | undefined) => (v && v.trim() ? v.trim() : null);
     const bank = d.bankDetails;
@@ -313,6 +352,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             claimSummaryText: claimLines
               .map((l) => `${claimItemLabel(l.item)}: ${l.currency} ${l.amount.toFixed(2)}`)
               .join("\n"),
+            // The agreed fee as its own token too, so the receipt template can
+            // name it outside the claim table ("0.00" when none is agreed).
+            honorarium: formatHonorarium(honorarium),
             organizerName: row.event.organization?.name ?? "The organizing team",
           },
           branding,

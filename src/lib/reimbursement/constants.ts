@@ -23,11 +23,14 @@ export type ReimbursementCurrency = (typeof REIMBURSEMENT_CURRENCIES)[number];
 // ── Claim items (Section C) ───────────────────────────────────────────
 // `receiptKind` names the document kind that MUST be uploaded when the
 // item is claimed ("Expenses without receipts cannot be processed" — the
-// paper form's rule, enforced server-side at submit). The speaker fee is
-// the one item that needs no receipt.
+// paper form's rule, enforced server-side at submit). The honorarium /
+// speaker fee is the one item that needs no receipt, and since Sep 3, 2026
+// it is also the one item the speaker does NOT enter: the organiser sets it
+// on the Speaker row and the form shows it locked (see the Honorarium
+// section below).
 
 export const CLAIM_ITEMS = [
-  { key: "SPEAKER_FEE", label: "Speaker Fee", receiptKind: null },
+  { key: "SPEAKER_FEE", label: "Honorarium / Speaker Fee", receiptKind: null },
   { key: "FLIGHT", label: "Flight Reimbursement", receiptKind: "FLIGHT_RECEIPT" },
   { key: "HOTEL", label: "Hotel Accommodation", receiptKind: "HOTEL_INVOICE" },
   { key: "TRANSPORT", label: "Ground Transport / Taxi", receiptKind: "TRANSPORT_RECEIPT" },
@@ -138,7 +141,12 @@ export const reimbursementSubmitSchema = z.object({
   passportNumber: z.string().trim().min(3).max(50),
   roleAtEvent: z.string().trim().min(2).max(100),
 
-  claimLines: z.array(claimLineSchema).min(1).max(10),
+  // Expense lines only. The honorarium / speaker fee is NOT the speaker's to
+  // send: the server drops any SPEAKER_FEE line here and injects the
+  // organiser's agreed figure (effectiveClaimLines). No `.min(1)` because a
+  // speaker with an agreed fee and no expenses legitimately sends [] — the
+  // server decides emptiness AFTER injecting the fee (NOTHING_TO_CLAIM).
+  claimLines: z.array(claimLineSchema).max(10),
   bankDetails: bankDetailsSchema,
 
   signedName: z.string().trim().min(2).max(200),
@@ -190,6 +198,106 @@ export function missingDocumentKinds(
 ): DocumentKindKey[] {
   const uploaded = new Set(uploadedKinds);
   return requiredDocumentKinds(lines).filter((k) => !uploaded.has(k));
+}
+
+// ── Honorarium / speaker fee (organiser-set, locked on the form) ──────
+/**
+ * The fee the organiser agreed with a speaker, stored on `Speaker`
+ * (honorariumAmount + honorariumCurrency). Owner decisions, Sep 3 2026:
+ *   - LOCKED on the reimbursement form: the speaker sees the agreed figure
+ *     and can neither add nor change it. The public submit writes this value
+ *     and ignores any SPEAKER_FEE line in the body (effectiveClaimLines).
+ *   - NOT SET renders as 0 (formatHonorarium → "0.00"), never as a blank.
+ *   - Visible inside the reimbursement boundary only (canManageReimbursements);
+ *     the speaker list/detail payloads strip it for everyone else.
+ *   - Available as {{honorarium}} / {{honorariumAmount}} /
+ *     {{honorariumCurrency}} in every speaker email (honorariumVars).
+ */
+export interface Honorarium {
+  amount: number;
+  currency: ReimbursementCurrency;
+}
+
+/** Row shape both a Prisma row (Decimal) and a JSON payload (string) satisfy. */
+export interface HonorariumFields {
+  honorariumAmount?: unknown;
+  honorariumCurrency?: string | null;
+}
+
+/**
+ * Reads the agreed fee off a Speaker row / payload. Null unless the amount is
+ * a positive finite number AND the currency is one we support: a row carrying
+ * an amount with an unknown currency reads as not set rather than rendering
+ * with a currency the form cannot pay in. Prisma's Decimal and its JSON
+ * string both go through Number(String(x)); null/undefined become NaN.
+ */
+export function readHonorarium(row: HonorariumFields | null | undefined): Honorarium | null {
+  if (!row) return null;
+  const amount = Number(String(row.honorariumAmount ?? ""));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const currency = row.honorariumCurrency;
+  if (!currency || !(REIMBURSEMENT_CURRENCIES as readonly string[]).includes(currency)) return null;
+  return { amount: round2(amount), currency: currency as ReimbursementCurrency };
+}
+
+/** "USD 1,500.00", or "0.00" when no fee is agreed (owner: unset shows as 0). */
+export function formatHonorarium(h: Honorarium | null): string {
+  if (!h) return "0.00";
+  return `${h.currency} ${h.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * The three template variables every speaker send exposes. One builder so the
+ * six senders (bulk, single, reimbursement + profile-form invitations, the
+ * received receipt, the agreement merge) cannot format the figure differently.
+ */
+export function honorariumVars(h: Honorarium | null): {
+  honorarium: string;
+  honorariumAmount: string;
+  honorariumCurrency: string;
+} {
+  return {
+    honorarium: formatHonorarium(h),
+    honorariumAmount: h ? h.amount.toFixed(2) : "0.00",
+    honorariumCurrency: h?.currency ?? "",
+  };
+}
+
+/**
+ * The claim lines a submission actually carries: the organiser's fee first
+ * (when agreed), then the speaker's expense lines. Any SPEAKER_FEE line in the
+ * input is DROPPED whichever way it got there — a snapshot saved before the
+ * lock, or a crafted request — because the fee is the organiser's figure or
+ * nothing. Shared by the form (totals + receipt rule) and the public POST so
+ * the two cannot disagree about what is being claimed.
+ */
+export function effectiveClaimLines(honorarium: Honorarium | null, lines: ClaimLine[]): ClaimLine[] {
+  const expenses = lines.filter((l) => l.item !== "SPEAKER_FEE");
+  if (!honorarium) return expenses;
+  return [{ item: "SPEAKER_FEE", currency: honorarium.currency, amount: honorarium.amount }, ...expenses];
+}
+
+/** Body of PATCH .../speakers/[speakerId]/honorarium. Amount 0 clears the fee. */
+export const honorariumInputSchema = z.object({
+  amount: z.number().min(0).max(1_000_000),
+  currency: z.enum(REIMBURSEMENT_CURRENCIES),
+});
+export type HonorariumInput = z.infer<typeof honorariumInputSchema>;
+
+/**
+ * Removes the two honorarium columns from a speaker payload for callers
+ * outside the reimbursement boundary. The speaker list + detail GETs return
+ * whole rows (Prisma `include`), so without this every new Speaker column is
+ * readable by MEMBER / ONSITE / WEBINARS, whom the owner excluded from
+ * reimbursement data. Pure; returns a shallow copy minus the two keys.
+ */
+export function stripHonorariumFields<T extends object>(
+  row: T,
+): Omit<T, "honorariumAmount" | "honorariumCurrency"> {
+  const copy = { ...(row as Record<string, unknown>) };
+  delete copy.honorariumAmount;
+  delete copy.honorariumCurrency;
+  return copy as Omit<T, "honorariumAmount" | "honorariumCurrency">;
 }
 
 /** Max uploaded documents per reimbursement (sanity cap on the token route). */

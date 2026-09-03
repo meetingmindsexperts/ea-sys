@@ -185,11 +185,10 @@ describe("POST /api/public/events/[slug]/reimbursement/[token]", () => {
     expect(call.data.status).toBe("SUBMITTED");
     expect(call.data.email).toBe("jane@example.com"); // Speaker.email, lowercased
     expect(call.data.submittedIp).toBe("127.0.0.1");
-    // amounts rounded to 2dp before storage
-    expect(call.data.claimLines).toEqual([
-      { item: "SPEAKER_FEE", currency: "USD", amount: 1000 },
-      { item: "FLIGHT", currency: "USD", amount: 850.51 },
-    ]);
+    // amounts rounded to 2dp before storage; the body's SPEAKER_FEE line is
+    // dropped because this speaker has no organiser-agreed fee (Sep 3, 2026 —
+    // see the "honorarium lock" block below).
+    expect(call.data.claimLines).toEqual([{ item: "FLIGHT", currency: "USD", amount: 850.51 }]);
 
     expect(mockNotify).toHaveBeenCalledOnce();
     expect(mockSendEmail).toHaveBeenCalledOnce();
@@ -354,5 +353,95 @@ describe("public /uploads catch-all — reimbursements prefix blocked", () => {
       params: Promise.resolve({ path: ["reimbursements", "evt1", "passport.pdf"] }),
     } as never)) as unknown as { status: number };
     expect(res.status).toBe(403);
+  });
+});
+
+// ── Honorarium lock (Sep 3, 2026) ─────────────────────────────────────
+// The organiser agrees the fee on the Speaker row. The form renders it
+// locked; the POST writes THAT value and ignores any SPEAKER_FEE the body
+// carries; an unset fee shows as 0 and the speaker cannot add one.
+const withFee = (over: Record<string, unknown> = {}) =>
+  baseRow({
+    speaker: { ...baseRow().speaker, honorariumAmount: "1500.00", honorariumCurrency: "USD" },
+    ...over,
+  });
+
+describe("honorarium lock", () => {
+  it("injects the organiser's fee first and ignores a body-supplied SPEAKER_FEE (logged)", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(withFee());
+    mockDb.speakerReimbursement.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await POST(
+      jsonReq({
+        ...validBody,
+        claimLines: [
+          { item: "SPEAKER_FEE", currency: "AED", amount: 9999 },
+          { item: "FLIGHT", currency: "USD", amount: 850.505 },
+        ],
+      }),
+      params(),
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.speakerReimbursement.updateMany.mock.calls[0][0].data.claimLines).toEqual([
+      { item: "SPEAKER_FEE", currency: "USD", amount: 1500 },
+      { item: "FLIGHT", currency: "USD", amount: 850.51 },
+    ]);
+    const { apiLogger } = await import("@/lib/logger");
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "speaker-fee" }),
+      "reimbursement-public:speaker-fee-in-body-ignored",
+    );
+  });
+
+  it("an agreed fee with NO expenses submits on its own (only the passport is required)", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      withFee({ documents: [{ id: "d1", kind: "PASSPORT", filename: "p.pdf", size: 1, createdAt: new Date() }] }),
+    );
+    mockDb.speakerReimbursement.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await POST(jsonReq({ ...validBody, claimLines: [] }), params());
+    expect(res.status).toBe(200);
+    expect(mockDb.speakerReimbursement.updateMany.mock.calls[0][0].data.claimLines).toEqual([
+      { item: "SPEAKER_FEE", currency: "USD", amount: 1500 },
+    ]);
+  });
+
+  it("no agreed fee and no expenses → 400 NOTHING_TO_CLAIM, nothing written", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow());
+
+    const res = await POST(
+      jsonReq({ ...validBody, claimLines: [{ item: "SPEAKER_FEE", currency: "USD", amount: 1000 }] }),
+      params(),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("NOTHING_TO_CLAIM");
+    expect(mockDb.speakerReimbursement.updateMany).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("GET exposes the agreed fee and strips a stale SPEAKER_FEE from the prefill", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      withFee({
+        claimLines: [
+          { item: "SPEAKER_FEE", currency: "USD", amount: 900 },
+          { item: "HOTEL", currency: "AED", amount: 400 },
+        ],
+      }),
+    );
+    const res = await GET(jsonReq(undefined), params());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.honorarium).toEqual({ amount: 1500, currency: "USD" });
+    expect(body.prefill.claimLines).toEqual([{ item: "HOTEL", currency: "AED", amount: 400 }]);
+  });
+
+  it("GET returns honorarium null when none is agreed or the currency is unsupported", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow());
+    expect((await (await GET(jsonReq(undefined), params())).json()).honorarium).toBeNull();
+
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      baseRow({ speaker: { ...baseRow().speaker, honorariumAmount: "100.00", honorariumCurrency: "EUR" } }),
+    );
+    expect((await (await GET(jsonReq(undefined), params())).json()).honorarium).toBeNull();
   });
 });

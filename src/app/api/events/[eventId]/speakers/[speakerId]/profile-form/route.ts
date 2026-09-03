@@ -31,6 +31,7 @@ import {
   brandingCc,
 } from "@/lib/email";
 import { formatPersonName } from "@/lib/utils";
+import { honorariumVars, readHonorarium } from "@/lib/reimbursement/constants";
 import { generateProfileFormToken } from "@/lib/speaker-profile/server";
 
 const TEMPLATE_SLUG = "speaker-profile-form-request";
@@ -118,7 +119,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
       const speaker = await db.speaker.findFirst({
         where: { id: speakerId, eventId },
-        select: { id: true, title: true, firstName: true, lastName: true, email: true },
+        select: {
+          id: true,
+          title: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          honorariumAmount: true,
+          honorariumCurrency: true,
+        },
       });
       if (!speaker) {
         apiLogger.warn({ msg: "speaker-profile-form:speaker-not-found", eventId, speakerId });
@@ -177,6 +186,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         lastName: speaker.lastName,
         speakerName: formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
         email: speaker.email,
+        // Every speaker send carries the agreed fee (Sep 3, 2026).
+        ...honorariumVars(readHonorarium(speaker)),
         eventName: event.name,
         profileFormLink,
         personalMessage,

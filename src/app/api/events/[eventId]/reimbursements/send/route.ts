@@ -21,6 +21,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { formatPersonName } from "@/lib/utils";
+import { honorariumVars, readHonorarium } from "@/lib/reimbursement/constants";
 import {
   brandingCc,
   brandingFrom,
@@ -96,7 +97,16 @@ export async function POST(req: Request, { params }: RouteParams) {
             id: true,
             token: true,
             speakerId: true,
-            speaker: { select: { title: true, firstName: true, lastName: true, email: true } },
+            speaker: {
+              select: {
+                title: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                honorariumAmount: true,
+                honorariumCurrency: true,
+              },
+            },
           },
         }),
       ),
@@ -174,6 +184,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           lastName: row.speaker.lastName,
           speakerName: formatPersonName(row.speaker.title, row.speaker.firstName, row.speaker.lastName),
           email: row.speaker.email,
+          // The organiser-agreed fee (Sep 3, 2026): the same figure the form
+          // will show locked, "0.00" when none is agreed.
+          ...honorariumVars(readHonorarium(row.speaker)),
           eventName: event.name,
           reimbursementLink,
           personalMessage,

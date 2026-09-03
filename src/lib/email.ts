@@ -1379,6 +1379,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "personalMessage", description: "Personal message from organizer" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
+    { key: "honorarium", description: "Honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
     { key: "agreementBlock", description: "Pre-rendered Review & Agree button (CTA-only — add your own intro wording around the token); shows an already-signed note for speakers who accepted" },
     { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
     { key: "agreementLink", description: "Bare one-time agreement URL (minted when the template uses an agreement token)" },
@@ -1400,6 +1401,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "sessionDetails", description: "Session details" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
+    { key: "honorarium", description: "Honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
     { key: "agreementLink", description: "Agreement link URL" },
     { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
     { key: "organizerName", description: "Organizer name" },
@@ -1536,6 +1538,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "subject", description: "Email subject" },
     { key: "message", description: "Custom message body (tokens typed inside it resolve too)" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — also works typed inside the message" },
+    { key: "honorarium", description: "Speaker sends only: the honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
     { key: "ctaText", description: "Call-to-action button text" },
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],
@@ -1617,6 +1620,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "email", description: "Speaker email address" },
     { key: "eventName", description: "Event name" },
     { key: "reimbursementLink", description: "The speaker's personalized reimbursement-form link (unique per recipient)" },
+    { key: "honorarium", description: "Honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
@@ -1628,6 +1632,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "email", description: "Speaker email address" },
     { key: "eventName", description: "Event name" },
     { key: "profileFormLink", description: "The speaker's personalized photo & documents form link (unique per recipient)" },
+    { key: "honorarium", description: "Honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
@@ -1638,6 +1643,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "claimSummary", description: "HTML table of the claimed items + per-currency totals" },
     { key: "claimSummaryText", description: "Plain-text list of the claimed items" },
+    { key: "honorarium", description: "The honorarium / speaker fee the organiser agreed (also the first line of the claim table), e.g. USD 1,500.00; 0.00 when none" },
     { key: "organizerName", description: "Organizing team / organization name" },
   ],
 };
@@ -2762,7 +2768,7 @@ Best regards,
     subject: "Reimbursement form — {{eventName}}",
     htmlContent: `<div style="padding: 24px 0;">
     <p>Dear <strong>{{speakerName}}</strong>,</p>
-    <p>Thank you for taking part in <strong>{{eventName}}</strong>. To arrange your reimbursement (speaker fee, flights, hotel and ground transport where agreed), please complete the secure form below and upload your receipts.</p>
+    <p>Thank you for taking part in <strong>{{eventName}}</strong>. To arrange your reimbursement (honorarium / speaker fee, flights, hotel and ground transport where agreed), please complete the secure form below and upload your receipts.</p>
     {{personalMessage}}
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{reimbursementLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">Complete the reimbursement form</a>
@@ -3255,11 +3261,16 @@ export function getSamplePreviewVariables(
     // Speaker-reimbursement placeholders — real sends use each speaker's
     // token link; the claim summary renders from the actual submission.
     reimbursementLink: "#",
+    // {{honorarium}} preview — real sends use the organiser-agreed fee on the
+    // speaker row (Sep 3, 2026); "0.00" when none is agreed.
+    honorarium: "USD 1,500.00",
+    honorariumAmount: "1500.00",
+    honorariumCurrency: "USD",
     // Speaker profile form placeholder — real sends use the speaker's token.
     profileFormLink: "#",
     claimSummary:
-      '<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr><td style="padding:6px 0;color:#6b7280;">Speaker Fee</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 1,000.00</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Flight Reimbursement</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 850.00</td></tr><tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:600;">Total</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">USD 1,850.00</td></tr></table>',
-    claimSummaryText: "Speaker Fee: USD 1000.00\nFlight Reimbursement: USD 850.00",
+      '<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr><td style="padding:6px 0;color:#6b7280;">Honorarium / Speaker Fee</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 1,000.00</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Flight Reimbursement</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 850.00</td></tr><tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:600;">Total</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">USD 1,850.00</td></tr></table>',
+    claimSummaryText: "Honorarium / Speaker Fee: USD 1000.00\nFlight Reimbursement: USD 850.00",
     daysUntilEvent: 7,
     subject: "Custom Subject",
     message: "This is a custom message body.",

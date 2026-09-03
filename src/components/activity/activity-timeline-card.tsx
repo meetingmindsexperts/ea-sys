@@ -50,6 +50,8 @@ const AUDIT_LABELS: Record<string, string> = {
   REIMBURSEMENT_INVITED: "Reimbursement form invite created",
   REIMBURSEMENT_LINK_SENT: "Reimbursement link emailed",
   REIMBURSEMENT_DELETED: "Reimbursement form deleted",
+  // Organiser set / cleared the honorarium (speaker-honorarium route).
+  HONORARIUM_SET: "Honorarium / speaker fee set",
 };
 
 const CERT_LABELS: Record<string, string> = {
@@ -81,6 +83,8 @@ function iconFor(item: ActivityItem) {
       return LogIn;
     case "EMAIL_SENT":
       return Mail;
+    case "HONORARIUM_SET":
+      return Banknote;
     default:
       if (item.action?.startsWith("REIMBURSEMENT_")) return Banknote;
       return Activity;

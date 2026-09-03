@@ -205,3 +205,68 @@ describe("GET /api/events/[eventId]/speakers for an org-null role", () => {
     expect(mockDb.speaker.findMany).not.toHaveBeenCalled();
   });
 });
+
+// ── The organiser-agreed honorarium (Sep 3, 2026) ─────────────────────
+// `include` returns whole Speaker rows, so the two honorarium columns would
+// otherwise reach every roster reader. They are reimbursement data, which is
+// staff-only and STRICTER than finance: MEMBER / ONSITE / WEBINARS may read the
+// roster (and can view finance) but must not see the fee.
+describe("GET /api/events/[eventId]/speakers strips the honorarium outside the reimbursement boundary", () => {
+  const ROW = {
+    id: "s1",
+    firstName: "Jane",
+    lastName: "Doe",
+    email: "jane@x.com",
+    honorariumAmount: "1500.00",
+    honorariumCurrency: "USD",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.event.findFirst.mockResolvedValue({ id: "e1", organizationId: "org1" });
+    mockDb.speaker.findMany.mockResolvedValue([ROW]);
+  });
+
+  const call = async () => {
+    const { GET } = await import("@/app/api/events/[eventId]/speakers/route");
+    const res = await GET(new Request("http://x/api/events/e1/speakers"), {
+      params: Promise.resolve({ eventId: "e1" }),
+    });
+    return (await res.json()) as Record<string, unknown>[];
+  };
+
+  it.each(["MEMBER", "ONSITE", "WEBINARS"])("%s gets the roster WITHOUT the fee columns", async (role) => {
+    mockGetOrgContext.mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "u2", role, organizationId: "org1" } });
+
+    const body = await call();
+    expect(body[0].email).toBe("jane@x.com");
+    expect(body[0]).not.toHaveProperty("honorariumAmount");
+    expect(body[0]).not.toHaveProperty("honorariumCurrency");
+  });
+
+  it("an org-null SUBMITTER's own row is stripped too (the fee is told on the form, not here)", async () => {
+    mockGetOrgContext.mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER", organizationId: null } });
+
+    const body = await call();
+    expect(body[0]).not.toHaveProperty("honorariumAmount");
+  });
+
+  it.each(["ADMIN", "ORGANIZER", "SUPER_ADMIN"])("%s keeps the fee columns", async (role) => {
+    mockGetOrgContext.mockResolvedValue(null);
+    mockAuth.mockResolvedValue({ user: { id: "u2", role, organizationId: "org1" } });
+
+    const body = await call();
+    expect(body[0].honorariumAmount).toBe("1500.00");
+    expect(body[0].honorariumCurrency).toBe("USD");
+  });
+
+  it("an API key keeps them (admin-equivalent everywhere)", async () => {
+    mockGetOrgContext.mockResolvedValue({ organizationId: "org1", role: null });
+    mockAuth.mockResolvedValue(null);
+
+    const body = await call();
+    expect(body[0].honorariumAmount).toBe("1500.00");
+  });
+});

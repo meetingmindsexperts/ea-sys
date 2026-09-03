@@ -1469,6 +1469,14 @@ model Speaker {
   specialty                      String?
   customSpecialty                String?
   registrationType               String?
+  // Honorarium / speaker fee agreed by the organiser (Sep 3, 2026). Organiser-
+  // set only: the reimbursement form renders the line LOCKED and the public
+  // submit writes this value, never the body's (a speaker can neither add nor
+  // change a fee). Null = not agreed, rendered as 0. Currency is one of the
+  // reimbursement currencies (USD/AED/SAR), validated at the honorarium route.
+  // Read through readHonorarium() in src/lib/reimbursement/constants.ts.
+  honorariumAmount               Decimal?      @db.Decimal(12, 2)
+  honorariumCurrency             String?
   tags                           String[]      @default([])
   socialLinks                    Json          @default("{}")
   status                         SpeakerStatus @default(INVITED)

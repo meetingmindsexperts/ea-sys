@@ -80,6 +80,10 @@ export async function loadReimbursementForSlug(req: Request, slug: string, token
           organization: true,
           jobTitle: true,
           country: true,
+          // The organiser-agreed fee: the form renders it locked, the POST
+          // writes it from here (never from the body).
+          honorariumAmount: true,
+          honorariumCurrency: true,
         },
       },
       event: {

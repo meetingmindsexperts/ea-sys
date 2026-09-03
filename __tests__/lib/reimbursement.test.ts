@@ -5,12 +5,19 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  CLAIM_ITEMS,
   canManageReimbursements,
   computeClaimTotals,
+  effectiveClaimLines,
   formatClaimTotals,
+  formatHonorarium,
+  honorariumInputSchema,
+  honorariumVars,
   missingDocumentKinds,
-  requiredDocumentKinds,
+  readHonorarium,
   reimbursementSubmitSchema,
+  requiredDocumentKinds,
+  stripHonorariumFields,
   type ClaimLine,
 } from "@/lib/reimbursement/constants";
 
@@ -128,8 +135,11 @@ describe("reimbursementSubmitSchema", () => {
     }
   });
 
-  it("requires at least one claim line and rejects non-positive amounts", () => {
-    expect(reimbursementSubmitSchema.safeParse({ ...valid, claimLines: [] }).success).toBe(false);
+  it("accepts an EMPTY expense list (the server decides emptiness after injecting the fee) and rejects non-positive amounts", () => {
+    // Sep 3, 2026: a speaker with an agreed honorarium and no expenses sends
+    // []. Emptiness is judged server-side over the effective lines
+    // (NOTHING_TO_CLAIM), so the schema must not refuse it here.
+    expect(reimbursementSubmitSchema.safeParse({ ...valid, claimLines: [] }).success).toBe(true);
     expect(
       reimbursementSubmitSchema.safeParse({ ...valid, claimLines: [line("FLIGHT", "USD", -5)] }).success,
     ).toBe(false);
@@ -174,5 +184,98 @@ describe("reimbursementSubmitSchema", () => {
       });
       expect(parsed.success, `${key} should be required`).toBe(false);
     }
+  });
+});
+
+// ── Honorarium / speaker fee (Sep 3, 2026) ────────────────────────────
+describe("honorarium: organiser-set, locked, 0 when unset", () => {
+  it("the claim item is labelled Honorarium / Speaker Fee", () => {
+    expect(CLAIM_ITEMS.find((c) => c.key === "SPEAKER_FEE")?.label).toBe("Honorarium / Speaker Fee");
+  });
+
+  it("readHonorarium accepts a Prisma Decimal, its JSON string, or a number, and rounds to 2dp", () => {
+    expect(readHonorarium({ honorariumAmount: { toString: () => "1500.005" }, honorariumCurrency: "USD" })).toEqual({
+      amount: 1500.01,
+      currency: "USD",
+    });
+    expect(readHonorarium({ honorariumAmount: "2500.5", honorariumCurrency: "AED" })).toEqual({
+      amount: 2500.5,
+      currency: "AED",
+    });
+    expect(readHonorarium({ honorariumAmount: 750, honorariumCurrency: "SAR" })).toEqual({
+      amount: 750,
+      currency: "SAR",
+    });
+  });
+
+  it("readHonorarium is null for unset, zero, negative, NaN, and an unsupported currency", () => {
+    expect(readHonorarium(null)).toBeNull();
+    expect(readHonorarium(undefined)).toBeNull();
+    expect(readHonorarium({})).toBeNull();
+    expect(readHonorarium({ honorariumAmount: null, honorariumCurrency: null })).toBeNull();
+    expect(readHonorarium({ honorariumAmount: 0, honorariumCurrency: "USD" })).toBeNull();
+    expect(readHonorarium({ honorariumAmount: -10, honorariumCurrency: "USD" })).toBeNull();
+    expect(readHonorarium({ honorariumAmount: "abc", honorariumCurrency: "USD" })).toBeNull();
+    // A figure in a currency the form cannot pay in must read as NOT SET —
+    // never rendered with that currency, never rendered as USD.
+    expect(readHonorarium({ honorariumAmount: 100, honorariumCurrency: "EUR" })).toBeNull();
+    expect(readHonorarium({ honorariumAmount: 100, honorariumCurrency: null })).toBeNull();
+  });
+
+  it("formatHonorarium: currency + 2dp with thousands, and 0.00 when none is agreed", () => {
+    expect(formatHonorarium({ amount: 1500, currency: "USD" })).toBe("USD 1,500.00");
+    expect(formatHonorarium({ amount: 99.5, currency: "AED" })).toBe("AED 99.50");
+    // Owner rule: unset shows as 0, never as a blank the template swallows.
+    expect(formatHonorarium(null)).toBe("0.00");
+  });
+
+  it("honorariumVars is the one shape every speaker send exposes", () => {
+    expect(honorariumVars({ amount: 1500, currency: "USD" })).toEqual({
+      honorarium: "USD 1,500.00",
+      honorariumAmount: "1500.00",
+      honorariumCurrency: "USD",
+    });
+    expect(honorariumVars(null)).toEqual({ honorarium: "0.00", honorariumAmount: "0.00", honorariumCurrency: "" });
+  });
+
+  it("effectiveClaimLines injects the organiser's fee FIRST and drops any SPEAKER_FEE the input carried", () => {
+    const expenses = [line("FLIGHT", "USD", 850), line("HOTEL", "AED", 400)];
+    expect(effectiveClaimLines({ amount: 1500, currency: "USD" }, expenses)).toEqual([
+      line("SPEAKER_FEE", "USD", 1500),
+      ...expenses,
+    ]);
+    // A speaker-typed fee (pre-lock snapshot, or a crafted request) is never
+    // honoured — the organiser's figure replaces it, whatever it said.
+    expect(
+      effectiveClaimLines({ amount: 1500, currency: "USD" }, [line("SPEAKER_FEE", "USD", 9999), ...expenses]),
+    ).toEqual([line("SPEAKER_FEE", "USD", 1500), ...expenses]);
+  });
+
+  it("effectiveClaimLines with no agreed fee: expenses only, and a body fee still vanishes", () => {
+    expect(effectiveClaimLines(null, [line("SPEAKER_FEE", "USD", 9999), line("FLIGHT", "USD", 850)])).toEqual([
+      line("FLIGHT", "USD", 850),
+    ]);
+    expect(effectiveClaimLines(null, [line("SPEAKER_FEE", "USD", 9999)])).toEqual([]);
+  });
+
+  it("the receipt rule runs over the effective lines: an honorarium-only claim needs just the passport", () => {
+    const lines = effectiveClaimLines({ amount: 1500, currency: "USD" }, []);
+    expect(requiredDocumentKinds(lines)).toEqual(["PASSPORT"]);
+  });
+
+  it("honorariumInputSchema: 0 is a valid clear, negatives and foreign currencies are not", () => {
+    expect(honorariumInputSchema.safeParse({ amount: 0, currency: "USD" }).success).toBe(true);
+    expect(honorariumInputSchema.safeParse({ amount: 1500, currency: "SAR" }).success).toBe(true);
+    expect(honorariumInputSchema.safeParse({ amount: -1, currency: "USD" }).success).toBe(false);
+    expect(honorariumInputSchema.safeParse({ amount: 100, currency: "EUR" }).success).toBe(false);
+    expect(honorariumInputSchema.safeParse({ amount: "100", currency: "USD" }).success).toBe(false);
+  });
+
+  it("stripHonorariumFields removes exactly the two columns and never mutates its input", () => {
+    const row = { id: "s1", firstName: "Jane", honorariumAmount: "1500.00", honorariumCurrency: "USD" };
+    const out = stripHonorariumFields(row);
+    expect(out).toEqual({ id: "s1", firstName: "Jane" });
+    expect(row.honorariumAmount).toBe("1500.00");
+    expect("honorariumAmount" in out).toBe(false);
   });
 });

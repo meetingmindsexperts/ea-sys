@@ -211,6 +211,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       presentationDetailsText: context?.presentationDetailsText ?? "",
       moderatorDetails: context?.moderatorDetails ?? "",
       moderatorDetailsText: context?.moderatorDetailsText ?? "",
+      // The organiser-agreed fee (Sep 3, 2026); "0.00" when none is agreed.
+      honorarium: context?.honorarium ?? "0.00",
+      honorariumAmount: context?.honorariumAmount ?? "0.00",
+      honorariumCurrency: context?.honorariumCurrency ?? "",
       organizerSignature: user?.emailSignature ?? "",
     };
 

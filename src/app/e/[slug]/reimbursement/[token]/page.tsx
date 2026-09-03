@@ -27,6 +27,7 @@ import {
   Check,
   FileText,
   Loader2,
+  Lock,
   MapPin,
   Trash2,
   Upload,
@@ -44,10 +45,13 @@ import {
   ROLE_AT_EVENT_OPTIONS,
   computeClaimTotals,
   documentKindLabel,
+  effectiveClaimLines,
+  formatHonorarium,
   missingDocumentKinds,
   reimbursementSubmitSchema,
   type BankDetails,
   type ClaimLine,
+  type Honorarium,
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
 import { toast } from "sonner";
@@ -74,6 +78,8 @@ interface LoadedData {
   };
   status: "PENDING" | "SUBMITTED";
   submittedAt: string | null;
+  // The organiser-agreed fee, rendered LOCKED (Sep 3, 2026). Null = none.
+  honorarium: Honorarium | null;
   prefill: {
     fullName: string;
     designation: string;
@@ -102,6 +108,11 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   WEBINAR: "Virtual Webinar",
   HYBRID: "Hybrid Event",
 };
+
+// Section C offers the EXPENSE items only. The honorarium / speaker fee is
+// the organiser's figure, rendered locked from `data.honorarium` (Sep 3, 2026):
+// the speaker can neither add nor change it, so it never gets a draft.
+const EXPENSE_ITEMS = CLAIM_ITEMS.filter((c) => c.key !== "SPEAKER_FEE");
 
 const EMPTY_BANK = {
   beneficiaryName: "",
@@ -146,7 +157,7 @@ export default function ReimbursementFormPage() {
   // Section C — one draft per claim item
   const [claims, setClaims] = useState<Record<string, ClaimDraft>>(() =>
     Object.fromEntries(
-      CLAIM_ITEMS.map((c) => [c.key, { enabled: false, currency: "USD" as const, amount: "" }]),
+      EXPENSE_ITEMS.map((c) => [c.key, { enabled: false, currency: "USD" as const, amount: "" }]),
     ),
   );
 
@@ -202,6 +213,8 @@ export default function ReimbursementFormPage() {
           setClaims((prev) => {
             const next = { ...prev };
             for (const line of p.claimLines) {
+              // The GET already drops it; belt-and-braces for an older payload.
+              if (line.item === "SPEAKER_FEE") continue;
               next[line.item] = {
                 enabled: true,
                 currency: line.currency,
@@ -234,10 +247,10 @@ export default function ReimbursementFormPage() {
     };
   }, [slug, token]);
 
-  const claimLines = useMemo<ClaimLine[]>(
+  const expenseLines = useMemo<ClaimLine[]>(
     () =>
-      CLAIM_ITEMS.filter((c) => claims[c.key]?.enabled)
-        .map((c) => {
+      EXPENSE_ITEMS.filter((c) => claims[c.key]?.enabled)
+        .map((c): ClaimLine | null => {
           const draft = claims[c.key];
           const amount = Number.parseFloat(draft.amount);
           return Number.isFinite(amount) && amount > 0
@@ -246,6 +259,14 @@ export default function ReimbursementFormPage() {
         })
         .filter((l): l is ClaimLine => l !== null),
     [claims],
+  );
+  // What the server will store: the organiser's fee first (when agreed), then
+  // the expenses. Totals + the receipt rule run over THIS list, through the
+  // same helper the POST uses, so the form cannot disagree with the submit.
+  const honorarium = data?.honorarium ?? null;
+  const claimLines = useMemo<ClaimLine[]>(
+    () => effectiveClaimLines(honorarium, expenseLines),
+    [honorarium, expenseLines],
   );
   const totals = useMemo(() => computeClaimTotals(claimLines), [claimLines]);
   const missingDocs = useMemo(
@@ -307,10 +328,19 @@ export default function ReimbursementFormPage() {
   const handleSubmit = useCallback(async () => {
     setFieldErrors({});
     const roleAtEvent = rolePick === "Other" ? roleOther.trim() : rolePick;
+    // Nothing to claim = no expenses AND no agreed fee (the server refuses
+    // the same case with NOTHING_TO_CLAIM; this is the inline version).
+    if (claimLines.length === 0) {
+      setFieldErrors({ claimLines: "Tick at least one expense and enter its amount." });
+      toast.error("There is nothing to claim yet: tick at least one expense.");
+      return;
+    }
     const payload = {
       ...fields,
       roleAtEvent,
-      claimLines,
+      // Expense lines only — the fee is injected server-side from the
+      // organiser's figure, never sent from here.
+      claimLines: expenseLines,
       bankDetails: bank,
       signedName: signedName.trim(),
       declarationAccepted: declaration as true,
@@ -359,7 +389,7 @@ export default function ReimbursementFormPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [fields, rolePick, roleOther, claimLines, bank, signedName, declaration, missingDocs, slug, token]);
+  }, [fields, rolePick, roleOther, claimLines, expenseLines, bank, signedName, declaration, missingDocs, slug, token]);
 
   if (loading) {
     return (
@@ -620,10 +650,30 @@ export default function ReimbursementFormPage() {
               <section>
                 <SectionHeading letter="C" title="Reimbursement Type" />
                 <p className="text-sm text-slate-600 mb-3">
-                  Select all that apply and enter the amount for each.
+                  Your honorarium / speaker fee is set by the organising team. Tick the expenses
+                  you are claiming and enter each amount.
                 </p>
                 <div className="space-y-2">
-                  {CLAIM_ITEMS.map((item) => {
+                  {/* Locked line: the organiser's agreed fee, never an input (Sep 3, 2026). */}
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
+                    <div className="flex items-center gap-2.5 flex-1 min-w-40">
+                      <Lock className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                      <div>
+                        <span className="block text-sm font-medium text-slate-800">
+                          Honorarium / Speaker Fee
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          {honorarium
+                            ? "Agreed with the organising team. This line cannot be changed."
+                            : "No honorarium has been agreed. This line cannot be added here."}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums text-slate-800">
+                      {formatHonorarium(honorarium)}
+                    </span>
+                  </div>
+                  {EXPENSE_ITEMS.map((item) => {
                     const draft = claims[item.key];
                     return (
                       <div
@@ -705,7 +755,7 @@ export default function ReimbursementFormPage() {
                 </div>
                 {fieldErrors.claimLines && (
                   <p className="text-xs text-destructive mt-1">
-                    Select at least one item and enter its amount.
+                    Tick at least one expense and enter its amount.
                   </p>
                 )}
               </section>

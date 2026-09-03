@@ -452,6 +452,14 @@ was fixed in-band (see the CLAUDE.md entry). These are the deliberate carry-over
 | C12 | LOW | **`emailDomain` is duplicated** between `contact-import-blocklist.ts` and the private one in `internal-domains.ts` (already a documented dependency-free leaf module — the natural home). |
 | C13 | LOW | **`sanitizeImportedTag` is exported from a self-executing script**, so it is untestable (importing it runs `main()`) and untested, despite carrying the JSON-blob unwrapping and machine-id rejection logic. Fix: move it beside `screenContact`. |
 
+### Speaker honorarium (Sep 3, 2026): left out on purpose
+
+- **MCP.** `create_speaker` / `update_speaker` / `list_speakers` do not carry the honorarium; it is set from the reimbursement console or the speaker page only. Exposing it means deciding whether an org API key (admin-equivalent everywhere) may set a payment figure through an agent, which is a policy call, not a wiring one.
+- **Speaker CSV import** has no honorarium column. Add it with the same `readHonorarium` validation (amount > 0 and a supported currency) or the importer will write figures the form cannot pay.
+- **The default MMG faculty agreement and its email still say "no speaker fee or honorarium is provided"** in five places. Deliberate: that is MM Group's Mecomed stance. An event that pays one edits its own copy and can use `{{honorarium}}` there. A per-event switch that swaps the clause automatically was not built.
+- **Abstract-author emails** (presenter agreement, travel grant) do not carry the variable. They are author communications, not faculty ones; the author's Speaker row may have no fee at all.
+- **Per-speaker preview overrides** use the sample "USD 1,500.00" unless a `speakerId` is passed; the representative-speaker overrides in `email-preview-data.ts` deliberately do not lift a real person's fee into an audience-level preview.
+
 ### Event postponement + bulk session delete (Sep 2, 2026): what was left out on purpose
 
 Shipped: `shiftSchedule: true` on the event PUT moves every session, every

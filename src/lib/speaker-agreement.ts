@@ -11,6 +11,7 @@ import { formatPersonName, getTitleLabel, formatDate, slugify } from "./utils";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
 import { formatSessionRole, TBA_LABEL } from "./session-enums";
+import { honorariumVars, readHonorarium } from "./reimbursement/constants";
 
 export interface SpeakerAgreementTemplateMeta {
   url: string;
@@ -150,6 +151,12 @@ export interface SpeakerEmailContext {
   jobTitle: string;
   speakerOrganization: string;
   speakerCountry: string;
+  // Honorarium / speaker fee agreed by the organiser (Sep 3, 2026):
+  // {{honorarium}} = "USD 1,500.00" (or "0.00" when none is agreed), plus the
+  // bare amount and currency for templates that lay the parts out themselves.
+  honorarium: string;
+  honorariumAmount: string;
+  honorariumCurrency: string;
 
   // Event details
   eventName: string;
@@ -192,6 +199,8 @@ interface SpeakerEmailContextRow {
     jobTitle: string | null;
     organization: string | null;
     country: string | null;
+    honorariumAmount: unknown;
+    honorariumCurrency: string | null;
     sessions: Array<{
       role: string;
       session: {
@@ -251,6 +260,8 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         jobTitle: true,
         organization: true,
         country: true,
+        honorariumAmount: true,
+        honorariumCurrency: true,
         sessions: {
           select: {
             role: true,
@@ -695,6 +706,7 @@ export async function buildSpeakerEmailContext(
     jobTitle: speaker.jobTitle ?? "",
     speakerOrganization: speaker.organization ?? "",
     speakerCountry: speaker.country ?? "",
+    ...honorariumVars(readHonorarium(speaker)),
 
     eventName: event.name,
     eventSlug: event.slug,
@@ -799,6 +811,10 @@ export async function generateSpeakerAgreementDocx(opts: {
     sessionDateTime: context.sessionDateTime,
     trackNames: context.trackNames,
     role: context.role,
+    // {honorarium} in the .docx agreement — the organiser-agreed fee.
+    honorarium: context.honorarium,
+    honorariumAmount: context.honorariumAmount,
+    honorariumCurrency: context.honorariumCurrency,
   };
 
   try {
@@ -1045,6 +1061,9 @@ export function mergeAgreementHtml(html: string, ctx: SpeakerEmailContext): stri
     jobTitle: ctx.jobTitle,
     speakerOrganization: ctx.speakerOrganization,
     speakerCountry: ctx.speakerCountry,
+    honorarium: ctx.honorarium,
+    honorariumAmount: ctx.honorariumAmount,
+    honorariumCurrency: ctx.honorariumCurrency,
     eventName: ctx.eventName,
     eventStartDate: ctx.eventStartDate,
     eventEndDate: ctx.eventEndDate,

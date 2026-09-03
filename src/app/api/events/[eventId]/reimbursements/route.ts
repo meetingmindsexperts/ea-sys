@@ -26,7 +26,13 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
 import { generateReimbursementToken } from "@/lib/reimbursement/server";
-import { formatClaimTotals, type ClaimLine, type BankDetails } from "@/lib/reimbursement/constants";
+import {
+  formatClaimTotals,
+  formatHonorarium,
+  readHonorarium,
+  type ClaimLine,
+  type BankDetails,
+} from "@/lib/reimbursement/constants";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -51,7 +57,17 @@ const LIST_SELECT = {
   submittedAt: true,
   createdAt: true,
   speaker: {
-    select: { id: true, title: true, firstName: true, lastName: true, email: true },
+    select: {
+      id: true,
+      title: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      // The organiser-agreed fee — this list is already inside the
+      // reimbursement boundary, so it is returned as-is (console + card).
+      honorariumAmount: true,
+      honorariumCurrency: true,
+    },
   },
   documents: {
     select: { id: true, kind: true, filename: true, size: true, createdAt: true },
@@ -101,6 +117,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const header = [
         "Speaker",
         "Email",
+        "Honorarium",
         "Status",
         "Submitted At",
         "Full Name (passport)",
@@ -126,6 +143,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         return [
           `${r.speaker.firstName} ${r.speaker.lastName}`,
           r.email ?? r.speaker.email,
+          formatHonorarium(readHonorarium(r.speaker)),
           r.status,
           r.submittedAt ? r.submittedAt.toISOString() : "",
           r.fullName ?? "",

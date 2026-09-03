@@ -1469,6 +1469,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         vars.moderatorDetails = ctx.moderatorDetails;
         vars.moderatorDetailsText = ctx.moderatorDetailsText;
         vars.sessionDetails = ctx.sessionTitles.replace(/\n/g, ", ");
+        // The organiser-agreed fee rides every speaker send (Sep 3, 2026).
+        vars.honorarium = ctx.honorarium;
+        vars.honorariumAmount = ctx.honorariumAmount;
+        vars.honorariumCurrency = ctx.honorariumCurrency;
       }
     }
 

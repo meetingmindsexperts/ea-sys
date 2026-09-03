@@ -230,6 +230,11 @@ export function describeAuditAction(log: AuditLogLike): string {
     const recipient = changes.recipient as string | undefined;
     return `Email sent to ${recipient || "recipient"}`;
   }
+  if (log.action === "HONORARIUM_SET") {
+    // { before, after } are { amount, currency } | null (speaker-honorarium route).
+    const after = changes.after as { amount?: number; currency?: string } | null | undefined;
+    return after?.amount ? `Honorarium set to ${after.currency} ${after.amount}` : "Honorarium cleared";
+  }
   if (log.action === "DELETE") return `${log.entityType} deleted`;
   if (log.action === "UPDATE") return `${log.entityType} updated`;
   if (log.action === "BULK_UPDATE") return `Bulk update on ${log.entityType}`;

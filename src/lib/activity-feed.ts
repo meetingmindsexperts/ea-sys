@@ -54,6 +54,7 @@ async function collect(
   registrationId: string | null,
   organizationId: string | null | undefined,
   canViewFinance: boolean,
+  canViewReimbursements: boolean,
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
@@ -116,6 +117,9 @@ async function collect(
 
   const pushAudit = (rows: AuditRow[], source: ActivitySource) => {
     for (const r of rows) {
+      // The honorarium audit's before/after IS the fee; outside the
+      // reimbursement boundary the row is dropped, not merely un-diffed.
+      if (r.action === "HONORARIUM_SET" && !canViewReimbursements) continue;
       const diffs = computeAuditDiffs(r.changes, canViewFinance);
       items.push({
         id: `audit:${r.id}`,
@@ -243,9 +247,19 @@ export async function buildSpeakerActivity(
   speaker: { id: string; email: string; sourceRegistrationId: string | null },
   organizationId: string | null | undefined,
   canViewFinance: boolean,
+  // The speaker-honorarium audit carries the agreed fee in its diffs, which
+  // is reimbursement data (staff only, stricter than finance — MEMBER and
+  // ONSITE can view finance but not this). Defaults closed.
+  canViewReimbursements = false,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedRegistration(eventId, speaker);
-  const items = await collect(speaker.id, linked?.id ?? null, organizationId, canViewFinance);
+  const items = await collect(
+    speaker.id,
+    linked?.id ?? null,
+    organizationId,
+    canViewFinance,
+    canViewReimbursements,
+  );
   return {
     items,
     linked: linked ? { type: "registration", id: linked.id, linkedBy: linked.linkedBy } : null,
@@ -258,9 +272,19 @@ export async function buildRegistrationActivity(
   registration: { id: string; attendeeEmail: string | null },
   organizationId: string | null | undefined,
   canViewFinance: boolean,
+  // The speaker-honorarium audit carries the agreed fee in its diffs, which
+  // is reimbursement data (staff only, stricter than finance — MEMBER and
+  // ONSITE can view finance but not this). Defaults closed.
+  canViewReimbursements = false,
 ): Promise<ActivityFeed> {
   const linked = await resolveLinkedSpeaker(eventId, registration);
-  const items = await collect(linked?.id ?? null, registration.id, organizationId, canViewFinance);
+  const items = await collect(
+    linked?.id ?? null,
+    registration.id,
+    organizationId,
+    canViewFinance,
+    canViewReimbursements,
+  );
   return {
     items,
     linked: linked ? { type: "speaker", id: linked.id, linkedBy: linked.linkedBy } : null,

@@ -9,6 +9,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { canManageReimbursements, stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -158,7 +159,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
     }
 
-    return NextResponse.json(speaker);
+    // The organiser-agreed honorarium is reimbursement data (staff only —
+    // the Sep 3, 2026 boundary); `include` returns the whole row, so strip
+    // the two columns for MEMBER / ONSITE / WEBINARS.
+    return NextResponse.json(
+      canManageReimbursements(session.user.role) ? speaker : stripHonorariumFields(speaker),
+    );
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching speaker" });
@@ -283,7 +289,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // `companionCascade` tells the UI what happened to the companion
     // registration on a decline (cancelled / kept / real-registration / …).
-    return NextResponse.json(companionCascade ? { ...speaker, companionCascade } : speaker);
+    // Same boundary as the GET: the PUT admits WEBINARS on webinars, and the
+    // returned row must not hand them the honorarium.
+    const visible = canManageReimbursements(session.user.role) ? speaker : stripHonorariumFields(speaker);
+    return NextResponse.json(companionCascade ? { ...visible, companionCascade } : visible);
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating speaker" });

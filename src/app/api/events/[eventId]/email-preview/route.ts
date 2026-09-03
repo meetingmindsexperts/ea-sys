@@ -205,6 +205,9 @@ export async function POST(req: Request, { params }: RouteParams) {
               presentationDetailsText: ctx.presentationDetailsText,
               moderatorDetails: ctx.moderatorDetails,
               moderatorDetailsText: ctx.moderatorDetailsText,
+              honorarium: ctx.honorarium,
+              honorariumAmount: ctx.honorariumAmount,
+              honorariumCurrency: ctx.honorariumCurrency,
             }
           : {}),
       };

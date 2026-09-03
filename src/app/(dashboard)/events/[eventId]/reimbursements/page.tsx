@@ -48,12 +48,16 @@ import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
 import {
+  REIMBURSEMENT_CURRENCIES,
   canManageReimbursements,
   claimItemLabel,
   documentKindLabel,
   formatClaimTotals,
+  formatHonorarium,
+  readHonorarium,
   type BankDetails,
   type ClaimLine,
+  type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
 import { toast } from "sonner";
 
@@ -86,6 +90,9 @@ interface ReimbursementRow {
     firstName: string;
     lastName: string;
     email: string;
+    // Decimal serialises as a string; readHonorarium() accepts either.
+    honorariumAmount: string | number | null;
+    honorariumCurrency: string | null;
   };
   documents: DocumentRow[];
 }
@@ -123,6 +130,13 @@ export default function ReimbursementsPage() {
   const [sending, setSending] = useState(false);
   const [detail, setDetail] = useState<ReimbursementRow | null>(null);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
+  // Inline honorarium editor, one row at a time. An empty amount or 0 clears.
+  const [honorariumEditId, setHonorariumEditId] = useState<string | null>(null);
+  const [honorariumDraft, setHonorariumDraft] = useState<{
+    amount: string;
+    currency: ReimbursementCurrency;
+  }>({ amount: "", currency: "USD" });
+  const [honorariumSaving, setHonorariumSaving] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(
@@ -179,6 +193,62 @@ export default function ReimbursementsPage() {
   }, [speakers, invitedSpeakerIds, speakerSearch]);
 
   const pendingCount = rows.filter((r) => r.status === "PENDING").length;
+
+  const startHonorariumEdit = useCallback((row: ReimbursementRow) => {
+    const current = readHonorarium(row.speaker);
+    setHonorariumDraft({
+      amount: current ? String(current.amount) : "",
+      currency: current?.currency ?? "USD",
+    });
+    setHonorariumEditId(row.id);
+  }, []);
+
+  const saveHonorarium = useCallback(
+    async (row: ReimbursementRow) => {
+      const amount = honorariumDraft.amount.trim() === "" ? 0 : Number(honorariumDraft.amount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        toast.error("Enter a valid amount (0 clears the fee).");
+        return;
+      }
+      setHonorariumSaving(true);
+      try {
+        const res = await fetch(`/api/events/${eventId}/speakers/${row.speakerId}/honorarium`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount, currency: honorariumDraft.currency }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          console.error("reimbursements:honorarium-save-failed", res.status, json?.error);
+          toast.error(json?.error || "Failed to save the honorarium");
+          return;
+        }
+        const saved = json.honorarium as { amount: number; currency: ReimbursementCurrency } | null;
+        setRows((prev) =>
+          prev.map((r) =>
+            r.speakerId === row.speakerId
+              ? {
+                  ...r,
+                  speaker: {
+                    ...r.speaker,
+                    honorariumAmount: saved?.amount ?? null,
+                    honorariumCurrency: saved?.currency ?? null,
+                  },
+                }
+              : r,
+          ),
+        );
+        setHonorariumEditId(null);
+        toast.success(saved ? `Honorarium set to ${formatHonorarium(saved)}` : "Honorarium cleared");
+      } catch (err) {
+        console.error("reimbursements:honorarium-save-error", err);
+        toast.error("Failed to save the honorarium");
+      } finally {
+        setHonorariumSaving(false);
+      }
+    },
+    [eventId, honorariumDraft],
+  );
 
   const handleAdd = useCallback(async () => {
     if (selectedSpeakerIds.size === 0) return;
@@ -431,6 +501,7 @@ export default function ReimbursementsPage() {
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="px-4 py-3 font-medium">Speaker</th>
+                    <th className="px-4 py-3 font-medium">Honorarium</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Submitted</th>
                     <th className="px-4 py-3 font-medium">Total claimed</th>
@@ -448,6 +519,70 @@ export default function ReimbursementsPage() {
                             {formatPersonName(row.speaker.title, row.speaker.firstName, row.speaker.lastName)}
                           </div>
                           <div className="text-xs text-muted-foreground">{row.speaker.email}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {honorariumEditId === row.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                className="h-8 rounded-md border bg-background px-1.5 text-xs"
+                                value={honorariumDraft.currency}
+                                onChange={(e) =>
+                                  setHonorariumDraft((d) => ({
+                                    ...d,
+                                    currency: e.target.value as ReimbursementCurrency,
+                                  }))
+                                }
+                              >
+                                {REIMBURSEMENT_CURRENCIES.map((c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                ))}
+                              </select>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="h-8 w-28 text-xs"
+                                value={honorariumDraft.amount}
+                                autoFocus
+                                onChange={(e) =>
+                                  setHonorariumDraft((d) => ({ ...d, amount: e.target.value }))
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void saveHonorarium(row);
+                                  if (e.key === "Escape") setHonorariumEditId(null);
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                className="h-8"
+                                disabled={honorariumSaving}
+                                onClick={() => void saveHonorarium(row)}
+                              >
+                                {honorariumSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8"
+                                disabled={honorariumSaving}
+                                onClick={() => setHonorariumEditId(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="group inline-flex items-center gap-1.5 tabular-nums hover:text-primary"
+                              title="Set the honorarium / speaker fee (shown locked on the speaker's form)"
+                              onClick={() => startHonorariumEdit(row)}
+                            >
+                              {formatHonorarium(readHonorarium(row.speaker))}
+                              <PenLine className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary" />
+                            </button>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {row.status === "SUBMITTED" ? (
@@ -710,6 +845,10 @@ export default function ReimbursementsPage() {
                       <Detail label="Nationality" value={detail.nationality} />
                       <Detail label="Passport number" value={detail.passportNumber} />
                       <Detail label="Role at event" value={detail.roleAtEvent} />
+                      <Detail
+                        label="Honorarium / speaker fee (set by you)"
+                        value={formatHonorarium(readHonorarium(detail.speaker))}
+                      />
                     </div>
                   </section>
                   <section>

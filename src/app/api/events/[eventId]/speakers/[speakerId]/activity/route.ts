@@ -11,6 +11,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { canManageReimbursements } from "@/lib/reimbursement/constants";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 
@@ -73,6 +74,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       speaker,
       session.user.organizationId,
       canViewFinance(session.user.role),
+      canManageReimbursements(session.user.role),
     );
     return NextResponse.json({ items, linked });
     });
