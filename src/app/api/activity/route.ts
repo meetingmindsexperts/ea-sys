@@ -3,7 +3,32 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
+import { isHrModuleEnabled } from "@/lib/module-flags";
+import { canViewHr, HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
 import type { Prisma } from "@prisma/client";
+
+/**
+ * TWO SCOPES OVER ONE TABLE (Sep 3, 2026).
+ *
+ * The HR module writes its audit rows into the same `AuditLog` the events
+ * business does, stamped with the org like every other row. This route is
+ * gated to ADMIN + SUPER_ADMIN; HR is gated to SUPER_ADMIN plus the per-person
+ * `hrAccess` grant, and ADMIN alone is deliberately NOT enough (owner, Aug 31).
+ * Until this split, an admin with no grant saw "Employee created, <name>" in
+ * the Changes feed and the raw JSON handed them every attendance blob
+ * (employee id, leave code, date range). So:
+ *
+ *   - default scope EXCLUDES the HR entity types, always, even when the caller
+ *     names one of them in `entityType` (the filter narrows within the
+ *     exclusion, it cannot lift it);
+ *   - `?scope=hr` INCLUDES only them, behind the same two walls the HR routes
+ *     use: module switched on (else 404, a module that is not here should not
+ *     announce itself) and `canViewHr` (else 403).
+ *
+ * `HR_AUDIT_ENTITY_TYPES` is pinned to the HR services by a source-level test,
+ * so a new HR table cannot quietly land back in the general feed.
+ */
+const HR_TYPES = [...HR_AUDIT_ENTITY_TYPES];
 
 export async function GET(req: Request) {
   try {
@@ -20,6 +45,29 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
+
+    const scopeParam = url.searchParams.get("scope");
+    if (scopeParam !== null && scopeParam !== "hr" && scopeParam !== "changes") {
+      // A bad scope must never fall through to the default and silently widen
+      // (the same rule the bulk-email filters follow).
+      apiLogger.warn({ msg: "activity:invalid-scope", scope: scopeParam, userId: session.user.id });
+      return NextResponse.json({ error: "Invalid scope", code: "INVALID_SCOPE" }, { status: 400 });
+    }
+    const hrScope = scopeParam === "hr";
+
+    if (hrScope && !isHrModuleEnabled()) {
+      apiLogger.warn({ msg: "activity:hr-module-disabled", userId: session.user.id });
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (hrScope && !canViewHr(session.user)) {
+      apiLogger.warn({
+        msg: "activity:hr-scope-forbidden",
+        role: session.user.role,
+        userId: session.user.id,
+      });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // Ceiling raised 100 → 500 so the feed's "Load more" has somewhere to go.
     // Deliberately a growing `take` rather than a cursor: the audit feed is
     // admin-only, low-traffic, and a single ordered read of ≤500 rows on an
@@ -50,6 +98,16 @@ export async function GET(req: Request) {
     // Backed by @@index([organizationId, createdAt]).
     const where: Prisma.AuditLogWhereInput = { organizationId: orgId };
 
+    // The scope decides the entityType predicate; an explicit filter narrows
+    // WITHIN it. `{ equals: "Employee", notIn: HR_TYPES }` yields zero rows in
+    // the default scope, which is the point: the filter cannot smuggle an HR
+    // row past the exclusion.
+    const entityTypeFilter: Prisma.StringFilter = hrScope
+      ? { in: HR_TYPES }
+      : { notIn: HR_TYPES };
+    if (entityType) entityTypeFilter.equals = entityType;
+    where.entityType = entityTypeFilter;
+
     if (eventId) {
       // An explicit event filter narrows within the org (the org predicate
       // stays — a foreign eventId yields zero rows, not a leak).
@@ -60,9 +118,6 @@ export async function GET(req: Request) {
     }
     if (action) {
       where.action = action;
-    }
-    if (entityType) {
-      where.entityType = entityType;
     }
     if (timeRange) {
       const now = new Date();
@@ -79,8 +134,8 @@ export async function GET(req: Request) {
     }
 
     // Session-org tenant lane (inert on master; the platform's RLS backstop).
-    const logs = await runWithTenant(orgId, () =>
-      db.auditLog.findMany({
+    const logs = await runWithTenant(orgId, async () => {
+      const rows = await db.auditLog.findMany({
         where,
         orderBy: { createdAt: "desc" },
         take: limit,
@@ -98,8 +153,42 @@ export async function GET(req: Request) {
             select: { id: true, name: true },
           },
         },
-      }),
-    );
+      });
+      if (!hrScope) return rows;
+
+      // HR rows name their subject by id only (an `Employee` row's entityId,
+      // an attendance row's `employee:<id>`, a rule's `changes.employeeId`),
+      // and the blobs deliberately carry codes and dates rather than names.
+      // Resolve the names ONCE here, org-bound, inside the same lane, so the
+      // feed can say who a row is about without a second request per row.
+      const employeeIds = new Set<string>();
+      for (const r of rows) {
+        if (r.entityType === "Employee") employeeIds.add(r.entityId);
+        if (r.entityId.startsWith("employee:")) employeeIds.add(r.entityId.slice("employee:".length));
+        const c = r.changes as Record<string, unknown> | null;
+        if (c && typeof c.employeeId === "string") employeeIds.add(c.employeeId);
+      }
+      const names = new Map<string, string>();
+      if (employeeIds.size > 0) {
+        const employees = await db.employee.findMany({
+          where: { id: { in: [...employeeIds] }, organizationId: orgId },
+          select: { id: true, name: true, empCode: true },
+        });
+        for (const e of employees) names.set(e.id, e.name);
+      }
+      return rows.map((r) => {
+        const c = r.changes as Record<string, unknown> | null;
+        const id =
+          r.entityType === "Employee"
+            ? r.entityId
+            : r.entityId.startsWith("employee:")
+              ? r.entityId.slice("employee:".length)
+              : c && typeof c.employeeId === "string"
+                ? c.employeeId
+                : null;
+        return { ...r, subjectName: id ? (names.get(id) ?? null) : null };
+      });
+    });
 
     return NextResponse.json(logs);
   } catch (error) {

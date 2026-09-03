@@ -149,3 +149,48 @@ describe("auditSubjectName", () => {
     expect(auditSubjectName({ ...base, changes: {} })).toBeNull();
   });
 });
+
+describe("computeAuditDiffs — the HR `changed` map shape", () => {
+  it("renders {from, to} entries and the 'changed' sentinel without a value", () => {
+    const diffs = computeAuditDiffs(
+      {
+        source: "ui",
+        changed: {
+          status: { from: "ACTIVE", to: "RESIGNED" },
+          exitDate: { from: null, to: "2026-09-30" },
+          notes: "changed",
+        },
+      },
+      true,
+    );
+    expect(diffs).toEqual([
+      { field: "Status", before: "ACTIVE", after: "RESIGNED" },
+      { field: "Exit date", before: "—", after: "2026-09-30" },
+      { field: "Notes", before: "—", after: "edited" },
+    ]);
+  });
+
+  it("still honours the skip set (credential + noise keys) on the changed map", () => {
+    const diffs = computeAuditDiffs(
+      { changed: { id: { from: "a", to: "b" }, qrCode: { from: "1", to: "2" }, department: { from: "Ops", to: "Sales" } } },
+      true,
+    );
+    expect(diffs).toEqual([{ field: "Department", before: "Ops", after: "Sales" }]);
+  });
+
+  it("ignores entries that are neither a pair nor the sentinel", () => {
+    const diffs = computeAuditDiffs(
+      { changed: { weird: "not-the-sentinel", nested: { deep: true }, list: [1, 2] } },
+      true,
+    );
+    expect(diffs).toEqual([]);
+  });
+
+  it("does not treat a before/after row that happens to carry `changed` as the map shape", () => {
+    const diffs = computeAuditDiffs(
+      { before: { status: "A", changed: "x" }, after: { status: "B", changed: "x" } },
+      true,
+    );
+    expect(diffs).toEqual([{ field: "Status", before: "A", after: "B" }]);
+  });
+});

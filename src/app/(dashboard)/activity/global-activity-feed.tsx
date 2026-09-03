@@ -11,6 +11,7 @@ import {
   describeAuditAction,
   auditActorLabel,
   auditSubjectName,
+  HR_AUDIT_ENTITY_LABELS,
 } from "@/components/activity/audit-log-display";
 import { computeAuditDiffs } from "@/lib/activity-diff";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -31,6 +32,8 @@ interface GlobalActivityLog {
   id: string;
   action: string;
   entityType: string;
+  /** Resolved server-side for the HR scope (employee name); absent otherwise. */
+  subjectName?: string | null;
   entityId: string;
   changes: Record<string, unknown>;
   createdAt: string;
@@ -63,7 +66,7 @@ const actionTypes = [
   { label: "Bulk update", value: "BULK_UPDATE" },
 ];
 
-const entityTypes = [
+const CHANGES_ENTITY_TYPES = [
   { label: "All types", value: ANY },
   { label: "Registration", value: "Registration" },
   { label: "Speaker", value: "Speaker" },
@@ -75,6 +78,21 @@ const entityTypes = [
   { label: "Track", value: "Track" },
 ];
 
+// Built from the exhaustive label Record, so a new HR entity type reaches this
+// filter the moment it is labelled and cannot be forgotten here.
+const HR_ENTITY_TYPES = [
+  { label: "All types", value: ANY },
+  ...Object.entries(HR_AUDIT_ENTITY_LABELS).map(([value, label]) => ({ label, value })),
+];
+
+/**
+ * Which slice of the AuditLog this instance shows. "changes" is the events
+ * business (the default, HR rows excluded server-side); "hr" is the HR module
+ * only, behind `canViewHr`. Each tab mounts its own instance, so filter state
+ * never bleeds between scopes.
+ */
+export type ActivityScope = "changes" | "hr";
+
 /** "Today" / "Yesterday" / "Mon, 12 Jul 2026" — the grouping key AND its label. */
 function dayLabel(d: Date): string {
   if (isToday(d)) return "Today";
@@ -82,7 +100,8 @@ function dayLabel(d: Date): string {
   return format(d, "EEE, d MMM yyyy");
 }
 
-export function GlobalActivityFeed() {
+export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScope } = {}) {
+  const isHr = scope === "hr";
   const { data: session } = useSession();
   // The page is ADMIN/SUPER_ADMIN-only and both are finance roles, so this is
   // effectively always true — but it is derived rather than hardcoded, so the
@@ -101,6 +120,7 @@ export function GlobalActivityFeed() {
 
   const params = new URLSearchParams();
   params.set("limit", String(limit));
+  if (isHr) params.set("scope", "hr");
   if (set(eventId)) params.set("eventId", eventId);
   if (set(userId)) params.set("userId", userId);
   if (set(action)) params.set("action", action);
@@ -108,7 +128,7 @@ export function GlobalActivityFeed() {
   if (set(timeRange)) params.set("timeRange", timeRange);
 
   const { data: logs = [], isLoading, isFetching, refetch } = useQuery<GlobalActivityLog[]>({
-    queryKey: ["global-activity", eventId, userId, action, entityType, timeRange, limit],
+    queryKey: ["global-activity", scope, eventId, userId, action, entityType, timeRange, limit],
     queryFn: async () => {
       const res = await fetch(`/api/activity?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
@@ -161,19 +181,23 @@ export function GlobalActivityFeed() {
               Filter
             </span>
 
-            <Select value={eventId} onValueChange={setEventId}>
-              <SelectTrigger className="h-9 w-[190px]" aria-label="Filter by event">
-                <SelectValue placeholder="All events" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY}>All events</SelectItem>
-                {events.map((ev: { id: string; name: string }) => (
-                  <SelectItem key={ev.id} value={ev.id}>
-                    {ev.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* HR rows belong to no event, so the event filter would only ever
+                empty the list in that scope. */}
+            {!isHr && (
+              <Select value={eventId} onValueChange={setEventId}>
+                <SelectTrigger className="h-9 w-[190px]" aria-label="Filter by event">
+                  <SelectValue placeholder="All events" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>All events</SelectItem>
+                  {events.map((ev: { id: string; name: string }) => (
+                    <SelectItem key={ev.id} value={ev.id}>
+                      {ev.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <Select value={userId} onValueChange={setUserId}>
               <SelectTrigger className="h-9 w-[160px]" aria-label="Filter by user">
@@ -209,7 +233,7 @@ export function GlobalActivityFeed() {
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                {entityTypes.map((e) => (
+                {(isHr ? HR_ENTITY_TYPES : CHANGES_ENTITY_TYPES).map((e) => (
                   <SelectItem key={e.value} value={e.value}>
                     {e.label}
                   </SelectItem>
@@ -273,7 +297,9 @@ export function GlobalActivityFeed() {
               <p className="mt-1 text-sm text-muted-foreground">
                 {activeFilters > 0
                   ? "Try widening the time range or clearing a filter."
-                  : "Actions across your events will appear here as they happen."}
+                  : isHr
+                    ? "Employee, attendance, standing-rule and leave-year changes will appear here as they happen."
+                    : "Actions across your events will appear here as they happen."}
               </p>
               {activeFilters > 0 && (
                 <Button variant="outline" size="sm" onClick={clearAll} className="mt-4">
@@ -305,7 +331,7 @@ export function GlobalActivityFeed() {
                     {day.logs.map((log) => {
                       const Icon = auditEntityIcon(log.entityType);
                       const colorCls = auditActionColor(log.action);
-                      const subject = auditSubjectName(log);
+                      const subject = log.subjectName ?? auditSubjectName(log);
                       const diffs = computeAuditDiffs(log.changes, showFinance);
                       const at = new Date(log.createdAt);
 

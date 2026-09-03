@@ -64,6 +64,36 @@ function formatDiffValue(v: unknown): string | null {
 
 const MAX_DIFFS = 15;
 
+/**
+ * The HR employee UPDATE shape: `{ changed: { field: { from, to } | "changed" } }`.
+ * The HR service records the field diff itself (review M7, Aug 31 2026) and
+ * writes the literal `"changed"` for `notes`, so the trail says the field moved
+ * without ever quoting it: free text about a person is where medical detail
+ * lands, and the trail outlives the row. That sentinel renders as "edited"
+ * with no before value, deliberately. The skip set still applies (it carries
+ * the credential rule), and the length cap is the same one the before/after
+ * shape uses.
+ */
+function diffChangedMap(changed: Record<string, unknown>): ActivityFieldDiff[] {
+  const out: ActivityFieldDiff[] = [];
+  for (const [k, v] of Object.entries(changed)) {
+    if (DIFF_SKIP_KEYS.has(k)) continue;
+    if (out.length >= MAX_DIFFS) break;
+    if (v === "changed") {
+      out.push({ field: humanizeKey(k), before: "—", after: "edited" });
+      continue;
+    }
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const pair = v as { from?: unknown; to?: unknown };
+    if (!("from" in pair) && !("to" in pair)) continue;
+    const bf = formatDiffValue(pair.from);
+    const af = formatDiffValue(pair.to);
+    if (bf === null || af === null) continue;
+    out.push({ field: humanizeKey(k), before: bf, after: af });
+  }
+  return out;
+}
+
 /** Diff one flat object level, pushing changed scalar/array keys. */
 function diffLevel(
   before: Record<string, unknown>,
@@ -88,9 +118,11 @@ function diffLevel(
 /**
  * Build field-level diffs from an audit row's `changes` blob. Handles the
  * registration/speaker UPDATE shape `{ before, after }` (both full rows incl. a
- * nested `attendee`). Financial fields are stripped first for non-finance
- * viewers. Returns [] for non-UPDATE shapes (e.g. DELETE's `{ deleted }`, bulk
- * summaries) — an empty array means "nothing renderable here", not an error.
+ * nested `attendee`), and the HR employee shape `{ changed: { field: {from, to} } }`
+ * (see `diffChangedMap`). Financial fields are stripped first for non-finance
+ * viewers on the before/after shape; the HR shape carries no money. Returns []
+ * for other shapes (e.g. DELETE's `{ deleted }`, bulk summaries) — an empty
+ * array means "nothing renderable here", not an error.
  */
 export function computeAuditDiffs(
   changes: unknown,
@@ -98,6 +130,15 @@ export function computeAuditDiffs(
 ): ActivityFieldDiff[] {
   if (!changes || typeof changes !== "object") return [];
   const c = changes as Record<string, unknown>;
+  if (
+    !c.before &&
+    !c.after &&
+    c.changed &&
+    typeof c.changed === "object" &&
+    !Array.isArray(c.changed)
+  ) {
+    return diffChangedMap(c.changed as Record<string, unknown>);
+  }
   if (!c.before || !c.after || typeof c.before !== "object" || typeof c.after !== "object") {
     return [];
   }

@@ -48,7 +48,8 @@ import { isHrModuleEnabled } from "@/lib/module-flags";
 import { canViewHr, canWriteHr } from "./hr-visibility";
 
 /*
- * The predicate itself lives in `hr-visibility.ts`, with no server-only
+ * The predicate itself lives in core, `src/lib/hr-visibility.ts` (re-exported
+ * through `./hr-visibility`), with no server-only
  * imports, so the sidebar can ask exactly the question this guard asks. It is
  * re-exported here because every existing caller imports it from this file and
  * one answer in two places is the whole point.

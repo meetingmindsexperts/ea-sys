@@ -109,15 +109,17 @@ const eslintConfig = defineConfig([
       "src/hr/**",
       "src/app/api/hr/**",
       "src/app/(dashboard)/hr/**",
-      // Permitted core-side touch points. Keep this list SHORT; adding a fourth
+      // Permitted core-side touch points. Keep this list SHORT; adding a third
       // should mean editing this file on purpose, not noticing later.
-      "src/components/layout/sidebar.tsx",
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",
       // NOTE: the availability flag deliberately does NOT live in src/hr/. It
       // needed three exemptions here within one step, which is the signal that a
       // file is on the wrong side of a boundary, so it moved to
-      // src/lib/module-flags.ts and the list stayed at three.
+      // src/lib/module-flags.ts. The visibility predicate (`canViewHr`) followed
+      // it on Sep 3, 2026 for the same reason: the sidebar held an exemption to
+      // reach it, the Activity page's HR tab would have needed two more. It now
+      // lives in src/lib/hr-visibility.ts and the sidebar exemption is gone.
     ],
     rules: {
       "no-restricted-imports": [
