@@ -331,3 +331,36 @@ export function formatEventDateRange(
   // Spans a year boundary: both sides carry their year.
   return `${full(start)} – ${full(end)}`;
 }
+
+// ── Calendar-day arithmetic (postponement) ──────────────────────────────────
+//
+// A postponement moves an event N calendar days later and expects every
+// session to keep its wall-clock time on its new day: a 09:00 keynote on day 1
+// is still a 09:00 keynote on day 1. That is calendar arithmetic in the event's
+// timezone, NOT a millisecond offset added to each instant. The two differ
+// wherever the shift crosses a DST transition (a 21-day shift in
+// Europe/London straddling the October fallback would move 09:00 to 08:00 if
+// done in milliseconds), and they differ silently, which is why these live
+// here beside the other wall-clock helpers rather than inline in a route.
+
+/** Whole calendar days from `from` to `to`, counted on the local calendar of `timeZone`. */
+export function calendarDaysBetween(from: Date, to: Date, timeZone: string): number {
+  const [ay, am, ad] = localDateInTz(from, timeZone).split("-").map(Number);
+  const [by, bm, bd] = localDateInTz(to, timeZone).split("-").map(Number);
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000);
+}
+
+/**
+ * The same wall-clock time, `days` calendar days later (or earlier), in
+ * `timeZone`. Seconds are preserved. `days === 0` returns the input unchanged.
+ */
+export function shiftInstantByCalendarDays(date: Date, days: number, timeZone: string): Date {
+  if (days === 0) return date;
+  const p = tzParts(date, timeZone);
+  const moved = new Date(Date.UTC(p.year, p.month - 1, p.day + days));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const wall =
+    `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}` +
+    `T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+  return wallTimeInTzToDate(wall, timeZone);
+}

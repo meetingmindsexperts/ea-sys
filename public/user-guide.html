@@ -827,6 +827,34 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p><strong>On your own agenda screen</strong> you get a chase-list instead of TBA on every card: a note reading &ldquo;<em>2 sessions still need a speaker</em>&rdquo; with their names, so you can clear them before you publish. It disappears when the count reaches zero.</p>
         <p><strong>Session descriptions</strong> now appear directly under the session title on both the public agenda and your own &mdash; no clicking to expand. If a session has no description, nothing is shown.</p>
       </div>
+
+      <div class="sub" id="s3-6">
+        <div class="sub-title">Postponing an event: move the whole schedule</div>
+        <p>If the event moves to new dates, change them under <strong>Event Settings &rarr; General</strong> as usual. If sessions would fall outside the new dates, the save no longer stops with an error: it asks whether to <strong>move the whole schedule</strong> by the same number of days. Say yes and every session moves with the event, each keeping its time of day, so a 09:00 keynote on day 1 is still a 09:00 keynote on day 1.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Event Settings &rarr; <strong>General</strong> &rarr; set the new <strong>Start</strong> and <strong>End</strong> dates &rarr; <strong>Save</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">When asked &ldquo;Move the whole schedule?&rdquo;, choose <strong>Move the schedule</strong>. The confirmation tells you how many sessions, sales windows and deadlines moved.</div></div>
+        </div>
+        <p><strong>What moves with it, and what does not:</strong></p>
+        <ul>
+          <li><strong>Every session</strong>, including cancelled ones and break items, so the agenda stays consistent.</li>
+          <li><strong>Sales windows still in the future</strong> (Early Bird, Standard, Onsite) move by the same number of days. <strong>Closed windows stay closed.</strong> An Early Bird that already ended is not reopened; a Standard window that is open today stays open and closes later; an Onsite window still ends on the last day.</li>
+          <li><strong>Abstract and session-proposal deadlines still in the future</strong> move too. Past ones stay.</li>
+          <li><strong>Zoom meetings</strong> on moved sessions are updated. If one could not be, the confirmation says so; retime that session from the Agenda to retry.</li>
+          <li><strong>Not moved:</strong> dinner dates, hotel bookings and any emails you scheduled by hand. Check those yourself.</li>
+        </ul>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">If the new date range is shorter than the agenda</div>Moving the schedule cannot fit a three-day programme into two days. In that case the save is refused again and names the sessions that would still fall outside; extend the end date, or move or delete those sessions first, then save again.</div></div>
+      </div>
+
+      <div class="sub" id="s3-7">
+        <div class="sub-title">Deleting several sessions at once</div>
+        <p>Open the <strong>All Sessions</strong> panel from the Agenda page. Each session has a tick box, each day has a &ldquo;select all on this day&rdquo; box, and the bar at the top selects everything. Pick what to remove and press <strong>Delete selected</strong>.</p>
+        <ul>
+          <li>The confirmation reminds you that any <strong>Zoom meeting</strong> linked to a selected session is deleted on Zoom as well. This cannot be undone.</li>
+          <li>On a webinar, the <strong>main webinar session</strong> is never deleted this way; it is left in place and the result tells you so.</li>
+          <li>Closing the panel clears the selection, so a tick left from an earlier visit can never be deleted by surprise.</li>
+        </ul>
+      </div>
     </div>
 
     <div class="divider"></div>

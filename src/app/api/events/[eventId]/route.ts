@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -11,8 +11,9 @@ import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility"
 import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
-import { readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { readAbstractDeadline, readSessionProposalDeadline } from "@/lib/submission-deadline";
 import {
+  calendarDaysBetween,
   isSessionWithinEventDates,
   localDateInTz,
   resolveTimezone,
@@ -21,7 +22,16 @@ import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
 import { readWebinarSettings } from "@/lib/webinar";
-import { updateSession as updateSessionService } from "@/services/session-service";
+import {
+  updateSession as updateSessionService,
+  syncZoomMeetingTimes,
+} from "@/services/session-service";
+import { rescheduleWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
+import {
+  applyScheduleShift,
+  ScheduleShiftBlockedError,
+  type ScheduleShiftSummary,
+} from "@/services/event-schedule-shift";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -89,6 +99,12 @@ const updateEventSchema = z.object({
   // question ids and >50 questions are rejected by the inner schema.
   surveyConfig: surveyConfigSchema.nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
+  // Postponement (Sep 2, 2026): move every session, every future tier sales
+  // window and every future submission deadline by the same number of
+  // calendar days the start date moved. Opt-in per request; the Settings page
+  // offers it when the date-range guard fires. See
+  // services/event-schedule-shift.ts for the rules.
+  shiftSchedule: z.boolean().optional(),
 });
 
 interface RouteParams {
@@ -283,6 +299,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       maxAttendees,
       surveyConfig,
       settings,
+      shiftSchedule,
     } = validated.data;
 
     // If slug is being changed, check for uniqueness
@@ -322,6 +339,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         effectiveEnd.getTime() !== existingEvent.endDate?.getTime() ||
         effectiveTz !== resolveTimezone(existingEvent.timezone));
 
+    // Postponement: the organiser opted to move the whole schedule with the
+    // start date. Only a CALENDAR-DAY change qualifies; a same-day time change
+    // on a webinar still goes through the anchor cascade below.
+    const dayDelta = startDate
+      ? calendarDaysBetween(existingEvent.startDate, new Date(startDate), effectiveTz)
+      : 0;
+    const shifting = Boolean(shiftSchedule && startDate && dayDelta !== 0);
+
     // WEBINAR retime cascade (owner decision, Aug 4 2026): changing the event's
     // Start Date & Time in Settings → General on a WEBINAR event used to move
     // ONLY the Event row — the anchor session, the Zoom webinar, and the
@@ -346,7 +371,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       (eventType ?? existingEvent.eventType) === "WEBINAR" &&
       startInstantChanged &&
       webinarAnchorId &&
-      startDate
+      startDate &&
+      // A shift moves the anchor with every other session, wall-clock kept;
+      // the cascade is for a same-day time change and must not move it twice.
+      !shifting
     ) {
       cascadeAnchor = await runWithTenant(orgGuard.orgId, () =>
         db.eventSession.findFirst({
@@ -385,7 +413,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
     const willCascadeAnchor = Boolean(cascadeAnchor);
-    if (datesOrTzChanged) {
+    // When shifting, the transaction below re-validates AFTER the move
+    // instead, so a shift that still leaves sessions outside (the event got
+    // shorter too) rolls back with the same error shape.
+    if (datesOrTzChanged && !shifting) {
       // CANCELLED sessions are excluded — they no longer render on the agenda
       // and must not block a legitimate date change.
       // tenancy: EventSession is swept (Sessions sweep, Domain #12) — this guard
@@ -435,6 +466,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
               startTime: s.startTime,
               endTime: s.endTime,
             })),
+            // Non-zero when the start date moved by whole days: the Settings
+            // page offers "move the whole agenda" on that basis.
+            dayDelta,
           },
           { status: 400 },
         );
@@ -532,9 +566,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       await updateEventSettings(eventId, cleanSettings);
     }
 
-    const event = await db.event.update({
-      where: { id: eventId },
-      data: {
+    const eventUpdateData = {
         ...(name && { name }),
         ...(slug && { slug }),
         ...(description !== undefined && { description }),
@@ -588,10 +620,133 @@ export async function PUT(req: Request, { params }: RouteParams) {
               ? Prisma.JsonNull
               : (surveyConfig as unknown as Prisma.InputJsonValue),
         }),
-      },
-    });
+    };
+
+    let event: Awaited<ReturnType<typeof db.event.update>>;
+    let scheduleShift: ScheduleShiftSummary | undefined;
+    if (shifting) {
+      // The Event row and every schedule row move in ONE transaction. If the
+      // shift still leaves a session outside the new window, the whole thing
+      // rolls back, including the date change, so the event can never be left
+      // with orphaned sessions (the state the M9 guard exists to prevent).
+      try {
+        const out = await runWithTenant(orgGuard.orgId, () =>
+          tenantTransaction(
+            async (tx) => {
+              const ev = await tx.event.update({ where: { id: eventId }, data: eventUpdateData });
+              const summary = await applyScheduleShift(tx, {
+                eventId,
+                dayDelta,
+                timeZone: effectiveTz,
+                newStart: effectiveStart,
+                newEnd: effectiveEnd,
+                now: new Date(),
+                // A deadline the organiser changed in THIS request is theirs.
+                // The General tab echoes both on every save, so presence in
+                // the patch proves nothing; a changed VALUE does.
+                explicitlyChangedDeadlines: {
+                  abstract: settings
+                    ? readAbstractDeadline(settings) !== readAbstractDeadline(existingEvent.settings)
+                    : false,
+                  sessionProposal: settings
+                    ? readSessionProposalDeadline(settings) !==
+                      readSessionProposalDeadline(existingEvent.settings)
+                    : false,
+                },
+              });
+              return { ev, summary };
+            },
+            { timeout: 30_000 },
+          ),
+        );
+        event = out.ev;
+        scheduleShift = out.summary;
+      } catch (err) {
+        if (err instanceof ScheduleShiftBlockedError) {
+          const listed = err.sessions
+            .slice(0, 5)
+            .map((s) => `"${s.name}" (${localDateInTz(s.startTime, effectiveTz)})`)
+            .join(", ");
+          const more = err.sessions.length > 5 ? ` and ${err.sessions.length - 5} more` : "";
+          apiLogger.warn({
+            msg: "event-update:schedule-shift-blocked",
+            eventId,
+            userId: session.user.id,
+            dayDelta,
+            outOfRangeCount: err.sessions.length,
+            sessionIds: err.sessions.map((s) => s.id),
+          });
+          return NextResponse.json(
+            {
+              error: `Even after moving the agenda by ${Math.abs(dayDelta)} day(s), ${err.sessions.length} session(s) would fall outside the new date range — ${listed}${more}. The new date range is shorter than the agenda; extend the end date, or move or delete those sessions first (Agenda page).`,
+              code: "SESSIONS_OUTSIDE_NEW_DATES",
+              sessions: err.sessions,
+              dayDelta,
+              shifted: true,
+            },
+            { status: 400 },
+          );
+        }
+        throw err;
+      }
+    } else {
+      event = await db.event.update({ where: { id: eventId }, data: eventUpdateData });
+    }
 
     apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });
+
+    // Post-commit follow-through for a shift: Zoom meetings and, on a webinar,
+    // the reminder-email schedule. Both are external or lock-holding work that
+    // must not sit inside the transaction, and both are failure-isolated: the
+    // schedule already moved, so a failure is REPORTED, never a 500.
+    let scheduleShiftSync:
+      | { zoomSynced: number; zoomFailed: string[]; sequenceSync?: "rescheduled" | "failed" }
+      | undefined;
+    if (scheduleShift) {
+      const zoomFailed: string[] = [];
+      let zoomSynced = 0;
+      for (const zs of scheduleShift.zoomSessions) {
+        const r = await runWithTenant(orgGuard.orgId, () =>
+          syncZoomMeetingTimes({
+            eventId,
+            sessionId: zs.sessionId,
+            zoomMeeting: zs.zoomMeeting,
+            startTime: zs.startTime,
+            endTime: zs.endTime,
+            source: "rest:schedule-shift",
+          }),
+        );
+        if (r === "synced") zoomSynced += 1;
+        else zoomFailed.push(zs.sessionId);
+      }
+      let sequenceSync: "rescheduled" | "failed" | undefined;
+      const isWebinar = (eventType ?? existingEvent.eventType) === "WEBINAR";
+      const cancelled = (status ?? existingEvent.status) === "CANCELLED";
+      if (isWebinar && webinarAnchorId && !cancelled) {
+        try {
+          await runWithTenant(orgGuard.orgId, () =>
+            rescheduleWebinarSequenceForEvent(eventId, session.user.id),
+          );
+          sequenceSync = "rescheduled";
+        } catch (err) {
+          sequenceSync = "failed";
+          apiLogger.error({ err, msg: "event-update:schedule-shift-sequence-failed", eventId });
+        }
+      }
+      scheduleShiftSync = { zoomSynced, zoomFailed, ...(sequenceSync && { sequenceSync }) };
+      apiLogger.info({
+        msg: "event-update:schedule-shifted",
+        eventId,
+        userId: session.user.id,
+        dayDelta: scheduleShift.dayDelta,
+        sessionsMoved: scheduleShift.sessionsMoved,
+        tiersMoved: scheduleShift.tiersMoved,
+        deadlinesMoved: scheduleShift.deadlinesMoved,
+        zoomSynced,
+        zoomFailed,
+        sequenceSync: sequenceSync ?? null,
+      });
+    }
 
     // The WEBINAR anchor cascade (see the block above the M9 guard). Runs after
     // the event row is saved; goes through the session SERVICE so the Zoom
@@ -668,7 +823,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "Event",
         entityId: eventId,
-        changes: { ...JSON.parse(JSON.stringify(validated.data)), ip: getClientIp(req) },
+        changes: {
+          ...JSON.parse(JSON.stringify(validated.data)),
+          ip: getClientIp(req),
+          ...(scheduleShift && {
+            scheduleShift: {
+              dayDelta: scheduleShift.dayDelta,
+              sessionsMoved: scheduleShift.sessionsMoved,
+              tiersMoved: scheduleShift.tiersMoved,
+              deadlinesMoved: scheduleShift.deadlinesMoved,
+              ...scheduleShiftSync,
+            },
+          }),
+        },
       },
     });
 
@@ -682,9 +849,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send event status notification" }));
     }
 
-    return NextResponse.json(
-      webinarTimeCascade ? { ...event, webinarTimeCascade } : event,
-    );
+    return NextResponse.json({
+      ...event,
+      ...(webinarTimeCascade && { webinarTimeCascade }),
+      ...(scheduleShift && {
+        scheduleShift: {
+          dayDelta: scheduleShift.dayDelta,
+          sessionsMoved: scheduleShift.sessionsMoved,
+          tiersMoved: scheduleShift.tiersMoved,
+          deadlinesMoved: scheduleShift.deadlinesMoved,
+          ...scheduleShiftSync,
+        },
+      }),
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating event" });
     return NextResponse.json(

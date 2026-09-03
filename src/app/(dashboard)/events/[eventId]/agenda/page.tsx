@@ -19,6 +19,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -302,6 +313,12 @@ export default function AgendaPage() {
     authSession?.user?.role === "SUBMITTER";
 
   const [copied, setCopied] = useState(false);
+  // Bulk delete from the All Sessions panel (organiser request, Sep 2 2026).
+  // Selection lives here, not in the row, so "select all" and "select day"
+  // can drive it; cleared whenever the panel closes so a stale pick from an
+  // earlier visit can never be deleted by surprise.
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
   const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
 
@@ -430,6 +447,52 @@ export default function AgendaPage() {
     },
     onError: () => toast.error("Failed to delete session"),
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (sessionIds: string[]) => {
+      const res = await fetch(`/api/events/${eventId}/sessions/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete sessions");
+      return data as {
+        deletedCount: number;
+        skipped: Array<{ id: string; name: string; code: string }>;
+        notFound: string[];
+      };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+      setSelectedSessionIds(new Set());
+      setBulkDeleteOpen(false);
+      const n = data.deletedCount;
+      const kept = data.skipped.length
+        ? ` ${data.skipped.length} kept: "${data.skipped[0].name}" is the webinar's main session and can't be deleted.`
+        : "";
+      const notify = n === 0 ? toast.warning : toast.success;
+      notify(`Deleted ${n} session${n === 1 ? "" : "s"}.${kept}`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const toggleSessionSelected = (id: string, checked: boolean) =>
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const setManySelected = (ids: string[], checked: boolean) =>
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
 
   const trackMutation = useMutation({
     mutationFn: async ({
@@ -1704,7 +1767,13 @@ export default function AgendaPage() {
         </Dialog>
 
         {/* ── All Sessions Panel ───────────────────────────────────────────── */}
-        <Sheet open={isSessionListOpen} onOpenChange={setIsSessionListOpen}>
+        <Sheet
+          open={isSessionListOpen}
+          onOpenChange={(open) => {
+            setIsSessionListOpen(open);
+            if (!open) setSelectedSessionIds(new Set());
+          }}
+        >
           <SheetContent className="w-full px-6 sm:max-w-[700px] overflow-y-auto">
             <SheetHeader className="pb-4">
               <SheetTitle className="flex items-center gap-2">
@@ -1719,6 +1788,37 @@ export default function AgendaPage() {
               </SheetTitle>
             </SheetHeader>
 
+            {!isReviewer && sessionsByDate.length > 0 && (() => {
+              const allIds = (sessions as Session[]).map((s) => s.id);
+              const allSelected = allIds.length > 0 && allIds.every((id) => selectedSessionIds.has(id));
+              return (
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={(v) => setManySelected(allIds, v === true)}
+                      aria-label="Select all sessions"
+                    />
+                    <span>
+                      {selectedSessionIds.size > 0
+                        ? `${selectedSessionIds.size} selected`
+                        : "Select all"}
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={selectedSessionIds.size === 0 || bulkDeleteMutation.isPending}
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    Delete selected{selectedSessionIds.size > 0 ? ` (${selectedSessionIds.size})` : ""}
+                  </Button>
+                </div>
+              );
+            })()}
+
             {sessionsByDate.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
                 <Calendar className="h-10 w-10 opacity-30" />
@@ -1728,9 +1828,20 @@ export default function AgendaPage() {
               <div className="space-y-6">
                 {sessionsByDate.map(([day, daySessions]) => (
                   <div key={day}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                      {formatDateDisplay(day)}
-                    </p>
+                    <div className="mb-2 flex items-center gap-2">
+                      {!isReviewer && (
+                        <Checkbox
+                          checked={daySessions.every((s) => selectedSessionIds.has(s.id))}
+                          onCheckedChange={(v) =>
+                            setManySelected(daySessions.map((s) => s.id), v === true)
+                          }
+                          aria-label={`Select all sessions on ${formatDateDisplay(day)}`}
+                        />
+                      )}
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {formatDateDisplay(day)}
+                      </p>
+                    </div>
                     <div className="space-y-2">
                       {daySessions.map((s) => (
                         <div
@@ -1741,7 +1852,17 @@ export default function AgendaPage() {
                           }}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium leading-snug">{s.name}</p>
+                            <div className="flex min-w-0 items-start gap-2">
+                              {!isReviewer && (
+                                <Checkbox
+                                  className="mt-0.5"
+                                  checked={selectedSessionIds.has(s.id)}
+                                  onCheckedChange={(v) => toggleSessionSelected(s.id, v === true)}
+                                  aria-label={`Select ${s.name}`}
+                                />
+                              )}
+                              <p className="font-medium leading-snug">{s.name}</p>
+                            </div>
                             <span
                               className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${isBreakSessionType(s.type) ? "bg-slate-100 text-slate-600" : sessionStatusColor(s.status)}`}
                             >
@@ -1838,6 +1959,35 @@ export default function AgendaPage() {
           </SheetContent>
         </Sheet>
       </div>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedSessionIds.size} session{selectedSessionIds.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the selected sessions with their topics and speaker
+              assignments. Any Zoom meeting linked to a selected session is
+              deleted on Zoom as well. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                bulkDeleteMutation.mutate(Array.from(selectedSessionIds));
+              }}
+              disabled={bulkDeleteMutation.isPending}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {bulkDeleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SessionDetailSheet
         eventId={eventId}

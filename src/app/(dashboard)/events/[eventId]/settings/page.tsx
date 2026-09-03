@@ -225,6 +225,15 @@ export default function EventSettingsPage() {
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Postponement offer (Sep 2, 2026). When the date-range guard refuses a
+  // save because sessions would fall outside the new dates, and the start
+  // date moved by whole days, offer to move the whole schedule instead of a
+  // dead end. Before this the only way through was to delete every session.
+  const [pendingShift, setPendingShift] = useState<{
+    extra?: Record<string, unknown>;
+    dayDelta: number;
+    sessionCount: number;
+  } | null>(null);
 
   const [generalFormData, setGeneralFormData] = useState({
     name: "",
@@ -552,7 +561,30 @@ export default function EventSettingsPage() {
         // clean save.
         const saved = await res.json().catch(() => ({}));
         const cascade = saved?.webinarTimeCascade;
-        if (cascade?.anchorMoved) {
+        const shift = saved?.scheduleShift;
+        if (shift) {
+          const abs = Math.abs(shift.dayDelta);
+          const dir = shift.dayDelta > 0 ? "later" : "earlier";
+          const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+          const parts = [
+            plural(shift.sessionsMoved, "session"),
+            ...(shift.tiersMoved ? [plural(shift.tiersMoved, "sales window")] : []),
+            ...(shift.deadlinesMoved?.length ? [plural(shift.deadlinesMoved.length, "deadline")] : []),
+          ];
+          const zoomNote = shift.zoomFailed?.length
+            ? ` ${plural(shift.zoomFailed.length, "Zoom meeting")} did not update. Retime those sessions from the Agenda to retry.`
+            : "";
+          const seqNote =
+            shift.sequenceSync === "failed"
+              ? " Reminder emails may still be on the old schedule. Use the Webinar Console's Re-enqueue."
+              : "";
+          const msg = `Saved. Moved ${plural(abs, "day")} ${dir}: ${parts.join(", ")}.${zoomNote}${seqNote}`;
+          if (zoomNote || seqNote) toast.warning(msg, { duration: 10000 });
+          else toast.success(msg);
+          queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+        } else if (cascade?.anchorMoved) {
           const zoomNote =
             cascade.zoomSync === "failed"
               ? " Zoom still shows the old time — retime the session from the Agenda to retry."
@@ -577,6 +609,23 @@ export default function EventSettingsPage() {
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));
+        // Offer the postponement shift exactly once: never when THIS request
+        // already carried shiftSchedule (a second refusal means the event got
+        // shorter too, which the message explains), and only when the start
+        // date moved by whole days, since a same-day change has nothing to move.
+        if (
+          data.code === "SESSIONS_OUTSIDE_NEW_DATES" &&
+          typeof data.dayDelta === "number" &&
+          data.dayDelta !== 0 &&
+          !extra?.shiftSchedule
+        ) {
+          setPendingShift({
+            extra,
+            dayDelta: data.dayDelta,
+            sessionCount: Array.isArray(data.sessions) ? data.sessions.length : 0,
+          });
+          return;
+        }
         const fieldErrors = data.details?.fieldErrors;
         if (fieldErrors) {
           const fields = Object.entries(fieldErrors)
@@ -846,6 +895,53 @@ export default function EventSettingsPage() {
 
   return (
     <div className="space-y-6">
+      <AlertDialog
+        open={pendingShift !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingShift(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move the whole schedule?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {pendingShift?.sessionCount ?? 0} session
+                  {(pendingShift?.sessionCount ?? 0) === 1 ? "" : "s"} would fall outside the
+                  new dates. The start date moved {Math.abs(pendingShift?.dayDelta ?? 0)} day
+                  {Math.abs(pendingShift?.dayDelta ?? 0) === 1 ? "" : "s"}{" "}
+                  {(pendingShift?.dayDelta ?? 0) > 0 ? "later" : "earlier"}.
+                </p>
+                <p>
+                  Moving the schedule shifts every session by the same number of days and
+                  keeps each one&apos;s time of day. Sales windows still in the future move
+                  with it; closed ones stay closed. Abstract and proposal deadlines still in
+                  the future move too.
+                </p>
+                <p>
+                  Not moved: dinner dates, hotel bookings and manually scheduled emails.
+                  Check those yourself.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                const extra = pendingShift?.extra;
+                setPendingShift(null);
+                void handleSaveGeneral({ ...(extra ?? {}), shiftSchedule: true });
+              }}
+            >
+              Move the schedule
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

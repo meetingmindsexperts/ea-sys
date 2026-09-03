@@ -2,9 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDb, mockUpdateEventSettings, mockCascadeUpdateSession } = vi.hoisted(() => ({
+const {
+  mockAuth,
+  mockDb,
+  mockUpdateEventSettings,
+  mockCascadeUpdateSession,
+  mockApplyShift,
+  mockSyncZoom,
+  mockReschedule,
+} = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockCascadeUpdateSession: vi.fn(),
+  // Postponement shift (Sep 2, 2026): the service has its own unit suite;
+  // here we pin the ROUTE's wiring around it.
+  mockApplyShift: vi.fn(),
+  mockSyncZoom: vi.fn(),
+  mockReschedule: vi.fn(),
   mockDb: {
     event: {
       findFirst: vi.fn(),
@@ -44,7 +57,10 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb),
+}));
 
 vi.mock("@/lib/event-settings", () => ({
   updateEventSettings: (...args: unknown[]) => mockUpdateEventSettings(...args),
@@ -69,7 +85,16 @@ vi.mock("@/lib/security", () => ({
 // is covered in __tests__/services/session-service.test.ts.
 vi.mock("@/services/session-service", () => ({
   updateSession: (...a: unknown[]) => mockCascadeUpdateSession(...a),
+  syncZoomMeetingTimes: (...a: unknown[]) => mockSyncZoom(...a),
 }));
+vi.mock("@/lib/webinar-email-sequence", () => ({
+  rescheduleWebinarSequenceForEvent: (...a: unknown[]) => mockReschedule(...a),
+}));
+// Keep the REAL error class so the route's instanceof branch is exercised.
+vi.mock("@/services/event-schedule-shift", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/event-schedule-shift")>();
+  return { ...actual, applyScheduleShift: (...a: unknown[]) => mockApplyShift(...a) };
+});
 
 // Import route AFTER mocks
 import { GET, PUT, DELETE } from "@/app/api/events/[eventId]/route";
@@ -287,6 +312,8 @@ describe("PUT /api/events/[eventId]", () => {
     expect(body.error).toContain("Day 3 Closing");
     expect(body.sessions).toHaveLength(1);
     expect(mockDb.event.update).not.toHaveBeenCalled();
+    // The start date did not move, so the UI must NOT offer "move the agenda".
+    expect(body.dayDelta).toBe(0);
   });
 
   it("allows a date change when every session still fits the new window", async () => {
@@ -500,6 +527,190 @@ describe("PUT /api/events/[eventId]", () => {
 });
 
 // ── DELETE Tests ──────────────────────────────────────────────────────────────
+
+// ── Postponement shift (Sep 2, 2026) ─────────────────────────────────────────
+//
+// Two guards produced a deadlock: this PUT refuses a date change that leaves a
+// session outside the new dates, and the session service refuses to move a
+// session outside the CURRENT dates. `shiftSchedule: true` moves the event
+// and every session (plus future tier windows + deadlines) in one transaction.
+
+describe("PUT /api/events/[eventId] — shiftSchedule (postponement)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      status: "PUBLISHED",
+      eventType: "CONFERENCE",
+      settings: { abstractDeadline: "2026-10-01T19:59:00.000Z" },
+      startDate: new Date("2026-10-15T05:00:00Z"),
+      endDate: new Date("2026-10-17T14:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    mockDb.event.update.mockResolvedValue({ ...sampleEvent, startDate: new Date("2026-11-05T05:00:00Z") });
+    // A session that WOULD trip the guard if it ran.
+    mockDb.eventSession.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        name: "Keynote",
+        startTime: new Date("2026-10-15T05:00:00Z"),
+        endTime: new Date("2026-10-15T06:00:00Z"),
+      },
+    ]);
+    mockApplyShift.mockResolvedValue({
+      dayDelta: 21,
+      sessionsMoved: 3,
+      tiersMoved: 2,
+      deadlinesMoved: ["abstractDeadline"],
+      zoomSessions: [
+        {
+          sessionId: "s1",
+          zoomMeeting: { id: "zm1", zoomMeetingId: "999", meetingType: "MEETING" },
+          startTime: new Date("2026-11-05T05:00:00Z"),
+          endTime: new Date("2026-11-05T06:00:00Z"),
+        },
+      ],
+    });
+    mockSyncZoom.mockResolvedValue("synced");
+    mockReschedule.mockResolvedValue({ cleared: 4, enqueued: 4 });
+  });
+
+  const postponed = {
+    startDate: "2026-11-05T05:00:00.000Z",
+    endDate: "2026-11-07T14:00:00.000Z",
+  };
+
+  it("skips the pre-save guard, runs the shift in the transaction, and reports it", async () => {
+    const res = await PUT(makePutRequest({ ...postponed, shiftSchedule: true }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The guard's own read did not run: the transaction validates post-shift.
+    expect(mockDb.eventSession.findMany).not.toHaveBeenCalled();
+    expect(mockApplyShift).toHaveBeenCalledTimes(1);
+    expect(mockApplyShift.mock.calls[0][1]).toMatchObject({
+      eventId: "evt-1",
+      dayDelta: 21,
+      timeZone: "Asia/Dubai",
+      newStart: new Date(postponed.startDate),
+      newEnd: new Date(postponed.endDate),
+    });
+    expect(body.scheduleShift).toMatchObject({
+      dayDelta: 21,
+      sessionsMoved: 3,
+      tiersMoved: 2,
+      deadlinesMoved: ["abstractDeadline"],
+      zoomSynced: 1,
+      zoomFailed: [],
+    });
+    // Zoom re-sync happened post-commit, with the shifted times.
+    expect(mockSyncZoom).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", startTime: new Date("2026-11-05T05:00:00Z") }),
+    );
+    // Not a webinar: no sequence reschedule.
+    expect(mockReschedule).not.toHaveBeenCalled();
+  });
+
+  it("a same-day time change is a plain save: no shift, the ordinary guard runs", async () => {
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-10-15T06:00:00.000Z", shiftSchedule: true }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockApplyShift).not.toHaveBeenCalled();
+    expect(mockDb.eventSession.findMany).toHaveBeenCalled();
+  });
+
+  it("without shiftSchedule the guard refuses and its body carries dayDelta so the UI can offer the shift", async () => {
+    const res = await PUT(makePutRequest(postponed), makeParams("evt-1"));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("SESSIONS_OUTSIDE_NEW_DATES");
+    expect(body.dayDelta).toBe(21);
+    expect(mockApplyShift).not.toHaveBeenCalled();
+  });
+
+  it("a shift that still leaves sessions outside rolls back to 400 with shifted:true and nothing audited", async () => {
+    const { ScheduleShiftBlockedError } = await import("@/services/event-schedule-shift");
+    mockApplyShift.mockRejectedValue(
+      new ScheduleShiftBlockedError([
+        {
+          id: "late",
+          name: "Day 3 Closing",
+          startTime: new Date("2026-11-07T06:00:00Z"),
+          endTime: new Date("2026-11-07T07:00:00Z"),
+        },
+      ]),
+    );
+    const res = await PUT(makePutRequest({ ...postponed, shiftSchedule: true }), makeParams("evt-1"));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("SESSIONS_OUTSIDE_NEW_DATES");
+    expect(body.shifted).toBe(true);
+    expect(body.dayDelta).toBe(21);
+    expect(body.error).toContain("Day 3 Closing");
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+    expect(mockSyncZoom).not.toHaveBeenCalled();
+  });
+
+  it("on a WEBINAR the shift moves the anchor with everything else (no cascade) and reschedules the sequence", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      status: "PUBLISHED",
+      eventType: "WEBINAR",
+      settings: { webinar: { sessionId: "anchor" } },
+      startDate: new Date("2026-10-15T05:00:00Z"),
+      endDate: new Date("2026-10-15T07:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    const res = await PUT(
+      makePutRequest({
+        startDate: "2026-11-05T05:00:00.000Z",
+        endDate: "2026-11-05T07:00:00.000Z",
+        shiftSchedule: true,
+      }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(mockCascadeUpdateSession).not.toHaveBeenCalled();
+    expect(mockReschedule).toHaveBeenCalledWith("evt-1", "user-1");
+    expect(body.scheduleShift.sequenceSync).toBe("rescheduled");
+    expect(body.webinarTimeCascade).toBeUndefined();
+  });
+
+  it("reports a failed Zoom re-sync per session instead of failing the save", async () => {
+    mockSyncZoom.mockResolvedValue("failed");
+    const res = await PUT(makePutRequest({ ...postponed, shiftSchedule: true }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scheduleShift.zoomSynced).toBe(0);
+    expect(body.scheduleShift.zoomFailed).toEqual(["s1"]);
+  });
+
+  it("derives explicitlyChangedDeadlines from a changed VALUE, not from key presence", async () => {
+    // The General tab echoes both deadlines on every save. An echoed value is
+    // not a decision; a different value is.
+    await PUT(
+      makePutRequest({
+        ...postponed,
+        shiftSchedule: true,
+        settings: {
+          abstractDeadline: "2026-10-01T19:59:00.000Z", // echoed: same as stored
+          sessionProposalDeadline: "2026-12-01T19:59:00.000Z", // new: organiser set it
+        },
+      }),
+      makeParams("evt-1"),
+    );
+    expect(mockApplyShift.mock.calls[0][1].explicitlyChangedDeadlines).toEqual({
+      abstract: false,
+      sessionProposal: true,
+    });
+  });
+});
 
 describe("PUT /api/events/[eventId] — maxAttendees (event-wide cap, Option B)", () => {
   beforeEach(() => vi.clearAllMocks());

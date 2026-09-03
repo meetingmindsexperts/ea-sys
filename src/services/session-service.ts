@@ -883,7 +883,13 @@ async function rescheduleSequenceIfAnchor(
  * webinar (M6). Never throws — the local save already committed; the outcome
  * is reported back to the caller as `zoomSync` and always logged.
  */
-async function syncZoomMeetingTimes(args: {
+/**
+ * Exported (Sep 2, 2026) for the event-postponement shift, which moves every
+ * session in one transaction and then re-syncs each linked Zoom meeting
+ * post-commit. Same contract as when called from updateSession: never throws,
+ * returns "synced" | "failed".
+ */
+export async function syncZoomMeetingTimes(args: {
   eventId: string;
   sessionId: string;
   zoomMeeting: { id: string; zoomMeetingId: string; meetingType: string };

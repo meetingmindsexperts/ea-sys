@@ -452,6 +452,34 @@ was fixed in-band (see the CLAUDE.md entry). These are the deliberate carry-over
 | C12 | LOW | **`emailDomain` is duplicated** between `contact-import-blocklist.ts` and the private one in `internal-domains.ts` (already a documented dependency-free leaf module — the natural home). |
 | C13 | LOW | **`sanitizeImportedTag` is exported from a self-executing script**, so it is untestable (importing it runs `main()`) and untested, despite carrying the JSON-blob unwrapping and machine-id rejection logic. Fix: move it beside `screenContact`. |
 
+### Event postponement + bulk session delete (Sep 2, 2026): what was left out on purpose
+
+Shipped: `shiftSchedule: true` on the event PUT moves every session, every
+future tier window and every future submission deadline by the calendar-day
+delta of the start date in one transaction; the All Sessions panel gained
+select-all / select-day / Delete selected. Decided with the owner: dinner dates
+are NOT shifted (a past dinner can simply be disabled), tier windows ARE
+(future dates move, past dates stay), and the deadlines follow the same rule.
+
+- **MCP `update_event` still refuses `startDate` / `endDate` entirely**
+  (`FIELD_NOT_ALLOWED`), so the shift is REST-only. If an agent needs to
+  postpone an event, the honest path is to lift that refusal and thread
+  `shiftSchedule` through, with the same day-delta gate. Not done: the refusal
+  exists because a date change cascades into Zoom and scheduled emails, and
+  the shift now handles exactly that cascade, so the original reason is weaker
+  than it was. Owner call.
+- **A same-day time change on a WEBINAR still goes through the anchor cascade,
+  not the shift.** If an organiser changes both the day AND the start time in
+  one save, the shift wins and the anchor keeps its old wall-clock on the new
+  day. Acceptable for a postponement; documented in the route. A "shift then
+  cascade" combination was considered and rejected as two moves for one edit.
+- **Dinner dates and hotel nights are named in the dialog as "check these"**
+  rather than shifted. If a real postponement shows organisers forgetting,
+  the `shiftDateUnderRule` helper already generalises to `RsvpItem.startsAt`
+  in one line; accommodation should never auto-move (real hotel bookings).
+- **Bulk delete has no "delete all" affordance beyond select-all**, by design,
+  and the cap is 200 ids per call.
+
 ### Public agenda — the rest of the multi-track proposal (Aug 17, 2026)
 
 Items 1 and 2 of the agenda UX proposal shipped (parallel blocks keyed by hall,

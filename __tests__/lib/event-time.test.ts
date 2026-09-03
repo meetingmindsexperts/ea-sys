@@ -152,3 +152,62 @@ describe("hourFractionInTz", () => {
     expect(hourFractionInTz(new Date("2026-06-16T20:00:00Z"), DUBAI)).toBe(0);
   });
 });
+
+// ── Calendar-day arithmetic (postponement, Sep 2 2026) ─────────────────────
+import { calendarDaysBetween, shiftInstantByCalendarDays } from "@/lib/event-time";
+
+describe("calendarDaysBetween", () => {
+  it("is 0 for the same instant and 21 for three weeks later", () => {
+    const a = new Date("2026-10-15T05:00:00Z");
+    expect(calendarDaysBetween(a, a, "Asia/Dubai")).toBe(0);
+    expect(calendarDaysBetween(a, new Date("2026-11-05T05:00:00Z"), "Asia/Dubai")).toBe(21);
+  });
+
+  it("counts on the EVENT's calendar, not UTC's", () => {
+    // 22:00Z is already the NEXT day in Dubai (02:00). A UTC comparison says
+    // 0 days between these; the Dubai calendar says 1.
+    const from = new Date("2026-10-15T10:00:00Z"); // Oct 15, 14:00 Dubai
+    const to = new Date("2026-10-15T22:00:00Z"); // Oct 16, 02:00 Dubai
+    expect(calendarDaysBetween(from, to, "Asia/Dubai")).toBe(1);
+  });
+
+  it("is negative when the event moves earlier", () => {
+    expect(
+      calendarDaysBetween(new Date("2026-11-05T05:00:00Z"), new Date("2026-10-15T05:00:00Z"), "Asia/Dubai"),
+    ).toBe(-21);
+  });
+});
+
+describe("shiftInstantByCalendarDays", () => {
+  it("keeps the wall-clock time on the new day (Dubai, no DST)", () => {
+    const start = new Date("2026-10-15T05:00:00Z"); // 09:00 Dubai
+    const moved = shiftInstantByCalendarDays(start, 21, "Asia/Dubai");
+    expect(moved.toISOString()).toBe("2026-11-05T05:00:00.000Z"); // still 09:00 Dubai
+  });
+
+  it("returns the SAME instance for a zero shift", () => {
+    const d = new Date("2026-10-15T05:00:00Z");
+    expect(shiftInstantByCalendarDays(d, 0, "Asia/Dubai")).toBe(d);
+  });
+
+  it("preserves seconds", () => {
+    const d = new Date("2026-10-15T05:00:30Z");
+    expect(shiftInstantByCalendarDays(d, 1, "Asia/Dubai").toISOString()).toBe("2026-10-16T05:00:30.000Z");
+  });
+
+  it("is calendar arithmetic, not milliseconds: a shift across a DST fallback keeps 09:00", () => {
+    // 2026-10-10 09:00 Europe/London is BST (UTC+1) = 08:00Z. Thirty days
+    // later the UK is on GMT (UTC+0), so 09:00 London is 09:00Z. Adding
+    // 30 * 86_400_000 ms would land on 08:00Z, which is 08:00 London: the
+    // keynote would silently start an hour early.
+    const start = new Date("2026-10-10T08:00:00Z");
+    const moved = shiftInstantByCalendarDays(start, 30, "Europe/London");
+    expect(moved.toISOString()).toBe("2026-11-09T09:00:00.000Z");
+    expect(moved.getTime() - start.getTime()).not.toBe(30 * 86_400_000);
+  });
+
+  it("shifts backwards too", () => {
+    const d = new Date("2026-11-05T05:00:00Z");
+    expect(shiftInstantByCalendarDays(d, -21, "Asia/Dubai").toISOString()).toBe("2026-10-15T05:00:00.000Z");
+  });
+});
