@@ -662,11 +662,9 @@ export default function ReimbursementFormPage() {
                         <span className="block text-sm font-medium text-slate-800">
                           Honorarium / Speaker Fee
                         </span>
-                        <span className="block text-xs text-slate-500">
-                          {honorarium
-                            ? "Agreed with the organising team. This line cannot be changed."
-                            : "No honorarium has been agreed. This line cannot be added here."}
-                        </span>
+                        {!honorarium && (
+                          <span className="block text-xs text-slate-500">No honorarium has been agreed.</span>
+                        )}
                       </div>
                     </div>
                     <span className="text-sm font-semibold tabular-nums text-slate-800">
