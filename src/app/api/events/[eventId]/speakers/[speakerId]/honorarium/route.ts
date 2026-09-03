@@ -39,11 +39,10 @@ type RouteParams = { params: Promise<{ eventId: string; speakerId: string }> };
 const HONORARIUM_SELECT = { id: true, honorariumAmount: true, honorariumCurrency: true } as const;
 
 export async function GET(_req: Request, { params }: RouteParams) {
-  const route = "events/[eventId]/speakers/[speakerId]/honorarium:GET";
   try {
     const [session, { eventId, speakerId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route });
+    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/honorarium:GET" });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -81,7 +80,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route });
+    // The guard-route gate wants the label as a literal on the call itself.
+    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/honorarium:PATCH" });
     if (denied) return denied;
 
     const rl = checkRateLimit({
