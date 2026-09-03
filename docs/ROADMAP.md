@@ -480,6 +480,27 @@ are NOT shifted (a past dinner can simply be disabled), tier windows ARE
 - **Bulk delete has no "delete all" affordance beyond select-all**, by design,
   and the cap is 200 ids per call.
 
+**Deferred from the same-day review** (14 findings; the behaviour-wrong and
+docs-lie set was fixed in-band, these are the rest):
+- **Concurrency on the two per-session loops.** The transaction updates
+  sessions one row at a time while holding the Event row lock, and the
+  post-commit Zoom re-sync is sequential and re-reads the Event per session.
+  Under a second through the pooler for a typical agenda, so not a risk today;
+  `mapWithConcurrency` (src/lib/concurrency.ts) is the fix when an event with
+  Zoom on many sessions makes the save feel slow.
+- **A webinar postponed with a TIME change in the same save** ends with
+  `Event.startDate` at the new instant while the anchor keeps its old
+  wall-clock on the new day (the shift preserves time of day; the cascade is
+  skipped). Everything attendee-facing reads the anchor, so the divergence is
+  in the Event row. The fix is "shift, then cascade the anchor to the exact
+  instant if its wall-clock changed", which is two moves for one edit and was
+  left for the case that actually needs it.
+- **Select-all can exceed the 200-id cap** and the API answers "Invalid
+  input". Chunk the request client-side, or raise the cap.
+- **The per-day checkbox uses `Array.every`**, which is vacuously true for an
+  empty day group. Not reachable today (days come from real sessions); its
+  sibling in the header already carries the `length > 0` guard.
+
 ### Public agenda — the rest of the multi-track proposal (Aug 17, 2026)
 
 Items 1 and 2 of the agenda UX proposal shipped (parallel blocks keyed by hall,

@@ -23,7 +23,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { getClientIp } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
+import { rateLimited } from "@/lib/api-errors";
 import { refreshEventStats } from "@/lib/event-stats";
 import { readWebinarSettings } from "@/lib/webinar";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
@@ -51,6 +52,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       route: "events/[eventId]/sessions/bulk-delete:POST",
     });
     if (denied) return denied;
+
+    // A destructive endpoint that can reach Zoom up to 200 times per call gets
+    // its own budget (review, Sep 2 2026). Per user, since the audit row and
+    // the Zoom teardown reason both name the person.
+    const rl = checkRateLimit({
+      key: `sessions-bulk-delete:${session.user.id}`,
+      limit: 30,
+      windowMs: 3600_000,
+    });
+    if (!rl.allowed) {
+      return rateLimited(rl, {
+        route: "events/[eventId]/sessions/bulk-delete:POST",
+        eventId,
+        userId: session.user.id,
+        limit: 30,
+        windowSeconds: 3600,
+      });
+    }
 
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {

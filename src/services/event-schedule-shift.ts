@@ -19,15 +19,25 @@
  *   2. the still-active sessions are re-validated against the NEW window, and
  *      any that remain outside (the event got shorter as well as later) abort
  *      the whole transaction via ScheduleShiftBlockedError, naming them at
- *      their SHIFTED times so the message says where they would have landed;
- *   3. pricing-tier sales windows and the two submission deadlines move under
- *      ONE rule: dates in the future move with the event, dates in the past
- *      stay. That never reopens an Early Bird that already closed, never closes
- *      a Standard window that is open today, and keeps Onsite ending on the
- *      last day. Not shifting them silently closes public registration for the
- *      gap between the old last day and the new one; shifting them blindly
- *      reopens discounts people already paid past. The rule is the only
- *      version that gets both right.
+ *      their SHIFTED times so the message says where they would have landed.
+ *      The caller runs the SAME check (findSessionsOutsideAfterShift) as a
+ *      read-only pre-check before any write, so this one is the race backstop;
+ *   3. sales windows on both PricingTier AND TicketType (a tier-less type
+ *      carries its own window, and the public register reads whichever
+ *      applies), plus the two submission deadlines, move under ONE rule:
+ *      dates in the future move with the event, dates in the past stay. That
+ *      never reopens an Early Bird that already closed, never closes a Standard
+ *      window that is open today, and keeps Onsite ending on the last day.
+ *      Not shifting them silently closes public registration for the gap
+ *      between the old last day and the new one; shifting them blindly reopens
+ *      discounts people already paid past. The rule is the only version that
+ *      gets both right.
+ *   4. a CLOSING date (a sales end, a deadline) is never moved INTO the past.
+ *      Bringing an event forward would otherwise close an open window or shut
+ *      submissions with no signal. Such a date is left where it is and counted
+ *      in `keptOpen`, so the organiser is told. Opening dates may move into the
+ *      past freely: that just means the window is open now, which is what an
+ *      event brought forward wants.
  *
  * Deliberately NOT shifted: dinner dates, accommodation nights, manually
  * scheduled emails. A postponement does not decide those.
@@ -42,6 +52,8 @@ import { apiLogger } from "@/lib/logger";
 import { isSessionWithinEventDates, shiftInstantByCalendarDays } from "@/lib/event-time";
 import { readAbstractDeadline, readSessionProposalDeadline } from "@/lib/submission-deadline";
 
+// ── The rules ─────────────────────────────────────────────────────────────
+
 /** "Dates in the future move with the event; dates in the past stay." */
 export function shiftDateUnderRule(
   date: Date | null,
@@ -54,12 +66,86 @@ export function shiftDateUnderRule(
   return shiftInstantByCalendarDays(date, days, timeZone);
 }
 
+/**
+ * The same rule for a CLOSING date (sales end, deadline), plus: never into the
+ * past. A future closing date whose shifted value would already be behind us
+ * stays where it is, and `keptOpen` says so.
+ */
+export function shiftClosingDateUnderRule(
+  date: Date | null,
+  days: number,
+  timeZone: string,
+  now: Date,
+): { value: Date | null; keptOpen: boolean } {
+  if (!date) return { value: null, keptOpen: false };
+  if (date.getTime() <= now.getTime()) return { value: date, keptOpen: false };
+  const moved = shiftInstantByCalendarDays(date, days, timeZone);
+  if (moved.getTime() <= now.getTime()) return { value: date, keptOpen: true };
+  return { value: moved, keptOpen: false };
+}
+
+export type DeadlineKey = "abstractDeadline" | "sessionProposalDeadline";
+
+const minuteInstant = (iso: string | null): number | null =>
+  iso ? Math.floor(new Date(iso).getTime() / 60_000) : null;
+
+/**
+ * Did THIS request change the deadline, as opposed to echoing the stored one?
+ *
+ * The General tab sends both deadlines on every save, so key presence proves
+ * nothing; an ABSENT key proves nothing either (a partial patch from MCP or
+ * curl must not read as "cleared"). Only a present key whose value differs
+ * from what is stored is the organiser's decision. Compared at minute
+ * precision because the Settings form round-trips through a minute-precision
+ * input, so a stored value with seconds would otherwise read as changed on
+ * every save and never shift.
+ */
+export function deadlineChangedInPatch(
+  patch: Record<string, unknown> | undefined,
+  stored: unknown,
+  key: DeadlineKey,
+): boolean {
+  if (!patch || !(key in patch)) return false;
+  const read = key === "abstractDeadline" ? readAbstractDeadline : readSessionProposalDeadline;
+  return minuteInstant(read(patch)) !== minuteInstant(read(stored));
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────
+
 export interface BlockedSession {
   id: string;
   name: string;
-  /** Where the session WOULD have landed, so the error names the real conflict. */
+  /** Where the session WOULD land, so an error names the real conflict. */
   startTime: Date;
   endTime: Date;
+}
+
+/**
+ * The sessions that would fall outside the new window AFTER being shifted by
+ * `dayDelta` (0 = no shift, the plain date-range guard). Cancelled sessions
+ * never block: they no longer render on the agenda. Rows without a `status`
+ * (a narrow select) are treated as active.
+ *
+ * ONE implementation, used both by the route's read-only pre-check (before any
+ * write) and by applyScheduleShift inside the transaction (the race backstop).
+ */
+export function findSessionsOutsideAfterShift<
+  T extends { id: string; name: string; startTime: Date; endTime: Date; status?: string },
+>(
+  sessions: T[],
+  opts: { dayDelta: number; timeZone: string; newStart: Date; newEnd: Date },
+): BlockedSession[] {
+  const { dayDelta, timeZone, newStart, newEnd } = opts;
+  const out: BlockedSession[] = [];
+  for (const s of sessions) {
+    if ((s.status ?? "SCHEDULED") === "CANCELLED") continue;
+    const startTime = shiftInstantByCalendarDays(s.startTime, dayDelta, timeZone);
+    const endTime = shiftInstantByCalendarDays(s.endTime, dayDelta, timeZone);
+    if (!isSessionWithinEventDates(startTime, endTime, newStart, newEnd, timeZone)) {
+      out.push({ id: s.id, name: s.name, startTime, endTime });
+    }
+  }
+  return out;
 }
 
 /** Thrown inside the transaction so the caller's `tx.event.update` rolls back too. */
@@ -72,6 +158,8 @@ export class ScheduleShiftBlockedError extends Error {
   }
 }
 
+// ── The transactional apply ───────────────────────────────────────────────
+
 export interface ApplyScheduleShiftInput {
   eventId: string;
   dayDelta: number;
@@ -80,13 +168,7 @@ export interface ApplyScheduleShiftInput {
   newEnd: Date;
   /** Injected so the "past stays" rule is testable. */
   now: Date;
-  /**
-   * Deadlines the caller's request set to a NEW value. Those are the
-   * organiser's choice and are left alone; an unchanged (echoed) value is
-   * shifted from the stored one. The same "computed change, not field
-   * presence" lesson the M9 guard learnt (July 16, 2026): the General tab
-   * echoes both deadlines on every save.
-   */
+  /** Per deadlineChangedInPatch: a deadline the request set to a NEW value is left alone. */
   explicitlyChangedDeadlines: { abstract: boolean; sessionProposal: boolean };
 }
 
@@ -101,7 +183,10 @@ export interface ScheduleShiftSummary {
   dayDelta: number;
   sessionsMoved: number;
   tiersMoved: number;
-  deadlinesMoved: Array<"abstractDeadline" | "sessionProposalDeadline">;
+  ticketTypesMoved: number;
+  deadlinesMoved: DeadlineKey[];
+  /** Closing dates left in place because moving them would have closed them. */
+  keptOpen: number;
   /** For the caller's post-commit Zoom re-sync. */
   zoomSessions: ShiftedZoomSession[];
 }
@@ -115,29 +200,26 @@ const SESSION_SELECT = {
   zoomMeeting: { select: { id: true, zoomMeetingId: true, meetingType: true } },
 } as const;
 
+const WINDOW_SELECT = { id: true, salesStart: true, salesEnd: true } as const;
+
 export async function applyScheduleShift(
   tx: Prisma.TransactionClient,
   input: ApplyScheduleShiftInput,
 ): Promise<ScheduleShiftSummary> {
   const { eventId, dayDelta, timeZone, newStart, newEnd, now } = input;
+  let keptOpen = 0;
 
-  // 1 + 2. Sessions: shift all, validate the active ones, abort on any miss.
+  // 1 + 2. Sessions: validate the active ones after the move, abort on any miss,
+  // then move all of them.
   const sessions = await tx.eventSession.findMany({ where: { eventId }, select: SESSION_SELECT });
+  const blocked = findSessionsOutsideAfterShift(sessions, { dayDelta, timeZone, newStart, newEnd });
+  if (blocked.length > 0) throw new ScheduleShiftBlockedError(blocked);
+
   const shifted = sessions.map((s) => ({
     ...s,
     startTime: shiftInstantByCalendarDays(s.startTime, dayDelta, timeZone),
     endTime: shiftInstantByCalendarDays(s.endTime, dayDelta, timeZone),
   }));
-  const blocked = shifted.filter(
-    (s) =>
-      s.status !== "CANCELLED" &&
-      !isSessionWithinEventDates(s.startTime, s.endTime, newStart, newEnd, timeZone),
-  );
-  if (blocked.length > 0) {
-    throw new ScheduleShiftBlockedError(
-      blocked.map((s) => ({ id: s.id, name: s.name, startTime: s.startTime, endTime: s.endTime })),
-    );
-  }
   for (const s of shifted) {
     await tx.eventSession.update({
       where: { id: s.id, eventId },
@@ -145,24 +227,40 @@ export async function applyScheduleShift(
     });
   }
 
-  // 3a. Tier sales windows under the future-moves rule.
+  // 3 + 4. Sales windows on tiers AND ticket types, same rule, closing dates
+  // never into the past.
+  const sameInstant = (a: Date | null, b: Date | null) =>
+    (a?.getTime() ?? null) === (b?.getTime() ?? null);
+  const shiftWindow = (w: { salesStart: Date | null; salesEnd: Date | null }) => {
+    const salesStart = shiftDateUnderRule(w.salesStart, dayDelta, timeZone, now);
+    const end = shiftClosingDateUnderRule(w.salesEnd, dayDelta, timeZone, now);
+    if (end.keptOpen) keptOpen += 1;
+    const changed = !sameInstant(salesStart, w.salesStart) || !sameInstant(end.value, w.salesEnd);
+    return { changed, data: { salesStart, salesEnd: end.value } };
+  };
+
   const tiers = await tx.pricingTier.findMany({
     where: { ticketType: { eventId } },
-    select: { id: true, salesStart: true, salesEnd: true },
+    select: WINDOW_SELECT,
   });
   let tiersMoved = 0;
   for (const t of tiers) {
-    const salesStart = shiftDateUnderRule(t.salesStart, dayDelta, timeZone, now);
-    const salesEnd = shiftDateUnderRule(t.salesEnd, dayDelta, timeZone, now);
-    const changed =
-      (salesStart?.getTime() ?? null) !== (t.salesStart?.getTime() ?? null) ||
-      (salesEnd?.getTime() ?? null) !== (t.salesEnd?.getTime() ?? null);
-    if (!changed) continue;
-    await tx.pricingTier.update({ where: { id: t.id }, data: { salesStart, salesEnd } });
+    const w = shiftWindow(t);
+    if (!w.changed) continue;
+    await tx.pricingTier.update({ where: { id: t.id }, data: w.data });
     tiersMoved += 1;
   }
 
-  // 3b. The two submission deadlines, same rule, skipping any the request set.
+  const ticketTypes = await tx.ticketType.findMany({ where: { eventId }, select: WINDOW_SELECT });
+  let ticketTypesMoved = 0;
+  for (const t of ticketTypes) {
+    const w = shiftWindow(t);
+    if (!w.changed) continue;
+    await tx.ticketType.update({ where: { id: t.id }, data: w.data });
+    ticketTypesMoved += 1;
+  }
+
+  // The two submission deadlines, closing dates, skipping any the request set.
   // The Event row is already locked by the caller's dates update, so this
   // read-modify-write cannot be interleaved by another settings writer.
   const row = await tx.event.findUnique({ where: { id: eventId }, select: { settings: true } });
@@ -170,18 +268,15 @@ export async function applyScheduleShift(
     row?.settings && typeof row.settings === "object" && !Array.isArray(row.settings)
       ? { ...(row.settings as Record<string, unknown>) }
       : {};
-  const deadlinesMoved: ScheduleShiftSummary["deadlinesMoved"] = [];
-  const shiftDeadline = (
-    key: "abstractDeadline" | "sessionProposalDeadline",
-    read: (s: unknown) => string | null,
-    explicitlyChanged: boolean,
-  ) => {
-    if (explicitlyChanged) return;
+  const deadlinesMoved: DeadlineKey[] = [];
+  const shiftDeadline = (key: DeadlineKey, read: (s: unknown) => string | null, skip: boolean) => {
+    if (skip) return;
     const current = read(settings);
     if (!current) return;
-    const moved = shiftDateUnderRule(new Date(current), dayDelta, timeZone, now);
-    if (!moved || moved.getTime() === new Date(current).getTime()) return;
-    settings[key] = moved.toISOString();
+    const r = shiftClosingDateUnderRule(new Date(current), dayDelta, timeZone, now);
+    if (r.keptOpen) keptOpen += 1;
+    if (!r.value || r.value.getTime() === new Date(current).getTime()) return;
+    settings[key] = r.value.toISOString();
     deadlinesMoved.push(key);
   };
   shiftDeadline("abstractDeadline", readAbstractDeadline, input.explicitlyChangedDeadlines.abstract);
@@ -212,9 +307,19 @@ export async function applyScheduleShift(
     dayDelta,
     sessionsMoved: shifted.length,
     tiersMoved,
+    ticketTypesMoved,
     deadlinesMoved,
+    keptOpen,
     zoomSessions: zoomSessions.length,
   });
 
-  return { dayDelta, sessionsMoved: shifted.length, tiersMoved, deadlinesMoved, zoomSessions };
+  return {
+    dayDelta,
+    sessionsMoved: shifted.length,
+    tiersMoved,
+    ticketTypesMoved,
+    deadlinesMoved,
+    keptOpen,
+    zoomSessions,
+  };
 }

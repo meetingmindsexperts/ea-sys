@@ -11,7 +11,7 @@ import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility"
 import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
-import { readAbstractDeadline, readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { readSessionProposalDeadline } from "@/lib/submission-deadline";
 import {
   calendarDaysBetween,
   isSessionWithinEventDates,
@@ -29,7 +29,10 @@ import {
 import { rescheduleWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
 import {
   applyScheduleShift,
+  deadlineChangedInPatch,
+  findSessionsOutsideAfterShift,
   ScheduleShiftBlockedError,
+  type BlockedSession,
   type ScheduleShiftSummary,
 } from "@/services/event-schedule-shift";
 
@@ -413,10 +416,46 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
     const willCascadeAnchor = Boolean(cascadeAnchor);
-    // When shifting, the transaction below re-validates AFTER the move
-    // instead, so a shift that still leaves sessions outside (the event got
-    // shorter too) rolls back with the same error shape.
-    if (datesOrTzChanged && !shifting) {
+    // ONE refusal body for every "sessions outside the new dates" path (the
+    // plain guard, the shift pre-check, and the transaction's backstop). The
+    // Settings page keys its postponement offer on this exact shape, so the
+    // three must not drift.
+    const sessionsOutsideResponse = (args: { sessions: BlockedSession[]; shifted: boolean }) => {
+      const { sessions: outOfRange, shifted } = args;
+      const listed = outOfRange
+        .slice(0, 5)
+        .map((s) => `"${s.name}" (${localDateInTz(s.startTime, effectiveTz)})`)
+        .join(", ");
+      const more = outOfRange.length > 5 ? ` and ${outOfRange.length - 5} more` : "";
+      apiLogger.warn({
+        msg: shifted ? "event-update:schedule-shift-blocked" : "event-update:sessions-outside-new-dates",
+        eventId,
+        userId: session.user.id,
+        dayDelta,
+        outOfRangeCount: outOfRange.length,
+        sessionIds: outOfRange.map((s) => s.id),
+      });
+      const lead = shifted
+        ? `Even after moving the agenda by ${Math.abs(dayDelta)} day(s), ${outOfRange.length} session(s) would fall outside the new date range`
+        : `Cannot change the event dates: ${outOfRange.length} session(s) would fall outside the new date range`;
+      const tail = shifted
+        ? "The new date range is shorter than the agenda; extend the end date, or move or delete those sessions first (Agenda page)."
+        : "Move or delete them first (Agenda page).";
+      return NextResponse.json(
+        {
+          error: `${lead}: ${listed}${more}. ${tail}`,
+          code: "SESSIONS_OUTSIDE_NEW_DATES",
+          sessions: outOfRange,
+          // Non-zero when the start date moved by whole days: the Settings
+          // page offers "move the whole agenda" on that basis.
+          dayDelta,
+          ...(shifted && { shifted: true }),
+        },
+        { status: 400 },
+      );
+    };
+
+    if (datesOrTzChanged) {
       // CANCELLED sessions are excluded — they no longer render on the agenda
       // and must not block a legitimate date change.
       // tenancy: EventSession is swept (Sessions sweep, Domain #12) — this guard
@@ -430,48 +469,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
           select: { id: true, name: true, startTime: true, endTime: true },
         }),
       );
-      const outOfRange = eventSessions.filter(
-        (s) =>
-          // The webinar anchor is about to be cascaded to the new start —
-          // it must not block the very date change that will move it.
-          !(willCascadeAnchor && s.id === webinarAnchorId) &&
-          !isSessionWithinEventDates(
-            s.startTime,
-            s.endTime,
-            effectiveStart,
-            effectiveEnd,
-            effectiveTz,
-          ),
+      // When shifting, this is a READ-ONLY pre-check of the rule the
+      // transaction enforces (review, Sep 2 2026). It has to run HERE, ahead
+      // of the settings and cap writes below: a blocked shift would otherwise
+      // leave those committed and poison the retry, because a deadline the
+      // organiser set in the refused request is then "stored", so the retry
+      // reads it as echoed and shifts it. The transaction keeps its own check
+      // as the race backstop.
+      const outOfRange = findSessionsOutsideAfterShift(eventSessions, {
+        dayDelta: shifting ? dayDelta : 0,
+        timeZone: effectiveTz,
+        newStart: effectiveStart,
+        newEnd: effectiveEnd,
+      }).filter(
+        // The webinar anchor is about to be cascaded to the new start (never
+        // when shifting: then it moves with everything else and must fit).
+        (s) => !(willCascadeAnchor && s.id === webinarAnchorId),
       );
       if (outOfRange.length > 0) {
-        const listed = outOfRange
-          .slice(0, 5)
-          .map((s) => `"${s.name}" (${localDateInTz(s.startTime, effectiveTz)})`)
-          .join(", ");
-        const more = outOfRange.length > 5 ? ` and ${outOfRange.length - 5} more` : "";
-        apiLogger.warn({
-          msg: "event-update:sessions-outside-new-dates",
-          eventId,
-          userId: session.user.id,
-          outOfRangeCount: outOfRange.length,
-          sessionIds: outOfRange.map((s) => s.id),
-        });
-        return NextResponse.json(
-          {
-            error: `Cannot change the event dates: ${outOfRange.length} session(s) would fall outside the new date range — ${listed}${more}. Move or delete them first (Agenda page).`,
-            code: "SESSIONS_OUTSIDE_NEW_DATES",
-            sessions: outOfRange.map((s) => ({
-              id: s.id,
-              name: s.name,
-              startTime: s.startTime,
-              endTime: s.endTime,
-            })),
-            // Non-zero when the start date moved by whole days: the Settings
-            // page offers "move the whole agenda" on that basis.
-            dayDelta,
-          },
-          { status: 400 },
-        );
+        return sessionsOutsideResponse({ sessions: outOfRange, shifted: shifting });
       }
     }
 
@@ -641,51 +657,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
                 newStart: effectiveStart,
                 newEnd: effectiveEnd,
                 now: new Date(),
-                // A deadline the organiser changed in THIS request is theirs.
-                // The General tab echoes both on every save, so presence in
-                // the patch proves nothing; a changed VALUE does.
+                // A deadline the organiser changed in THIS request is theirs;
+                // an echoed or absent one is shifted. See deadlineChangedInPatch.
                 explicitlyChangedDeadlines: {
-                  abstract: settings
-                    ? readAbstractDeadline(settings) !== readAbstractDeadline(existingEvent.settings)
-                    : false,
-                  sessionProposal: settings
-                    ? readSessionProposalDeadline(settings) !==
-                      readSessionProposalDeadline(existingEvent.settings)
-                    : false,
+                  abstract: deadlineChangedInPatch(settings, existingEvent.settings, "abstractDeadline"),
+                  sessionProposal: deadlineChangedInPatch(
+                    settings,
+                    existingEvent.settings,
+                    "sessionProposalDeadline",
+                  ),
                 },
               });
               return { ev, summary };
             },
-            { timeout: 30_000 },
+            // maxWait raised to match: the default 2s would surface pool
+            // contention as a generic 500 on a request that has already
+            // committed nothing (the pre-check ran first), but the organiser
+            // would still be told it failed for no visible reason.
+            { timeout: 30_000, maxWait: 10_000 },
           ),
         );
         event = out.ev;
         scheduleShift = out.summary;
       } catch (err) {
         if (err instanceof ScheduleShiftBlockedError) {
-          const listed = err.sessions
-            .slice(0, 5)
-            .map((s) => `"${s.name}" (${localDateInTz(s.startTime, effectiveTz)})`)
-            .join(", ");
-          const more = err.sessions.length > 5 ? ` and ${err.sessions.length - 5} more` : "";
-          apiLogger.warn({
-            msg: "event-update:schedule-shift-blocked",
-            eventId,
-            userId: session.user.id,
-            dayDelta,
-            outOfRangeCount: err.sessions.length,
-            sessionIds: err.sessions.map((s) => s.id),
-          });
-          return NextResponse.json(
-            {
-              error: `Even after moving the agenda by ${Math.abs(dayDelta)} day(s), ${err.sessions.length} session(s) would fall outside the new date range — ${listed}${more}. The new date range is shorter than the agenda; extend the end date, or move or delete those sessions first (Agenda page).`,
-              code: "SESSIONS_OUTSIDE_NEW_DATES",
-              sessions: err.sessions,
-              dayDelta,
-              shifted: true,
-            },
-            { status: 400 },
-          );
+          // The pre-check above already refused this shape; reaching here
+          // means a session was added or moved between that read and the
+          // transaction. Same body, so the client behaves identically.
+          return sessionsOutsideResponse({ sessions: err.sessions, shifted: true });
         }
         throw err;
       }
@@ -724,28 +723,35 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const cancelled = (status ?? existingEvent.status) === "CANCELLED";
       if (isWebinar && webinarAnchorId && !cancelled) {
         try {
-          await runWithTenant(orgGuard.orgId, () =>
+          // Returns { ok:false } without throwing on its own refusals (no
+          // anchor, no actor, no future phases), so the flag must read the
+          // result, exactly as session-service's rescheduleSequenceIfAnchor does.
+          const r = await runWithTenant(orgGuard.orgId, () =>
             rescheduleWebinarSequenceForEvent(eventId, session.user.id),
           );
-          sequenceSync = "rescheduled";
+          sequenceSync = r.ok ? "rescheduled" : "failed";
+          if (!r.ok) {
+            apiLogger.warn({ msg: "event-update:schedule-shift-sequence-not-rescheduled", eventId, result: r });
+          }
         } catch (err) {
           sequenceSync = "failed";
           apiLogger.error({ err, msg: "event-update:schedule-shift-sequence-failed", eventId });
         }
       }
       scheduleShiftSync = { zoomSynced, zoomFailed, ...(sequenceSync && { sequenceSync }) };
-      apiLogger.info({
-        msg: "event-update:schedule-shifted",
-        eventId,
-        userId: session.user.id,
-        dayDelta: scheduleShift.dayDelta,
-        sessionsMoved: scheduleShift.sessionsMoved,
-        tiersMoved: scheduleShift.tiersMoved,
-        deadlinesMoved: scheduleShift.deadlinesMoved,
-        zoomSynced,
-        zoomFailed,
-        sequenceSync: sequenceSync ?? null,
-      });
+    }
+    // One report object feeds the log, the audit row and the response, so the
+    // three cannot disagree about what moved.
+    const shiftReport = scheduleShift && {
+      dayDelta: scheduleShift.dayDelta,
+      sessionsMoved: scheduleShift.sessionsMoved,
+      salesWindowsMoved: scheduleShift.tiersMoved + scheduleShift.ticketTypesMoved,
+      deadlinesMoved: scheduleShift.deadlinesMoved,
+      keptOpen: scheduleShift.keptOpen,
+      ...scheduleShiftSync,
+    };
+    if (shiftReport) {
+      apiLogger.info({ msg: "event-update:schedule-shifted", eventId, userId: session.user.id, ...shiftReport });
     }
 
     // The WEBINAR anchor cascade (see the block above the M9 guard). Runs after
@@ -826,15 +832,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           ...JSON.parse(JSON.stringify(validated.data)),
           ip: getClientIp(req),
-          ...(scheduleShift && {
-            scheduleShift: {
-              dayDelta: scheduleShift.dayDelta,
-              sessionsMoved: scheduleShift.sessionsMoved,
-              tiersMoved: scheduleShift.tiersMoved,
-              deadlinesMoved: scheduleShift.deadlinesMoved,
-              ...scheduleShiftSync,
-            },
-          }),
+          ...(shiftReport && { scheduleShift: shiftReport }),
         },
       },
     });
@@ -852,15 +850,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       ...event,
       ...(webinarTimeCascade && { webinarTimeCascade }),
-      ...(scheduleShift && {
-        scheduleShift: {
-          dayDelta: scheduleShift.dayDelta,
-          sessionsMoved: scheduleShift.sessionsMoved,
-          tiersMoved: scheduleShift.tiersMoved,
-          deadlinesMoved: scheduleShift.deadlinesMoved,
-          ...scheduleShiftSync,
-        },
-      }),
+      ...(shiftReport && { scheduleShift: shiftReport }),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating event" });

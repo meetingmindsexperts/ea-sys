@@ -471,8 +471,13 @@ export default function AgendaPage() {
       const kept = data.skipped.length
         ? ` ${data.skipped.length} kept: "${data.skipped[0].name}" is the webinar's main session and can't be deleted.`
         : "";
-      const notify = n === 0 ? toast.warning : toast.success;
-      notify(`Deleted ${n} session${n === 1 ? "" : "s"}.${kept}`);
+      // A stale list (someone else deleted first) must not read as if the
+      // selection was honoured in full.
+      const missing = data.notFound.length
+        ? ` ${data.notFound.length} ${data.notFound.length === 1 ? "was" : "were"} already gone.`
+        : "";
+      const notify = n === 0 || missing ? toast.warning : toast.success;
+      notify(`Deleted ${n} session${n === 1 ? "" : "s"}.${kept}${missing}`);
     },
     onError: (error: Error) => toast.error(error.message),
   });

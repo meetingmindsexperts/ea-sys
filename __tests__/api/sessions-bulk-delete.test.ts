@@ -8,7 +8,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, mockDeleteRemote, mockRefreshStats } = vi.hoisted(() => ({
+const { mockDb, mockAuth, mockDeleteRemote, mockRefreshStats, mockRateLimit } = vi.hoisted(() => ({
+  mockRateLimit: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     eventSession: { findMany: vi.fn(), deleteMany: vi.fn() },
@@ -29,7 +30,10 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
+vi.mock("@/lib/security", () => ({
+  getClientIp: () => "1.2.3.4",
+  checkRateLimit: (...a: unknown[]) => mockRateLimit(...a),
+}));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
 vi.mock("@/lib/zoom/cleanup", () => ({ deleteRemoteZoomMeeting: mockDeleteRemote }));
 vi.mock("@/lib/event-access", () => ({
@@ -55,6 +59,7 @@ const admin = { user: { id: "u1", role: "ADMIN", organizationId: "org1" } };
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue(admin);
+  mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mockDeleteRemote.mockResolvedValue(true);
   mockDb.auditLog.create.mockResolvedValue({});
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: {} });
@@ -78,6 +83,16 @@ describe("guards", () => {
     const tooMany = Array.from({ length: MAX_BULK_DELETE + 1 }, (_, i) => `s${i}`);
     expect((await POST(req({ sessionIds: tooMany }), params)).status).toBe(400);
     expect(mockDb.eventSession.deleteMany).not.toHaveBeenCalled();
+  });
+  it("429 when the per-user budget is spent, before any lookup", async () => {
+    mockRateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 120 });
+    const res = await POST(req({ sessionIds: ["a"] }), params);
+    expect(res.status).toBe(429);
+    expect(mockRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "sessions-bulk-delete:u1", limit: 30 }),
+    );
+    expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    expect(mockDeleteRemote).not.toHaveBeenCalled();
   });
   it("404 when the event is not the caller's", async () => {
     mockDb.event.findFirst.mockResolvedValue(null);

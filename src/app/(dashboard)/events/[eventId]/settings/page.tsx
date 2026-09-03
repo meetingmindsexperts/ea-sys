@@ -568,7 +568,7 @@ export default function EventSettingsPage() {
           const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
           const parts = [
             plural(shift.sessionsMoved, "session"),
-            ...(shift.tiersMoved ? [plural(shift.tiersMoved, "sales window")] : []),
+            ...(shift.salesWindowsMoved ? [plural(shift.salesWindowsMoved, "sales window")] : []),
             ...(shift.deadlinesMoved?.length ? [plural(shift.deadlinesMoved.length, "deadline")] : []),
           ];
           const zoomNote = shift.zoomFailed?.length
@@ -578,8 +578,14 @@ export default function EventSettingsPage() {
             shift.sequenceSync === "failed"
               ? " Reminder emails may still be on the old schedule. Use the Webinar Console's Re-enqueue."
               : "";
-          const msg = `Saved. Moved ${plural(abs, "day")} ${dir}: ${parts.join(", ")}.${zoomNote}${seqNote}`;
-          if (zoomNote || seqNote) toast.warning(msg, { duration: 10000 });
+          // Only on an event brought FORWARD: a closing date that would have
+          // landed in the past was left where it was rather than closing
+          // registration or submissions with no warning.
+          const keptNote = shift.keptOpen
+            ? ` ${plural(shift.keptOpen, "closing date")} left in place: moving ${shift.keptOpen === 1 ? "it" : "them"} earlier would have closed ${shift.keptOpen === 1 ? "it" : "them"} already. Check the sales windows and deadlines.`
+            : "";
+          const msg = `Saved. Moved ${plural(abs, "day")} ${dir}: ${parts.join(", ")}.${zoomNote}${seqNote}${keptNote}`;
+          if (zoomNote || seqNote || keptNote) toast.warning(msg, { duration: 12000 });
           else toast.success(msg);
           queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });

@@ -16,6 +16,9 @@ vi.mock("@/lib/logger", () => ({
 
 import {
   applyScheduleShift,
+  deadlineChangedInPatch,
+  findSessionsOutsideAfterShift,
+  shiftClosingDateUnderRule,
   shiftDateUnderRule,
   ScheduleShiftBlockedError,
 } from "@/services/event-schedule-shift";
@@ -45,6 +48,7 @@ describe("shiftDateUnderRule", () => {
 function fakeTx(seed: {
   sessions?: Array<Record<string, unknown>>;
   tiers?: Array<Record<string, unknown>>;
+  ticketTypes?: Array<Record<string, unknown>>;
   settings?: Record<string, unknown>;
 }) {
   return {
@@ -54,6 +58,10 @@ function fakeTx(seed: {
     },
     pricingTier: {
       findMany: vi.fn().mockResolvedValue(seed.tiers ?? []),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    ticketType: {
+      findMany: vi.fn().mockResolvedValue(seed.ticketTypes ?? []),
       update: vi.fn().mockResolvedValue({}),
     },
     event: {
@@ -130,6 +138,7 @@ describe("applyScheduleShift: sessions", () => {
     // Nothing was written: the guard runs before any update.
     expect(tx.eventSession.update).not.toHaveBeenCalled();
     expect(tx.pricingTier.update).not.toHaveBeenCalled();
+    expect(tx.ticketType.update).not.toHaveBeenCalled();
     expect(tx.event.update).not.toHaveBeenCalled();
   });
 
@@ -237,5 +246,127 @@ describe("applyScheduleShift: submission deadlines", () => {
     const out = await applyScheduleShift(tx as never, base);
     expect(out.deadlinesMoved).toEqual([]);
     expect(tx.event.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── Review round (Sep 2, 2026) ─────────────────────────────────────────────
+
+describe("shiftClosingDateUnderRule: a closing date never moves INTO the past", () => {
+  it("postponement: a future closing date moves like any other", () => {
+    const r = shiftClosingDateUnderRule(new Date("2026-10-10T19:59:00Z"), 21, TZ, NOW);
+    expect(r).toEqual({ value: new Date("2026-10-31T19:59:00Z"), keptOpen: false });
+  });
+  it("brought forward: a closing date that would land in the past stays put and is flagged", () => {
+    // Closes in 10 days; the event moves 21 days earlier. Moving it would
+    // close registration immediately with no signal.
+    const closesSoon = new Date("2026-09-30T19:59:00Z");
+    const r = shiftClosingDateUnderRule(closesSoon, -21, TZ, NOW);
+    expect(r.value).toBe(closesSoon);
+    expect(r.keptOpen).toBe(true);
+  });
+  it("brought forward: a closing date that still lands in the future moves", () => {
+    const r = shiftClosingDateUnderRule(new Date("2026-12-01T19:59:00Z"), -21, TZ, NOW);
+    expect(r).toEqual({ value: new Date("2026-11-10T19:59:00Z"), keptOpen: false });
+  });
+  it("a past closing date stays, not flagged (it was already closed)", () => {
+    const past = new Date("2026-09-01T19:59:00Z");
+    expect(shiftClosingDateUnderRule(past, -21, TZ, NOW)).toEqual({ value: past, keptOpen: false });
+  });
+});
+
+describe("deadlineChangedInPatch: a changed VALUE, never key presence or absence", () => {
+  const stored = { abstractDeadline: "2026-10-01T19:59:00.000Z" };
+  it("absent key: not a change (a partial patch must not read as 'cleared')", () => {
+    expect(deadlineChangedInPatch({ registrationOpen: true }, stored, "abstractDeadline")).toBe(false);
+    expect(deadlineChangedInPatch(undefined, stored, "abstractDeadline")).toBe(false);
+  });
+  it("present and equal: not a change (the General tab echoes it on every save)", () => {
+    expect(deadlineChangedInPatch({ abstractDeadline: "2026-10-01T19:59:00.000Z" }, stored, "abstractDeadline")).toBe(false);
+  });
+  it("present and different: a change", () => {
+    expect(deadlineChangedInPatch({ abstractDeadline: "2026-12-01T19:59:00.000Z" }, stored, "abstractDeadline")).toBe(true);
+  });
+  it("differs only in seconds: not a change (the form round-trips at minute precision)", () => {
+    const withSeconds = { abstractDeadline: "2026-10-01T19:59:30.000Z" };
+    expect(deadlineChangedInPatch({ abstractDeadline: "2026-10-01T19:59:00.000Z" }, withSeconds, "abstractDeadline")).toBe(false);
+  });
+  it("present and explicitly cleared: a change", () => {
+    expect(deadlineChangedInPatch({ abstractDeadline: null }, stored, "abstractDeadline")).toBe(true);
+  });
+});
+
+describe("findSessionsOutsideAfterShift: one check for the pre-check and the transaction", () => {
+  const win = { timeZone: TZ, newStart: new Date("2026-11-05T05:00:00Z"), newEnd: new Date("2026-11-06T14:00:00Z") };
+  it("dayDelta 0 is the plain date-range guard", () => {
+    const out = findSessionsOutsideAfterShift(
+      [session("in", "2026-11-05T05:00:00Z", "2026-11-05T06:00:00Z"), session("out", "2026-11-07T05:00:00Z", "2026-11-07T06:00:00Z")],
+      { ...win, dayDelta: 0 },
+    );
+    expect(out.map((s) => s.id)).toEqual(["out"]);
+  });
+  it("names the session at its SHIFTED time", () => {
+    const out = findSessionsOutsideAfterShift(
+      [session("late", "2026-10-17T06:00:00Z", "2026-10-17T07:00:00Z")],
+      { ...win, dayDelta: 21 },
+    );
+    expect(out[0].startTime.toISOString()).toBe("2026-11-07T06:00:00.000Z");
+  });
+  it("ignores cancelled sessions, and treats a row with no status as active", () => {
+    const rows = [
+      { id: "c", name: "C", startTime: new Date("2026-11-07T06:00:00Z"), endTime: new Date("2026-11-07T07:00:00Z"), status: "CANCELLED" },
+      { id: "n", name: "N", startTime: new Date("2026-11-07T06:00:00Z"), endTime: new Date("2026-11-07T07:00:00Z") },
+    ];
+    expect(findSessionsOutsideAfterShift(rows, { ...win, dayDelta: 0 }).map((s) => s.id)).toEqual(["n"]);
+  });
+});
+
+describe("applyScheduleShift: ticket-type sales windows (the tier-less case the first cut missed)", () => {
+  it("shifts TicketType windows under the same rule and counts them separately", async () => {
+    const tx = fakeTx({
+      ticketTypes: [
+        // Open now, closes on the old last day: end moves, start stays.
+        { id: "plain", salesStart: new Date("2026-09-01T00:00:00Z"), salesEnd: new Date("2026-10-17T19:59:00Z") },
+        // No window: untouched.
+        { id: "none", salesStart: null, salesEnd: null },
+      ],
+    });
+    const out = await applyScheduleShift(tx as never, base);
+    expect(out.ticketTypesMoved).toBe(1);
+    expect(tx.ticketType.update).toHaveBeenCalledWith({
+      where: { id: "plain" },
+      data: { salesStart: new Date("2026-09-01T00:00:00Z"), salesEnd: new Date("2026-11-07T19:59:00Z") },
+    });
+  });
+});
+
+describe("applyScheduleShift: an event brought FORWARD", () => {
+  it("keeps a sales end that would have closed, lets the start open early, and reports keptOpen", async () => {
+    const forward = {
+      ...base,
+      dayDelta: -21,
+      newStart: new Date("2026-09-24T05:00:00Z"),
+      newEnd: new Date("2026-09-26T14:00:00Z"),
+    };
+    const tx = fakeTx({
+      tiers: [
+        // Onsite: opens Oct 11, closes Oct 15. Brought forward 21 days the
+        // start lands Sep 20 (past: fine, it just opens now) and the end
+        // would land Sep 24, still future, so it moves.
+        { id: "on", salesStart: new Date("2026-10-11T00:00:00Z"), salesEnd: new Date("2026-10-15T19:59:00Z") },
+        // Standard: closes Oct 1. Moved 21 days earlier that is Sep 10, in
+        // the past: registration would close today. Kept.
+        { id: "std", salesStart: new Date("2026-08-01T00:00:00Z"), salesEnd: new Date("2026-10-01T19:59:00Z") },
+      ],
+      settings: { abstractDeadline: "2026-09-28T19:59:00.000Z" }, // would land Sep 7: kept
+    });
+    const out = await applyScheduleShift(tx as never, forward);
+    expect(tx.pricingTier.update).toHaveBeenCalledWith({
+      where: { id: "on" },
+      data: { salesStart: new Date("2026-09-20T00:00:00Z"), salesEnd: new Date("2026-09-24T19:59:00Z") },
+    });
+    expect(tx.pricingTier.update.mock.calls.map((c) => c[0].where.id)).not.toContain("std");
+    expect(out.deadlinesMoved).toEqual([]);
+    expect(tx.event.update).not.toHaveBeenCalled();
+    expect(out.keptOpen).toBe(2); // std's end + the abstract deadline
   });
 });
