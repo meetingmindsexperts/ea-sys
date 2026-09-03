@@ -136,7 +136,6 @@ export default function ReimbursementFormPage() {
     designation: "",
     institution: "",
     country: "",
-    email: "",
     phone: "",
     nationality: "",
     passportNumber: "",
@@ -187,7 +186,6 @@ export default function ReimbursementFormPage() {
           designation: p.designation,
           institution: p.institution,
           country: p.country,
-          email: p.email,
           phone: p.phone,
           nationality: p.nationality,
           passportNumber: p.passportNumber,
@@ -563,8 +561,15 @@ export default function ReimbursementFormPage() {
                       onChange={(v) => setFields((prev) => ({ ...prev, country: v }))}
                     />
                   </Field>
-                  <Field label="Email address" required error={fieldErrors.email}>
-                    <Input type="email" value={fields.email} onChange={setField("email")} />
+                  <Field label="Email address">
+                    {/* Read-only: this is the address the link was sent to, and
+                        the confirmation goes back to it. Not in `fields`, so it
+                        never rides in the POST body; the server writes
+                        Speaker.email regardless. */}
+                    <Input type="email" value={data.prefill.email} disabled readOnly className="bg-muted" />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Locked to the address this link was sent to. Contact the organizing team if it needs to change.
+                    </p>
                   </Field>
                   <Field label="Mobile / WhatsApp number" error={fieldErrors.phone}>
                     <Input value={fields.phone} onChange={setField("phone")} />

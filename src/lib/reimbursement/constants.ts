@@ -124,7 +124,15 @@ export const reimbursementSubmitSchema = z.object({
   designation: z.string().trim().max(200).optional().or(z.literal("")),
   institution: z.string().trim().max(300).optional().or(z.literal("")),
   country: z.string().trim().min(2).max(100),
-  email: z.string().trim().min(3).max(200).email(),
+  // No `email` here, deliberately. The address is the identity the link was
+  // sent to and the server writes `Speaker.email` (Sep 2, 2026). Accepting
+  // it from the body let a speaker retype it, so the confirmation (the
+  // receipt for a 45-day payment promise) could go to an address the invite
+  // never went to, and the finance export carried a value that disagreed
+  // with the speaker record. Changing an email goes through the organizer's
+  // Change Email flow, the same rule every other surface follows.
+  // z.object() strips unknown keys, so a tab still open across the deploy
+  // that sends `email` parses fine; the value is simply never read.
   phone: z.string().trim().max(50).optional().or(z.literal("")),
   nationality: z.string().trim().min(2).max(100),
   passportNumber: z.string().trim().min(3).max(50),

@@ -79,7 +79,7 @@ sensitive fields in the system**, stricter than the finance boundary
 
 | Route | What |
 |---|---|
-| `GET /api/public/events/[slug]/reimbursement/[token]` | Event branding + prefill (saved snapshot wins, else the Speaker record) + docs + status. |
+| `GET /api/public/events/[slug]/reimbursement/[token]` | Event branding + prefill (saved snapshot wins, else the Speaker record; **`email` is always `Speaker.email`**, see below) + docs + status. |
 | `POST` same | The submission. Enforces the **receipt rule** (400 `MISSING_DOCUMENTS` naming the uncovered kinds), then a **conditional claim on PENDING** (`updateMany` — a double-submit race commits exactly once, loser gets 409 `ALREADY_SUBMITTED`). On success: audit with IP (agreement-acceptance shape), `notifyEventAdmins`, and the automated confirmation email — both failure-isolated. |
 | `POST .../documents` / `DELETE .../documents/[docId]` | Receipt upload / remove. Upload is allowed while PENDING **and after submission** (owner decision July 21, 2026 — append-only: a forgotten/illegible receipt can be added without a reopen; post-submission uploads write a `DOCUMENT_ADDED` audit that surfaces on the speaker's Activity timeline). DELETE stays **PENDING-only** — nothing attached to a signed form is speaker-removable. PDF/JPG/PNG **magic-byte validated**, 10MB, max 15 per form. |
 
@@ -95,6 +95,30 @@ server-side at submit (and mirrored client-side for inline feedback):
 
 Source of truth: `CLAIM_ITEMS[].receiptKind` + `requiredDocumentKinds()` in
 `src/lib/reimbursement/constants.ts`.
+
+## 4b. The email is locked to the Speaker record (Sep 2, 2026)
+
+Section B prefills from the Speaker row and the speaker may correct most of
+it (name as on passport, designation, institution, phone). **`email` is the
+exception.** It renders read-only on the form, is not part of
+`reimbursementSubmitSchema`, and the POST writes `Speaker.email` regardless of
+what the body carries. Two reasons, both about what the address IS here:
+
+- It is the identity the private link was sent to. Letting the holder of a
+  token retype it would let them redirect the confirmation email, which is the
+  receipt for the declaration's "processed within 45 days" promise, to a
+  mailbox the invite never went to.
+- It is what finance sees. `SpeakerReimbursement.email` is exported in the
+  CSV and shown in the console; a retyped value made it disagree with the
+  speaker record with nothing flagging the divergence.
+
+Changing a speaker's email goes through the organizer's Change Email flow
+(`PATCH .../speakers/[id]/email`), the same rule every other surface follows
+since April 24, 2026. The snapshot column stays: a later Change Email does not
+rewrite what was signed, but what gets snapshotted is now the canonical
+address, not user input. The GET prefill also reads `Speaker.email` rather
+than the snapshot, so a form submitted before the lock with a retyped address
+is corrected on its next submit instead of carried forward.
 
 ## 5. Emails
 

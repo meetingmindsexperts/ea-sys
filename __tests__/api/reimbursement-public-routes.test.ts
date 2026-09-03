@@ -75,7 +75,7 @@ vi.mock("fs/promises", () => {
   return { ...fns, default: fns };
 });
 
-import { POST } from "@/app/api/public/events/[slug]/reimbursement/[token]/route";
+import { GET, POST } from "@/app/api/public/events/[slug]/reimbursement/[token]/route";
 import { POST as uploadDocPost } from "@/app/api/public/events/[slug]/reimbursement/[token]/documents/route";
 import { DELETE as uploadDocDelete } from "@/app/api/public/events/[slug]/reimbursement/[token]/documents/[documentId]/route";
 import { GET as uploadsGet } from "@/app/uploads/[...path]/route";
@@ -183,7 +183,7 @@ describe("POST /api/public/events/[slug]/reimbursement/[token]", () => {
     const call = mockDb.speakerReimbursement.updateMany.mock.calls[0][0];
     expect(call.where).toEqual({ id: "reimb1", status: "PENDING" });
     expect(call.data.status).toBe("SUBMITTED");
-    expect(call.data.email).toBe("jane@example.com"); // lowercased
+    expect(call.data.email).toBe("jane@example.com"); // Speaker.email, lowercased
     expect(call.data.submittedIp).toBe("127.0.0.1");
     // amounts rounded to 2dp before storage
     expect(call.data.claimLines).toEqual([
@@ -193,6 +193,39 @@ describe("POST /api/public/events/[slug]/reimbursement/[token]", () => {
 
     expect(mockNotify).toHaveBeenCalledOnce();
     expect(mockSendEmail).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a body-supplied email: the Speaker record's address is stored AND receives the receipt", async () => {
+    // The lock (Sep 2, 2026). Before it, the form's email input was editable
+    // and the route trusted it, so the holder of a token could retype the
+    // address and redirect the confirmation, the one document that proves
+    // what was claimed and when, to a mailbox the invite never went to. A
+    // disabled input alone would be a browser-only rule; this pins the server.
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow());
+    mockDb.speakerReimbursement.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await POST(jsonReq({ ...validBody, email: "somebody-else@evil.example" }), params());
+    expect(res.status).toBe(200);
+
+    const stored = mockDb.speakerReimbursement.updateMany.mock.calls[0][0].data.email;
+    expect(stored).toBe("jane@example.com");
+
+    const sent = mockSendEmail.mock.calls[0][0];
+    expect(sent.to).toEqual([{ email: "jane@example.com", name: expect.any(String) }]);
+    expect(JSON.stringify(sent)).not.toContain("evil.example");
+  });
+
+  it("prefills the email from the Speaker record even when the saved snapshot disagrees", async () => {
+    // A form submitted before the lock may have stored a retyped address.
+    // The read-only field must show what the next submit will actually
+    // write, so a stale snapshot is corrected rather than carried forward.
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      baseRow({ status: "PENDING", email: "retyped-before-the-lock@example.com" }),
+    );
+    const res = await GET(jsonReq(undefined), params());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.prefill.email).toBe("jane@example.com");
   });
 
   it("404s an unknown token", async () => {

@@ -97,7 +97,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         designation: row.designation ?? row.speaker.jobTitle ?? "",
         institution: row.institution ?? row.speaker.organization ?? "",
         country: row.country ?? row.speaker.country ?? "",
-        email: row.email ?? row.speaker.email,
+        // Always the Speaker record, never the saved snapshot: the form
+        // shows it read-only and the POST writes exactly this value, so a
+        // pre-lock submission that stored a divergent address is corrected
+        // on the next submit rather than carried forward.
+        email: row.speaker.email,
         phone: row.phone ?? row.speaker.phone ?? "",
         nationality: row.nationality ?? "",
         passportNumber: row.passportNumber ?? "",
@@ -224,7 +228,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         designation: opt(d.designation),
         institution: opt(d.institution),
         country: d.country.trim(),
-        email: d.email.trim().toLowerCase(),
+        // From the Speaker row, not the body. The snapshot semantics are
+        // kept (a later Change Email does not rewrite what was signed), but
+        // what gets snapshotted is the canonical address, not user input.
+        email: row.speaker.email.trim().toLowerCase(),
         phone: opt(d.phone),
         nationality: d.nationality.trim(),
         passportNumber: d.passportNumber.trim(),
@@ -311,9 +318,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           branding,
           new Set(["claimSummary"]),
         );
+        // The receipt goes to the address the link went to. A body-supplied
+        // address here would let the person holding the token redirect the
+        // one document that proves what they claimed and when.
+        const recipient = row.speaker.email.trim().toLowerCase();
         await sendEmail({
-          to: [{ email: d.email.trim().toLowerCase(), name: speakerDisplayName }],
-          cc: brandingCc(branding, [{ email: d.email.trim().toLowerCase() }]),
+          to: [{ email: recipient, name: speakerDisplayName }],
+          cc: brandingCc(branding, [{ email: recipient }]),
           from: brandingFrom(branding),
           subject: rendered.subject,
           htmlContent: rendered.htmlContent,

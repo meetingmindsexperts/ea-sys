@@ -3413,7 +3413,8 @@ model SpeakerReimbursement {
   status         ReimbursementStatus @default(PENDING)
 
   // Section B — speaker/faculty details (prefilled from Speaker, editable
-  // by the speaker; snapshot on this row so a later Speaker edit doesn't
+  // by the speaker EXCEPT `email`, which is locked to Speaker.email since
+  // Sep 2, 2026; snapshot on this row so a later Speaker edit doesn't
   // rewrite what was signed).
   fullName       String? // as on passport
   designation    String?
