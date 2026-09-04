@@ -52,6 +52,9 @@ next-env.d.ts
 
 /src/generated/prisma
 .env*.local
+# Claude Code per-machine permission rules: they store whole approved command strings, secrets
+# included. Was tracked despite this rule (added before it) and leaked an org API key, Apr-Sep 2026.
+# A rule never untracks an already-tracked file: `git rm --cached` is the other half.
 .claude/settings.local.json
 
 # Uploaded files (persistent storage, not in git)
