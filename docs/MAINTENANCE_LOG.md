@@ -163,16 +163,53 @@ that it can be run again, which is also the hazard. §5 of
 [EBS_ENCRYPTION_RUNBOOK.md](EBS_ENCRYPTION_RUNBOOK.md) now opens with a warning
 that its ids are historical and which volume is which.
 
+### Closed (Sep 4, 2026)
+
+The rollback copies were deleted, in the safe order, and the account now holds
+**zero unencrypted volumes and zero unencrypted snapshots** (verified read-only
+with `describe-volumes` / `describe-snapshots` filtered on `encrypted=false`).
+
+What was done, in order:
+
+1. **An encrypted snapshot of the LIVE root was taken first**:
+   `snap-0a5692889cd3243d4` from `vol-08f22cd184c2bf880`, started 10:56 UTC,
+   completed in ~25 minutes, `Encrypted=true`. This step was not in the
+   Outstanding list and it mattered: the encrypted volume had **no snapshot at
+   all** for the two weeks since the swap, so the four plaintext snapshots and
+   the detached volume were, by accident, the only disk-level restore points.
+   Deleting them first would have left none.
+2. `vol-073ca563deaa8732a` (the original plaintext root, detached since Aug 21,
+   frozen at that day's contents) deleted.
+3. The four plaintext snapshots deleted: `snap-08e84992f929dc0b4` (April),
+   `snap-0a2d36c0550251e81`, `snap-0bd0ad84dc2085d2e`, `snap-0a6e485dfeee176af`.
+   The last one was briefly kept "as a spare"; it went once it was clear it
+   held a strict subset of the encrypted snapshot (the encrypted volume was
+   built FROM it and then took two weeks of writes) and was the one remaining
+   copy keeping the §0.2 finding open.
+
+Cost, from Cost Explorer for August: snapshots $3.76, gp3 volumes $6.10 (the
+detached volume billed the same as the attached one). Expected after cleanup:
+roughly $6/month, the live disk plus one ~30 GB-of-blocks snapshot.
+
+`DeleteOnTermination` on the live root reads `false` (checked Sep 4). Left that
+way deliberately: a terminated instance keeping its disk is the safer default
+for a box rebuilt from a runbook rather than from an image.
+
+The lesson to carry: **a bake period needs an expiry AND a replacement.** The
+week-long rollback window was right; what was missing was "and on the day it
+ends, snapshot the new volume before deleting the old one", so the cleanup
+stalled for a week past the date because nobody wanted to delete the only copy.
+
 ### Outstanding
 
-- [ ] **Bake period — keep `vol-073ca563deaa8732a` for at least a week** (two if
+- [x] **Bake period — keep `vol-073ca563deaa8732a` for at least a week** (two if
       the calendar is clear). It is the rollback, and at 50 GB gp3 it costs about
       $4/month against that option value. **Deleting it is the only irreversible
       step in this procedure.**
-- [ ] **Decide `DeleteOnTermination` deliberately.** The original root had it
+- [x] **Decide `DeleteOnTermination` deliberately.** (kept `false`, see Closed) The original root had it
       `true`; the newly attached volume defaults to `false`, which is safer
       during the bake. Do not simply inherit it.
-- [ ] **Delete the unencrypted snapshots** once the bake ends. There are
+- [x] **Delete the unencrypted snapshots** once the bake ends. (done Sep 4) There are
       **four**, not the three the runbook anticipated — a warm-up was taken on
       Aug 20 as well as on the day:
       `snap-08e84992f929dc0b4` (April), `snap-0a2d36c0550251e81` (Aug 20
