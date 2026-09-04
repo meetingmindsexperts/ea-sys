@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { validateApiKey } from "@/lib/api-key";
+import { apiKeyUseContext, validateApiKey } from "@/lib/api-key";
 import { verifyMobileToken } from "@/lib/mobile-jwt";
 import { resolveActingOrgId } from "@/lib/platform-operator";
 
@@ -85,7 +85,10 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
   const rawKey = req.headers.get("x-api-key") ?? bearerToken ?? null;
 
   if (rawKey) {
-    const result = await validateApiKey(rawKey);
+    // The context is what makes the `api-key:used` line answer "which key,
+    // when, for what route, from where"; without it the validator can only
+    // say that some key was used.
+    const result = await validateApiKey(rawKey, apiKeyUseContext(req, "rest"));
     if (result) {
       return {
         organizationId: result.organizationId,

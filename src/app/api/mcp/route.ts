@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { validateApiKey } from "@/lib/api-key";
+import { apiKeyUseContext, validateApiKey } from "@/lib/api-key";
 import { db } from "@/lib/db";
 import { validateOAuthAccessToken } from "@/lib/mcp-oauth";
 import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
@@ -32,6 +32,9 @@ type AuthResult = {
   actorRole: string | null;
   fromApiKey: boolean;
   rateLimitTier: "NORMAL" | "INTERNAL";
+  /** ApiKey row id + the organiser's label; null on the OAuth path. What a human reads in /logs. */
+  apiKeyId: string | null;
+  apiKeyName: string | null;
 };
 
 async function authenticate(req: Request): Promise<AuthResult | null> {
@@ -40,15 +43,19 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
   const key = apiKeyHeader || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
   if (!key) return null;
 
-  // Try API-key path first (backward-compat for Claude Desktop + mcp-remote + n8n)
-  const apiKey = await validateApiKey(key);
+  // Try API-key path first (backward-compat for Claude Desktop + mcp-remote + n8n).
+  // The validator logs `api-key:used` / `api-key:refused` with this context,
+  // so every MCP call is attributable to a named key in /logs.
+  const apiKey = await validateApiKey(key, apiKeyUseContext(req, "mcp"));
   if (apiKey) {
     return {
       organizationId: apiKey.organizationId,
-      keyPrefix: key.slice(0, 12),
+      keyPrefix: apiKey.keyPrefix,
       rateLimitTier: apiKey.rateLimitTier,
       actorRole: null,
       fromApiKey: true,
+      apiKeyId: apiKey.apiKeyId,
+      apiKeyName: apiKey.apiKeyName,
     };
   }
 
@@ -80,6 +87,8 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
       rateLimitTier: oauth.rateLimitTier,
       actorRole: grantee?.role ?? null,
       fromApiKey: false,
+      apiKeyId: null,
+      apiKeyName: null,
     };
   }
 
@@ -165,12 +174,22 @@ async function handleMcp(req: Request): Promise<Response> {
     apiLogger.info({
       msg: "mcp:internal-key-used",
       keyPrefix: authResult.keyPrefix,
+      apiKeyId: authResult.apiKeyId,
+      apiKeyName: authResult.apiKeyName,
       organizationId: authResult.organizationId,
       method: req.method,
     });
   }
 
-  apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix, tier: authResult.rateLimitTier });
+  apiLogger.info({
+    msg: "MCP request",
+    method: req.method,
+    organizationId: authResult.organizationId,
+    keyPrefix: authResult.keyPrefix,
+    apiKeyId: authResult.apiKeyId,
+    apiKeyName: authResult.apiKeyName,
+    tier: authResult.rateLimitTier,
+  });
 
   // Ensure Accept header includes text/event-stream (required by MCP SDK).
   // Some clients (n8n) only send Accept: application/json which causes a 406.

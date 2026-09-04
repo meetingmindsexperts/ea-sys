@@ -34,6 +34,8 @@ describe("validateApiKey — rateLimitTier propagation", () => {
     mockDb.apiKey.findUnique.mockResolvedValueOnce({
       id: "key-1",
       organizationId: "org-1",
+      name: "n8n sync",
+      prefix: "mmg_aaaaaaaa",
       isActive: true,
       expiresAt: null,
       rateLimitTier: "NORMAL",
@@ -41,13 +43,15 @@ describe("validateApiKey — rateLimitTier propagation", () => {
 
     const result = await validateApiKey("mmg_" + "a".repeat(64));
 
-    expect(result).toEqual({ organizationId: "org-1", rateLimitTier: "NORMAL" });
+    expect(result).toMatchObject({ organizationId: "org-1", rateLimitTier: "NORMAL" });
   });
 
   it("returns rateLimitTier=INTERNAL for SUPER_ADMIN-issued internal keys", async () => {
     mockDb.apiKey.findUnique.mockResolvedValueOnce({
       id: "key-2",
       organizationId: "org-2",
+      name: "internal automation",
+      prefix: "mmg_bbbbbbbb",
       isActive: true,
       expiresAt: null,
       rateLimitTier: "INTERNAL",
@@ -55,7 +59,7 @@ describe("validateApiKey — rateLimitTier propagation", () => {
 
     const result = await validateApiKey("mmg_" + "b".repeat(64));
 
-    expect(result).toEqual({ organizationId: "org-2", rateLimitTier: "INTERNAL" });
+    expect(result).toMatchObject({ organizationId: "org-2", rateLimitTier: "INTERNAL" });
   });
 
   it("returns null when the key is inactive (tier irrelevant)", async () => {

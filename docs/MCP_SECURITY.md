@@ -184,6 +184,24 @@ npm run prod:psql -- -c '
 INTERNAL-tier key you cannot account for, and any key with a `lastUsedAt` older than the integration
 it was minted for.
 
+### Usage log (Sep 4, 2026)
+
+`lastUsedAt` answers only "when was this key last used". For "which key, when, from where, for
+what", every API-key authentication now writes a log line from the one validator both front doors
+share (`validateApiKey` in `src/lib/api-key.ts`):
+
+- `api-key:used` (info): `apiKeyId`, `apiKeyName`, `keyPrefix`, `organizationId`, `tier`, `surface`
+  (`mcp` or `rest`), `method`, `route` (pathname only), `ip`, `userAgent`. On EC2 this is in
+  `logs/app.log` (the `/logs` viewer's default file source) and in CloudWatch `ea-sys/app` for 30 days.
+- `api-key:refused` (warn): the same context plus `reason` (`unknown`, `inactive`, `expired`). Warn
+  reaches the SystemLog table, so after a rotation the integrations still presenting the OLD key show
+  up on `/logs` (database source) and in the `/admin/infra` abuse card.
+
+Neither line ever carries the credential or its hash, only the 12-character prefix Settings shows.
+
+To answer "is the leaked key still being presented" after rotating it: deactivate it, then search
+`/logs` for `api-key:refused` and read `apiKeyName` + `ip` + `userAgent`.
+
 ### Revoking
 
 - **API key:** Settings → API Keys → deactivate. Takes effect on the next request (`validateApiKey`

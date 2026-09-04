@@ -1966,7 +1966,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <figure class="ss-img">
           <div class="ss-img-head"><span class="ss-img-label">API Keys &amp; OAuth Connections</span><span class="ss-img-ref">IMG-043</span></div>
           <img src="user-guide/screenshots/07-settings-org/05-api-keys-and-oauth.png" alt="API keys table and OAuth clients table">
-          <div class="ss-img-cap">Two tables. <strong>API Keys</strong>: for n8n / Claude Desktop / programmatic access. <strong>OAuth Connections</strong>: browser-based MCP clients (claude.ai web). Each row has a tier badge (NORMAL / INTERNAL). SUPER_ADMIN-only Switch toggles tier &mdash; INTERNAL bypasses the 100/hr MCP rate limit, audit-logged on every use.</div>
+          <div class="ss-img-cap">Two tables. <strong>API Keys</strong>: for n8n / Claude Desktop / programmatic access. <strong>OAuth Connections</strong>: browser-based MCP clients (claude.ai web). Each row has a tier badge (NORMAL / INTERNAL). SUPER_ADMIN-only Switch toggles tier &mdash; INTERNAL bypasses the 100/hr MCP rate limit, audit-logged on every use. <strong>Every use of every key is logged:</strong> open <strong>Logs</strong> and search <code>api-key:used</code> to see which key (by its name and prefix) was used, when, from which IP, on which route. A key that is deactivated, expired or unknown logs <code>api-key:refused</code> instead, which is how you find an integration still presenting an old key after a rotation. The key itself never appears in a log line.</div>
         </figure>
         <figure class="ss-img">
           <div class="ss-img-head"><span class="ss-img-label">System Logs</span><span class="ss-img-ref">IMG-044</span></div>
