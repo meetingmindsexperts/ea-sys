@@ -154,6 +154,13 @@ jobs:
       - name: Org guard (organizationId! footgun)
         run: bash scripts/check-org-guard.sh
 
+      # A live org API key sat in a tracked Claude Code settings file in this
+      # PUBLIC repo for five months (INC-005, 2026-09-04). GitHub's secret
+      # scanning does not know our `mmg_` shape. This does; it masks what it
+      # reports because these logs are public too.
+      - name: No credential-shaped strings in tracked files
+        run: bash scripts/check-no-secrets.sh
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something

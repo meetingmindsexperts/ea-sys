@@ -21,7 +21,7 @@
 | # | Issue | Why it matters to EHS specifically |
 |---|---|---|
 | **0.1** | **No data is stored in the UAE, and in-UAE hosting on AWS is not currently available to anyone.** Primary database and application are in **AWS Mumbai (ap-south-1)**; disaster recovery in **Singapore**; the marketing contact mirror is in the **EU**; AI, payments and video are **US** services. **As of 2026-08-19 the AWS UAE region (`me-central-1`) is not operational** — see the box below. | EHS is a UAE federal health authority. Public-sector and health-sector procurement frequently mandates in-country storage. This remains the most likely blocker, but the answer is now materially stronger: it is a regional constraint, not an architectural choice. |
-| **0.2** | ✅ **CLOSED 2026-08-21 — the server's disk is now encrypted at rest.** The EC2 root volume was replaced with an encrypted one (`vol-08f22cd184c2bf880`, 50 GB, AES-256, AWS-managed KMS key) in a planned 7-minute window — [MAINTENANCE_LOG.md](MAINTENANCE_LOG.md) MAINT-001. Uploaded files live on that volume, so this covers them. **Remaining caveat, stated because it is the honest answer:** the previous unencrypted volume and four unencrypted snapshots of it are deliberately retained as the rollback until roughly 2026-08-28, and each is a full plaintext copy. Until they are deleted the control is in force on the live system but not yet on every historical copy. | "Encryption at rest" is a standard yes/no on these forms. The answer for uploaded files is now **yes** — as it already was for the database and the DR backups (§3). |
+| **0.2** | ✅ **CLOSED 2026-08-21 — the server's disk is now encrypted at rest.** The EC2 root volume was replaced with an encrypted one (`vol-08f22cd184c2bf880`, 50 GB, AES-256, AWS-managed KMS key) in a planned 7-minute window — [MAINTENANCE_LOG.md](MAINTENANCE_LOG.md) MAINT-001. Uploaded files live on that volume, so this covers them. **Caveat closed 2026-09-04:** the previous unencrypted volume and its four unencrypted snapshots, kept as the rollback through the bake period, have been deleted after an encrypted snapshot of the live volume was taken. The account holds no unencrypted volume and no unencrypted snapshot; the control is in force on the live system and on every historical copy. | "Encryption at rest" is a standard yes/no on these forms. The answer for uploaded files is now **yes** — as it already was for the database and the DR backups (§3). |
 | **0.3** | **No multi-factor authentication.** Accounts are email + password only. | Common hard requirement for systems holding personal data in the public sector. |
 | **0.4** | **No independent certification or penetration test.** No ISO 27001, no SOC 2, no third-party pen test. | Many questionnaires ask for a certificate number. We have practices and documentation, not attestation. |
 
@@ -59,7 +59,7 @@ Everything below is accurate as it stands.
 | What | Where | Provider |
 |---|---|---|
 | Application server (web + background worker) | **Mumbai, India** (`ap-south-1`) | AWS EC2 |
-| Primary database (all registration, speaker, session, financial data) | **Mumbai, India** | Supabase (managed PostgreSQL on AWS) |
+| Primary database (all registration, speaker, session, financial data, and since August 2026 the MM Group staff attendance and leave records of the HR module) | **Mumbai, India** | Supabase (managed PostgreSQL on AWS) |
 | Uploaded files (photos, badges, documents, certificates) | **Mumbai, India** — on the application server's own disk | AWS EBS |
 | Database backups + file copies (disaster recovery) | **Singapore** (`ap-southeast-1`) | AWS S3 |
 | Application logs | **Mumbai** | AWS CloudWatch |
@@ -98,6 +98,8 @@ Everything below is accurate as it stands.
 
 **Operational:** entry barcode, DTCM compliance barcode (Dubai events), check-in timestamps, badge type, accommodation and room assignment, survey responses, certificates issued.
 
+**MM Group staff (HR module, added August 2026, internal use only):** employee name and code, joining and leaving dates, leave entitlement and carry-over, and a per-day attendance record whose codes include **sick leave**, which is health-adjacent personal data about named employees. This module is confined to the MM Group instance (it is switched off by configuration for any other tenant), readable only by the two HR roles or by a named per-person grant (an ordinary administrator cannot read it), refuses API keys entirely, sits behind its own row-level database policies, and writes an audit trail that records codes, dates and counts but never the free-text remarks where medical detail would land. Its activity is kept out of the general administrative activity feed for the same reason. **No retention rule is defined for these records yet**; see the gaps in §5.
+
 **Account and security:** password (stored only as a bcrypt hash), sign-in timestamps, **IP address**, browser user-agent, and an approximate city/country derived from the IP address. Every administrative action is recorded with the acting user and their IP.
 
 **Verified state of the sensitive document store, 2026-08-19.** The capability to
@@ -122,6 +124,7 @@ instead of in a mailbox.
 **Special-category considerations to flag proactively:**
 - **Dietary requirements** can disclose religion or a medical condition.
 - **Passport scans and bank details** would be the most sensitive items in the system, once collected.
+- **Staff sick-leave records** (HR module) are health-adjacent data about identifiable employees and are treated as the most sensitive data the system holds today.
 - **Health-professional specialty** is occupational rather than health data about the individual, but reviewers sometimes treat it as sensitive.
 
 ---
@@ -168,7 +171,7 @@ Zoom, which encrypts its own traffic.
 |---|---|---|
 | Primary database | **Yes** | Supabase encrypts storage at rest (AES-256) |
 | Disaster-recovery backups (Singapore) | **Yes** | S3 server-side encryption with a **customer-managed KMS key**; bucket has all four public-access blocks enabled; verified 2026-08-18 |
-| **Uploaded files on the server** | **Yes** (since 2026-08-21) | EC2 root volume encrypted with AES-256, AWS-managed KMS key — see §0.2 and MAINT-001. Retained unencrypted snapshots are the one open caveat, deleted after the rollback bake period |
+| **Uploaded files on the server** | **Yes** (since 2026-08-21) | EC2 root volume encrypted with AES-256, AWS-managed KMS key — see §0.2 and MAINT-001. The rollback copies were deleted 2026-09-04; no unencrypted volume or snapshot remains |
 | Passwords | **Yes, one-way** | bcrypt, cost factor 10 — never recoverable, not merely encrypted |
 | API keys and access tokens | **Yes, one-way** | SHA-256 hashed; the plaintext is shown once at creation and never stored |
 | Stored third-party credentials (Zoom, Stripe, EventsAir, AI keys) | **Yes** | AES-256-GCM application-level encryption, key derived from the application secret |
@@ -176,7 +179,7 @@ Zoom, which encrypts its own traffic.
 
 **Remediating §0.2 — there are now two routes, and they are independent:**
 
-1. ✅ **DONE 2026-08-21. Encrypt the EBS volume.** AWS cannot encrypt a volume in place: it requires a snapshot, a new volume and a swap, so the instance must be stopped. **It took 7 minutes 45 seconds, not the 30 to 60 estimated here** — because enabling default EBS encryption first (step 0 below) removes the separate encrypted-copy pass, and a warm-up snapshot taken while the server was still running moved the bulk of the copying out of the downtime window entirely. The public IP survives (an Elastic IP is attached) and the original volume is retained, so rollback is reattaching it. **Independently, enabling default EBS encryption on the account is free, instant and zero-downtime** — it does not touch the running volume, but every future volume and snapshot is encrypted, and it is the account setting an assessor checks.
+1. ✅ **DONE 2026-08-21. Encrypt the EBS volume.** AWS cannot encrypt a volume in place: it requires a snapshot, a new volume and a swap, so the instance must be stopped. **It took 7 minutes 45 seconds, not the 30 to 60 estimated here** — because enabling default EBS encryption first (step 0 below) removes the separate encrypted-copy pass, and a warm-up snapshot taken while the server was still running moved the bulk of the copying out of the downtime window entirely. The public IP survives (an Elastic IP is attached) and the original volume was retained through a one-week bake period as the rollback, then deleted on 2026-09-04 together with its snapshots once an encrypted snapshot of the new volume existed. **Independently, enabling default EBS encryption on the account is free, instant and zero-downtime** — it does not touch the running volume, but every future volume and snapshot is encrypted, and it is the account setting an assessor checks.
 2. **Move uploaded files off the volume into S3** with a customer-managed KMS key. As of 2026-08-19 the application code for this is written, tested and deployed, sitting behind a single configuration value; what remains is creating the bucket. This also adds object versioning (a deleted document becomes recoverable, which it is not today) and removes the single-volume dependency for the one class of data that cannot be regenerated.
 
 Route 2 addresses the specific concern — passport scans and bank documents — and is lower risk because it needs no downtime. Route 1 addresses the whole disk. **Doing both is the complete answer**, and neither blocks the other.
@@ -203,13 +206,12 @@ Route 2 addresses the specific concern — passport scans and bank documents —
 
 **Field-level visibility** is separately controlled. Nine distinct rules govern who can see financial amounts, entry barcodes, contact records, sign-in activity and supporting documents. They deliberately disagree with each other: a read-only Member can see payment amounts but not entry barcodes (a barcode is a physical door credential); temporary onsite staff can see barcodes but not the contact database.
 
-**Additional controls:** temporary onsite accounts are assigned to specific events and see nothing else; passport and bank documents are excluded from every role except Admin and Organizer and are never served from a public URL; API keys are organisation-scoped, hashed, expirable and revocable; external integrations use OAuth 2.1 with mandatory PKCE, and an administrator must approve each connection on a consent screen that displays the destination.
+**Additional controls:** temporary onsite accounts are assigned to specific events and see nothing else; passport and bank documents are excluded from every role except Admin and Organizer and are never served from a public URL; sessions are revocable: deactivating or deleting an account, or resetting its password, invalidates every existing session (within five minutes on the web, and at the next token refresh on the mobile app, at most 24 hours); API keys are organisation-scoped, hashed, expirable and revocable; external integrations use OAuth 2.1 with mandatory PKCE, and an administrator must approve each connection on a consent screen that displays the destination.
 
 **Strengthened 2026-08-19.** The rule that keeps sensitive documents off the public web was previously a list of the categories to refuse. That fails in the unsafe direction: a category added later is served publicly until someone remembers to update that list. It is now the inverse — an explicit list of the categories that *may* be served, with everything else refused — so a new document type is private by default and the failure mode is a broken image rather than an exposed passport. In the same change, every file read and write in the application was routed through a single component that enforces the path checks centrally, replacing a dozen separate copies of the same logic.
 
 **Gaps to declare:**
 - **No multi-factor authentication.**
-- **No session revocation.** Sessions are stateless tokens valid for 48 hours; a compromised account cannot be forcibly signed out before expiry, and a password change does not invalidate an existing session.
 - **No IP allow-listing** for administrative access.
 
 ---
@@ -230,6 +232,7 @@ Route 2 addresses the specific concern — passport scans and bank documents —
 **Deletion on request.** Registrations, speakers, contacts and their uploaded files can be deleted by an administrator through the interface. Deletion removes the record and its attached documents, and shared files are only removed once no other record references them.
 
 **Gaps to declare:**
+- **No retention rule for HR records** (staff attendance and leave, including sick leave). The module is new (August 2026); a retention period has not yet been decided, so nothing is deleted automatically.
 - **The audit trail is never deleted.** Administrative-action records — including the acting user and their IP address — are retained indefinitely by design, so that the audit history cannot be edited. This means a deletion request does not remove every trace of a person. This is a common and defensible position, but it must be disclosed rather than discovered.
 - **Uploaded files have no maximum age.** Photographs, passport scans and certificates persist until deleted manually.
 - **No documented data-subject-request procedure** with a response-time commitment. The capability exists; the written process does not.
@@ -305,7 +308,7 @@ The date is an *input*, so rotation cannot fail to happen: there is no scheduled
 ## 8. Vulnerability management and incident response
 
 **Preventive:**
-- Every change passes automated type checking, linting, a 5,500-test suite and a production build before it can deploy. Additional automated gates block known dangerous patterns, including unsafe database migrations and missing authorisation checks.
+- Every change passes automated type checking, linting, a 6,700-test suite and a production build before it can deploy. Additional automated gates block known dangerous patterns, including unsafe database migrations, missing authorisation checks, and (since 2026-09-04) any credential-shaped string in a committed file.
 - Rate limiting at the web-server layer per IP address, plus per-endpoint limits in the application on every sensitive operation (sign-in, registration, payment, exports, bulk email).
 - Automated banning of IP addresses that repeatedly trigger rate limits.
 - Brute-force protection on sign-in: per-account and per-IP throttling that counts only failures and resets on success.
@@ -321,7 +324,7 @@ The date is an *input*, so rotation cannot fail to happen: there is no scheduled
 
 **Response and recovery:**
 - Documented incident procedures, including a specific DDoS response plan and a ransomware response plan.
-- A written incident log with post-mortems for previous production incidents, used to drive preventive changes.
+- A written incident log with post-mortems for previous production incidents, used to drive preventive changes. Most recent: on 2026-09-04 an organisation API key was found in a tracked configuration file of the public source repository, exposed since April; the file was removed the same day, the key rotated, and the credential gate above was added. Retained logs show the key used only by the organisation's own automation; use before the log-retention window cannot be excluded.
 - Database backups hourly to a separate geographic region; uploaded files copied hourly; recovery procedures documented and drilled quarterly.
 - Rollback to any previous release in approximately 20 seconds, drilled and timed.
 - A standby environment in Singapore for regional failure.

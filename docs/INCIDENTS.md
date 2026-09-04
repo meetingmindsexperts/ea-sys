@@ -268,6 +268,33 @@ That output is the authoritative reconcile. (It also surfaced **unrelated** pre-
 
 ---
 
+## INC-005 — A live organisation API key was public on GitHub for five months (2026-04-07 → 2026-09-04)
+
+| | |
+|---|---|
+| **Date** | Committed 2026-04-07 (`22971953`); discovered 2026-09-04 ~10:20 UTC; file untracked and scrubbed 2026-09-04 (`615ad079`, deployed) |
+| **Duration** | ~150 days of exposure |
+| **Severity** | SEV-2 — an admin-equivalent organisation credential exposed in a public repository. No confirmed misuse; misuse before the log-retention window cannot be excluded. No downtime |
+| **Trigger** | An operator approved a `curl` command in Claude Code that carried `-H 'x-api-key: mmg_…'`. Claude Code writes every approved command string, verbatim, into `.claude/settings.local.json` as a permission allow-rule. That file was tracked in the `ea-sys` repository, which is PUBLIC |
+| **Root cause** | Four things had to line up, and all four did. (1) The tool persists secrets as a side effect of approving a command. (2) `.gitignore` already listed `.claude/settings.local.json`, but the file had been added before the rule existed and **an ignore rule never untracks a file that is already in**. (3) GitHub secret scanning has no pattern for our `mmg_` keys, so nothing alerted. (4) No CI gate looked at tracked files for credential shapes; every gate we had checked what a commit BREAKS, not what it CONTAINS |
+| **What the key could do** | The "MCP" org key: active, NORMAL tier, no expiry. Full read and write over every event, registration (incl. payment status and entry barcodes), speaker, contact, invoice and bulk-email action of the organisation, via REST and MCP |
+| **Evidence of use** | 14 days of CloudWatch: all 331 MCP requests authenticated with OAuth tokens (claude.ai), none with this key. REST calls are not attributed to a key in our logs (only `ApiKey.lastUsedAt` moves), so nginx was read via SSM: the key's last uses were `GET /api/events/<HEMNET 2026>/speakers` at 04:33:48 and 08:33:48 UTC from an Azure address, a 4-hour schedule matching the n8n Webflow speakers sync. Nothing points at a third party; nothing can prove there was none before the retention window |
+| **Fix (immediate)** | `615ad079`: the six allow-rules carrying the key removed from both local checkouts, the file `git rm --cached`, an explanation added beside the existing ignore rule. History deliberately not rewritten: rotation makes the old value dead, a rewrite would not, and a rewrite of a public repo's history is its own hazard |
+| **Fix (durable)** | [scripts/check-no-secrets.sh](../scripts/check-no-secrets.sh), gating in CI: every tracked text file is scanned for the shapes of the credentials this system handles (`mmg_`, Anthropic, Stripe, AWS, GitHub, Slack, Brevo, SendGrid, JWTs, private-key blocks, Postgres URLs to real hosts); placeholders are recognised; the report is masked because Actions logs on a public repo are public; the allow-list needs a reason per entry. Mutation-verified: a staged file with a real-shaped key fails the gate |
+| **Still open** | **Rotate the key** (owner, Settings → API Keys; the new key goes into the n8n workflow first or the 4-hourly sync stops). Decide whether `ea-sys` should be public at all (it carries instance ids, bucket names and DR runbooks). Four API keys have no expiry and two have never been used. Port 22 is open to the world |
+| **Status** | Exposure closed; rotation pending at time of writing |
+
+### How it was diagnosed
+Not by looking for it. While building a private backup of Claude configuration, the backup script's own guard ("refuse to commit anything credential-shaped") fired on the settings file, which is how the key was noticed at all. From there: `git log -S` dated the commit, `gh repo view` showed the repository was public, GitHub code search confirmed the key appeared nowhere else in the organisation, a read-only prod query by SHA-256 hash showed the key active with `lastUsedAt` today, CloudWatch showed what the MCP traffic used, and the nginx access log (read-only SSM) identified the 4-hourly caller.
+
+### The rule and the prevention
+- **A tool that stores approved commands stores their secrets.** Never paste a credential into a command you approve in an assistant; use an env var or a file read. `settings.local.json` is per-machine by design and must never be tracked.
+- **An ignore rule is not an untrack.** `.gitignore` protects files that are not yet in; anything already tracked keeps updating until `git rm --cached`. Check `git ls-files` for the path, not `.gitignore` for the rule.
+- **Gate what a commit CONTAINS, not only what it breaks.** Every previous gate answered "is the code correct"; none answered "should this be in the repository at all". `check-no-secrets.sh` is the first of the second kind.
+- **A guard that refuses loudly is how this class gets found.** The backup script could have silently committed the raw file, and this incident would still be open.
+
+---
+
 ## INC-004 — 27 speaker/attendee photos destroyed on prod by delete-time file cleanup (2026-07-24, discovered 2026-07-29)
 
 | | |
