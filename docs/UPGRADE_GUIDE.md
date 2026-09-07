@@ -4,7 +4,7 @@ How to upgrade npm packages and framework versions (Next.js, React, Prisma, etc.
 without breaking prod. Follow the workflow that matches the **risk tier** of the
 upgrade.
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-09-07 (baseline rows only; the record of upgrades performed is [DEPENDENCY_LOG.md](DEPENDENCY_LOG.md))
 
 ---
 
@@ -12,15 +12,15 @@ upgrade.
 
 | Package | Current | Latest | Notes |
 |---|---|---|---|
-| `next` | 16.1.4 | 16.2.x | App Router + Turbopack |
+| `next` | 16.2.11 | 16.3.4 | App Router + Turbopack; pinned exact, bump with `eslint-config-next` |
 | `react` / `react-dom` | 19.2.3 | 19.2.x | React 19 — many libs still declare `react@^18` peers |
 | `@prisma/client` / `prisma` | 6.19.3 | **7.8.0** | major available — see §6 |
-| `next-auth` | 5.0.0-beta.30 | beta | still beta; pin exact, read release notes per bump |
-| `@tiptap/*` | 2.27.2 (pinned) | 3.23.6 | **DO NOT bump to v3** — see §5 |
+| `next-auth` | 5.0.0-beta.32 | beta | still beta; read release notes per bump (beta.32 = the Sept 2026 Auth.js security set) |
+| `@tiptap/*` | 2.27.3 | 3.31.x | v3 is a migration, not a bump — see §5 (the "no dist" reason is no longer true as of 3.31) |
 | `eslint` | 9.39.4 | 10.x | major available |
 | `lucide-react` | 0.562.0 | 1.16.0 | major (icon renames possible) |
-| `@getbrevo/brevo`, `@sendgrid/mail`, `postmark` | pinned | — | **email cut over to SES** — these can be removed (see §5) |
-| `@types/node` | 20.x | 25.x | engine is Node 24 — bump to `@types/node@24` to match |
+| `@getbrevo/brevo`, `@sendgrid/mail` | pinned | — | **email cut over to SES**; `postmark` removed 2026-09-07, the other two can follow (see §5) |
+| `@types/node` | 24.x | 26.x | matches the Node 24 engine (done 2026-09-07); track the runtime major, not latest |
 | Node | 24.x (`engines`) | — | EC2 + Docker build target |
 
 Run `npm outdated` for the live gap and `npm audit` for security-driven bumps
@@ -99,8 +99,10 @@ its own ticket — don't pile a second major on top.
 
 ## 5. Project-specific landmines (these WILL bite)
 
-- **Tiptap is pinned to v2 on purpose.** v3 (3.x) ships source-only with no
-  compiled `dist/` — `next build` fails with `Cannot find module '@tiptap/react'`.
+- **Tiptap is on v2 on purpose.** When this was written v3 shipped source-only with no
+  compiled `dist/` and `next build` failed with `Cannot find module '@tiptap/react'`.
+  As of 3.31 it ships `dist/`, so the blocker is gone; what remains is a real
+  migration (API changes across every extension) — plan it, do not `npm update` into it.
   Documented as **B1** in `docs/ERRORS_AND_FIXES.md`. All `@tiptap/*` are pinned
   without `^`. Do not bump to v3 until it ships pre-compiled artifacts. `npm
   update` won't touch them (no `^`), but a manual `@latest` will — don't.

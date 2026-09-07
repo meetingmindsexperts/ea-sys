@@ -1,5 +1,8 @@
 // Brevo + SendGrid + Postmark disabled — kept commented for one release cycle in
 // case we need to revert. AWS SES is the only active provider.
+// 2026-09-07: the `postmark` package itself was removed from package.json (dead
+// weight in the audit); its block below is reference only and would need
+// `npm install postmark` to revive. Brevo/SendGrid packages are still installed.
 // import {
 //   TransactionalEmailsApi,
 //   TransactionalEmailsApiApiKeys,
