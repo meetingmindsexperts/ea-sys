@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,8 @@ import {
   Check,
   LayoutGrid,
   List,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatFileSize } from "@/lib/utils";
@@ -29,20 +31,34 @@ interface MediaFile {
   uploadedBy: { firstName: string; lastName: string };
 }
 
+// Page-size choices offered in the dropdown. The API caps `limit` at 100, so
+// the largest option is the largest page the server will serve; anything
+// bigger would be silently clamped and the count line would lie.
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 20;
+
 export default function MediaPage() {
   const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [view, setView] = useMediaView();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["media"],
+  // Server-side pagination: the API orders by createdAt desc (newest first) and
+  // returns the page plus the true total. Keyed on page + size so each page is
+  // its own cache entry; `["media"]` invalidations still cover every page.
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["media", page, pageSize],
     queryFn: async () => {
-      const res = await fetch("/api/media?limit=100");
+      const res = await fetch(`/api/media?page=${page}&limit=${pageSize}`);
       if (!res.ok) throw new Error("Failed to fetch media");
-      return res.json() as Promise<{ mediaFiles: MediaFile[]; total: number }>;
+      return res.json() as Promise<{ mediaFiles: MediaFile[]; total: number; page: number; limit: number }>;
     },
+    // Keep the previous page on screen while the next one loads, so paging
+    // does not flash the empty state between requests.
+    placeholderData: keepPreviousData,
   });
 
   const uploadMutation = useMutation({
@@ -58,6 +74,8 @@ export default function MediaPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media"] });
+      // Newest first: the upload lands at the top of page 1, so show page 1.
+      setPage(1);
       toast.success("Image uploaded");
     },
     onError: (err: Error) => {
@@ -119,6 +137,19 @@ export default function MediaPage() {
   };
 
   const mediaFiles = data?.mediaFiles ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Deleting the last item on the last page leaves `page` past the end; the
+  // API then answers an empty page for a non-empty library. Adjust during
+  // render (the pattern useMediaView uses) rather than in an effect, so the
+  // corrected page is fetched on the very next render with no empty flash.
+  if (data && page > totalPages) {
+    setPage(totalPages);
+  }
+
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, total);
 
   return (
     <div className="space-y-6">
@@ -180,7 +211,7 @@ export default function MediaPage() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : mediaFiles.length === 0 ? (
+      ) : total === 0 ? (
         <div className="text-center py-12">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
             <ImageIcon className="h-7 w-7 text-slate-400" />
@@ -191,7 +222,10 @@ export default function MediaPage() {
       ) : (
         <>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500">{data?.total ?? 0} image{data?.total !== 1 ? "s" : ""}</p>
+            <p className="text-xs text-slate-500">
+              {rangeStart}–{rangeEnd} of {total.toLocaleString()} image{total !== 1 ? "s" : ""}, newest first
+              {isFetching && <span className="ml-2 text-primary">Refreshing…</span>}
+            </p>
             <div className="flex items-center gap-0.5 rounded-md border border-slate-200 p-0.5">
               <Button
                 variant={view === "grid" ? "secondary" : "ghost"}
@@ -331,6 +365,54 @@ export default function MediaPage() {
               </table>
             </div>
           )}
+
+          {/* Pagination: page-size dropdown + prev/next (same shape as the contacts list) */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">Show</span>
+              <select
+                title="Images per page"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="h-7 text-xs border border-slate-200 rounded-md px-1.5 bg-white text-slate-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-400">per page</span>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-slate-200"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-3 text-xs text-slate-600 font-medium tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-slate-200"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
