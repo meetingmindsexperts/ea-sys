@@ -20,6 +20,15 @@
  *   - A window whose max delay reaches STALL_WARN_MS logs `event-loop:stall`
  *     at WARN (visible in /logs + CloudWatch; warn does NOT page). Healthy
  *     windows log nothing — zero steady-state log volume.
+ *   - The stall line carries `cpuMs` (process CPU consumed during the window)
+ *     and `kind`: "busy" when Node itself computed through the gap (a badge
+ *     render, a PDF, a compile), "suspended" when it did not. Suspended means
+ *     the OS was not running the process (laptop sleep, SIGSTOP, a paused
+ *     debugger, a frozen or CPU-starved host) or it sat in a synchronous
+ *     syscall. The histogram alone cannot tell these apart: both leave ONE
+ *     sample the size of the gap with p99 at the floor. Sep 7, 2026: a
+ *     MacBook asleep for 17 minutes logged maxMs 1045824, byte for byte what
+ *     a pinned loop would have logged.
  *
  * Reading the numbers: the sampler itself runs on a 10ms timer, so an IDLE
  * process reports mean/p50 around ~10ms — that's the measurement floor
@@ -37,6 +46,28 @@ const WINDOW_MS = 60_000;
 /** A single ≥1s block of the loop inside a window is a genuine stall. */
 const STALL_WARN_MS = 1_000;
 const RESOLUTION_MS = 10;
+/**
+ * Below this share of the worst gap covered by process CPU, a stall is
+ * classed "suspended": Node was waiting, not working. Half rather than ~1
+ * because the CPU figure is process-wide and coarse (GC and libuv threads
+ * count, a pinned main thread can undershoot wall time), and because the
+ * two real cases sit far apart: a pinned loop burns roughly the whole gap,
+ * a sleeping process burns roughly none of it.
+ */
+const BUSY_CPU_FRACTION = 0.5;
+
+export type StallKind = "busy" | "suspended";
+
+/** Pure so the rule is testable without a histogram or a timer. */
+export function classifyStall(input: { maxMs: number; cpuMs: number }): StallKind {
+  return input.cpuMs >= input.maxMs * BUSY_CPU_FRACTION ? "busy" : "suspended";
+}
+
+/** Process CPU (user + system) spent since `start`, in ms to one decimal. */
+function cpuMsSince(start: NodeJS.CpuUsage): number {
+  const delta = process.cpuUsage(start);
+  return Math.round((delta.user + delta.system) / 100) / 10;
+}
 
 export interface EventLoopStats {
   /** Mean / p50 / p99 / max loop delay over the current window, in ms. */
@@ -57,6 +88,9 @@ export interface EventLoopStats {
 interface MonitorState {
   histogram: IntervalHistogram;
   windowStartedAt: number;
+  /** process.cpuUsage() at the window start; the stall line reports the
+   *  delta against it, never CPU since boot. */
+  cpuAtWindowStart: NodeJS.CpuUsage;
   worstP99Ms: number;
   worstMaxMs: number;
 }
@@ -70,6 +104,7 @@ function createState(): MonitorState {
   const state: MonitorState = {
     histogram,
     windowStartedAt: Date.now(),
+    cpuAtWindowStart: process.cpuUsage(),
     worstP99Ms: 0,
     worstMaxMs: 0,
   };
@@ -83,9 +118,12 @@ function createState(): MonitorState {
     state.worstP99Ms = Math.max(state.worstP99Ms, p99Ms);
     state.worstMaxMs = Math.max(state.worstMaxMs, maxMs);
     if (maxMs >= STALL_WARN_MS) {
+      const cpuMs = cpuMsSince(state.cpuAtWindowStart);
       apiLogger.warn({
         msg: "event-loop:stall",
+        kind: classifyStall({ maxMs, cpuMs }),
         maxMs,
+        cpuMs,
         p99Ms,
         meanMs: toMs(histogram.mean),
         windowSeconds: Math.round((Date.now() - state.windowStartedAt) / 1000),
@@ -93,6 +131,7 @@ function createState(): MonitorState {
     }
     histogram.reset();
     state.windowStartedAt = Date.now();
+    state.cpuAtWindowStart = process.cpuUsage();
   }, WINDOW_MS);
   timer.unref();
 
