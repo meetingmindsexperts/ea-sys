@@ -54,7 +54,7 @@ appears to work.
 
 ### Outstanding
 
-- [ ] **First bucket-sourced mirror run** at 07:00 UTC: log shows copies, heartbeat timestamp moves. (Recorded below when observed.)
+- [x] **First bucket-sourced mirror run** observed at 07:00 UTC: the one-off full copy (67.9 MB, S3-to-S3 sync compares timestamps and the bucket copies are newer than the disk-sourced ones), heartbeat 06:00:07 → 07:00:40, Singapore mirror 541 → 542 objects. The 542nd is `photos/2026/09/53e12872…jpg`, uploaded through the app AFTER the flip: it exists in the bucket and not on the disk, and it reached Singapore. Under the old disk-sourced line it would have had one copy.
 - [ ] **Bucket Key** on `ea-sys-uploads`: enable (Properties → Default encryption). Cost only.
 - [ ] **A second encrypted snapshot of the root volume** next week, now that the disk holds nothing irreplaceable; then one every few weeks is plenty.
 - [ ] **Platform silo:** born on its own bucket and key, with `{orgId}`-prefixed keys injected from the tenant context. Not on master.
