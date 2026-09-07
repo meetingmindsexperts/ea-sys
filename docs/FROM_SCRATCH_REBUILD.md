@@ -74,6 +74,24 @@ Everything on the box silently depends on this role: ECR pulls in `deploy.sh`, a
 }
 ```
 
+**Inline policy `UploadsS3Storage`** (added 2026-09-07; without it every photo is AccessDenied, because uploads live in S3 since MAINT-002):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "UploadsObjects", "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::ea-sys-uploads/*" },
+    { "Sid": "UploadsList", "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::ea-sys-uploads" },
+    { "Sid": "UploadsKms", "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+      "Resource": "arn:aws:kms:ap-south-1:803726282629:key/3371fc94-b72a-486e-8b57-bcff57474783" }
+  ]
+}
+```
+
 **Inline policy `ecr-pull`:**
 ```json
 {
@@ -133,7 +151,7 @@ Follow `infra/dr/user-data.sh` §3–§5b, which does exactly this:
 1. **`.env`** — pull the newest snapshot: `aws s3 cp s3://ea-sys-dr-singapore/env/<latest>.env /home/ubuntu/ea-sys/.env --region ap-southeast-1` (list with `aws s3 ls s3://ea-sys-dr-singapore/env/`). `chmod 600`, owner `ubuntu`.
 2. **Repo** — clone `meetingmindsexperts/ea-sys` (branch `main`) using the `GITHUB_DR_TOKEN` that lives inside that `.env` (fine-grained PAT, Contents:read).
 3. **Dirs** — `mkdir -p public/uploads logs` (both are compose volume mounts).
-4. **Uploads** — `aws s3 sync s3://ea-sys-dr-singapore/uploads/ public/uploads/ --region ap-southeast-1` (Mumbai mirrors hourly; worst case you're ≤60 min stale).
+4. **Uploads** — **nothing to restore since 2026-09-07 (MAINT-002).** The files live in `s3://ea-sys-uploads` and the restored `.env` carries `STORAGE_PROVIDER=s3` + `S3_UPLOADS_BUCKET` + `S3_UPLOADS_REGION`; the box serves them on first boot through the role's `UploadsS3Storage` policy (1.1). The `public/uploads` mount can stay empty. Only if you must run on `STORAGE_PROVIDER=local` (Mumbai S3 unreachable): `sudo aws s3 sync s3://ea-sys-dr-singapore/uploads/ public/uploads/ --region ap-southeast-1` (mirror is hourly from the bucket; ≤60 min stale). Region moves: [REGION_MOVE.md](REGION_MOVE.md).
 5. If restoring after a DB loss too: `infra/dr/README.md` §Surgical recovery / the cold-standby runbooks (`COLD_STANDBY_RDS.md` / `COLD_STANDBY_SUPABASE.md`).
 
 `.env` sanity check before first boot: `DATABASE_URL`/`DIRECT_URL` include the pool params (`connection_limit=10&pool_timeout=15`), `NEXTAUTH_URL`/`NEXT_PUBLIC_APP_URL` point at the prod domain, `CRON_SECRET` present.
@@ -173,11 +191,13 @@ CRON_SECRET=<value from .env>
 # Nightly .env backup to Singapore DR bucket (21:00 UTC = 02:30 IST)
 0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
 
-# Hourly uploads mirror to Singapore DR bucket. The trailing heartbeat write
-# is LOAD-BEARING — the infra DR card reads heartbeats/uploads-mirror to know
-# the sync ran (sync alone only writes when a file changed; without the
-# heartbeat the card false-alarms on quiet days). Added 2026-07-17.
-0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+# Hourly uploads mirror to Singapore DR bucket, sourced from the PRIMARY BUCKET
+# since 2026-09-07 (MAINT-002): the app writes to S3 only, so a disk-sourced
+# mirror would re-sync a frozen folder forever while its heartbeat kept beating.
+# The trailing heartbeat write is LOAD-BEARING — the infra DR card reads
+# heartbeats/uploads-mirror to know the sync ran (sync alone only writes when a
+# file changed; without the heartbeat the card false-alarms on quiet days).
+0 * * * * aws s3 sync s3://ea-sys-uploads/ s3://ea-sys-dr-singapore/uploads/ --source-region ap-south-1 --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 
 # Postgres dump to Singapore DR bucket — ≤1h RPO (hourly)
 0 * * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1

@@ -595,10 +595,15 @@ aws ssm start-session --target $(terraform output -raw instance_id) --region ap-
 sudo tail -f /var/log/ea-sys-bootstrap.log                # expect [bootstrap] complete
 ```
 
-**Returning to Mumbai** (after region recovers): sync DR-box uploads back to S3
-**before** flipping DNS or destroying, then `terraform destroy -auto-approve`.
+**Uploads during a failover** (since 2026-09-07 they live in `s3://ea-sys-uploads`,
+not on the disk): the DR box reads and writes that bucket cross-region as long as
+ap-south-1's S3 is up, so nothing to copy either way. Only if all of ap-south-1 is
+gone does the box switch to `STORAGE_PROVIDER=local` on the Singapore mirror, and
+then uploads made during the outage must be pushed into `ea-sys-uploads` **before**
+flipping DNS back or destroying. Then `terraform destroy -auto-approve`.
 Full promotion + return runbook → `infra/dr/README.md` §"Promotion runbook" and
-§"Post-incident".
+§"Post-incident"; every region-scoped piece and the three move scenarios →
+[REGION_MOVE.md](REGION_MOVE.md).
 
 ---
 

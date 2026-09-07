@@ -51,7 +51,7 @@ data "aws_iam_policy_document" "ec2_assume" {
 
 data "aws_iam_policy_document" "dr_s3_read" {
   statement {
-    actions   = ["s3:GetObject", "s3:ListBucket"]
+    actions = ["s3:GetObject", "s3:ListBucket"]
     resources = [
       "arn:aws:s3:::${var.dr_bucket_name}",
       "arn:aws:s3:::${var.dr_bucket_name}/*",
@@ -61,6 +61,29 @@ data "aws_iam_policy_document" "dr_s3_read" {
   statement {
     actions   = ["kms:Decrypt"]
     resources = [var.dr_kms_key_arn]
+  }
+
+  # Uploads live in the primary bucket since 2026-09-07 (MAINT-002). The restored
+  # .env says STORAGE_PROVIDER=s3, so a promoted DR box reads and writes that
+  # bucket cross-region; without these two statements every photo is
+  # AccessDenied and every upload fails. Same shape as the Mumbai role's
+  # UploadsS3Storage inline policy.
+  statement {
+    sid       = "UploadsObjects"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${var.uploads_bucket_name}/*"]
+  }
+
+  statement {
+    sid       = "UploadsList"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.uploads_bucket_name}"]
+  }
+
+  statement {
+    sid       = "UploadsKms"
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [var.uploads_kms_key_arn]
   }
 }
 

@@ -39,6 +39,18 @@ variable "dr_kms_key_arn" {
   type        = string
 }
 
+variable "uploads_bucket_name" {
+  description = "Primary uploads bucket (ap-south-1). Since 2026-09-07 the app serves uploaded files from here (MAINT-002); the DR box reads and writes it cross-region during a failover, so its role needs access or every photo is AccessDenied."
+  type        = string
+  default     = "ea-sys-uploads"
+}
+
+variable "uploads_kms_key_arn" {
+  description = "Customer-managed KMS key encrypting the uploads bucket (alias/ea-sys-uploads, ap-south-1). Its key policy delegates to IAM through the account-root statement, so granting these actions here is sufficient; no key-policy edit."
+  type        = string
+  default     = "arn:aws:kms:ap-south-1:803726282629:key/3371fc94-b72a-486e-8b57-bcff57474783"
+}
+
 variable "http_allow_cidrs" {
   description = "CIDRs allowed to reach ports 80/443 on the DR box. Default is wide-open (matches Mumbai's direct-exposure posture — no CDN/proxy in front). Tighten to an allowlist if you ever add one."
   type        = list(string)

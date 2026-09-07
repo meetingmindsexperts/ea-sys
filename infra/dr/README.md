@@ -73,18 +73,22 @@ On the Mumbai box (`sudo -iu ubuntu`, then `crontab -e`):
 # Daily .env snapshot to Singapore DR bucket (21:00 UTC = 02:30 IST)
 0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
 
-# Hourly uploads mirror to Singapore DR bucket (covers user-uploaded media).
+# Hourly uploads mirror to Singapore DR bucket, sourced from the primary
+# bucket s3://ea-sys-uploads since 2026-09-07 (uploads moved off the disk,
+# MAINT-002; a disk-sourced mirror would silently freeze after that).
 # The trailing heartbeat write is LOAD-BEARING: `s3 sync` only writes objects
 # when a file changed, so the infra DR card reads heartbeats/uploads-mirror
 # to know the sync RAN (see §"Triage: Uploads mirror stale"). && = heartbeat
 # only on a successful sync.
-0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+0 * * * * aws s3 sync s3://ea-sys-uploads/ s3://ea-sys-dr-singapore/uploads/ --source-region ap-south-1 --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 ```
 
 Both require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
 `s3:PutObject` on `arn:aws:s3:::ea-sys-dr-singapore/*` and
 `kms:GenerateDataKey`/`kms:Encrypt` on the Singapore KMS key — attach the
-inline policy `DRBackupToSingapore` to the role.
+inline policy `DRBackupToSingapore` to the role. The bucket-sourced mirror
+additionally needs read on `ea-sys-uploads` + `kms:Decrypt` on its key, which
+the role's `UploadsS3Storage` policy already grants.
 
 RPO implications:
 - `.env`: up to 24 hours of `.env` changes lost in a regional disaster. Acceptable (`.env` rarely changes). Run the command manually after adding a new secret if you need tighter.
@@ -288,6 +292,14 @@ ubuntu` so the IAM instance-role credentials are picked up regardless
 of who you're logged in as.
 
 ### A. Lost the uploads directory (or part of it)
+
+**Since 2026-09-07 the app does not serve from the disk** (uploads live in
+`s3://ea-sys-uploads`, MAINT-002), so losing `public/uploads/` loses nothing
+users see. This section now matters in two cases only: you are running on
+`STORAGE_PROVIDER=local` (scenario B2 in [docs/REGION_MOVE.md](../docs/REGION_MOVE.md)),
+or the primary bucket itself lost objects — versioning on that bucket is the
+first place to look (section D applies to it too), the Singapore mirror is the
+second.
 
 The full mirror, newest-wins. Use `--dryrun` to preview before letting it
 overwrite anything currently on disk.
@@ -504,6 +516,18 @@ For honesty:
    terraform apply -auto-approve
    # Takes ~7 min.
    ```
+   **Uploads since 2026-09-07 live in `s3://ea-sys-uploads` (Mumbai), and the
+   restored `.env` says `STORAGE_PROVIDER=s3`.** The DR role's `uploads`
+   statements in `main.tf` let the box read and write that bucket cross-region;
+   that is the normal mode and needs no file copy. Only if ap-south-1 as a
+   whole is unreachable, switch the box to the mirror on disk:
+   ```bash
+   sudo aws s3 sync s3://ea-sys-dr-singapore/uploads/ /home/ubuntu/ea-sys/public/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep"
+   sudo sed -i 's/^STORAGE_PROVIDER=s3/STORAGE_PROVIDER=local/' /home/ubuntu/ea-sys/.env
+   bash scripts/deploy.sh
+   ```
+   Full reasoning and the other regional pieces (SES, ECR, alarms):
+   [docs/REGION_MOVE.md](../docs/REGION_MOVE.md) scenario B.
 
 3. **Copy the new public IP.**
    ```bash
@@ -536,18 +560,16 @@ For honesty:
 
 1. Mumbai region is healthy again and your Mumbai box either recovered or
    was rebuilt from the Mumbai EBS snapshot.
-2. **Before flipping DNS back**, sync any uploads that happened on the
-   Singapore DR box back to the S3 bucket so Mumbai can restore them:
+2. **Uploads made during the outage.** If the DR box ran on
+   `STORAGE_PROVIDER=s3` (the normal mode), they are already in
+   `s3://ea-sys-uploads` and there is nothing to do. If it ran on `local`
+   (ap-south-1 was unreachable), push them into the primary bucket **before**
+   flipping DNS or destroying the box:
    ```bash
    # On the DR box (via SSM):
-   aws s3 sync /home/ubuntu/ea-sys/public/uploads/ \
-     s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1
+   aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-uploads/ --region ap-south-1 --exclude "*/.gitkeep"
    ```
-   Then on Mumbai, pull them down:
-   ```bash
-   aws s3 sync s3://ea-sys-dr-singapore/uploads/ \
-     /home/ubuntu/ea-sys/public/uploads/ --region ap-southeast-1
-   ```
+   Mumbai serves from that bucket, so no pull-down is needed there.
 3. **Registrar DNS** → `events` A record → point back at the Mumbai EIP.
 4. Verify: `curl -I https://events.meetingmindsgroup.com/api/health` returns
    200 with `database: connected`.
