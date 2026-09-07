@@ -11,13 +11,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer, ScrollText, MailWarning,
-  Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio, Activity,
+  Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio, Activity, HardDrive,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrafficCard } from "@/components/infra/traffic-card";
+import type { UploadsStorage, DrArtifact } from "@/lib/infra/aws-ops";
+import { UploadsStorageBody } from "@/components/infra/uploads-storage-body";
+import { ago, fmtTime, num } from "@/components/infra/format";
 
 interface Snapshot {
   scope: "platform" | "org";
@@ -30,7 +33,8 @@ interface Snapshot {
   heartbeat: { status: string; error?: string; info: null | { registrations24h: number; registrations7d: number; payments24h: number; checkIns24h: number; abstracts24h: number; emailsSent24h: number; liveEvents: number; nextEventName: string | null; nextEventStartsAt: string | null } };
   errorTrend: { status: string; error?: string; buckets: { hour: string; errors: number; warns: number }[] };
   abuse: { status: string; error?: string; rows: { label: string; value: number; hint: string }[] };
-  dr: { status: string; error?: string; rows: { label: string; prefix: string; latestAt: string | null; ageHours: number | null; staleAfterHours: number; stale: boolean }[] };
+  dr: { status: string; error?: string; rows: DrArtifact[] };
+  uploads: { status: string; error?: string; info: UploadsStorage | null };
   backup: { status: string; error?: string; info: null | { latestKey: string | null; latestAt: string | null; ageHours: number | null; stale: boolean; bucket: string } };
   alerts: { status: string; error?: string; info: null | { silencedUntil: string | null } };
   deploys: { status: string; error?: string; runs: { title: string; status: string; conclusion: string | null; event: string; createdAt: string; url: string }[] };
@@ -42,20 +46,6 @@ interface Snapshot {
   emailFailures: { status: string; error?: string; rows: { to: string; subject: string; error: string | null; templateSlug: string | null; at: string }[] };
 }
 
-function ago(iso: string | null): string {
-  if (!iso) return "never";
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return `${Math.floor(s / 3600)}h ago`;
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-function num(v: number | null, digits = 0) {
-  return v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: digits });
-}
 
 
 // ── The verdict ───────────────────────────────────────────────────────────────
@@ -685,6 +675,24 @@ export default function InfraPage() {
           </Card>
           )}
 
+          {/* Uploads storage — the S3 bucket behind /uploads (Sep 7, 2026). Two
+              counts on purpose: our own listing is exact and immediate, S3's
+              storage metrics are free but a day behind. */}
+          {isOperator && (
+          <Card id="uploads" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><HardDrive className="h-4 w-4 text-primary" /> Uploads storage</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.uploads.status} error={snap.uploads.error} unconfiguredHint="Uploads are on the local disk (STORAGE_PROVIDER is not s3), so there is no bucket to read." />
+              {snap.uploads.status === "ok" && snap.uploads.info && (
+                <UploadsStorageBody
+                  u={snap.uploads.info}
+                  mirror={snap.dr.status === "ok" ? snap.dr.rows.find((r) => r.prefix === "uploads/") ?? null : null}
+                />
+              )}
+            </CardContent>
+          </Card>
+          )}
+
           {/* Abuse / auth — the only place a brute-force attempt or a client stuck
               in a retry loop would ever surface on this page. */}
           <Card id="abuse" className="scroll-mt-4">
@@ -929,3 +937,4 @@ export default function InfraPage() {
     </div>
   );
 }
+

@@ -23,7 +23,18 @@ import {
   type MetricDataQuery,
 } from "@aws-sdk/client-cloudwatch";
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
-import { S3Client, ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  ListObjectVersionsCommand,
+  HeadObjectCommand,
+  GetBucketVersioningCommand,
+  GetBucketEncryptionCommand,
+  GetPublicAccessBlockCommand,
+  GetBucketLifecycleConfigurationCommand,
+  GetBucketLoggingCommand,
+  ListBucketMetricsConfigurationsCommand,
+} from "@aws-sdk/client-s3";
 import { apiLogger } from "@/lib/logger";
 // Tenancy (item 5, Aug 11 2026): the snapshot is SCOPE-AWARE. Reads that touch
 // RLS-policied tables (Registration, Payment, EmailLog, ScheduledEmail,
@@ -58,6 +69,19 @@ function getS3(): S3Client {
   if (!s3Client) s3Client = new S3Client({ region: DR_REGION });
   return s3Client;
 }
+// The uploads bucket (Mumbai) is in a different region from the DR bucket
+// (Singapore), and an S3 client is bound to one region, so it gets its own.
+let uploadsS3Client: S3Client | null = null;
+function getUploadsS3(region: string): S3Client {
+  if (!uploadsS3Client) uploadsS3Client = new S3Client({ region });
+  return uploadsS3Client;
+}
+/** Test seam: drop the cached clients so a re-mocked SDK is picked up. */
+export function resetInfraClients(): void {
+  s3Client = null;
+  uploadsS3Client = null;
+  cwClient = null;
+}
 
 // Disaster-recovery bucket (Singapore). scripts/dr-pg-dump.sh writes
 // db/{YYYY}/{MM}/{DD-HH}-mumbai.dump here on a cron — and until now NOTHING
@@ -80,26 +104,42 @@ const BACKUP_STALE_HOURS = 18;
  * MaxKeys:200 single call reported a 21h-old dump as "newest".
  */
 const LIST_MAX_PAGES = 10; // 10k objects — far above any expected prefix size
-async function listAllObjects(prefix: string): Promise<{ Key?: string; LastModified?: Date }[]> {
-  const all: { Key?: string; LastModified?: Date }[] = [];
+type ListedObject = { Key?: string; Size?: number; LastModified?: Date };
+/**
+ * Bounded listing of any bucket + prefix. `truncated` is reported rather than
+ * hidden so a caller can say "inventory incomplete" instead of showing a count
+ * that is silently 10,000 short. `startAfter` lets a caller skip a known-old
+ * range (used for date-named access logs) without walking the whole history.
+ */
+async function listObjectsBounded(
+  client: S3Client,
+  bucket: string,
+  prefix: string,
+  startAfter?: string,
+): Promise<{ objects: ListedObject[]; truncated: boolean }> {
+  const objects: ListedObject[] = [];
   let token: string | undefined;
   for (let page = 0; page < LIST_MAX_PAGES; page++) {
-    const out = await getS3().send(
+    const out = await client.send(
       new ListObjectsV2Command({
-        Bucket: DR_BUCKET,
+        Bucket: bucket,
         Prefix: prefix,
         MaxKeys: 1000,
         ContinuationToken: token,
+        StartAfter: token ? undefined : startAfter,
       }),
     );
-    all.push(...(out.Contents ?? []));
-    if (!out.IsTruncated || !out.NextContinuationToken) return all;
+    objects.push(...(out.Contents ?? []));
+    if (!out.IsTruncated || !out.NextContinuationToken) return { objects, truncated: false };
     token = out.NextContinuationToken;
   }
   // No silent caps: a prefix past LIST_MAX_PAGES pages logs loudly instead of
   // quietly reporting a wrong "newest" again.
-  apiLogger.warn({ prefix, pages: LIST_MAX_PAGES }, "infra:s3-list-truncated");
-  return all;
+  apiLogger.warn({ bucket, prefix, pages: LIST_MAX_PAGES }, "infra:s3-list-truncated");
+  return { objects, truncated: true };
+}
+async function listAllObjects(prefix: string): Promise<ListedObject[]> {
+  return (await listObjectsBounded(getS3(), DR_BUCKET, prefix)).objects;
 }
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -238,6 +278,67 @@ export interface DrArtifact {
   ageHours: number | null;
   staleAfterHours: number;
   stale: boolean;
+  /** Objects under the prefix (bounded listing). The uploads row is compared against the source bucket. */
+  objectCount: number;
+  /** True when the listing hit its page cap, so objectCount is a floor, not a count. */
+  listingTruncated: boolean;
+}
+
+// ── Uploads storage (the S3 bucket behind /uploads, live since Sep 7, 2026) ──
+export interface UploadsPrefixRow {
+  prefix: string;
+  objects: number;
+  bytes: number;
+}
+export interface UploadsCheck {
+  label: string;
+  /** null = could not be read (usually a missing IAM action), which is not a pass. */
+  ok: boolean | null;
+  /** What a failed check means for the digest: critical pages, warn is an open item, info is a cost hint. */
+  severity: "critical" | "warn" | "info";
+  detail: string;
+}
+export interface UploadsRequestMetrics {
+  /** False until request metrics are enabled on the bucket (a paid, per-bucket toggle). */
+  enabled: boolean;
+  filterId: string;
+  all: number | null;
+  get: number | null;
+  put: number | null;
+  errors4xx: number | null;
+  errors5xx: number | null;
+  firstByteMs: number | null;
+}
+export interface UploadsAccessLogs {
+  /** null = the logging configuration could not be read. */
+  enabled: boolean | null;
+  targetBucket: string | null;
+  targetPrefix: string | null;
+  partitioned: boolean;
+  /** Newest log object delivered in the last two days, if the log bucket is listable. */
+  newestLogAt: string | null;
+  logObjects24h: number | null;
+  error?: string;
+}
+export interface UploadsStorage {
+  provider: "local" | "supabase" | "s3";
+  bucket: string;
+  region: string;
+  objectCount: number;
+  totalBytes: number;
+  /** Objects older than the mirror grace window; every one of these has had several hourly mirror runs to be copied. */
+  objectsOlderThanGrace: number;
+  mirrorGraceHours: number;
+  inventoryTruncated: boolean;
+  newestKey: string | null;
+  newestAt: string | null;
+  byPrefix: UploadsPrefixRow[];
+  versions: { noncurrentCount: number; noncurrentBytes: number; deleteMarkers: number; truncated: boolean } | null;
+  /** S3's own daily storage metrics (free, lag up to 48h; null until the first datapoint). */
+  cloudwatch: { sizeBytes: number | null; objectCount: number | null; asOf: string | null };
+  requests: UploadsRequestMetrics;
+  checks: UploadsCheck[];
+  accessLogs: UploadsAccessLogs;
 }
 
 export interface InfraSnapshot {
@@ -257,6 +358,7 @@ export interface InfraSnapshot {
   errorTrend: { status: SourceStatus; error?: string; buckets: ErrorTrendBucket[] };
   abuse: { status: SourceStatus; error?: string; rows: AbuseStat[] };
   dr: { status: SourceStatus; error?: string; rows: DrArtifact[] };
+  uploads: { status: SourceStatus; error?: string; info: UploadsStorage | null };
   backup: { status: SourceStatus; error?: string; info: BackupStatus | null };
   alerts: { status: SourceStatus; error?: string; info: AlertStatus | null };
   deploys: { status: SourceStatus; error?: string; runs: DeployRun[] };
@@ -1092,10 +1194,11 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
   try {
     const rows = await Promise.all(
       streams.map(async (st) => {
-        const [contents, heartbeatAt] = await Promise.all([
-          listAllObjects(st.prefix),
+        const [listed, heartbeatAt] = await Promise.all([
+          listObjectsBounded(getS3(), DR_BUCKET, st.prefix),
           st.heartbeatKey ? fetchDrHeartbeat(st.heartbeatKey) : Promise.resolve(null),
         ]);
+        const contents = listed.objects;
         const objects = contents.filter((o) => o.LastModified);
         const newestObjectAt = objects.length
           ? (objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b)).LastModified as Date)
@@ -1104,7 +1207,7 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
           .filter((d): d is Date => d !== null)
           .reduce<Date | null>((a, b) => (a === null || b > a ? b : a), null);
         if (!at) {
-          return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true };
+          return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true, objectCount: contents.length, listingTruncated: listed.truncated };
         }
         const ageHours = (Date.now() - at.getTime()) / 3600_000;
         return {
@@ -1114,6 +1217,8 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
           ageHours,
           staleAfterHours: st.staleAfterHours,
           stale: ageHours > st.staleAfterHours,
+          objectCount: contents.length,
+          listingTruncated: listed.truncated,
         };
       }),
     );
@@ -1147,6 +1252,397 @@ export async function fetchDrHeartbeat(key: string): Promise<Date | null> {
   }
 }
 
+// ── Uploads storage ────────────────────────────────────────────────
+/**
+ * The S3 bucket behind /uploads (MAINT-002, Sep 7 2026), read three ways.
+ *
+ *  1. Our own inventory: a bounded ListObjectsV2 of the live bucket. Exact and
+ *     immediate, which S3's own storage metrics are not (they publish once a
+ *     day and lag up to 48h), so the card shows both and says which is which.
+ *  2. CloudWatch: BucketSizeBytes / NumberOfObjects (free) and, once request
+ *     metrics are enabled on the bucket (a paid per-bucket toggle), requests,
+ *     4xx, 5xx and first-byte latency. Absent datapoints read as "not enabled",
+ *     never as zero traffic.
+ *  3. Configuration: versioning, encryption, public-access block, lifecycle,
+ *     access logging, request metrics. Each check reads one API and degrades on
+ *     its own to `ok: null` ("could not read"). A missing IAM action must never
+ *     render as a green tick, so null is reported as unchecked, not as a pass.
+ *
+ * Everything but the inventory is failure-isolated: a denied config read or a
+ * missing datapoint leaves the numbers standing. The inventory is the one thing
+ * the card cannot do without, so its failure is the card's.
+ *
+ * Exported for tests only; production callers go through getInfraSnapshot().
+ */
+/** Objects older than this had several hourly mirror runs to be copied; a mirror short of them is missing data, not lagging. */
+const MIRROR_GRACE_HOURS = 3;
+
+function uploadsConfig() {
+  return {
+    provider: (process.env.STORAGE_PROVIDER || "local") as UploadsStorage["provider"],
+    bucket: process.env.S3_UPLOADS_BUCKET || null,
+    region: process.env.S3_UPLOADS_REGION || process.env.AWS_REGION || REGION,
+    filterId: process.env.S3_UPLOADS_METRICS_FILTER_ID || "EntireBucket",
+  };
+}
+
+function errName(err: unknown): string {
+  return (err as { name?: string })?.name || "";
+}
+function unreadable(err: unknown): string {
+  const msg = (err as { message?: string })?.message || String(err);
+  if (errName(err) === "AccessDenied" || /AccessDenied|not authorized/i.test(msg)) {
+    return "not readable: the instance role lacks this read action (docs/INFRA_OPS.md)";
+  }
+  return `not readable: ${msg}`;
+}
+
+async function fetchUploadsInventory(s3: S3Client, bucket: string) {
+  const { objects, truncated } = await listObjectsBounded(s3, bucket, "");
+  const graceCutoff = Date.now() - MIRROR_GRACE_HOURS * 3600_000;
+  const byPrefix = new Map<string, UploadsPrefixRow>();
+  let totalBytes = 0;
+  let olderThanGrace = 0;
+  let newest: ListedObject | null = null;
+  for (const o of objects) {
+    const size = o.Size ?? 0;
+    totalBytes += size;
+    const key = o.Key ?? "";
+    const seg = key.includes("/") ? key.slice(0, key.indexOf("/")) : "(root)";
+    const row = byPrefix.get(seg) ?? { prefix: seg, objects: 0, bytes: 0 };
+    row.objects += 1;
+    row.bytes += size;
+    byPrefix.set(seg, row);
+    if (o.LastModified) {
+      if (!newest || o.LastModified > (newest.LastModified as Date)) newest = o;
+      if (o.LastModified.getTime() < graceCutoff) olderThanGrace += 1;
+    }
+  }
+  return {
+    objectCount: objects.length,
+    totalBytes,
+    objectsOlderThanGrace: olderThanGrace,
+    inventoryTruncated: truncated,
+    newestKey: newest?.Key ?? null,
+    newestAt: newest?.LastModified?.toISOString() ?? null,
+    byPrefix: [...byPrefix.values()].sort((a, b) => b.bytes - a.bytes),
+  };
+}
+
+/** Noncurrent versions + delete markers: what versioning is costing, bounded like every listing here. */
+async function fetchUploadsVersions(s3: S3Client, bucket: string): Promise<UploadsStorage["versions"]> {
+  try {
+    let noncurrentCount = 0;
+    let noncurrentBytes = 0;
+    let deleteMarkers = 0;
+    let keyMarker: string | undefined;
+    let versionIdMarker: string | undefined;
+    for (let page = 0; page < LIST_MAX_PAGES; page++) {
+      const out = await s3.send(
+        new ListObjectVersionsCommand({ Bucket: bucket, MaxKeys: 1000, KeyMarker: keyMarker, VersionIdMarker: versionIdMarker }),
+      );
+      for (const v of out.Versions ?? []) {
+        if (v.IsLatest) continue;
+        noncurrentCount += 1;
+        noncurrentBytes += v.Size ?? 0;
+      }
+      deleteMarkers += (out.DeleteMarkers ?? []).length;
+      if (!out.IsTruncated) return { noncurrentCount, noncurrentBytes, deleteMarkers, truncated: false };
+      keyMarker = out.NextKeyMarker;
+      versionIdMarker = out.NextVersionIdMarker;
+    }
+    apiLogger.warn({ bucket, pages: LIST_MAX_PAGES }, "infra:uploads-versions-truncated");
+    return { noncurrentCount, noncurrentBytes, deleteMarkers, truncated: true };
+  } catch (err) {
+    apiLogger.warn({ err, bucket }, "infra:uploads-versions-failed");
+    return null;
+  }
+}
+
+type MetricSeries = { Timestamps?: Date[]; Values?: number[] } | undefined;
+function sumWithin(r: MetricSeries, since: number): number | null {
+  if (!r?.Values?.length) return null;
+  let sum = 0;
+  r.Values.forEach((v, i) => {
+    const t = r.Timestamps?.[i];
+    if (t && t.getTime() >= since && v != null && !Number.isNaN(v)) sum += v;
+  });
+  return sum;
+}
+function avgWithin(r: MetricSeries, since: number): number | null {
+  if (!r?.Values?.length) return null;
+  let sum = 0;
+  let n = 0;
+  r.Values.forEach((v, i) => {
+    const t = r.Timestamps?.[i];
+    if (t && t.getTime() >= since && v != null && !Number.isNaN(v)) {
+      sum += v;
+      n += 1;
+    }
+  });
+  return n ? sum / n : null;
+}
+
+/** One GetMetricData call for the daily storage metrics and the 24h request metrics. */
+async function fetchUploadsCloudWatch(
+  bucket: string,
+  filterId: string,
+): Promise<{ cloudwatch: UploadsStorage["cloudwatch"]; requests: UploadsRequestMetrics }> {
+  const empty: UploadsRequestMetrics = { enabled: false, filterId, all: null, get: null, put: null, errors4xx: null, errors5xx: null, firstByteMs: null };
+  try {
+    const now = Date.now();
+    const storageDims = (storageType: string) => [
+      { Name: "BucketName", Value: bucket },
+      { Name: "StorageType", Value: storageType },
+    ];
+    const requestDims = [
+      { Name: "BucketName", Value: bucket },
+      { Name: "FilterId", Value: filterId },
+    ];
+    const req = (id: string, name: string, stat: "Sum" | "Average") => ({
+      Id: id,
+      MetricStat: { Metric: { Namespace: "AWS/S3", MetricName: name, Dimensions: requestDims }, Period: 3600, Stat: stat },
+      ReturnData: true,
+    });
+    const out = await getCw().send(
+      new GetMetricDataCommand({
+        StartTime: new Date(now - 3 * 86400_000),
+        EndTime: new Date(now),
+        ScanBy: "TimestampDescending",
+        MetricDataQueries: [
+          { Id: "size", MetricStat: { Metric: { Namespace: "AWS/S3", MetricName: "BucketSizeBytes", Dimensions: storageDims("StandardStorage") }, Period: 86400, Stat: "Average" }, ReturnData: true },
+          { Id: "count", MetricStat: { Metric: { Namespace: "AWS/S3", MetricName: "NumberOfObjects", Dimensions: storageDims("AllStorageTypes") }, Period: 86400, Stat: "Average" }, ReturnData: true },
+          req("reqAll", "AllRequests", "Sum"),
+          req("reqGet", "GetRequests", "Sum"),
+          req("reqPut", "PutRequests", "Sum"),
+          req("req4xx", "4xxErrors", "Sum"),
+          req("req5xx", "5xxErrors", "Sum"),
+          req("reqFbl", "FirstByteLatency", "Average"),
+        ],
+      }),
+    );
+    const byId = new Map((out.MetricDataResults || []).map((r) => [r.Id, r]));
+    const size = byId.get("size");
+    const since24h = now - 86400_000;
+    const all = byId.get("reqAll");
+    // Request metrics exist only after the owner enables them on the bucket; a
+    // series with no datapoints at all in 3 days means "not enabled", and
+    // saying "0 requests" there would be a lie.
+    const enabled = Boolean(all?.Values?.length);
+    return {
+      cloudwatch: {
+        sizeBytes: latest(size?.Values),
+        objectCount: latest(byId.get("count")?.Values),
+        asOf: size?.Timestamps?.[0]?.toISOString() ?? null,
+      },
+      requests: enabled
+        ? {
+            enabled,
+            filterId,
+            all: sumWithin(all, since24h),
+            get: sumWithin(byId.get("reqGet"), since24h),
+            put: sumWithin(byId.get("reqPut"), since24h),
+            errors4xx: sumWithin(byId.get("req4xx"), since24h) ?? 0,
+            errors5xx: sumWithin(byId.get("req5xx"), since24h) ?? 0,
+            firstByteMs: avgWithin(byId.get("reqFbl"), since24h),
+          }
+        : empty,
+    };
+  } catch (err) {
+    apiLogger.warn({ err, bucket }, "infra:uploads-cloudwatch-failed");
+    return { cloudwatch: { sizeBytes: null, objectCount: null, asOf: null }, requests: empty };
+  }
+}
+
+async function check(
+  label: string,
+  severity: UploadsCheck["severity"],
+  read: () => Promise<{ ok: boolean; detail: string }>,
+): Promise<UploadsCheck> {
+  try {
+    return { label, severity, ...(await read()) };
+  } catch (err) {
+    apiLogger.warn({ err, label }, "infra:uploads-check-unreadable");
+    return { label, severity, ok: null, detail: unreadable(err) };
+  }
+}
+
+type LoggingConfig =
+  | { enabled: true; targetBucket: string; targetPrefix: string; partitioned: boolean }
+  | { enabled: false }
+  | { enabled: null; error: string };
+
+async function readLogging(s3: S3Client, bucket: string): Promise<LoggingConfig> {
+  try {
+    const out = await s3.send(new GetBucketLoggingCommand({ Bucket: bucket }));
+    const le = out.LoggingEnabled;
+    if (!le?.TargetBucket) return { enabled: false };
+    return {
+      enabled: true,
+      targetBucket: le.TargetBucket,
+      targetPrefix: le.TargetPrefix ?? "",
+      partitioned: Boolean(le.TargetObjectKeyFormat?.PartitionedPrefix),
+    };
+  } catch (err) {
+    apiLogger.warn({ err, bucket }, "infra:uploads-logging-unreadable");
+    return { enabled: null, error: unreadable(err) };
+  }
+}
+
+async function fetchUploadsChecks(s3: S3Client, bucket: string, logging: LoggingConfig): Promise<UploadsCheck[]> {
+  const loggingCheck: UploadsCheck =
+    logging.enabled === null
+      ? { label: "Access logging", severity: "warn", ok: null, detail: logging.error }
+      : logging.enabled
+        ? { label: "Access logging", severity: "warn", ok: true, detail: `On, to ${logging.targetBucket}/${logging.targetPrefix}` }
+        : { label: "Access logging", severity: "warn", ok: false, detail: "Off: no per-request record of who fetched which file" };
+  return Promise.all([
+    check("Versioning", "critical", async () => {
+      const out = await s3.send(new GetBucketVersioningCommand({ Bucket: bucket }));
+      const ok = out.Status === "Enabled";
+      return { ok, detail: ok ? "Enabled" : "Off: an overwrite or delete cannot be undone" };
+    }),
+    check("Encryption", "critical", async () => {
+      const out = await s3.send(new GetBucketEncryptionCommand({ Bucket: bucket }));
+      const rule = out.ServerSideEncryptionConfiguration?.Rules?.[0]?.ApplyServerSideEncryptionByDefault;
+      const ok = rule?.SSEAlgorithm === "aws:kms" && Boolean(rule?.KMSMasterKeyID);
+      const keyTail = rule?.KMSMasterKeyID?.split("/").pop() ?? "";
+      return { ok, detail: ok ? `SSE-KMS, customer key …${keyTail.slice(-8)}` : `Default is ${rule?.SSEAlgorithm ?? "none"}, not a customer-managed KMS key` };
+    }),
+    check("Bucket Key", "info", async () => {
+      const out = await s3.send(new GetBucketEncryptionCommand({ Bucket: bucket }));
+      const ok = out.ServerSideEncryptionConfiguration?.Rules?.[0]?.BucketKeyEnabled === true;
+      return { ok, detail: ok ? "On" : "Off: every object costs a KMS call; enabling it is a console toggle" };
+    }),
+    check("Block public access", "critical", async () => {
+      const out = await s3.send(new GetPublicAccessBlockCommand({ Bucket: bucket }));
+      const c = out.PublicAccessBlockConfiguration;
+      const ok = Boolean(c?.BlockPublicAcls && c?.IgnorePublicAcls && c?.BlockPublicPolicy && c?.RestrictPublicBuckets);
+      return { ok, detail: ok ? "All four settings on" : "Not fully blocked: a policy or ACL could expose objects" };
+    }),
+    check("Lifecycle", "warn", async () => {
+      try {
+        const out = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }));
+        const ok = (out.Rules ?? []).some(
+          (r) => r.Status === "Enabled" && (r.NoncurrentVersionExpiration || (r.NoncurrentVersionTransitions ?? []).length > 0),
+        );
+        return { ok, detail: ok ? "Noncurrent versions are expired or tiered" : "No rule for noncurrent versions: overwritten files are kept at full price forever" };
+      } catch (err) {
+        if (errName(err) === "NoSuchLifecycleConfiguration") {
+          return { ok: false, detail: "No lifecycle rule: overwritten and deleted versions are kept at full price forever" };
+        }
+        throw err;
+      }
+    }),
+    check("Request metrics", "info", async () => {
+      const out = await s3.send(new ListBucketMetricsConfigurationsCommand({ Bucket: bucket }));
+      const ids = (out.MetricsConfigurationList ?? []).map((m) => m.Id).filter(Boolean);
+      const ok = ids.length > 0;
+      return { ok, detail: ok ? `On (${ids.join(", ")})` : "Off: requests, 4xx/5xx and latency are not published" };
+    }),
+    Promise.resolve(loggingCheck),
+  ]);
+}
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+async function listCommonPrefixes(s3: S3Client, bucket: string, prefix: string): Promise<string[]> {
+  const out = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: "/", MaxKeys: 1000 }));
+  return (out.CommonPrefixes ?? []).map((c) => c.Prefix).filter((p): p is string => Boolean(p));
+}
+
+/**
+ * Newest access log and the 24h count, read WITHOUT walking the log bucket's
+ * history. Access logs are date-named, so a simple prefix lists from
+ * "two days ago" with StartAfter, and a partitioned prefix
+ * (account/region/bucket/YYYY/MM/DD/) is walked one level at a time down to
+ * today's and yesterday's folders. A warehouse that keeps logs forever must not
+ * make this card slower every month.
+ */
+async function fetchUploadsAccessLogs(s3: S3Client, logging: LoggingConfig): Promise<UploadsAccessLogs> {
+  if (logging.enabled === null) {
+    return { enabled: null, targetBucket: null, targetPrefix: null, partitioned: false, newestLogAt: null, logObjects24h: null, error: logging.error };
+  }
+  if (!logging.enabled) {
+    return { enabled: false, targetBucket: null, targetPrefix: null, partitioned: false, newestLogAt: null, logObjects24h: null };
+  }
+  const base = { enabled: true as const, targetBucket: logging.targetBucket, targetPrefix: logging.targetPrefix, partitioned: logging.partitioned };
+  try {
+    const now = Date.now();
+    const dayPrefixes: string[] = [];
+    let startAfter: string | undefined;
+    if (logging.partitioned) {
+      // {prefix}{account}/{region}/{bucket}/{YYYY}/{MM}/{DD}/
+      let level = [logging.targetPrefix];
+      for (let depth = 0; depth < 3; depth++) {
+        const next: string[] = [];
+        for (const p of level) next.push(...(await listCommonPrefixes(s3, logging.targetBucket, p)));
+        level = next;
+      }
+      for (const p of level) {
+        for (const d of [new Date(now), new Date(now - 86400_000)]) {
+          dayPrefixes.push(`${p}${ymd(d).replace(/-/g, "/")}/`);
+        }
+      }
+    } else {
+      dayPrefixes.push(logging.targetPrefix);
+      startAfter = `${logging.targetPrefix}${ymd(new Date(now - 2 * 86400_000))}`;
+    }
+    let newest: Date | null = null;
+    let count24h = 0;
+    for (const p of dayPrefixes) {
+      const { objects } = await listObjectsBounded(s3, logging.targetBucket, p, startAfter);
+      for (const o of objects) {
+        if (!o.LastModified) continue;
+        if (!newest || o.LastModified > newest) newest = o.LastModified;
+        if (o.LastModified.getTime() >= now - 86400_000) count24h += 1;
+      }
+    }
+    return { ...base, newestLogAt: newest?.toISOString() ?? null, logObjects24h: count24h };
+  } catch (err) {
+    apiLogger.warn({ err, bucket: logging.targetBucket }, "infra:uploads-access-logs-unreadable");
+    return { ...base, newestLogAt: null, logObjects24h: null, error: unreadable(err) };
+  }
+}
+
+export async function fetchUploads(): Promise<InfraSnapshot["uploads"]> {
+  const cfg = uploadsConfig();
+  if (cfg.provider !== "s3") return { status: "unconfigured", info: null };
+  if (!cfg.bucket) {
+    apiLogger.warn({ provider: cfg.provider }, "infra:uploads-bucket-unset");
+    return { status: "error", error: "STORAGE_PROVIDER is s3 but S3_UPLOADS_BUCKET is not set.", info: null };
+  }
+  const bucket = cfg.bucket;
+  const s3 = getUploadsS3(cfg.region);
+  try {
+    const logging = readLogging(s3, bucket);
+    const [inventory, versions, cw, checks, accessLogs] = await Promise.all([
+      fetchUploadsInventory(s3, bucket),
+      fetchUploadsVersions(s3, bucket),
+      fetchUploadsCloudWatch(bucket, cfg.filterId),
+      logging.then((l) => fetchUploadsChecks(s3, bucket, l)),
+      logging.then((l) => fetchUploadsAccessLogs(s3, l)),
+    ]);
+    return {
+      status: "ok",
+      info: {
+        provider: cfg.provider,
+        bucket,
+        region: cfg.region,
+        ...inventory,
+        mirrorGraceHours: MIRROR_GRACE_HOURS,
+        versions,
+        cloudwatch: cw.cloudwatch,
+        requests: cw.requests,
+        checks,
+        accessLogs,
+      },
+    };
+  } catch (err) {
+    apiLogger.warn({ err, bucket }, "infra:uploads-failed");
+    return { status: "error", error: friendlyAwsError(err), info: null };
+  }
+}
+
 // ── Public ─────────────────────────────────────────────────────────
 
 export async function getInfraSnapshot(
@@ -1175,7 +1671,7 @@ export async function getInfraSnapshot(
     Promise.resolve({ status: "operator-only" as const, ...empty });
 
   const instanceId = isOperator ? await getInstanceId() : null;
-  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr] =
+  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr, uploads] =
     await Promise.all([
       isOperator ? fetchDeploys() : notForTenants({ runs: [] }),
       isOperator ? fetchAlarms() : notForTenants({ inAlarm: [] }),
@@ -1193,6 +1689,7 @@ export async function getInfraSnapshot(
       fetchErrorTrend(scope),
       fetchAbuse(scope),
       isOperator ? fetchDr() : notForTenants({ rows: [] }),
+      isOperator ? fetchUploads() : notForTenants({ info: null }),
     ]);
   const snap: InfraSnapshot = {
     scope: scope.kind,
@@ -1206,6 +1703,7 @@ export async function getInfraSnapshot(
     errorTrend,
     abuse,
     dr,
+    uploads,
     backup,
     alerts,
     deploys,

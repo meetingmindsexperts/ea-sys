@@ -16,6 +16,7 @@
 | **Cron / Jobs** | our own `JobRun` table (Postgres) | Each background-worker cron (full roster): **last run + OK/FAILED**, schedule, duration, 24h OK/fail counts, worker liveness. Never-run jobs show "awaiting first run". **Zero AWS cost.** |
 | **Recent errors & warnings** | our own `SystemLog` (Postgres) | Latest 15 `error`/`warn` lines (app + worker), with a link to `/logs`. **Zero AWS cost.** |
 | **Email failures** | our own `EmailLog` (Postgres) | Recent `FAILED` sends (to / subject / error) — the actual failures behind the SES aggregate rates. **Zero AWS cost.** |
+| **Uploads storage** (Sep 7, 2026) | S3 `ListObjectsV2` + `ListObjectVersions` on `ea-sys-uploads`, CloudWatch `AWS/S3`, six bucket `Get*` reads | Live inventory of the bucket behind `/uploads` (objects, size, newest upload, by prefix), what versioning is costing, S3's own daily size and count, **requests / GET / PUT / 4xx / 5xx / first-byte latency** once request metrics are on, six configuration checks (versioning, KMS, public-access block, Bucket Key, lifecycle, access logging) and whether access logs are still being delivered. The Singapore mirror's object count sits beside the source count: the mirror never deletes, so it must hold every source object old enough to have been synced, and fewer means the hourly copy is skipping files. The daily digest pages on a critical check regressing or on a mirror deficit, and warns on 5xx errors and on access logs that stop arriving. See §4 for the two owner-side toggles. |
 
 Each card degrades independently: if a source fails (e.g. the IAM below isn't attached yet),
 that card shows a friendly error and the rest still render.
@@ -67,6 +68,49 @@ cards show *"Missing IAM permission…"* — that's expected, not a bug.
 > something broader is quietly covering it.** If a doc says a role needs X,
 > check the role actually has X rather than checking the feature works.
 
+### 1b. IAM — uploads bucket reads (Sep 7, 2026)
+
+The **Uploads storage** card needs read actions the storage policy does not carry.
+`UploadsS3Storage` grants `s3:ListBucket` (so the inventory works on day one) but
+none of the configuration reads, and the six checks then show *"not readable"*,
+which the daily digest reports as **unverified, not as a pass**. Attach this inline
+policy to `ea-sys-mumbai-ec2-role` as **`EaSysUploadsRead`**:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploadsBucketConfigRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketLogging",
+        "s3:GetMetricsConfiguration",
+        "s3:ListBucketVersions"
+      ],
+      "Resource": "arn:aws:s3:::ea-sys-uploads"
+    },
+    {
+      "Sid": "UploadsAccessLogsList",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::ea-sys-uploads-logs"
+    }
+  ]
+}
+```
+
+Every action is a read. `cloudwatch:GetMetricData` on `*` from `EaSysInfraRead`
+already covers the S3 metrics, so nothing CloudWatch-side changes. Verify with:
+
+```bash
+aws iam get-role-policy --role-name ea-sys-mumbai-ec2-role --policy-name EaSysUploadsRead
+```
+
 ### 2. GitHub token (optional — only the Deploys card)
 Add a **fine-grained PAT** with **read-only Actions** on the repo to the app's env:
 ```
@@ -80,6 +124,47 @@ Host metrics need the EC2 instance id. On the box it's **auto-detected via IMDSv
 config. If detection ever fails, set `EC2_INSTANCE_ID=i-…` explicitly. (Memory/disk also
 require the CloudWatch **agent** to publish `mem_used_percent` / `disk_used_percent`; if it
 only ships logs, those two tiles show "—" and CPU still works.)
+
+### 4. Uploads request metrics + access logs (owner, once)
+
+Two things the card reads only after they are switched on. Both are S3-side
+settings the app cannot make for itself.
+
+**Request metrics** (requests, GET, PUT, 4xx, 5xx, first-byte latency): a
+per-bucket metrics configuration, billed as CloudWatch custom metrics, about
+5 dollars a month. Until it exists the card says "not enabled" rather than
+"0 requests", because a series with no datapoint is not zero traffic.
+
+```bash
+aws s3api put-bucket-metrics-configuration --bucket ea-sys-uploads --region ap-south-1 \
+  --id EntireBucket --metrics-configuration '{"Id":"EntireBucket"}'
+```
+
+The id is what CloudWatch calls the `FilterId` dimension. `EntireBucket` is the
+default the card reads; a different id goes in `S3_UPLOADS_METRICS_FILTER_ID`.
+First datapoints appear within about 15 minutes.
+
+**Access logs** (one line per request: who fetched which object, when, from
+where): S3 server access logging into a separate bucket, which then seeds the
+log warehouse. Steps, all in the console unless noted:
+
+1. Create `ea-sys-uploads-logs` in **ap-south-1** (the destination must be in the
+   same region as the source), Block Public Access on, default encryption
+   **SSE-S3** (access logs carry request metadata, not file bytes, and the log
+   delivery service cannot be relied on to write to an SSE-KMS destination).
+2. Lifecycle rule on that bucket: transition to Glacier Deep Archive after 90
+   days, **no expiry**. Logs are archived, never deleted.
+3. On `ea-sys-uploads` → Properties → Server access logging → Enable: destination
+   `s3://ea-sys-uploads-logs/uploads-access/`, log object key format
+   **date-based partitioning, event time**. The console adds the bucket policy
+   that lets `logging.s3.amazonaws.com` write; enabling it from the CLI does not.
+4. Attach the `EaSysUploadsRead` policy above (its second statement lists the log
+   bucket).
+
+Delivery is best-effort with a lag of up to a few hours. The card reads only
+today's and yesterday's folders, so a bucket that keeps logs forever never makes
+the page slower. The digest warns when a day passes with requests served and no
+log delivered.
 
 ## Cron / Jobs — how it's sourced
 

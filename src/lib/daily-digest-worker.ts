@@ -112,6 +112,7 @@ const SECTION_LABELS: Record<string, string> = {
   errorTrend: "error counts",
   backup: "database backups",
   dr: "disaster-recovery copies",
+  uploads: "uploads storage",
   queues: "queues",
   ses: "email delivery",
   emailFailures: "failed emails",
@@ -308,6 +309,55 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
         detail: `Expected within ${d.staleAfterHours}h; newest is ${
           d.ageHours == null ? "missing" : `${d.ageHours.toFixed(0)}h old`
         }.`,
+      });
+    }
+  }
+
+  // ── Uploads storage (the S3 bucket behind /uploads) ────────────────────
+  // STORAGE_PROVIDER=local is a configuration, not an unreadable section, so
+  // "unconfigured" is not reported as unchecked the way a failed read is.
+  if (snap.uploads.status !== "unconfigured") note("uploads", snap.uploads);
+  if (snap.uploads.status === "ok" && snap.uploads.info) {
+    const u = snap.uploads.info;
+    for (const c of u.checks) {
+      if (c.ok !== false || c.severity === "info") continue;
+      findings.push({ severity: c.severity, label: `Uploads bucket: ${c.label}`, detail: c.detail });
+    }
+    // A check the role could not read is NOT a pass. Named so the fix is
+    // obvious (attach the read policy), rather than folded into "unavailable"
+    // where the whole card would look unreadable when only one action is missing.
+    const unreadable = u.checks.filter((c) => c.ok === null).map((c) => c.label);
+    if (unreadable.length > 0) {
+      findings.push({
+        severity: "warn",
+        label: `Uploads bucket: ${unreadable.length} check(s) not readable`,
+        detail: `${unreadable.join(", ")}: the instance role cannot read this configuration, so it was not verified (docs/INFRA_OPS.md).`,
+      });
+    }
+    // The mirror never deletes, so it must hold at least every source object
+    // that is old enough to have been synced. Fewer means the hourly
+    // bucket-to-bucket copy is skipping files, which a restore would discover.
+    const mirror = snap.dr.status === "ok" ? snap.dr.rows.find((r) => r.prefix === "uploads/") : undefined;
+    if (mirror && !mirror.listingTruncated && !u.inventoryTruncated && mirror.objectCount < u.objectsOlderThanGrace) {
+      findings.push({
+        severity: "critical",
+        label: `Uploads mirror is missing ${u.objectsOlderThanGrace - mirror.objectCount} object(s)`,
+        detail: `The Singapore copy holds ${mirror.objectCount} objects; the source has ${u.objectsOlderThanGrace} older than ${u.mirrorGraceHours}h. The hourly sync is not copying everything (infra/dr/README.md).`,
+      });
+    }
+    if (u.requests.enabled && (u.requests.errors5xx ?? 0) > 0) {
+      findings.push({
+        severity: "warn",
+        label: `Uploads bucket returned ${u.requests.errors5xx} 5xx error(s) in 24h`,
+        detail: "S3 failed requests for uploaded files. Check the request metrics on /admin/infra and the S3 service health for ap-south-1.",
+      });
+    }
+    const a = u.accessLogs;
+    if (a.enabled && !a.error && u.requests.enabled && (u.requests.all ?? 0) > 0 && a.logObjects24h === 0) {
+      findings.push({
+        severity: "warn",
+        label: "Uploads access logs have stopped arriving",
+        detail: `${u.requests.all} requests were served in 24h but no access log was delivered to ${a.targetBucket}. Delivery can lag a few hours; a full day means the target bucket policy or the logging setting broke.`,
       });
     }
   }

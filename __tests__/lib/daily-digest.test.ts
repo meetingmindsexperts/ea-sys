@@ -44,6 +44,35 @@ import {
 import { EXPECTED_JOBS } from "@/lib/worker-jobs";
 
 /** A snapshot with every section present, healthy, and nothing to report. */
+function healthyUploads(): NonNullable<InfraSnapshot["uploads"]["info"]> {
+  return {
+    provider: "s3",
+    bucket: "ea-sys-uploads",
+    region: "ap-south-1",
+    objectCount: 537,
+    totalBytes: 71_239_235,
+    objectsOlderThanGrace: 530,
+    mirrorGraceHours: 3,
+    inventoryTruncated: false,
+    newestKey: "photos/2026/09/x.jpg",
+    newestAt: "2026-09-07T06:53:28.000Z",
+    byPrefix: [{ prefix: "photos", objects: 422, bytes: 30_000_000 }],
+    versions: { noncurrentCount: 1, noncurrentBytes: 5, deleteMarkers: 1, truncated: false },
+    cloudwatch: { sizeBytes: null, objectCount: null, asOf: null },
+    requests: { enabled: true, filterId: "EntireBucket", all: 1200, get: 1100, put: 40, errors4xx: 3, errors5xx: 0, firstByteMs: 18 },
+    checks: [
+      { label: "Versioning", severity: "critical", ok: true, detail: "Enabled" },
+      { label: "Encryption", severity: "critical", ok: true, detail: "SSE-KMS" },
+      { label: "Bucket Key", severity: "info", ok: false, detail: "Off" },
+      { label: "Block public access", severity: "critical", ok: true, detail: "All four settings on" },
+      { label: "Lifecycle", severity: "warn", ok: true, detail: "Noncurrent versions are tiered" },
+      { label: "Request metrics", severity: "info", ok: true, detail: "On (EntireBucket)" },
+      { label: "Access logging", severity: "warn", ok: true, detail: "On" },
+    ],
+    accessLogs: { enabled: true, targetBucket: "ea-sys-uploads-logs", targetPrefix: "uploads-access/", partitioned: true, newestLogAt: "2026-09-07T05:00:00.000Z", logObjects24h: 20 },
+  };
+}
+
 function healthySnapshot(): InfraSnapshot {
   return {
     scope: "platform" as const,
@@ -81,9 +110,22 @@ function healthySnapshot(): InfraSnapshot {
           ageHours: 1,
           staleAfterHours: 18,
           stale: false,
+          objectCount: 240,
+          listingTruncated: false,
+        },
+        {
+          label: "Uploads mirror",
+          prefix: "uploads/",
+          latestAt: "x",
+          ageHours: 0.5,
+          staleAfterHours: 3,
+          stale: false,
+          objectCount: 540,
+          listingTruncated: false,
         },
       ],
     },
+    uploads: { status: "ok", info: healthyUploads() },
     backup: {
       status: "ok",
       info: {
@@ -626,5 +668,84 @@ describe("assessInfra: digest lookback windows", () => {
     const snap = healthySnapshot();
     snap.deploys = { status: "ok", runs: [run("skipped"), run(null), run("success")] };
     expect(assessInfra(snap).verdict).toBe("ok");
+  });
+});
+
+describe("assessInfra — uploads storage", () => {
+  function withUploads(mutate: (u: ReturnType<typeof healthyUploads>, snap: InfraSnapshot) => void): InfraSnapshot {
+    const snap = healthySnapshot();
+    const u = healthyUploads();
+    mutate(u, snap);
+    snap.uploads = { status: "ok", info: u };
+    return snap;
+  }
+
+  it("a failed critical check pages; a failed info check (Bucket Key) is only a cost hint", () => {
+    const a = assessInfra(withUploads((u) => {
+      u.checks.find((c) => c.label === "Block public access")!.ok = false;
+    }));
+    expect(a.verdict).toBe("critical");
+    expect(a.findings.map((f) => f.label)).toContain("Uploads bucket: Block public access");
+    expect(a.findings.map((f) => f.label)).not.toContain("Uploads bucket: Bucket Key");
+  });
+
+  it("a check the role could not read is named as unverified, not counted as a pass", () => {
+    const a = assessInfra(withUploads((u) => {
+      u.checks.find((c) => c.label === "Versioning")!.ok = null;
+    }));
+    expect(a.verdict).toBe("warn");
+    const f = a.findings.find((f) => f.label.includes("not readable"))!;
+    expect(f.detail).toContain("Versioning");
+  });
+
+  it("a mirror holding fewer objects than the source has old enough to be synced is critical", () => {
+    const a = assessInfra(withUploads((u, snap) => {
+      u.objectsOlderThanGrace = 530;
+      snap.dr.rows.find((r) => r.prefix === "uploads/")!.objectCount = 500;
+    }));
+    expect(a.verdict).toBe("critical");
+    expect(a.findings.map((f) => f.label)).toContain("Uploads mirror is missing 30 object(s)");
+  });
+
+  it("a mirror that merely lags (recent uploads not yet copied) is not a finding", () => {
+    const a = assessInfra(withUploads((u, snap) => {
+      u.objectCount = 560;
+      u.objectsOlderThanGrace = 530;
+      snap.dr.rows.find((r) => r.prefix === "uploads/")!.objectCount = 540;
+    }));
+    expect(a.findings.filter((f) => f.label.startsWith("Uploads mirror"))).toHaveLength(0);
+  });
+
+  it("a truncated listing on either side never produces a mirror finding", () => {
+    const a = assessInfra(withUploads((u, snap) => {
+      u.objectsOlderThanGrace = 10_500;
+      const row = snap.dr.rows.find((r) => r.prefix === "uploads/")!;
+      row.objectCount = 10_000;
+      row.listingTruncated = true;
+    }));
+    expect(a.findings.filter((f) => f.label.startsWith("Uploads mirror"))).toHaveLength(0);
+  });
+
+  it("5xx errors in 24h warn, but only when request metrics exist to say so", () => {
+    const withErrors = assessInfra(withUploads((u) => { u.requests.errors5xx = 4; }));
+    expect(withErrors.findings.map((f) => f.label)).toContain("Uploads bucket returned 4 5xx error(s) in 24h");
+    const disabled = assessInfra(withUploads((u) => { u.requests.enabled = false; u.requests.errors5xx = 4; }));
+    expect(disabled.findings.filter((f) => f.label.includes("5xx"))).toHaveLength(0);
+  });
+
+  it("access logs that stop arriving while requests are served warn; no requests, no finding", () => {
+    const stalled = assessInfra(withUploads((u) => { u.accessLogs.logObjects24h = 0; }));
+    expect(stalled.findings.map((f) => f.label)).toContain("Uploads access logs have stopped arriving");
+    const quiet = assessInfra(withUploads((u) => { u.accessLogs.logObjects24h = 0; u.requests.all = 0; }));
+    expect(quiet.findings.filter((f) => f.label.includes("access logs"))).toHaveLength(0);
+  });
+
+  it("local-disk uploads are a configuration, not an unread section; a failed read is", () => {
+    const local = healthySnapshot();
+    local.uploads = { status: "unconfigured", info: null };
+    expect(assessInfra(local).unavailable).not.toContain("uploads storage");
+    const broken = healthySnapshot();
+    broken.uploads = { status: "error", error: "boom", info: null };
+    expect(assessInfra(broken).unavailable).toContain("uploads storage");
   });
 });
