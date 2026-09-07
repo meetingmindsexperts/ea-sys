@@ -177,21 +177,36 @@ needs a category-to-provider map, moving everything needs none.
 | Encryption | SSE-KMS, customer-managed key in `ap-south-1` | KMS keys are regional |
 | Replication | **None needed** | See below |
 
-### DR falls out of the existing setup, so no replication rule is required
+### DR needs ONE cron change, and the first draft of this section missed it
 
-The failover rule from the outage question stands: **the local copies are never
-deleted.** That makes the Mumbai disk a warm standby, and it also means the
-hourly `aws s3 sync` to `ea-sys-dr-singapore` keeps working exactly as it does
-today, because it syncs from local disk rather than from the bucket.
+**Corrected 2026-09-07, on the day of the move.** The original text said the
+hourly `aws s3 sync` to `ea-sys-dr-singapore` "keeps working exactly as it does
+today, because it syncs from local disk". That is true only for the files that
+exist on the disk at cutover. After the flip `uploadFile` writes to S3 **only**
+(no local copy; see `storage.ts`), so the disk freezes, the disk-sourced mirror
+re-syncs an unchanging folder every hour, its heartbeat keeps beating, and
+**every file uploaded after the flip has exactly one copy, in Mumbai S3**:
+versioned and durable, but not off-site, with a monitoring signal saying
+otherwise. The owner asked "what happens to the Singapore backup once we move"
+and the honest answer was that the plan had not thought it through.
 
-So after this change there are three copies, and the DR story is unchanged:
+The fix is to change the mirror's SOURCE from the disk to the bucket (runbook
+step 6b). The key layout is identical (`photos/2026/…` in the bucket lands as
+`uploads/photos/2026/…` in Singapore, where the disk sync already put it), the
+copy is server-side, and the instance role already holds every permission it
+needs (read + KMS decrypt on `ea-sys-uploads`, write + KMS encrypt on the DR
+bucket). Same log file, same heartbeat, still non-deleting.
+
+After that change there are three copies:
 
 1. **S3 `ap-south-1`** — primary, versioned, KMS-encrypted
-2. **Mumbai EC2 disk** — warm standby, one env var away from serving
-3. **Singapore S3** — offsite, hourly, already running
+2. **Singapore S3** — offsite, hourly, sourced from the bucket
+3. **Mumbai EC2 disk** — the pre-cutover set, frozen. A warm standby for those
+   files only; a rollback needs the reverse sync in the rollback section first.
 
-A same-region replication rule would be a fourth copy solving a problem the
-first three already cover. Skipped.
+A cross-region replication rule is still not needed: hourly bucket-to-bucket
+sync gives the same RPO the DR posture already promises. CRR (near-real-time)
+is the upgrade if a sub-hour RPO for uploads is ever wanted.
 
 ### The read-through cache fallback is resolved: NOT needed
 
@@ -504,15 +519,42 @@ docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts --verify   # 
 
 Then set `STORAGE_PROVIDER=s3` in `.env` and `bash scripts/deploy.sh`.
 
+Run `--write` once more right after the deploy: a file uploaded in the seconds
+between the last `--write` and the flip exists only on disk, and the script is
+idempotent, so the sweep costs nothing.
+
+### Step 6b — Point the DR mirror at the bucket (same session as the cutover)
+
+`crontab -e` as `ubuntu`: replace the hourly uploads line (the one that syncs
+`/home/ubuntu/ea-sys/public/uploads/`) with the bucket-sourced version. Same
+log, same heartbeat, still no `--delete`:
+
+```
+0 * * * * aws s3 sync s3://ea-sys-uploads/ s3://ea-sys-dr-singapore/uploads/ --source-region ap-south-1 --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+```
+
+Verify at the next full hour: `tail -3 /home/ubuntu/cron-dr-uploads-sync.log`
+shows copies or nothing (nothing is fine, it means Singapore already had every
+key) and the heartbeat object's timestamp moves. Without this step the mirror
+silently covers only the pre-cutover files; see section 3.
+
 ### Rollback, at any point
 
+Before the flip: nothing to prepare, the disk holds everything.
+
+After the flip: files uploaded since exist only in the bucket, so pull them down
+first (as root: the uploads tree is owned by the container's uid, the INC-004
+lesson), then switch the provider back:
+
 ```bash
+sudo aws s3 sync s3://ea-sys-uploads/ /home/ubuntu/ea-sys/public/uploads/ --region ap-south-1
 sed -i 's/^STORAGE_PROVIDER=s3/STORAGE_PROVIDER=local/' .env
 bash scripts/deploy.sh          # ~22s, measured
 ```
 
-The local copies are still there and are never deleted. That is the permanent
-rule from the outage question, and it is what makes this reversible.
+The local copies are never deleted. That is the permanent rule from the outage
+question, and with the reverse sync above it is what makes this reversible even
+weeks after the move.
 
 ### Also worth doing, unrelated and free
 
