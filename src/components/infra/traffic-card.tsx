@@ -235,7 +235,7 @@ export function TrafficCard() {
   const peak = view ? Math.max(1, ...view.series.map((s) => s.value)) : 1;
 
   return (
-    <Card id="traffic" className="lg:col-span-2 scroll-mt-4">
+    <Card id="traffic" className="scroll-mt-4">
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2">
           <Activity className="h-4 w-4 text-primary" /> Traffic

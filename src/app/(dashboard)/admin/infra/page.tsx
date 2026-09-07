@@ -374,17 +374,22 @@ export default function InfraPage() {
           );
         })()}
 
-        <div className="grid lg:grid-cols-2 gap-4">
+        {/* Layout rule (Sep 7, 2026): full-width cards stand alone; the rest are
+            grouped into rows of SIMILAR HEIGHT, three-up for the short ones. A grid
+            row is as tall as its tallest card, so pairing a three-line card with a
+            thirty-line one stretched the short card over a pit of empty space, and
+            an odd run of single cards left one card alone in its row. Operator-only
+            rows are gated as a whole so a tenant view gets no empty row. */}
+        <div className="space-y-4">
           {/* ── Is the system alive? ──────────────────────────────────────────
               These four go first because they are what you check before you
               look at anything else. Previously none of them existed: you could
               see that a job RAN, but not whether the database was up, whether
               the worker was actually alive, whether work was piling up behind
               it, or whether a backup had been taken this century. */}
-
           {/* System status — DB + worker + alerts, one row */}
           {isOperator && (
-          <Card id="system" className="lg:col-span-2 scroll-mt-4">
+          <Card id="system" className="scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Server className="h-4 w-4 text-primary" /> System status
@@ -474,67 +479,11 @@ export default function InfraPage() {
           </Card>
           )}
 
-          {/* Queues — "is work piling up?" You could always see that a job ran.
-              You could never see that it was falling behind. */}
-          <Card id="queues" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Queues</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.queues.status} error={snap.queues.error} unconfiguredHint="No queue data." />
-              {snap.queues.status === "ok" && (
-                <div className="space-y-1.5">
-                  {snap.queues.rows.map((q) => {
-                    const bad = q.value > q.warnAbove;
-                    return (
-                      <div key={q.label} className="flex items-center justify-between gap-2 text-sm" title={q.hint}>
-                        <span className={bad ? "font-medium" : "text-muted-foreground"}>{q.label}</span>
-                        <span className={`font-mono ${bad ? "text-red-600 font-bold" : "text-muted-foreground"}`}>{q.value}</span>
-                      </div>
-                    );
-                  })}
-                  {snap.queues.rows.every((q) => q.value <= q.warnAbove) && (
-                    <p className="text-sm text-emerald-600 flex items-center gap-1.5 pt-1"><CheckCircle2 className="h-4 w-4" /> Nothing backing up.</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Last backup — nothing had EVER read back from the DR bucket. A
-              backup nobody verifies is a backup you find out about at restore
-              time, which is the worst possible moment. */}
-          {isOperator && (
-          <Card id="backup" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Last database backup</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.backup.status} error={snap.backup.error} unconfiguredHint="DR bucket not configured." />
-              {snap.backup.status === "ok" && snap.backup.info && (
-                <div className="space-y-1">
-                  <div className={`text-xl font-bold ${snap.backup.info.stale ? "text-red-600" : "text-emerald-600"}`}>
-                    {snap.backup.info.ageHours == null ? "—" : `${snap.backup.info.ageHours.toFixed(1)}h ago`}
-                  </div>
-                  {snap.backup.info.stale && (
-                    <p className="text-sm text-red-600 flex items-start gap-1.5">
-                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                      Stale. The dump cron may have stopped — check it on the box before you need it.
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground break-all">
-                    s3://{snap.backup.info.bucket}/{snap.backup.info.latestKey}
-                  </p>
-                  {snap.backup.info.latestAt && (
-                    <p className="text-xs text-muted-foreground">{fmtTime(snap.backup.info.latestAt)}</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
           {/* Product heartbeat — everything else on this page measures the MACHINE.
               None of it would notice that the box is green, the worker is
               ticking, CPU is 4% — and nobody has been able to register for
               eleven hours because a Stripe key expired. */}
-          <Card id="heartbeat" className="lg:col-span-2 scroll-mt-4">
+          <Card id="heartbeat" className="scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-primary" /> Product heartbeat
@@ -581,7 +530,7 @@ export default function InfraPage() {
               broken; only a shape tells you whether this is normal. A cliff at
               14:00 is a deploy. A rising ramp is a leak. A spike at 02:00 is a
               cron. */}
-          <Card id="trend" className="lg:col-span-2 scroll-mt-4">
+          <Card id="trend" className="scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-primary" /> Error rate — last 24h
@@ -640,18 +589,42 @@ export default function InfraPage() {
             </CardContent>
           </Card>
 
-          {/* Traffic. Sits beside the error rate because they are the two
-              halves of one question: how much came in, and how much of it
-              failed. Loads from its own endpoint rather than the shared
-              snapshot: hundreds of hourly buckets would bloat every poll of
-              this page, and it refreshes hourly rather than every 60s. */}
-          {isOperator && <TrafficCard />}
+          {/* Short status cards, three-up */}
+          {isOperator && (
+          <div className="grid gap-4 md:grid-cols-3">
+          {/* Last backup — nothing had EVER read back from the DR bucket. A
+              backup nobody verifies is a backup you find out about at restore
+              time, which is the worst possible moment. */}
+          <Card id="backup" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Last database backup</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.backup.status} error={snap.backup.error} unconfiguredHint="DR bucket not configured." />
+              {snap.backup.status === "ok" && snap.backup.info && (
+                <div className="space-y-1">
+                  <div className={`text-xl font-bold ${snap.backup.info.stale ? "text-red-600" : "text-emerald-600"}`}>
+                    {snap.backup.info.ageHours == null ? "—" : `${snap.backup.info.ageHours.toFixed(1)}h ago`}
+                  </div>
+                  {snap.backup.info.stale && (
+                    <p className="text-sm text-red-600 flex items-start gap-1.5">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      Stale. The dump cron may have stopped — check it on the box before you need it.
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground break-all">
+                    s3://{snap.backup.info.bucket}/{snap.backup.info.latestKey}
+                  </p>
+                  {snap.backup.info.latestAt && (
+                    <p className="text-xs text-muted-foreground">{fmtTime(snap.backup.info.latestAt)}</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Disaster recovery — all THREE streams, not just the database. A
               restore needs the dump AND the uploads AND the .env. Checking only
               one lets you believe you are covered while another has been dead
               for a month — which you would discover mid-restore. */}
-          {isOperator && (
           <Card id="dr" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Disaster recovery</CardTitle></CardHeader>
             <CardContent>
@@ -673,25 +646,55 @@ export default function InfraPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Alarms */}
+          <Card id="alarms" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BellRing className="h-4 w-4 text-primary" /> Alarms</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.alarms.status} error={snap.alarms.error} unconfiguredHint="No alarms configured." />
+              {snap.alarms.status === "ok" && (snap.alarms.inAlarm.length === 0 ? (
+                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> All clear — nothing in ALARM.</p>
+              ) : (
+                <div className="space-y-2">
+                  {snap.alarms.inAlarm.map((a) => (
+                    <div key={a.name} className="rounded border border-red-200 bg-red-50 p-2 text-sm">
+                      <div className="font-medium text-red-700">{a.name}</div>
+                      <div className="text-xs text-red-600">{a.metric}{a.since ? ` · since ${fmtTime(a.since)}` : ""}</div>
+                      {a.reason && <div className="text-xs text-muted-foreground mt-0.5">{a.reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          </div>
           )}
 
-          {/* Uploads storage — the S3 bucket behind /uploads (Sep 7, 2026). Two
-              counts on purpose: our own listing is exact and immediate, S3's
-              storage metrics are free but a day behind. */}
-          {isOperator && (
-          <Card id="uploads" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><HardDrive className="h-4 w-4 text-primary" /> Uploads storage</CardTitle></CardHeader>
+          <div className="grid gap-4 md:grid-cols-3">
+          {/* Queues — "is work piling up?" You could always see that a job ran.
+              You could never see that it was falling behind. */}
+          <Card id="queues" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Queues</CardTitle></CardHeader>
             <CardContent>
-              <StatusNote status={snap.uploads.status} error={snap.uploads.error} unconfiguredHint="Uploads are on the local disk (STORAGE_PROVIDER is not s3), so there is no bucket to read." />
-              {snap.uploads.status === "ok" && snap.uploads.info && (
-                <UploadsStorageBody
-                  u={snap.uploads.info}
-                  mirror={snap.dr.status === "ok" ? snap.dr.rows.find((r) => r.prefix === "uploads/") ?? null : null}
-                />
+              <StatusNote status={snap.queues.status} error={snap.queues.error} unconfiguredHint="No queue data." />
+              {snap.queues.status === "ok" && (
+                <div className="space-y-1.5">
+                  {snap.queues.rows.map((q) => {
+                    const bad = q.value > q.warnAbove;
+                    return (
+                      <div key={q.label} className="flex items-center justify-between gap-2 text-sm" title={q.hint}>
+                        <span className={bad ? "font-medium" : "text-muted-foreground"}>{q.label}</span>
+                        <span className={`font-mono ${bad ? "text-red-600 font-bold" : "text-muted-foreground"}`}>{q.value}</span>
+                      </div>
+                    );
+                  })}
+                  {snap.queues.rows.every((q) => q.value <= q.warnAbove) && (
+                    <p className="text-sm text-emerald-600 flex items-center gap-1.5 pt-1"><CheckCircle2 className="h-4 w-4" /> Nothing backing up.</p>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
-          )}
 
           {/* Abuse / auth — the only place a brute-force attempt or a client stuck
               in a retry loop would ever surface on this page. */}
@@ -712,9 +715,144 @@ export default function InfraPage() {
             </CardContent>
           </Card>
 
+          {/* Email failures */}
+          <Card id="email-failures" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
+              {snap.emailFailures.status === "ok" && (snap.emailFailures.rows.length === 0 ? (
+                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No send failures in the last 7 days.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {snap.emailFailures.rows.map((e, i) => (
+                    <div key={i} className="text-sm border-b pb-1.5 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium truncate">{e.to}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{ago(e.at)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{e.subject}</div>
+                      {e.error && <div className="text-xs text-red-600 truncate">{e.error}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          </div>
+
+          {/* Medium cards, two-up */}
+          {isOperator && (
+          <div className="grid gap-4 lg:grid-cols-2">
+          {/* Host metrics */}
+          <Card id="metrics" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> Host metrics</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.metrics.status} error={snap.metrics.error} unconfiguredHint="Instance metrics unavailable (no instance id / not on EC2)." />
+              {snap.metrics.status === "ok" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    {snap.metrics.values.map((m) => {
+                      const tone = metricTone(m.label, m.value);
+                      return (
+                        <div key={m.label} className={`rounded border p-3 ${tone ? "border-current/30" : ""}`}>
+                          <div className="text-xs text-muted-foreground">{m.label}</div>
+                          {/* A number nobody can judge is not a metric, it is decoration.
+                              Colour it by what it MEANS. */}
+                          <div className={`text-xl font-bold tabular-nums ${tone}`}>
+                            {num(m.value, 1)}
+                            <span className="text-sm font-normal text-muted-foreground">{m.unit}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {snap.metrics.instanceId && <p className="text-xs text-muted-foreground mt-2">{snap.metrics.instanceId}</p>}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Email / SES */}
+          <Card id="ses" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> Email (SES)</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.ses.status} error={snap.ses.error} unconfiguredHint="SES not configured." />
+              {snap.ses.status === "ok" && snap.ses.info && (
+                <div className="space-y-2 text-sm">
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${snap.ses.info.sendingEnabled ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      {snap.ses.info.sendingEnabled ? "Sending enabled" : "Sending DISABLED"}
+                    </span>
+                    {snap.ses.info.sandbox && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Sandbox mode</span>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <span className="text-muted-foreground">24h quota</span>
+                    <span>{num(snap.ses.info.sentLast24Hours)} / {num(snap.ses.info.max24Hour)}</span>
+                    <span className="text-muted-foreground">Max rate</span>
+                    <span>{num(snap.ses.info.maxSendRate, 1)}/s</span>
+                    <span className="text-muted-foreground">Bounce rate</span>
+                    <span className={snap.ses.info.bounceRate != null && snap.ses.info.bounceRate > 0.05 ? "text-red-600 font-medium" : ""}>{snap.ses.info.bounceRate == null ? "—" : `${(snap.ses.info.bounceRate * 100).toFixed(2)}%`}</span>
+                    <span className="text-muted-foreground">Complaint rate</span>
+                    <span className={snap.ses.info.complaintRate != null && snap.ses.info.complaintRate > 0.001 ? "text-red-600 font-medium" : ""}>{snap.ses.info.complaintRate == null ? "—" : `${(snap.ses.info.complaintRate * 100).toFixed(3)}%`}</span>
+                    <span className="text-muted-foreground">24h send / bounce / complaint</span>
+                    <span>{num(snap.ses.info.send24h)} / {num(snap.ses.info.bounce24h)} / {num(snap.ses.info.complaint24h)}</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          </div>
+          )}
+
+          {isOperator && (
+          <div className="grid gap-4 lg:grid-cols-2">
+          {/* Uploads storage — the S3 bucket behind /uploads (Sep 7, 2026). Two
+              counts on purpose: our own listing is exact and immediate, S3's
+              storage metrics are free but a day behind. */}
+          <Card id="uploads" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><HardDrive className="h-4 w-4 text-primary" /> Uploads storage</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.uploads.status} error={snap.uploads.error} unconfiguredHint="Uploads are on the local disk (STORAGE_PROVIDER is not s3), so there is no bucket to read." />
+              {snap.uploads.status === "ok" && snap.uploads.info && (
+                <UploadsStorageBody
+                  u={snap.uploads.info}
+                  mirror={snap.dr.status === "ok" ? snap.dr.rows.find((r) => r.prefix === "uploads/") ?? null : null}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Deploys */}
+          <Card id="deploys" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Rocket className="h-4 w-4 text-primary" /> Deploys</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.deploys.status} error={snap.deploys.error} unconfiguredHint="Set GITHUB_OPS_TOKEN (read-only Actions) to show GitHub deploy runs." />
+              {snap.deploys.status === "ok" && (
+                <div className="space-y-1.5">
+                  {snap.deploys.runs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No recent runs.</p>
+                  ) : snap.deploys.runs.map((r, i) => {
+                    const state = r.status !== "completed" ? r.status : (r.conclusion || "");
+                    const color = state === "success" ? "text-emerald-600" : state === "failure" ? "text-red-600" : state === "cancelled" ? "text-muted-foreground" : "text-amber-600";
+                    return (
+                      <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-2 py-1 hover:bg-muted/40 rounded px-1 text-sm">
+                        <span className="truncate flex-1">{r.title}</span>
+                        <span className={`text-xs font-medium ${color} whitespace-nowrap`}>{state}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtTime(r.createdAt)}</span>
+                        <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          </div>
+          )}
+
           {/* Cron / Jobs — full width */}
           {isOperator && (
-          <Card id="jobs" className="lg:col-span-2 scroll-mt-4">
+          <Card id="jobs" className="scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Timer className="h-4 w-4 text-primary" /> Cron / Jobs
@@ -761,146 +899,15 @@ export default function InfraPage() {
           </Card>
           )}
 
-          {/* Alarms */}
-          {isOperator && (
-          <Card id="alarms" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BellRing className="h-4 w-4 text-primary" /> Alarms</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.alarms.status} error={snap.alarms.error} unconfiguredHint="No alarms configured." />
-              {snap.alarms.status === "ok" && (snap.alarms.inAlarm.length === 0 ? (
-                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> All clear — nothing in ALARM.</p>
-              ) : (
-                <div className="space-y-2">
-                  {snap.alarms.inAlarm.map((a) => (
-                    <div key={a.name} className="rounded border border-red-200 bg-red-50 p-2 text-sm">
-                      <div className="font-medium text-red-700">{a.name}</div>
-                      <div className="text-xs text-red-600">{a.metric}{a.since ? ` · since ${fmtTime(a.since)}` : ""}</div>
-                      {a.reason && <div className="text-xs text-muted-foreground mt-0.5">{a.reason}</div>}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Host metrics */}
-          {isOperator && (
-          <Card id="metrics" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> Host metrics</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.metrics.status} error={snap.metrics.error} unconfiguredHint="Instance metrics unavailable (no instance id / not on EC2)." />
-              {snap.metrics.status === "ok" && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    {snap.metrics.values.map((m) => {
-                      const tone = metricTone(m.label, m.value);
-                      return (
-                        <div key={m.label} className={`rounded border p-3 ${tone ? "border-current/30" : ""}`}>
-                          <div className="text-xs text-muted-foreground">{m.label}</div>
-                          {/* A number nobody can judge is not a metric, it is decoration.
-                              Colour it by what it MEANS. */}
-                          <div className={`text-xl font-bold tabular-nums ${tone}`}>
-                            {num(m.value, 1)}
-                            <span className="text-sm font-normal text-muted-foreground">{m.unit}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {snap.metrics.instanceId && <p className="text-xs text-muted-foreground mt-2">{snap.metrics.instanceId}</p>}
-                </>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Email / SES */}
-          {isOperator && (
-          <Card id="ses" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> Email (SES)</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.ses.status} error={snap.ses.error} unconfiguredHint="SES not configured." />
-              {snap.ses.status === "ok" && snap.ses.info && (
-                <div className="space-y-2 text-sm">
-                  <div className="flex flex-wrap gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${snap.ses.info.sendingEnabled ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                      {snap.ses.info.sendingEnabled ? "Sending enabled" : "Sending DISABLED"}
-                    </span>
-                    {snap.ses.info.sandbox && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Sandbox mode</span>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                    <span className="text-muted-foreground">24h quota</span>
-                    <span>{num(snap.ses.info.sentLast24Hours)} / {num(snap.ses.info.max24Hour)}</span>
-                    <span className="text-muted-foreground">Max rate</span>
-                    <span>{num(snap.ses.info.maxSendRate, 1)}/s</span>
-                    <span className="text-muted-foreground">Bounce rate</span>
-                    <span className={snap.ses.info.bounceRate != null && snap.ses.info.bounceRate > 0.05 ? "text-red-600 font-medium" : ""}>{snap.ses.info.bounceRate == null ? "—" : `${(snap.ses.info.bounceRate * 100).toFixed(2)}%`}</span>
-                    <span className="text-muted-foreground">Complaint rate</span>
-                    <span className={snap.ses.info.complaintRate != null && snap.ses.info.complaintRate > 0.001 ? "text-red-600 font-medium" : ""}>{snap.ses.info.complaintRate == null ? "—" : `${(snap.ses.info.complaintRate * 100).toFixed(3)}%`}</span>
-                    <span className="text-muted-foreground">24h send / bounce / complaint</span>
-                    <span>{num(snap.ses.info.send24h)} / {num(snap.ses.info.bounce24h)} / {num(snap.ses.info.complaint24h)}</span>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Deploys */}
-          {isOperator && (
-          <Card id="deploys" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Rocket className="h-4 w-4 text-primary" /> Deploys</CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.deploys.status} error={snap.deploys.error} unconfiguredHint="Set GITHUB_OPS_TOKEN (read-only Actions) to show GitHub deploy runs." />
-              {snap.deploys.status === "ok" && (
-                <div className="space-y-1.5">
-                  {snap.deploys.runs.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No recent runs.</p>
-                  ) : snap.deploys.runs.map((r, i) => {
-                    const state = r.status !== "completed" ? r.status : (r.conclusion || "");
-                    const color = state === "success" ? "text-emerald-600" : state === "failure" ? "text-red-600" : state === "cancelled" ? "text-muted-foreground" : "text-amber-600";
-                    return (
-                      <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-2 py-1 hover:bg-muted/40 rounded px-1 text-sm">
-                        <span className="truncate flex-1">{r.title}</span>
-                        <span className={`text-xs font-medium ${color} whitespace-nowrap`}>{state}</span>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtTime(r.createdAt)}</span>
-                        <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                      </a>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Email failures */}
-          <Card id="email-failures" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
-            <CardContent>
-              <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
-              {snap.emailFailures.status === "ok" && (snap.emailFailures.rows.length === 0 ? (
-                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No send failures in the last 7 days.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {snap.emailFailures.rows.map((e, i) => (
-                    <div key={i} className="text-sm border-b pb-1.5 last:border-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium truncate">{e.to}</span>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">{ago(e.at)}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">{e.subject}</div>
-                      {e.error && <div className="text-xs text-red-600 truncate">{e.error}</div>}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          {/* Traffic. Sits beside the error rate because they are the two
+              halves of one question: how much came in, and how much of it
+              failed. Loads from its own endpoint rather than the shared
+              snapshot: hundreds of hourly buckets would bloat every poll of
+              this page, and it refreshes hourly rather than every 60s. */}
+          {isOperator && <TrafficCard />}
 
           {/* Recent errors — full width */}
-          <Card className="lg:col-span-2">
+          <Card id="errors" className="scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <ScrollText className="h-4 w-4 text-primary" /> Recent errors &amp; warnings
