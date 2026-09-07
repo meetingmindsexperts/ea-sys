@@ -29,16 +29,31 @@ line() { # ip, ts, request, status, referer, ua
   printf '%s - - [%s] "%s" %s 100 "%s" "%s"\n' "$1" "$2" "$3" "$4" "$5" "$6"
 }
 
+# THE SUITE THAT EXPIRED. The snapshot script keeps NGINX_TRAFFIC_DAYS (16) of
+# history back from the REAL clock. These fixtures used to be dated
+# 20/Aug/2026, so on 5 Sep 2026 08:00 UTC the parser started discarding every
+# fixture line as pre-cutoff and two cases failed on every machine, CI
+# included, with no code change anywhere. A fixture pinned to the calendar is
+# a test with a built-in expiry. The fixture day is now "two days ago",
+# computed the same GNU/BSD-portable way the script computes its cutoff.
+days_ago() {
+  if date -u -d "1 day ago" >/dev/null 2>&1; then LC_ALL=C date -u -d "$1 days ago" +"$2"
+  else LC_ALL=C date -u -v-"$1"d +"$2"; fi
+}
+FIX_DAY="$(days_ago 2 '%d/%b/%Y')"      # nginx timestamp form, e.g. 05/Sep/2026
+FIX_KEY="$(days_ago 2 '%Y-%m-%dT08')"   # the hour bucket those lines land in
+OLD_KEY="$(days_ago 30 '%Y-%m-%dT10')"  # older than the 16-day window, inside the 400-day archive
+
 FIX="$TMP/access.log"
 : > "$FIX"
-line 1.1.1.1 "20/Aug/2026:08:00:00 +0000" "GET /health HTTP/1.1"              200 "-" "Amazon-Route53-Health-Check-Service" >> "$FIX"
-line 2.2.2.2 "20/Aug/2026:08:10:00 +0000" "GET /e/x/register HTTP/1.1"        200 "https://www.linkedin.com/feed/" "Mozilla/5.0 Chrome/120" >> "$FIX"
-line 2.2.2.2 "20/Aug/2026:08:11:00 +0000" "GET /_next/static/a.js HTTP/1.1"   200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
-line 3.3.3.3 "20/Aug/2026:08:12:00 +0000" "POST /api/public/x HTTP/1.1"       500 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
-line 4.4.4.4 "20/Aug/2026:08:13:00 +0000" "GET /e/x/agenda HTTP/1.1"          404 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$FIX"
+line 1.1.1.1 "$FIX_DAY:08:00:00 +0000" "GET /health HTTP/1.1"              200 "-" "Amazon-Route53-Health-Check-Service" >> "$FIX"
+line 2.2.2.2 "$FIX_DAY:08:10:00 +0000" "GET /e/x/register HTTP/1.1"        200 "https://www.linkedin.com/feed/" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 2.2.2.2 "$FIX_DAY:08:11:00 +0000" "GET /_next/static/a.js HTTP/1.1"   200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 3.3.3.3 "$FIX_DAY:08:12:00 +0000" "POST /api/public/x HTTP/1.1"       500 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 4.4.4.4 "$FIX_DAY:08:13:00 +0000" "GET /e/x/agenda HTTP/1.1"          404 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$FIX"
 line 5.5.5.5 "01/Jan/2020:08:00:00 +0000" "GET /e/ancient HTTP/1.1"           200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
-line 6.6.6.6 "20/Aug/2026:08:14:00 +0000" "GET /dashboard HTTP/1.1"           200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
-line 7.7.7.7 "20/Aug/2026:08:15:00 +0000" "GET /e/shared HTTP/1.1"            200 "-" "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" >> "$FIX"
+line 6.6.6.6 "$FIX_DAY:08:14:00 +0000" "GET /dashboard HTTP/1.1"           200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 7.7.7.7 "$FIX_DAY:08:15:00 +0000" "GET /e/shared HTTP/1.1"            200 "-" "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" >> "$FIX"
 
 echo "nginx-traffic.awk"
 
@@ -76,7 +91,7 @@ is "top referrers keeps a real host"        "linkedin.com" \
 
 # An internal referrer is our own navigation, not acquisition.
 INT="$TMP/internal.log"
-line 6.6.6.6 "20/Aug/2026:09:00:00 +0000" "GET /e/y HTTP/1.1" 200 "https://events.meetingmindsgroup.com/e/x" "Mozilla/5.0 Chrome/120" > "$INT"
+line 6.6.6.6 "$FIX_DAY:09:00:00 +0000" "GET /e/y HTTP/1.1" 200 "https://events.meetingmindsgroup.com/e/x" "Mozilla/5.0 Chrome/120" > "$INT"
 is "internal referrer is not acquisition"   0     "$(awk -f "$AWK_PROG" -v cutoff=2026-08-01T00 "$INT" | grep -c '^#R')"
 
 # THE line that matters. A quote inside the request shifts every field after
@@ -103,18 +118,18 @@ run_snap() {
 
 # Seed the archive with three cases the merge has to get right.
 {
-  printf '#B\t2026-07-01T10\t999\t0\t999\t0\t0\t0\t999\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
+  printf '#B\t%s\t999\t0\t999\t0\t0\t0\t999\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n' "$OLD_KEY"
   printf '#B\t2020-01-01T10\t555\t0\t555\t0\t0\t0\t555\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
-  printf '#B\t2026-08-20T08\t111111\t0\t1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
+  printf '#B\t%s\t111111\t0\t1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n' "$FIX_KEY"
 } > "$TMP/archive.tsv"
 
 run_snap
 JQ() { node -e "const d=require('$TMP/out.json');$1"; }
 
 is "output is valid JSON"                   "ok"  "$(node -e "require('$TMP/out.json');console.log('ok')" 2>/dev/null || echo parse-error)"
-is "pre-window archive history is KEPT"     999   "$(JQ "console.log((d.buckets.find(b=>b.h==='2026-07-01T10')||{}).total)")"
+is "pre-window archive history is KEPT"     999   "$(JQ "console.log((d.buckets.find(b=>b.h==='$OLD_KEY')||{}).total)")"
 is "beyond-horizon history is dropped"      undefined "$(JQ "console.log((d.buckets.find(b=>b.h==='2020-01-01T10')||{}).total)")"
-is "fresh parse SUPERSEDES a stale bucket"  7     "$(JQ "console.log((d.buckets.find(b=>b.h==='2026-08-20T08')||{}).total)")"
+is "fresh parse SUPERSEDES a stale bucket"  7     "$(JQ "console.log((d.buckets.find(b=>b.h==='$FIX_KEY')||{}).total)")"
 is "buckets are sorted ascending"           "true" "$(JQ "console.log(d.buckets.every((b,i,a)=>i===0||a[i-1].h<=b.h))")"
 is "no bucket is double counted"            "true" "$(JQ "console.log(new Set(d.buckets.map(b=>b.h)).size===d.buckets.length)")"
 
@@ -147,20 +162,20 @@ mk_case() { mkdir -p "$TMP/$1"; }
 mk_case direct
 i=1
 while [ "$i" -le 5 ]; do
-  line "1.1.1.$i" "20/Aug/2026:08:00:00 +0000" "GET /e/event-$i HTTP/1.1" 200 "-" "Mozilla/5.0 Chrome/120"
+  line "1.1.1.$i" "$FIX_DAY:08:00:00 +0000" "GET /e/event-$i HTTP/1.1" 200 "-" "Mozilla/5.0 Chrome/120"
   i=$((i+1))
 done > "$TMP/direct/access.log"
 
 # 2. No human page views at all: bots and health checks only.
 mk_case botsonly
-line 1.1.1.1 "20/Aug/2026:08:00:00 +0000" "GET /health HTTP/1.1"   200 "-" "Amazon-Route53-Health-Check-Service" >  "$TMP/botsonly/access.log"
-line 2.2.2.2 "20/Aug/2026:08:01:00 +0000" "GET /e/x HTTP/1.1"      200 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$TMP/botsonly/access.log"
+line 1.1.1.1 "$FIX_DAY:08:00:00 +0000" "GET /health HTTP/1.1"   200 "-" "Amazon-Route53-Health-Check-Service" >  "$TMP/botsonly/access.log"
+line 2.2.2.2 "$FIX_DAY:08:01:00 +0000" "GET /e/x HTTP/1.1"      200 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$TMP/botsonly/access.log"
 
 # 3. More distinct paths than the cap, so truncation is actually exercised.
 mk_case many
 i=1
 while [ "$i" -le 40 ]; do
-  line "1.1.1.$i" "20/Aug/2026:08:00:00 +0000" "GET /e/event-$i/register HTTP/1.1" 200 "https://ref-$i.example.com/" "Mozilla/5.0 Chrome/120"
+  line "1.1.1.$i" "$FIX_DAY:08:00:00 +0000" "GET /e/event-$i/register HTTP/1.1" 200 "https://ref-$i.example.com/" "Mozilla/5.0 Chrome/120"
   i=$((i+1))
 done > "$TMP/many/access.log"
 
