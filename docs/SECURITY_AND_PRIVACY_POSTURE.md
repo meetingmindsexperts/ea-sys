@@ -60,7 +60,7 @@ Everything below is accurate as it stands.
 |---|---|---|
 | Application server (web + background worker) | **Mumbai, India** (`ap-south-1`) | AWS EC2 |
 | Primary database (all registration, speaker, session, financial data, and since August 2026 the MM Group staff attendance and leave records of the HR module) | **Mumbai, India** | Supabase (managed PostgreSQL on AWS) |
-| Uploaded files (photos, badges, documents, certificates) | **Mumbai, India** — on the application server's own disk | AWS EBS |
+| Uploaded files (photos, badges, documents, certificates) | **Mumbai, India** — a private S3 bucket, versioned, encrypted with a customer-managed KMS key (since 2026-09-07). The application server's encrypted disk keeps a frozen copy of the files that existed before the move | AWS S3 |
 | Database backups + file copies (disaster recovery) | **Singapore** (`ap-southeast-1`) | AWS S3 |
 | Application logs | **Mumbai** | AWS CloudWatch |
 | Transactional email | **Mumbai** | AWS SES |
@@ -72,7 +72,7 @@ Everything below is accurate as it stands.
 
 **Cross-border transfers to disclose explicitly:**
 
-- **Singapore** — hourly database dumps and an hourly copy of all uploaded files, for disaster recovery. Encrypted, private, 30-day retention on database dumps.
+- **Singapore** — hourly database dumps and an hourly copy of all uploaded files (bucket to bucket since 2026-09-07), for disaster recovery. Encrypted, private, 30-day retention on database dumps.
 - **EU** — a copy of the organisation-wide *contact* record (name, email, phone, employer, job title, city, country, specialty, event names attended) is mirrored to a marketing database. This is an internal MM Group system, not a third party, but it is a genuine cross-border transfer of attendee personal data and should be declared.
 - **United States** — payment data (Stripe), webinar participation (Zoom), and any text sent to the optional AI assistant features.
 
@@ -81,7 +81,7 @@ Everything below is accurate as it stands.
 - **AWS UAE (`me-central-1`) is not an option today.** AWS has declared it unable to reliably support customer applications and is advising customers to migrate out, with a multi-month recovery estimate (see §0). We attempted to provision there and declined on that basis.
 - **AWS Bahrain (`me-south-1`) does not satisfy UAE residency** — it is a different country. It would also sit roughly 500km away in the same theatre as whatever damaged the UAE region, so it buys a weaker claim alongside correlated risk.
 - **The database cannot move to the Middle East at all.** Our managed PostgreSQL provider (Supabase) offers 16 regions and none is in the Middle East, so in-country hosting of registration data would additionally mean replacing the database platform.
-- **What is prepared:** the application's file storage has been rebuilt so that the storage location is a configuration value rather than a code change. Moving uploaded documents into a UAE bucket, once the region is healthy, is a bucket and two settings rather than a migration project.
+- **What is prepared:** the application's file storage is a configuration value rather than a code change, and since 2026-09-07 the files live in an S3 bucket in Mumbai rather than on the server's disk. Moving them into a UAE bucket, once the region is healthy, is a new bucket, a new key and one run of the same migration script.
 - **A non-AWS UAE provider** (Azure UAE North, Oracle Dubai) is technically possible and would be a scoped project.
 
 ---
@@ -171,7 +171,7 @@ Zoom, which encrypts its own traffic.
 |---|---|---|
 | Primary database | **Yes** | Supabase encrypts storage at rest (AES-256) |
 | Disaster-recovery backups (Singapore) | **Yes** | S3 server-side encryption with a **customer-managed KMS key**; bucket has all four public-access blocks enabled; verified 2026-08-18 |
-| **Uploaded files on the server** | **Yes** (since 2026-08-21) | EC2 root volume encrypted with AES-256, AWS-managed KMS key — see §0.2 and MAINT-001. The rollback copies were deleted 2026-09-04; no unencrypted volume or snapshot remains |
+| **Uploaded files** | **Yes** | Since 2026-09-07 in S3: server-side encryption under a **customer-managed KMS key**, object versioning on, all four public-access blocks on, no bucket policy. The files that existed before the move also remain on the server's disk, which is itself encrypted (AES-256, AWS-managed key, since 2026-08-21; the plaintext rollback copies were deleted 2026-09-04) |
 | Passwords | **Yes, one-way** | bcrypt, cost factor 10 — never recoverable, not merely encrypted |
 | API keys and access tokens | **Yes, one-way** | SHA-256 hashed; the plaintext is shown once at creation and never stored |
 | Stored third-party credentials (Zoom, Stripe, EventsAir, AI keys) | **Yes** | AES-256-GCM application-level encryption, key derived from the application secret |
@@ -180,7 +180,7 @@ Zoom, which encrypts its own traffic.
 **Remediating §0.2 — there are now two routes, and they are independent:**
 
 1. ✅ **DONE 2026-08-21. Encrypt the EBS volume.** AWS cannot encrypt a volume in place: it requires a snapshot, a new volume and a swap, so the instance must be stopped. **It took 7 minutes 45 seconds, not the 30 to 60 estimated here** — because enabling default EBS encryption first (step 0 below) removes the separate encrypted-copy pass, and a warm-up snapshot taken while the server was still running moved the bulk of the copying out of the downtime window entirely. The public IP survives (an Elastic IP is attached) and the original volume was retained through a one-week bake period as the rollback, then deleted on 2026-09-04 together with its snapshots once an encrypted snapshot of the new volume existed. **Independently, enabling default EBS encryption on the account is free, instant and zero-downtime** — it does not touch the running volume, but every future volume and snapshot is encrypted, and it is the account setting an assessor checks.
-2. **Move uploaded files off the volume into S3** with a customer-managed KMS key. As of 2026-08-19 the application code for this is written, tested and deployed, sitting behind a single configuration value; what remains is creating the bucket. This also adds object versioning (a deleted document becomes recoverable, which it is not today) and removes the single-volume dependency for the one class of data that cannot be regenerated.
+2. ✅ **DONE 2026-09-07. Move uploaded files off the volume into S3** with a customer-managed KMS key. No downtime: the 536 existing files were copied and verified byte for byte (path and size, independently of the migration script) before the provider was switched, and the switch itself was a 22-second blue-green redeploy. What it added beyond encryption: object versioning (a deleted document is now recoverable), a key whose policy names exactly who may decrypt these files, and a server that no longer holds the only copy of anything. The disaster-recovery mirror to Singapore now reads from the bucket rather than the disk. The pre-move files stay on the encrypted disk as a fallback, and switching back is one setting plus a redeploy.
 
 Route 2 addresses the specific concern — passport scans and bank documents — and is lower risk because it needs no downtime. Route 1 addresses the whole disk. **Doing both is the complete answer**, and neither blocks the other.
 
@@ -343,7 +343,7 @@ If EHS asks what will change and by when, this is a defensible sequence, listed 
 
 0. ✅ **DONE 2026-08-20. Enable default EBS encryption on the account.** Free, instant, no downtime. It did not fix the volume that already existed (item 3 did that), but every future volume and snapshot is now encrypted, in both the primary and disaster-recovery regions. This is the account setting an assessor checks.
 1. **Require TLS on the database connection** (§3, open item 1). One configuration value plus a redeploy. No downtime, no code change, and it converts "encrypted in practice" into "encryption enforced". **This is now the cheapest remaining item.**
-2. **Move uploaded documents to encrypted object storage** (§3, route 2). The code is already written, tested and deployed; what remains is creating the bucket and changing a setting. No downtime. This is the route that specifically covers passport scans and bank details, and it adds recoverability of a deleted document.
+2. ✅ **DONE 2026-09-07. Move uploaded documents to encrypted object storage** (§3, route 2). Bucket, key and permissions created in the morning, files copied and verified, provider switched with a 22-second redeploy, no downtime. Landed before the first passport scan or bank document was ever collected, which is the order that matters.
 3. ✅ **DONE 2026-08-21. Encrypt the server disk** (§0.2, route 1). Removes the last "no" on encryption at rest. Took **7 minutes 45 seconds** of planned downtime; see MAINT-001 for the method that made it that short.
 4. **Settle the live-stream position** (§3, open item 2). Either enable the encrypted variant of the protocol, or leave the feature off until a live event actually needs it. Configuration only, and it currently affects no production event.
 5. **Enable multi-factor authentication** for administrative accounts (§0.3).

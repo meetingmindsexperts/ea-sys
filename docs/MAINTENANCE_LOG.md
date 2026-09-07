@@ -18,6 +18,48 @@ appears to work.
 
 ---
 
+## MAINT-002 — Moving uploaded files from the server disk to S3
+
+| | |
+|---|---|
+| **Date** | 2026-09-07, 06:20 to 06:50 UTC (Monday morning, no live event) |
+| **Downtime** | None. The provider switch rode an ordinary blue-green redeploy (~22 s) |
+| **What changed** | `public/uploads` (536 files, 67.5 MB) now lives in the private bucket `ea-sys-uploads` (ap-south-1), versioned, encrypted under the customer-managed key `alias/ea-sys-uploads`. The app reads and writes it through `STORAGE_PROVIDER=s3`. Stored paths in the database did not change. The disk keeps a frozen copy of the pre-move files |
+| **Rollback** | `sudo aws s3 sync s3://ea-sys-uploads/ /home/ubuntu/ea-sys/public/uploads/`, then `STORAGE_PROVIDER=local` + `deploy.sh`. Still open, deliberately, for as long as the disk exists |
+
+### What was done, in order
+
+1. KMS key `alias/ea-sys-uploads` (symmetric, single-Region, customer-managed; the instance role granted Encrypt/Decrypt/GenerateDataKey in the key policy; rotation left off).
+2. Bucket `ea-sys-uploads`: all four public-access blocks, versioning, SSE-KMS default under that key, Object Lock off, no bucket policy. Bucket Key left off by mistake; cost-only, still off.
+3. Inline policy `UploadsS3Storage` on `ea-sys-mumbai-ec2-role` (object read/write/delete, bucket list, the four KMS actions on that key only).
+4. Probe from the box through the role: write, read back, delete. Landed as `aws:kms` under our key without the caller asking for encryption, which is the property that makes the bucket safe: encryption is not a parameter a caller can forget.
+5. `.env`: `S3_UPLOADS_BUCKET`, `S3_UPLOADS_REGION`; provider still `local`.
+6. Migration from inside the worker container: dry run, `--write`, `--verify`. Then an independent check that did not trust the script: SHA-256 over the sorted path-and-size list of the disk versus the bucket, identical, 535 files + `photos/.gitkeep`, 70,755,395 bytes.
+7. `STORAGE_PROVIDER=s3`, `deploy.sh`, post-deploy `--write` sweep (copied 0).
+8. DR mirror cron re-pointed from the disk to the bucket (see "What the plan got wrong").
+
+### Verified after
+
+- Both live containers carry the three variables; the web tier logged `storage:s3-client-initialised` on the first request after the flip.
+- A real photo URL: 200, `image/jpeg`, 60,731 bytes, the S3 object's exact size.
+- Private prefixes (`reimbursements`, `speaker-docs`, `resident-letters`) still 403; a missing public file 404, not 500.
+- `/health` and `/worker/health` 200; zero `storage` lines in the error log.
+- Crontab: zero disk-sourced mirror lines, one bucket-sourced; a `--dryrun` of the new line under the role exited 0.
+
+### What the plan got wrong, and what it teaches
+
+- **The DR mirror.** The plan said the hourly Singapore sync "keeps working because it reads local disk". After the flip the provider writes to S3 only, so the disk freezes and the disk-sourced mirror would have re-synced a frozen folder every hour, heartbeat included, while every new upload had one copy. Caught because the owner asked "what happens to the Singapore backup once we move" before the flip. The lesson is the shape, not the line: **a monitoring signal attached to a stale source keeps reporting success**, and a plan reviewed for correctness was not stressed against the question "what does this sentence assume".
+- **`docker exec` and `.env`.** A running container does not see lines added to `.env` after it started; compose injects the file at start and does not mount it. The pre-cutover script runs needed explicit `-e` flags. Recorded in the plan's Phase 3.
+- **The count.** `find` said 537, the script said 536; the difference was `public/uploads/.gitkeep`. Reconciled before writing rather than assumed.
+
+### Outstanding
+
+- [ ] **First bucket-sourced mirror run** at 07:00 UTC: log shows copies, heartbeat timestamp moves. (Recorded below when observed.)
+- [ ] **Bucket Key** on `ea-sys-uploads`: enable (Properties → Default encryption). Cost only.
+- [ ] **A second encrypted snapshot of the root volume** next week, now that the disk holds nothing irreplaceable; then one every few weeks is plenty.
+- [ ] **Platform silo:** born on its own bucket and key, with `{orgId}`-prefixed keys injected from the tenant context. Not on master.
+- [ ] **UAE (`me-central-1`)** when the region recovers: new bucket, new key, same script.
+
 ## MAINT-001 — Encrypting the EC2 root volume
 
 **Date:** 2026-08-21

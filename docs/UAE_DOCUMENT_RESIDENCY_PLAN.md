@@ -28,8 +28,9 @@
 >
 > See section 10 for what to do instead.
 
-**Status:** Repointed to `ap-south-1`. Code complete (Phases 1 to 3), bucket not
-yet created.
+**Status:** LIVE in `ap-south-1` since **2026-09-07** (every phase done; see
+MAINTENANCE_LOG.md MAINT-002 for the as-executed record). The UAE north star
+below stands; reaching it is now a new bucket, a new key and one migration run.
 **Date:** 2026-08-19
 **North star:** every uploaded file lives in AWS `me-central-1` (UAE). Unreachable
 until the region recovers.
@@ -389,8 +390,15 @@ mutation-verified (a test that cannot fail is not load-bearing).
 
 ### Phase 3 — Migrate the existing 515 files
 
-**Status: script written (Aug 19, 2026), not yet run.** Blocked on the bucket
-existing.
+**Status: DONE (Sep 7, 2026).** By then the count had grown from 515 to 536
+files (67.5 MB); dry run, `--write` and `--verify` all clean, and an independent
+path-and-size hash of the disk against the bucket matched exactly. **Gotcha the
+first run hit:** `docker exec` into a RUNNING container does not see lines added
+to `.env` after it started (compose injects the file at container start; it is
+not mounted, and the script's own dotenv load finds no `/app/.env`). Pre-cutover
+runs therefore pass the values explicitly:
+`docker exec -e S3_UPLOADS_BUCKET=… -e S3_UPLOADS_REGION=… ea-sys-worker npx tsx …`.
+After the flip redeploy the containers carry them and the flags are unnecessary.
 
 ```bash
 docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts            # dry run
@@ -417,13 +425,19 @@ itself.
 
 ### Phase 4 — Cutover
 
-Set `STORAGE_PROVIDER=s3` on the box and redeploy via `scripts/deploy.sh`.
+**Status: DONE (Sep 7, 2026, ~06:43 UTC).** `STORAGE_PROVIDER=s3` set in `.env`,
+`scripts/deploy.sh` (blue-green, ~22 s, no downtime), post-deploy `--write` sweep
+copied nothing, a real photo URL served the S3 object's exact byte count, private
+prefixes still 403, missing public file 404, zero storage errors, and the DR
+mirror re-pointed at the bucket (step 6b in section 5).
 
-**Rollback is flipping the variable back**, because the local files are still
-there. Files uploaded during S3 mode would not be on local disk, so during a
-one-week bake period a nightly S3-to-local pull keeps rollback whole. After the
-bake, stop the pull, stop syncing `uploads/` to Singapore, and remove the local
-copies.
+**Rollback is the reverse sync plus flipping the variable back** (section 5,
+"Rollback"). The paragraph that used to sit here planned a nightly S3-to-local
+pull during a bake period and then *removing the local copies*. Both are struck:
+the local copies are never removed (the standing rule from the outage question),
+and the on-demand reverse sync is enough for a rollback that is expected to be
+rare. The Singapore mirror is not stopped either; its source moved from the disk
+to the bucket, which is what keeps post-cutover files off-site.
 
 ---
 
