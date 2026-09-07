@@ -153,15 +153,28 @@ log warehouse. Steps, all in the console unless noted:
    **SSE-S3** (access logs carry request metadata, not file bytes, and the log
    delivery service cannot be relied on to write to an SSE-KMS destination).
 2. Lifecycle rule on that bucket: transition to Glacier Deep Archive after 90
-   days, **no expiry**. Logs are archived, never deleted.
+   days, **no expiry**. Logs are archived, never deleted. One thing to know
+   about that rule: S3 applies a default minimum object size of 128 KB to
+   transitions, and an access-log object is usually a few KB, so the rule
+   leaves most log files in Standard. That is the cheaper outcome anyway. The
+   Glacier classes bill about 40 KB of index overhead per object, so archiving
+   a 3 KB file costs roughly three times what keeping it in Standard does. The
+   warehouse job should compact a day's logs into one gzipped object, which is
+   then large enough to archive for real.
 3. On `ea-sys-uploads` → Properties → Server access logging → Enable: destination
    `s3://ea-sys-uploads-logs/uploads-access/`, log object key format
    **date-based partitioning, event time**. The console adds the bucket policy
    that lets `logging.s3.amazonaws.com` write; enabling it from the CLI does not.
+   As configured on Sep 7, 2026 the key format is the **simple prefix**
+   (`uploads-access/2026-09-07-10-15-00-<id>`). The card reads both formats.
+   Switch to date partitioning from the same screen before the warehouse job is
+   built; partitioned keys (`.../2026/09/07/...`) are what Athena wants.
 4. Attach the `EaSysUploadsRead` policy above (its second statement lists the log
    bucket).
 
-Delivery is best-effort with a lag of up to a few hours. The card reads only
+All four steps were completed on Sep 7, 2026 (verified read-only: logging on,
+destination in ap-south-1, SSE-S3, Block Public Access on, delivery policy
+present, lifecycle rule enabled). Delivery is best-effort with a lag of up to a few hours. The card reads only
 today's and yesterday's folders, so a bucket that keeps logs forever never makes
 the page slower. The digest warns when a day passes with requests served and no
 log delivered.
