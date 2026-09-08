@@ -342,11 +342,33 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
       makeDetailParams("evt-1", "tt-1")
     );
     expect(res.status).toBe(200);
+    // The limit is written INSIDE the locked recount transaction, together with
+    // the recounted soldCount, never by the later update (review H1: two
+    // statements left a window where waiting claims slipped in under the old
+    // limit before the new one landed).
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt-1", eventId: "evt-1" },
+      data: { soldCount: 0, quantity: 100 },
+    });
     expect(mockDb.ticketType.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ quantity: 100 }),
-      })
+      expect.objectContaining({ data: expect.not.objectContaining({ quantity: expect.anything() }) })
     );
+    // the row lock is taken BEFORE the count, and it is a FOR UPDATE lock
+    const lockOrder = mockDb.$queryRaw.mock.invocationCallOrder[0];
+    const countOrder = mockDb.registration.count.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(countOrder);
+    const lockSql = (mockDb.$queryRaw.mock.calls[0][0] as readonly string[]).join("?");
+    expect(lockSql).toMatch(/FROM "TicketType" WHERE "id" = \? FOR UPDATE/);
+    // the count is the one shared held-seat predicate, bound to the event
+    expect(mockDb.registration.count).toHaveBeenCalledWith({
+      where: {
+        eventId: "evt-1",
+        ticketTypeId: "tt-1",
+        status: { not: "CANCELLED" },
+        attendanceMode: "IN_PERSON",
+        OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+      },
+    });
   });
 
   it("rejects a seat limit below soldCount with 400 + warn log", async () => {
@@ -420,8 +442,23 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     expect(ok.status).toBe(200);
     expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
       where: { id: "tt-1", eventId: "evt-1" },
-      data: { soldCount: 107 },
+      data: { soldCount: 107, quantity: 120 },
     });
+  });
+
+  it("a duplicate name is refused BEFORE the recount runs (a 409 leaves no half-applied write)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst
+      .mockResolvedValueOnce({ ...sampleTicketType, name: "Delegate" }) // existing
+      .mockResolvedValueOnce({ id: "tt-9" }); // another type already has the new name
+    const res = await UpdateTicket(
+      makeRequest("PUT", { name: "Physician", quantity: 40 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(res.status).toBe(409);
+    expect(mockDb.$queryRaw).not.toHaveBeenCalled();
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
   });
 
   it("rejects a zero/negative seat limit", async () => {

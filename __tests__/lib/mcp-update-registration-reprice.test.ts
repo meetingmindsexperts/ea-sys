@@ -7,11 +7,14 @@
  * reprice on type+tier and bare type change, and the unpaid / promo guards.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims } from "../helpers/raw-seat-sql";
 
 const { mockDb } = vi.hoisted(() => {
   const tx = {
     ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
     pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
+    // Guarded seat claims are raw statements (one per counter).
+    $executeRaw: vi.fn(async () => 1),
     registration: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: vi.fn(),
@@ -103,7 +106,7 @@ describe("MCP update_registration — re-tier / reprice parity", () => {
     expect(captured()).toMatchObject({ pricingTierId: NEW_TIER, originalPrice: 500 });
   });
 
-  it("PUBLIC_REGISTER re-tier moves between TIER counters (releases old, claims new)", async () => {
+  it("PUBLIC_REGISTER re-tier moves between TIER counters only (releases old, claims new, type untouched)", async () => {
     mockDb.registration.findFirst.mockResolvedValue(existing());
     await update({ registrationId: "reg1", pricingTierId: NEW_TIER, expectedUpdatedAt: "2026-07-07T10:00:00.000Z" }, ctx);
     // release the OLD tier counter (guarded decrement)
@@ -111,22 +114,14 @@ describe("MCP update_registration — re-tier / reprice parity", () => {
       where: { id: OLD_TIER, soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
-    // claim the NEW tier counter (atomic capacity-guarded increment via claimSeats:
-    // `soldCount <= quantity - 1` — same guard as the old `lt: quantity` shape)
-    expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
-      where: { id: NEW_TIER, soldCount: { lte: 99 } },
-      data: { soldCount: { increment: 1 } },
-    });
-    // The ticket type is the ceiling over its tiers (Sep 8, 2026): the seat
-    // leaves it with the old tier and comes back with the new one, net zero.
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: OLD_TYPE, soldCount: { gte: 1 } },
-      data: { soldCount: { decrement: 1 } },
-    });
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: OLD_TYPE, soldCount: { lte: 99 } },
-      data: { soldCount: { increment: 1 } },
-    });
+    // claim the NEW tier counter: one guarded raw statement
+    expect(rawClaims(mockDb._tx.$executeRaw, "PricingTier")).toEqual([{ id: NEW_TIER, count: 1 }]);
+    // The ticket type is the ceiling over its tiers (Sep 8, 2026), but a move
+    // between two tiers of the SAME type leaves its total alone. Releasing and
+    // re-claiming it would be refused on an over-full type, freezing exactly
+    // the re-tiering an organiser needs (review M3).
+    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([]);
   });
 
   it("type + tier change validates the tier against the NEW type + reprices", async () => {

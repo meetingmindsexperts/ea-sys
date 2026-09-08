@@ -11,6 +11,42 @@ import type { Prisma } from "@prisma/client";
 import { planSeatTransition, type SeatCounter, type SeatState } from "./registration-seat";
 
 /**
+ * Row-truth mirror of `holdsSeat()` + `seatCounter()`: a registration holds a
+ * seat under its ticket type when it is not cancelled, attending in person,
+ * and not a speaker companion (companions are created uncapped and live on no
+ * counter). The explicit OR keeps null `createdSource` rows IN, because Prisma
+ * `not` excludes nulls. ONE definition, spread by every recount (the event-cap
+ * PUT, the ticket-type PUT); the migration and scripts/reconcile-soldcounts.ts
+ * restate it in SQL / via the helpers and a test pins the three predicates.
+ */
+export const HELD_SEAT_WHERE = {
+  status: { not: "CANCELLED" },
+  attendanceMode: "IN_PERSON",
+  OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+} as const satisfies Prisma.RegistrationWhereInput;
+
+/**
+ * Lock order, and why it is the parent first. A tier claim or release touches
+ * TWO rows, the tier and its ticket type. Every path that moves seats takes
+ * them in the order TYPE then TIER: a same-type re-tier (release tier A, claim
+ * tier B) and a public purchase of tier B then both wait on the type row
+ * before touching any tier, so neither can hold a tier the other needs. With
+ * the reverse order the two form a cycle and Postgres kills one of them, which
+ * a registrant sees as an error page.
+ */
+export interface SeatApplyOptions {
+  /**
+   * Move the tier counter only, leave the ticket type alone. Used for exactly
+   * one case: a registration moving between two tiers of the SAME type, where
+   * the type's total does not change. Releasing then re-claiming the type there
+   * would be refused whenever the type already sits at or over its limit, which
+   * would freeze re-tiering on precisely the over-full type an organiser is
+   * trying to tidy.
+   */
+  tierOnly?: boolean;
+}
+
+/**
  * Release a seat — guarded decrement that can NEVER take a counter below 0
  * (the `soldCount > 0` predicate). This is the fix for the "leaks down →
  * negative → oversell" half of the bug.
@@ -19,6 +55,7 @@ export async function releaseSeats(
   tx: Prisma.TransactionClient,
   counter: SeatCounter,
   count: number,
+  opts: SeatApplyOptions = {},
 ): Promise<void> {
   if (count <= 0) return;
   // `soldCount >= count` so a counter can never drop below 0.
@@ -29,13 +66,13 @@ export async function releaseSeats(
       where: { id: counter.id },
       select: { ticketTypeId: true },
     });
-    await tx.pricingTier.updateMany({ where: guarded(counter.id), data });
-    // The parent type counted this seat too (it is the ceiling over every
-    // tier, see the header), so it gives the seat back as well. A tier row
-    // that no longer exists has no parent to release on.
-    if (tier?.ticketTypeId) {
+    // Parent first (lock order, see the header). The type counted this seat
+    // too, it is the ceiling over every tier, so it gives the seat back as
+    // well. A tier row that no longer exists has no parent to release on.
+    if (tier?.ticketTypeId && !opts.tierOnly) {
       await tx.ticketType.updateMany({ where: guarded(tier.ticketTypeId), data });
     }
+    await tx.pricingTier.updateMany({ where: guarded(counter.id), data });
     return;
   }
   await tx.ticketType.updateMany({ where: guarded(counter.id), data });
@@ -44,78 +81,97 @@ export async function releaseSeats(
 export async function releaseSeat(
   tx: Prisma.TransactionClient,
   counter: SeatCounter,
+  opts: SeatApplyOptions = {},
 ): Promise<void> {
-  return releaseSeats(tx, counter, 1);
+  return releaseSeats(tx, counter, 1, opts);
 }
 
 /**
  * Claim N seats — atomic capacity-guarded increment on the correct counter.
  * Returns false when the claim doesn't fit (or the counter is missing) so the
- * caller can map it to CAPACITY_EXCEEDED. All-or-nothing: `soldCount <=
- * quantity - count` ensures soldCount + count never exceeds the cap even under
- * a concurrent claim; quantity is read first (inside the caller's tx) because
- * Prisma `updateMany` can't compare two columns in `where`.
+ * caller can map it to CAPACITY_EXCEEDED.
+ *
+ * The guard and the write are ONE statement: `soldCount + N <= quantity`
+ * compared in SQL (Prisma `updateMany` cannot compare two columns, so this is
+ * raw, the same shape as `claimEventSeats`). Reading `quantity` first and then
+ * writing `soldCount <= quantity - N` looked equivalent and was not: a claim
+ * that blocked on an organiser's limit change re-checked its WHERE against the
+ * new row but with the OLD quantity baked into the literal, and was admitted
+ * above the limit that had just been set.
  */
 export async function claimSeats(
   tx: Prisma.TransactionClient,
   counter: SeatCounter,
   count: number,
+  opts: SeatApplyOptions = {},
 ): Promise<boolean> {
   if (count <= 0) return true;
   if (counter.kind === "tier") {
     const tier = await tx.pricingTier.findUnique({
       where: { id: counter.id },
-      select: { quantity: true, ticketTypeId: true },
+      select: { ticketTypeId: true },
     });
     // A tier without a parent type cannot exist (NOT NULL FK). Refusing here
     // rather than skipping the ceiling keeps a malformed row from selling
     // past the type's limit; it can never fire on real data.
     if (!tier || !tier.ticketTypeId) return false;
-    const onTier = await tx.pricingTier.updateMany({
-      where: { id: counter.id, soldCount: { lte: tier.quantity - count } },
-      data: { soldCount: { increment: count } },
-    });
-    if (onTier.count === 0) return false;
-    // The ceiling (owner decision Sep 8, 2026): a tier sale must ALSO fit
-    // under its ticket type's limit, which spans every tier plus staff adds.
-    // Before this, an organiser's "35 seats" on the type was never read by
-    // the public form when the type had tiers, and 107 people registered.
-    if (await claimTypeSeats(tx, tier.ticketTypeId, count)) return true;
-    // Give the tier increment back. Every caller aborts its transaction on a
-    // false return, which would undo it anyway; doing it here means the two
-    // counters cannot disagree even for a caller that does not.
-    await tx.pricingTier.updateMany({
-      where: { id: counter.id, soldCount: { gte: count } },
+    if (opts.tierOnly) return claimTierRows(tx, counter.id, count);
+    // Parent first (lock order, see the header). The ceiling (owner decision
+    // Sep 8, 2026): a tier sale must ALSO fit under its ticket type's limit,
+    // which spans every tier plus staff adds. Before this, an organiser's "35
+    // seats" on the type was never read by the public form when the type had
+    // tiers, and 107 people registered.
+    if (!(await claimTypeRows(tx, tier.ticketTypeId, count))) return false;
+    if (await claimTierRows(tx, counter.id, count)) return true;
+    // The tier refused: give the type's seats back. Every caller aborts its
+    // transaction on a false return, which would undo it anyway; doing it
+    // here means the two counters cannot disagree even for a caller that
+    // does not.
+    await tx.ticketType.updateMany({
+      where: { id: tier.ticketTypeId, soldCount: { gte: count } },
       data: { soldCount: { decrement: count } },
     });
     return false;
   }
-  return claimTypeSeats(tx, counter.id, count);
+  return claimTypeRows(tx, counter.id, count);
 }
 
-/** Guarded claim on a ticket type: `soldCount + count` never exceeds `quantity`. */
-async function claimTypeSeats(
+/** Guarded claim on a ticket type, one statement: `soldCount + N <= quantity`. */
+async function claimTypeRows(
   tx: Prisma.TransactionClient,
   ticketTypeId: string,
   count: number,
 ): Promise<boolean> {
-  const ticket = await tx.ticketType.findUnique({
-    where: { id: ticketTypeId },
-    select: { quantity: true },
-  });
-  if (!ticket) return false;
-  const res = await tx.ticketType.updateMany({
-    where: { id: ticketTypeId, soldCount: { lte: ticket.quantity - count } },
-    data: { soldCount: { increment: count } },
-  });
-  return res.count > 0;
+  const affected = await tx.$executeRaw`
+    UPDATE "TicketType"
+    SET "soldCount" = "soldCount" + ${count}
+    WHERE "id" = ${ticketTypeId}
+      AND "soldCount" + ${count} <= "quantity"
+  `;
+  return affected > 0;
+}
+
+/** Guarded claim on a pricing tier, one statement: `soldCount + N <= quantity`. */
+async function claimTierRows(
+  tx: Prisma.TransactionClient,
+  tierId: string,
+  count: number,
+): Promise<boolean> {
+  const affected = await tx.$executeRaw`
+    UPDATE "PricingTier"
+    SET "soldCount" = "soldCount" + ${count}
+    WHERE "id" = ${tierId}
+      AND "soldCount" + ${count} <= "quantity"
+  `;
+  return affected > 0;
 }
 
 export async function claimSeat(
   tx: Prisma.TransactionClient,
   counter: SeatCounter,
+  opts: SeatApplyOptions = {},
 ): Promise<boolean> {
-  return claimSeats(tx, counter, 1);
+  return claimSeats(tx, counter, 1, opts);
 }
 
 /**
@@ -226,19 +282,21 @@ export async function claimSeatsOverselling(
       where: { id: counter.id },
       select: { quantity: true, soldCount: true, name: true, ticketTypeId: true },
     });
-    await tx.pricingTier.updateMany({
-      where: { id: counter.id },
-      data: { soldCount: { increment: count } },
-    });
-    if (!tier) return none;
-    // The parent type (the ceiling) counts the seat too, unguarded like the
-    // tier: bulk paths proceed and report, they do not partial-fail.
+    // Same refusal as claimSeats: a tier with no parent cannot exist, and an
+    // `updateMany` keyed on an undefined id would be unfiltered.
+    if (!tier || !tier.ticketTypeId) return none;
+    // Parent first (lock order). The type (the ceiling) counts the seat too,
+    // unguarded like the tier: bulk paths proceed and report, never partial-fail.
     const type = await tx.ticketType.findUnique({
       where: { id: tier.ticketTypeId },
       select: { quantity: true, soldCount: true, name: true },
     });
     await tx.ticketType.updateMany({
       where: { id: tier.ticketTypeId },
+      data: { soldCount: { increment: count } },
+    });
+    await tx.pricingTier.updateMany({
+      where: { id: counter.id },
       data: { soldCount: { increment: count } },
     });
     const tierOver = tier.soldCount + count > tier.quantity;
@@ -376,9 +434,16 @@ export async function applyRegistrationTransition(
   input: RegistrationTransitionInput,
 ): Promise<void> {
   const seat = planSeatTransition(input.prev, input.next);
-  if (seat.release) await releaseSeat(tx, seat.release);
+  // A move between two tiers of the SAME type leaves the type's total as it
+  // is, so only the tier counters move (see SeatApplyOptions.tierOnly).
+  const tierOnly =
+    seat.release?.kind === "tier" &&
+    seat.claim?.kind === "tier" &&
+    !!input.prev.ticketTypeId &&
+    input.prev.ticketTypeId === input.next.ticketTypeId;
+  if (seat.release) await releaseSeat(tx, seat.release, { tierOnly });
   if (seat.claim) {
-    const claimed = await claimSeat(tx, seat.claim);
+    const claimed = await claimSeat(tx, seat.claim, { tierOnly });
     if (!claimed) throw new Error("CAPACITY_EXCEEDED");
   }
   // Event-wide cap: single-path transitions hard-block when reactivating into a

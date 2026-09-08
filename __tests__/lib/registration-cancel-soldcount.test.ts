@@ -116,19 +116,30 @@ describe("bulk_update_registration_status — soldCount on cancel", () => {
     expect(mockDb._tx.pricingTier.updateMany).not.toHaveBeenCalled();
   });
 
-  it("cancelling a PUBLIC+TIER reg releases the TIER counter, never the ticket type (P1.1)", async () => {
+  it("cancelling a PUBLIC+TIER reg releases the TIER counter AND its ticket type, the ceiling (Sep 8, 2026)", async () => {
     mockDb.registration.findMany.mockResolvedValue([
       row({ id: "r1", status: "CONFIRMED", ticketTypeId: "tt1", pricingTierId: "pt1", createdSource: "PUBLIC_REGISTER" }),
     ]);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+    // A realistic tier row: the applier reads its parent to release the
+    // ceiling too. (This test used to pass with an undefined tier, which
+    // silently took the fail-closed branch and pinned the pre-ceiling rule.)
+    mockDb._tx.pricingTier.findUnique.mockResolvedValue({ ticketTypeId: "tt1" });
 
     await bulk({ registrationIds: ["r1"], status: "CANCELLED" }, ctx);
 
+    // type first (lock order), then the tier
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt1", soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
+    });
     expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
       where: { id: "pt1", soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
-    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
+    const typeOrder = mockDb._tx.ticketType.updateMany.mock.invocationCallOrder[0];
+    const tierOrder = mockDb._tx.pricingTier.updateMany.mock.invocationCallOrder[0];
+    expect(typeOrder).toBeLessThan(tierOrder);
   });
 
   it("re-acquires the counter when reactivating cancelled rows", async () => {

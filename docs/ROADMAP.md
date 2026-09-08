@@ -3309,17 +3309,19 @@ Worked example — Physician type (cap 100) with an Early Bird tier (cap 30):
 v1 = type + tier seat limits settable from the Registration Types page (empty =
 unlimited 999999 sentinel), sold/limit display, and the opt-in public "N seats
 left" (gated by the now-wired **Show Remaining Tickets** toggle, default OFF).
-Owner decisions locked: independent counters (tier caps public sign-ups; type
-caps admin/desk adds + tier-less types — NO dual-count), no data repair, dormant
-Maximum Attendees/Waitlist settings left as-is. Consciously deferred:
+Owner decisions locked at the time: independent counters (tier caps public
+sign-ups; type caps admin/desk adds + tier-less types — NO dual-count), no data
+repair, dormant Maximum Attendees/Waitlist settings left as-is. **The
+independent-counters decision was REVERSED Sep 8, 2026** (the type limit is the
+ceiling over its tiers; see the struck row below). Consciously deferred:
 
 | Item | Note |
 |---|---|
 | ~~**Event-level total cap (Option B)**~~ ✅ **SHIPPED July 24, 2026** (commit `0b4be2f4` + review fixes) | `Event.maxAttendees` column + `Event.seatCount` counter; raw conditional-UPDATE claim; recompute-on-set under FOR UPDATE; hard-blocks public/single paths (`EVENT_FULL`), imports/bulk bypass with warn; HYBRID stays open for virtual; +10 real-Postgres tests. Adversarial review: HIGH-1 (bulk cross-event grouping) + MED-1 (CSV cancelled-row phantom seat, also closed old M6) fixed same day. **Review LOWs deferred:** L1 oversell-report race (log-accuracy only), L2 cap-tx commits before the main event update (matches the accepted split-PUT posture), L3 the recompute tx is a new `db.$transaction` site for the Phase-2 `tenantTransaction` sweep, L4 theoretical predicate footnote (PUBLIC_REGISTER row with tier but null ticketTypeId — no write path produces it). |
 | **Waitlist** | "Enable Waitlist" toggle + `WAITLISTED` enum still advertise behavior that doesn't exist (no model/promote logic — Near-Term item 19). Owner: leave for now. |
-| ~~**True total-across-tiers cap**~~ ✅ **SHIPPED Sep 8, 2026** | Trigger: OOPVF2026, a 35-seat "Delegate" type that sold 107 through an unlimited Standard tier. The type's seat limit is now the hard ceiling over all of its tiers plus staff adds; tier limits are sub-caps. Enforced inside the shared seat appliers (a tier claim/release also moves the type), `TicketType.soldCount` counts every seat under the type (one-time recount migration `20260908100000`, reconcile script updated), the ticket-type PUT recounts from the rows under a row lock when a limit is set, public availability = min(tier, type) with a `seatLimited` flag. Imports and bulk reactivation still bypass with a warning. |
+| ~~**True total-across-tiers cap**~~ ✅ **SHIPPED Sep 8, 2026** | Trigger: OOPVF2026, a 35-seat "Delegate" type that sold 107 through an unlimited Standard tier. The type's seat limit is now the hard ceiling over all of its tiers plus staff adds; tier limits are sub-caps. Enforced inside the shared seat appliers (a tier claim/release also moves the type), `TicketType.soldCount` counts every seat under the type (one-time recount migration `20260908100000`, reconcile script updated), the ticket-type PUT recounts from the rows under a row lock when a limit is set, public availability = min(tier, type) with a `seatLimited` flag. Bulk reactivation still bypasses with a warning; **imports are refused at a type limit** (409, unlike the event-wide cap) pending an owner call. Post-deploy: run `docker exec ea-sys-worker npx tsx scripts/reconcile-soldcounts.ts --write` once if a registration landed in the blue-green window (prod checked Sep 8: zero drift). Adversarial review same day: H1 (limit written outside the locked recount), M1 (tier→type lock order deadlock), M2 (stale-quantity guard), M3 (same-type re-tier refused when over limit) all fixed in-band. |
 | **MCP `create_ticket_type`/`update_*` quantity param** | MCP tools don't expose `quantity` yet — agents can't set seat limits (dashboard-only, like prices). Add if asked. |
-| **Legacy-row reconciliation (MED-1)** | `reconcile-soldcounts.ts --write` still held; pre-June-5 public+tier rows have `createdSource = NULL`. Re-run the dry-run before applying a limit to any pre-June-29 event. |
+| **Legacy-row reconciliation (MED-1)** | `reconcile-soldcounts.ts --write` still held; pre-June-5 public+tier rows have `createdSource = NULL`. Re-run the dry-run before relying on a TIER limit (the type counter now recounts itself whenever a type limit is set) to any pre-June-29 event. |
 | **Admin-create ignores tier counters** | Deliberate (courtesy seats don't burn paid Early Bird inventory) — documented in `registration-service.ts` + both dialog helper texts. "Registrations by Tier" tile (row counts) stays the authoritative per-tier report. |
 
 ### Charge-to-another-account follow-ups (v1.1 — shipped v1 May 19, 2026)

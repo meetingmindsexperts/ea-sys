@@ -23,7 +23,7 @@ const { mockDb, mockApiLogger, mockTenantTransaction } = vi.hoisted(() => ({
     registration: { findFirst: vi.fn() },
   },
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-  mockTenantTransaction: vi.fn(async () => {
+  mockTenantTransaction: vi.fn<(fn: (t: unknown) => unknown) => Promise<unknown>>(async () => {
     throw new Error("__REACHED_TRANSACTION__");
   }),
 }));
@@ -63,6 +63,7 @@ vi.mock("@/lib/registration-seat-db", () => ({
 vi.mock("@/lib/registration-confirmation", () => ({ buildEventConfirmationFields: () => ({}) }));
 
 import { POST } from "@/app/api/public/events/[slug]/register/route";
+import { claimSeats } from "@/lib/registration-seat-db";
 
 const params = Promise.resolve({ slug: "oopvf" });
 
@@ -113,19 +114,11 @@ async function run(typeSoldCount: number, tierSoldCount = typeSoldCount) {
     salesEnd: null,
     isActive: true,
   });
-  let status: number | undefined;
-  let body: { error?: string } | undefined;
-  let reachedTransaction = false;
-  try {
-    const res = await POST(request(), { params });
-    status = res.status;
-    body = await res.json();
-  } catch (err) {
-    if ((err as Error).message === "__REACHED_TRANSACTION__") reachedTransaction = true;
-    else throw err;
-  }
-  if (status === 500) reachedTransaction = true;
-  return { status, error: body?.error, reachedTransaction };
+  const res = await POST(request(), { params });
+  const body = (await res.json()) as { error?: string };
+  // The route catches the sentinel and answers 500; "reached the transaction"
+  // is read from the mock itself, never inferred from a status code.
+  return { status: res.status, error: body.error, reachedTransaction: mockTenantTransaction.mock.calls.length > 0 };
 }
 
 beforeEach(() => {
@@ -174,6 +167,34 @@ describe("public register — the type limit is the ceiling over an unlimited ti
     expect(r.reachedTransaction).toBe(true);
     expect(mockApiLogger.warn).not.toHaveBeenCalledWith(
       expect.objectContaining({ msg: "public/register:sold-out" }),
+    );
+  });
+});
+
+describe("public register — the authoritative claim inside the transaction", () => {
+  /**
+   * The early check above is advisory. The claim that actually holds the seat
+   * runs inside the transaction through the shared `claimSeats`, with the TIER
+   * counter for a tier sale (the applier expands it to tier + type). A refused
+   * claim throws SOLD_OUT, which the route maps to 400 "Tickets sold out".
+   */
+  function fakeTx() {
+    return {
+      registration: { findFirst: vi.fn(async () => null) },
+      attendee: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({ id: "att-1" })) },
+    };
+  }
+
+  it("claims through claimSeats with the tier counter, and a refused claim is 400 Tickets sold out", async () => {
+    const tx = fakeTx();
+    mockTenantTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    vi.mocked(claimSeats).mockResolvedValueOnce(false);
+    const r = await run(10); // early check passes (10 < 35)
+    expect(vi.mocked(claimSeats)).toHaveBeenCalledWith(tx, { kind: "tier", id: "pt-standard" }, 1);
+    expect(r.status).toBe(400);
+    expect(r.error).toBe("Tickets sold out");
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "public/register:business-rejection", code: "SOLD_OUT" }),
     );
   });
 });

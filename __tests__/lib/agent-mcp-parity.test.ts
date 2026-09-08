@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 // ── Mocks (hoisted so the mock module is registered before imports resolve) ──
 
@@ -24,6 +25,9 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
       attendee: { create: vi.fn() },
       speaker: { findFirst: vi.fn(), create: vi.fn() },
       auditLog: { create: vi.fn() },
+      // Guarded seat claims + the event-cap claim are raw statements; the tx
+      // proxy forwards here so tests can assert on / refuse them per table.
+      $executeRaw: vi.fn(async () => 1),
       // $transaction receives a callback — invoke it with a tx proxy that
       // points at the same mock methods. Phase 2c moves the duplicate
       // check inside the tx (previously done pre-tx in the MCP executor),
@@ -39,9 +43,7 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
             findFirst: (...args: unknown[]) => (mockDb.registration.findFirst as (...a: unknown[]) => unknown)(...args),
             create: (...args: unknown[]) => (mockDb.registration.create as (...a: unknown[]) => unknown)(...args),
           },
-          // Event-wide cap (Option B): claimEventSeats raw conditional UPDATE —
-          // 1 affected row = not full.
-          $executeRaw: vi.fn(async () => 1),
+          $executeRaw: (...args: unknown[]) => (mockDb.$executeRaw as (...a: unknown[]) => unknown)(...args),
         });
       }),
     },
@@ -138,6 +140,7 @@ beforeEach(() => {
   // columns), then does the guarded increment.
   mockDb.ticketType.findUnique.mockResolvedValue({ quantity: paidTicket.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.$executeRaw.mockImplementation(seatRawExecutor());
   // Service uses include: { attendee: true, ticketType: true } on
   // registration.create, so the mock must return both relations.
   mockDb.registration.create.mockResolvedValue({
@@ -266,14 +269,11 @@ describe("MCP create_registration — REST parity", () => {
     // concurrent claim. MCP_AGENT is not a tier-consuming source, so the claim
     // lands on the ticket type (see registration-service.test.ts for the
     // routing matrix).
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lte: paidTicket.quantity - 1 } },
-      data: { soldCount: { increment: 1 } },
-    });
+    expect(rawClaims(mockDb.$executeRaw, "TicketType")).toEqual([{ id: "tt-1", count: 1 }]);
   });
 
-  it("returns a user-visible SOLD_OUT error when updateMany matches zero rows (race)", async () => {
-    mockDb.ticketType.updateMany.mockResolvedValue({ count: 0 });
+  it("returns a user-visible SOLD_OUT error when the guarded claim matches zero rows (race)", async () => {
+    mockDb.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
     const result = await REGISTRATION_EXECUTORS.create_registration(baseInput, CTX) as { error?: string };
     expect(result.error).toMatch(/sold out/i);
   });

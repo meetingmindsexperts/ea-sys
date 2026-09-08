@@ -52,8 +52,11 @@ function makeTx(over: Partial<Record<string, unknown>> = {}) {
         return Promise.resolve({ count: 1 } as Counter);
       }),
     },
-    $executeRaw: vi.fn().mockImplementation(() => {
-      calls.push("evt-claim");
+    // Every guarded claim is ONE raw statement (seat counters since Sep 8,
+    // 2026, the event cap before that); label by the table it names.
+    $executeRaw: vi.fn().mockImplementation((strings: readonly string[]) => {
+      const sql = strings.join("?");
+      calls.push(sql.includes('"TicketType"') ? "tt-claim" : sql.includes('"PricingTier"') ? "tier-claim" : "evt-claim");
       return Promise.resolve(1);
     }),
     ...over,
@@ -156,11 +159,11 @@ describe("applyRegistrationTransition", () => {
   });
 
   it("throws CAPACITY_EXCEEDED when the claim can't be satisfied", async () => {
+    // The guarded UPDATE on the ticket type affects 0 rows (at capacity);
+    // the event-cap statement would still pass, but is never reached.
     const tx = makeTx({
-      ticketType: {
-        findUnique: vi.fn().mockResolvedValue({ quantity: 1 }),
-        updateMany: vi.fn().mockResolvedValue({ count: 0 }), // at capacity
-      },
+      $executeRaw: vi.fn().mockImplementation((strings: readonly string[]) =>
+        Promise.resolve(strings.join("?").includes('"TicketType"') ? 0 : 1)),
     });
     await expect(
       apply(tx, { prev: state({ status: "CANCELLED" }), next: state({ status: "CONFIRMED" }) }),
@@ -195,7 +198,9 @@ describe("applyRegistrationTransition", () => {
 
   it("throws EVENT_FULL when the event-wide claim can't be satisfied (single-path hard block)", async () => {
     const tx = makeTx({
-      $executeRaw: vi.fn().mockResolvedValue(0), // event at maxAttendees
+      // The ticket-type claim fits; only the event-cap statement affects 0 rows.
+      $executeRaw: vi.fn().mockImplementation((strings: readonly string[]) =>
+        Promise.resolve(strings.join("?").includes('"Event"') ? 0 : 1)),
     });
     await expect(
       apply(tx, { prev: state({ status: "CANCELLED" }), next: state({ status: "CONFIRMED" }) }),
@@ -325,21 +330,20 @@ describe("releasePromoUsage / claimPromoUsage (guarded bulk promo accounting)", 
 
 describe("claimSeats / claimSeatsOverselling (bulk seat claims)", () => {
   function seatTx(quantity: number, soldCount: number, kind: "tier" | "ticketType" = "ticketType") {
-    const row = { quantity, soldCount, name: "Standard" };
+    const row = { quantity, soldCount, name: "Standard", ticketTypeId: "tt1" };
     const model = {
       findUnique: vi.fn().mockResolvedValue(row),
-      updateMany: vi.fn().mockImplementation((a: { where: { soldCount?: { lte: number } } }) => {
-        if (a.where.soldCount !== undefined && row.soldCount > a.where.soldCount.lte) {
-          return Promise.resolve({ count: 0 });
-        }
-        return Promise.resolve({ count: 1 });
-      }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     };
+    // The guarded claim is one raw statement: simulate `soldCount + n <= quantity`.
+    const $executeRaw = vi.fn().mockImplementation((_s: readonly string[], count: number) =>
+      Promise.resolve(row.soldCount + count <= row.quantity ? 1 : 0));
     const tx = {
+      $executeRaw,
       ticketType: kind === "ticketType" ? model : { findUnique: vi.fn(), updateMany: vi.fn() },
       pricingTier: kind === "tier" ? model : { findUnique: vi.fn(), updateMany: vi.fn() },
     } as unknown as Parameters<typeof claimSeats>[0];
-    return { tx, model };
+    return { tx, model, $executeRaw };
   }
 
   it("claimSeats is all-or-nothing: fits → true, doesn't fit → false (no partial claim)", async () => {
@@ -355,7 +359,7 @@ describe("claimSeats / claimSeatsOverselling (bulk seat claims)", () => {
     expect(await claimSeats(missing.tx, { kind: "tier", id: "gone" }, 1)).toBe(false);
     const p = seatTx(10, 0);
     expect(await claimSeats(p.tx, { kind: "ticketType", id: "tt1" }, 0)).toBe(true);
-    expect(p.model.updateMany).not.toHaveBeenCalled();
+    expect(p.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("claimSeatsOverselling increments UNGUARDED and reports the oversell for the caller to log", async () => {

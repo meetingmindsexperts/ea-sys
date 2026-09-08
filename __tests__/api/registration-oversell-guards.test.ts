@@ -6,6 +6,7 @@
  * nothing), never a silent oversell.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
   const tx = {
@@ -73,37 +74,35 @@ describe("bulk-type — soldCount oversell guard", () => {
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 2 });
     mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
-    // claimSeats re-reads quantity INSIDE the tx (safer than the pre-tx read
-    // the route used before the shared-helper consolidation).
-    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100 });
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor());
   });
 
-  it("claims seats atomically with the capacity predicate", async () => {
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  it("claims seats atomically with the capacity predicate (one guarded statement)", async () => {
     const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "T", soldCount: { lte: 98 } }, data: { soldCount: { increment: 2 } } }),
-    );
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 2 }]);
   });
 
-  it("a PUBLIC+TIER reg releases its TIER counter on the move, claims the new ticket type (P1.1)", async () => {
+  it("a PUBLIC+TIER reg releases its TIER counter AND the old type (the ceiling), then claims the new type (P1.1)", async () => {
     mockDb.registration.findMany.mockResolvedValue([
       { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: "pt_old", createdSource: "PUBLIC_REGISTER" },
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+    // The applier reads the tier's parent to release the ceiling as well.
+    mockDb._tx.pricingTier.findUnique.mockResolvedValue({ ticketTypeId: "old" });
     const res = await bulkType(req({ registrationIds: ["r3"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
-    // released the TIER (not the old ticket type)
+    // released the old TYPE first (lock order), then the tier
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "old", soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
+    });
     expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
       where: { id: "pt_old", soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
     // claimed the new ticket type
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "T", soldCount: { lte: 99 } }, data: { soldCount: { increment: 1 } } }),
-    );
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 1 }]);
     // the moved row's stale tier is nulled
     expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ ticketTypeId: "T", pricingTierId: null }) }),
@@ -111,7 +110,7 @@ describe("bulk-type — soldCount oversell guard", () => {
   });
 
   it("returns 409 CAPACITY_EXCEEDED and does NOT move registrations when over capacity", async () => {
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 0 });
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
     const res = await bulkType(req({ registrationIds: ["r1", "r2"], ticketTypeId: "T" }), { params });
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("CAPACITY_EXCEEDED");

@@ -5,6 +5,7 @@
  * that the executor actually applies it to soldCount and mints/keeps the barcode.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const { mockDb } = vi.hoisted(() => {
   const ticketTypeUpdate = vi.fn().mockResolvedValue({});
@@ -90,10 +91,9 @@ describe("update_registration — hybrid attendanceMode seat + barcode", () => {
     const res = (await update({ registrationId: "r1", attendanceMode: "IN_PERSON" }, ctx)) as { error?: string };
     expect(res.error).toBeUndefined();
 
-    // claimed a seat (capacity-guarded increment), no release
-    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: "T" }), data: { soldCount: { increment: 1 } } }),
-    );
+    // claimed a seat (one guarded raw statement on the type), no release
+    expect(rawClaims(mockDb._tx.$executeRaw, "TicketType")).toEqual([{ id: "T", count: 1 }]);
+    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
     expect(mockDb._tx.ticketType.update).not.toHaveBeenCalled();
 
     // regData minted the barcode + set the mode
@@ -123,8 +123,7 @@ describe("update_registration — hybrid attendanceMode seat + barcode", () => {
 
   it("virtual→in-person on a sold-out type returns CAPACITY_EXCEEDED (reg stays virtual)", async () => {
     mockDb.registration.findFirst.mockResolvedValue(existingReg({ attendanceMode: "VIRTUAL", qrCode: null }));
-    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100 });
-    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 0 }); // full → claim fails
+    mockDb._tx.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false })); // full → claim fails
 
     const res = (await update({ registrationId: "r1", attendanceMode: "IN_PERSON" }, ctx)) as { code?: string };
     expect(res.code).toBe("CAPACITY_EXCEEDED");

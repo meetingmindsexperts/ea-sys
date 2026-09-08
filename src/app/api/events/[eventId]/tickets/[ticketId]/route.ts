@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -133,31 +134,45 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
+    // Check uniqueness if name is changing
+    if (data.name && data.name !== existing.name) {
+      const dup = await db.ticketType.findFirst({
+        where: { eventId, name: data.name, id: { not: ticketId } },
+        select: { id: true },
+      });
+      if (dup) {
+        return NextResponse.json(
+          { error: `Registration type "${data.name}" already exists` },
+          { status: 409 }
+        );
+      }
+    }
+
     // Setting a seat limit RE-COUNTS the seats held under this type from the
     // registration rows first, under a row lock so concurrent claims serialise
-    // against it (the event-cap PUT does the same). The type's limit is the
-    // ceiling over every tier plus staff adds (registration-seat.ts), so the
-    // number it is compared against, and the counter the public form will
-    // claim against from now on, must be the true total rather than whatever
-    // the counter had drifted to. The limit can never drop below that total
-    // (mirrors the pricing-tier PUT guard); to stop sales, deactivate the type.
+    // against it (the event-cap PUT does the same), and writes the NEW LIMIT
+    // IN THE SAME TRANSACTION. Two statements would leave a gap: with the
+    // count committed and the lock released, claims that were waiting slip in
+    // against the old limit, then the limit lands below them and the "never
+    // below seats already sold" rule is defeated with a 200 (review H1).
+    // The type's limit is the ceiling over every tier plus staff adds
+    // (registration-seat.ts), so the number it is compared against, and the
+    // counter the public form claims against from now on, must be the true
+    // total rather than whatever the counter had drifted to. To stop sales
+    // outright, deactivate the type.
+    let heldAfterRecount: number | null = null;
     if (data.quantity !== undefined) {
       const requested = data.quantity;
       const recount = await tenantTransaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "TicketType" WHERE "id" = ${ticketId} FOR UPDATE`;
-        // Row-truth mirror of holdsSeat() + seatCounter(): not cancelled, in
-        // person, not a speaker companion. The explicit OR keeps null
-        // createdSource rows IN (Prisma `not` excludes nulls).
         const held = await tx.registration.count({
-          where: {
-            ticketTypeId: ticketId,
-            status: { not: "CANCELLED" },
-            attendanceMode: "IN_PERSON",
-            OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
-          },
+          where: { eventId, ticketTypeId: ticketId, ...HELD_SEAT_WHERE },
         });
         if (requested < held) return { ok: false as const, held };
-        await tx.ticketType.updateMany({ where: { id: ticketId, eventId }, data: { soldCount: held } });
+        await tx.ticketType.updateMany({
+          where: { id: ticketId, eventId },
+          data: { soldCount: held, quantity: requested },
+        });
         return { ok: true as const, held };
       });
       if (!recount.ok) {
@@ -174,20 +189,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
-    }
-
-    // Check uniqueness if name is changing
-    if (data.name && data.name !== existing.name) {
-      const dup = await db.ticketType.findFirst({
-        where: { eventId, name: data.name, id: { not: ticketId } },
-        select: { id: true },
+      heldAfterRecount = recount.held;
+      apiLogger.info({
+        msg: "events/tickets:seat-limit-set",
+        eventId,
+        ticketTypeId: ticketId,
+        quantity: requested,
+        recountedSoldCount: recount.held,
+        userId: session.user.id,
       });
-      if (dup) {
-        return NextResponse.json(
-          { error: `Registration type "${data.name}" already exists` },
-          { status: 409 }
-        );
-      }
     }
 
     const ticketType = await db.ticketType.update({
@@ -198,7 +208,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
-        ...(data.quantity !== undefined && { quantity: data.quantity }),
+        // `quantity` (and the recounted soldCount) were written inside the
+        // locked recount transaction above; never a second time here.
         ...(data.requiresDocument !== undefined && { requiresDocument: data.requiresDocument }),
         ...(data.requiresMemberId !== undefined && { requiresMemberId: data.requiresMemberId }),
         ...(data.requiresStudentId !== undefined && { requiresStudentId: data.requiresStudentId }),
@@ -234,7 +245,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "TicketType",
         entityId: ticketType.id,
-        changes: { before: existing, after: ticketType, ip: getClientIp(req) },
+        changes: {
+          before: existing,
+          after: ticketType,
+          // The seat count the limit was judged against (row truth, written
+          // back to the counter in the same locked transaction as the limit).
+          ...(heldAfterRecount != null && { recountedSoldCount: heldAfterRecount }),
+          ip: getClientIp(req),
+        },
       },
     });
 

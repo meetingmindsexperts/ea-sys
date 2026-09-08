@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
+import { HELD_SEAT_WHERE } from "@/lib/registration-seat-db";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -504,20 +505,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // Row lock: claimEventSeats/releaseEventSeats UPDATEs block until this
         // tx commits, so the recount can't be raced by a concurrent claim.
         await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId} FOR UPDATE`;
-        // Row-truth mirror of holdsEventSeat()/seatCounter(): non-cancelled,
-        // in-person, not a speaker companion, on a ticket type. The explicit
-        // OR keeps null createdSource rows IN (Prisma `not` excludes nulls).
+        // Row-truth mirror of holdsEventSeat(): HELD_SEAT_WHERE (the one shared
+        // predicate) plus "on a ticket type".
         const currentCount = await tx.registration.count({
-          where: {
-            eventId,
-            status: { not: "CANCELLED" },
-            attendanceMode: "IN_PERSON",
-            ticketTypeId: { not: null },
-            OR: [
-              { createdSource: null },
-              { createdSource: { not: "SPEAKER_COMPANION" } },
-            ],
-          },
+          where: { eventId, ticketTypeId: { not: null }, ...HELD_SEAT_WHERE },
         });
         if (effectiveMax != null && effectiveMax < currentCount) {
           return { ok: false as const, currentCount };

@@ -259,3 +259,33 @@ describe("type seat limit — the ceiling over its tiers (real locking)", () => 
     expect(await counters(typeId, tierId)).toEqual({ type: 1, tier: 0 });
   });
 });
+
+describe("same-type re-tier on an over-full type (review M3)", () => {
+  it("moves the seat between the tiers and leaves the type counter untouched, even above its limit", async () => {
+    const { eventId } = await seedEvent(null);
+    const type = await db.ticketType.create({
+      data: { eventId, name: "Delegate", price: 0, quantity: 35, soldCount: 107 },
+      select: { id: true },
+    });
+    const [standard, earlyBird] = await Promise.all([
+      db.pricingTier.create({ data: { ticketTypeId: type.id, name: "Standard", price: 0, quantity: 999999, soldCount: 107, sortOrder: 0 }, select: { id: true } }),
+      db.pricingTier.create({ data: { ticketTypeId: type.id, name: "Early Bird", price: 0, quantity: 20, soldCount: 0, sortOrder: 1 }, select: { id: true } }),
+    ]);
+    const seat = (pricingTierId: string) => ({
+      status: "CONFIRMED" as const,
+      attendanceMode: "IN_PERSON" as const,
+      ticketTypeId: type.id,
+      pricingTierId,
+      createdSource: "PUBLIC_REGISTER" as const,
+    });
+    await db.$transaction((tx) =>
+      applyRegistrationTransition(tx, { prev: seat(standard.id), next: seat(earlyBird.id), eventId }),
+    );
+    const [t, s, e] = await Promise.all([
+      db.ticketType.findUniqueOrThrow({ where: { id: type.id }, select: { soldCount: true } }),
+      db.pricingTier.findUniqueOrThrow({ where: { id: standard.id }, select: { soldCount: true } }),
+      db.pricingTier.findUniqueOrThrow({ where: { id: earlyBird.id }, select: { soldCount: true } }),
+    ]);
+    expect({ type: t.soldCount, standard: s.soldCount, earlyBird: e.soldCount }).toEqual({ type: 107, standard: 106, earlyBird: 1 });
+  });
+});

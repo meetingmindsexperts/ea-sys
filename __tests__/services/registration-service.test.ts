@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { rawClaims, rawSeatCalls, seatRawExecutor } from "../helpers/raw-seat-sql";
 
 const {
   mockDb,
@@ -195,6 +196,7 @@ beforeEach(() => {
   mockDb.ticketType.findUnique.mockResolvedValue({ quantity: PAID_TICKET.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
   mockDb.pricingTier.findUnique.mockResolvedValue({ quantity: 999999, ticketTypeId: "tt-1" });
+  mockDb.$executeRaw.mockImplementation(seatRawExecutor());
   mockDb.pricingTier.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.create.mockResolvedValue(CREATED_REGISTRATION_PAID);
   mockDb.auditLog.create.mockResolvedValue({});
@@ -271,11 +273,8 @@ describe("createRegistration — happy path", () => {
     // Capacity-guarded increment: `soldCount <= quantity - 1` cannot exceed the
     // cap even under a concurrent claim. A staff-created row claims the TICKET
     // TYPE — see the createdSource-routing test below for the tier case.
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lte: PAID_TICKET.quantity - 1 } },
-      data: { soldCount: { increment: 1 } },
-    });
-    expect(mockDb.pricingTier.updateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockDb.$executeRaw, "TicketType")).toEqual([{ id: "tt-1", count: 1 }]);
+    expect(rawClaims(mockDb.$executeRaw, "PricingTier")).toEqual([]);
   });
 
   /**
@@ -290,29 +289,24 @@ describe("createRegistration — happy path", () => {
    * two tests pin the routing in BOTH directions, because a fix that always
    * claimed the tier would make every courtesy grant burn a real paid seat.
    */
-  it("a tier-consuming source claims the TIER's seat AND the type's ceiling", async () => {
+  it("a tier-consuming source claims the TYPE first (the ceiling), then the tier, each as one guarded statement", async () => {
     mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
     await createRegistration({
       ...BASE_INPUT,
       pricingTierId: "tier-1",
       createdSource: "PUBLIC_SUBMITTER",
     });
-    expect(mockDb.pricingTier.updateMany).toHaveBeenCalledWith({
-      where: { id: "tier-1", soldCount: { lte: 999998 } },
-      data: { soldCount: { increment: 1 } },
-    });
     // Since Sep 8, 2026 the ticket type's limit is the ceiling over all of its
-    // tiers, so the same sale is claimed there too (guarded by ITS quantity).
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lte: PAID_TICKET.quantity - 1 } },
-      data: { soldCount: { increment: 1 } },
-    });
+    // tiers: the type is claimed FIRST (lock order), then the tier.
+    const seatCalls = rawSeatCalls(mockDb.$executeRaw).filter((c) => c.table !== "Event");
+    expect(seatCalls.map((c) => c.table)).toEqual(["TicketType", "PricingTier"]);
+    expect(rawClaims(mockDb.$executeRaw, "TicketType")).toEqual([{ id: "tt-1", count: 1 }]);
+    expect(rawClaims(mockDb.$executeRaw, "PricingTier")).toEqual([{ id: "tier-1", count: 1 }]);
   });
 
-  it("a tier sale that fits the tier but not the type's ceiling is SOLD_OUT and leaves the tier counter alone", async () => {
+  it("a tier sale that fits the type but not the tier is SOLD_OUT and hands the type's seat back", async () => {
     mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
-    // Tier claim fits; the type (the ceiling) refuses.
-    mockDb.ticketType.updateMany.mockResolvedValueOnce({ count: 0 });
+    mockDb.$executeRaw.mockImplementation(seatRawExecutor({ PricingTier: false }));
     const res = await createRegistration({
       ...BASE_INPUT,
       pricingTierId: "tier-1",
@@ -320,19 +314,32 @@ describe("createRegistration — happy path", () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("SOLD_OUT");
-    // The tier increment is handed back inside the helper.
-    expect(mockDb.pricingTier.updateMany).toHaveBeenCalledWith({
-      where: { id: "tier-1", soldCount: { gte: 1 } },
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt-1", soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("a tier sale refused by the type's ceiling is SOLD_OUT before the tier is touched", async () => {
+    mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
+    mockDb.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
+    const res = await createRegistration({
+      ...BASE_INPUT,
+      pricingTierId: "tier-1",
+      createdSource: "PUBLIC_SUBMITTER",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("SOLD_OUT");
+    expect(rawClaims(mockDb.$executeRaw, "PricingTier")).toEqual([]);
     expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 
   it("a staff grant on the SAME tier still claims the ticket type (courtesy seat)", async () => {
     mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
     await createRegistration({ ...BASE_INPUT, pricingTierId: "tier-1" });
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalled();
-    expect(mockDb.pricingTier.updateMany).not.toHaveBeenCalled();
+    expect(rawClaims(mockDb.$executeRaw, "TicketType")).toEqual([{ id: "tt-1", count: 1 }]);
+    expect(rawClaims(mockDb.$executeRaw, "PricingTier")).toEqual([]);
   });
 
   it("skips soldCount increment when no ticketTypeId provided", async () => {
@@ -663,7 +670,7 @@ describe("createRegistration — domain errors", () => {
   it("SOLD_OUT when in-tx updateMany matches zero rows (race)", async () => {
     // Pre-check passes (5 < 100), but by the time the tx runs, the increment
     // matches zero rows (another concurrent writer hit the cap first).
-    mockDb.ticketType.updateMany.mockResolvedValue({ count: 0 });
+    mockDb.$executeRaw.mockImplementation(seatRawExecutor({ TicketType: false }));
     const result = await createRegistration(BASE_INPUT);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("SOLD_OUT");
@@ -933,7 +940,7 @@ describe("createRegistration — attendance mode", () => {
   it("IN_PERSON (default): mints a qrCode + increments soldCount (regression)", async () => {
     await createRegistration({ ...BASE_INPUT });
     expect(mockGenerateBarcode).toHaveBeenCalled();
-    expect(mockDb.ticketType.updateMany).toHaveBeenCalled();
+    expect(rawClaims(mockDb.$executeRaw, "TicketType")).toHaveLength(1);
     const regCreate = mockDb.registration.create.mock.calls[0][0];
     expect(regCreate.data.attendanceMode).toBe("IN_PERSON");
     expect(regCreate.data.qrCode).toBe("BARCODE-TEST-123");
