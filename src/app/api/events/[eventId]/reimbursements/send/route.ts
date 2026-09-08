@@ -20,6 +20,8 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
+import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
+import { resolveStoredAttachments } from "@/lib/email-attachments";
 import { formatPersonName } from "@/lib/utils";
 import { honorariumVars, readHonorarium } from "@/lib/reimbursement/constants";
 import {
@@ -41,6 +43,18 @@ const sendSchema = z
     reimbursementId: z.string().max(100).optional(),
     subject: z.string().trim().max(200).optional(),
     message: z.string().max(10000).optional(),
+    // Operator-picked PDF/DOC/DOCX as storage references (Sep 8, 2026), the
+    // same contract as the speaker single-send and bulk routes.
+    attachments: z
+      .array(
+        z.object({
+          storedPath: z.string().min(1).max(500),
+          name: z.string().min(1).max(255),
+          contentType: z.string().min(1).max(150),
+        }),
+      )
+      .max(MAX_MANUAL_ATTACHMENTS)
+      .optional(),
   })
   .refine((v) => v.reimbursementId || v.target, {
     message: "Provide either a reimbursementId (single) or a target (all/pending).",
@@ -176,6 +190,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     let sent = 0;
     let failed = 0;
+    // Picked files, read from storage once for the whole batch.
+    const manualAttachments = await resolveStoredAttachments(parsed.data.attachments, eventId);
+    if (!manualAttachments.ok) {
+      apiLogger.warn({ msg: "reimbursements/send:attachment-rejected", eventId, code: manualAttachments.code });
+      return NextResponse.json({ error: manualAttachments.error, code: manualAttachments.code }, { status: 400 });
+    }
+    const attachments = manualAttachments.attachments.length ? manualAttachments.attachments : undefined;
+
     for (const row of toSend) {
       const reimbursementLink = `${appUrl}/e/${event.slug}/reimbursement/${row.token}`;
       try {
@@ -213,6 +235,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           subject: rendered.subject,
           htmlContent: rendered.htmlContent,
           textContent: rendered.textContent,
+          attachments,
           logContext: {
             organizationId: session.user.organizationId,
             eventId,

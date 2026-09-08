@@ -40,10 +40,10 @@ import {
   NO_RECIPIENTS_CODE,
   type BulkEmailRecipientType,
   type BulkEmailType,
-  type BulkEmailAttachment,
   type BulkEmailFilters,
 } from "@/lib/bulk-email";
 import { MAX_STORED_ERRORS } from "@/lib/scheduled-email-failures";
+import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 
 // How many due rows to process per cron tick. Each row may dispatch hundreds of
 // emails in serial batches of 25, so keep this small to stay under the route
@@ -153,7 +153,7 @@ async function processRow(
       emailType: row.emailType as BulkEmailType,
       customSubject: row.customSubject ?? undefined,
       customMessage: row.customMessage ?? undefined,
-      attachments: (row.attachments as BulkEmailAttachment[] | null) ?? undefined,
+      attachments: (row.attachments as StoredAttachmentRef[] | null) ?? undefined,
       filters: (row.filters as BulkEmailFilters | null) ?? undefined,
       organizerName:
         organizer?.firstName && organizer?.lastName

@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   MAX_MANUAL_ATTACHMENTS,
-  MAX_MANUAL_ATTACHMENTS_TOTAL_BYTES,
+  MAX_MANUAL_ATTACHMENT_BYTES,
+  MAX_MANUAL_ATTACHMENT_MB,
   MANUAL_ATTACHMENT_ACCEPT,
   resolveAttachmentMime,
 } from "@/lib/email-attachment-limits";
@@ -22,10 +23,11 @@ interface EmailAttachmentPickerProps {
 
 /**
  * Controlled picker for manual PDF/DOC/DOCX email attachments. The parent owns
- * the `File[]`; on send it converts each via `fileToBase64` + `resolveAttachmentMime`.
- * Client-side validation (type / count / total size) mirrors the server
- * validator so the operator gets an instant, matching error; the server
- * re-validates by magic bytes regardless.
+ * the `File[]`; on send it uploads each via `uploadEmailAttachments` (storage,
+ * S3 on prod) and posts the returned REFERENCES, never the bytes (Sep 8, 2026).
+ * Client-side validation (type / count / per-file size) mirrors the server so
+ * the operator gets an instant, matching error; the server re-validates by
+ * magic bytes regardless.
  */
 export function EmailAttachmentPicker({ files, onChange, disabled, label = "Attachments (optional)" }: EmailAttachmentPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +36,6 @@ export function EmailAttachmentPicker({ files, onChange, disabled, label = "Atta
   const addFiles = (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0) return;
     const next = [...files];
-    let running = totalBytes;
 
     for (const file of Array.from(incoming)) {
       if (next.length >= MAX_MANUAL_ATTACHMENTS) {
@@ -45,13 +46,12 @@ export function EmailAttachmentPicker({ files, onChange, disabled, label = "Atta
         toast.error(`"${file.name}" is not a PDF, DOC, or DOCX file.`);
         continue;
       }
-      if (running + file.size > MAX_MANUAL_ATTACHMENTS_TOTAL_BYTES) {
-        toast.error("Attachments exceed the 10 MB total limit.");
+      if (file.size > MAX_MANUAL_ATTACHMENT_BYTES) {
+        toast.error(`"${file.name}" is over the ${MAX_MANUAL_ATTACHMENT_MB} MB per-file limit.`);
         continue;
       }
       if (next.some((f) => f.name === file.name && f.size === file.size)) continue; // skip dupes
       next.push(file);
-      running += file.size;
     }
 
     onChange(next);
@@ -111,7 +111,7 @@ export function EmailAttachmentPicker({ files, onChange, disabled, label = "Atta
           {files.length === 0 ? "Attach files" : "Add more"}
         </Button>
         <span className="text-xs text-muted-foreground">
-          PDF, DOC, DOCX · max {MAX_MANUAL_ATTACHMENTS} files, 10 MB total
+          PDF, DOC, DOCX · max {MAX_MANUAL_ATTACHMENTS} files, {MAX_MANUAL_ATTACHMENT_MB} MB each
           {totalBytes > 0 && ` · ${(totalBytes / (1024 * 1024)).toFixed(1)} MB used`}
         </span>
       </div>

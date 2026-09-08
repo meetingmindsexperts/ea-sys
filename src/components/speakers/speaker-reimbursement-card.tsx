@@ -33,6 +33,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
+import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEvent, usePreviewEmailBySlug } from "@/hooks/use-api";
 import {
   REIMBURSEMENT_CURRENCIES,
@@ -79,6 +81,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
+  const [sendFiles, setSendFiles] = useState<File[]>([]);
   const previewMutation = usePreviewEmailBySlug(eventId);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(
@@ -198,6 +201,8 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
           reimbursementId: row.id,
           subject: sendSubject.trim() || undefined,
           message: sendMessage.trim() || undefined,
+          // Picked files go to storage first; the body carries references.
+          attachments: sendFiles.length ? await uploadEmailAttachments(eventId, sendFiles) : undefined,
         }),
       });
       const json = await res.json();
@@ -214,7 +219,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
     } finally {
       setBusy(false);
     }
-  }, [eventId, row, sendSubject, sendMessage]);
+  }, [eventId, row, sendSubject, sendMessage, sendFiles]);
 
   // Renders the real per-event template + the typed overrides — identical to
   // the console's preview (shared /email-preview route, template auto-picked).
@@ -410,6 +415,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                 rows={3}
               />
             </div>
+            <EmailAttachmentPicker files={sendFiles} onChange={setSendFiles} disabled={busy} />
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             <Button

@@ -52,6 +52,9 @@ export const UPLOAD_SEGMENT = {
   reimbursements: "reimbursements",
   crmDealDocs: "crm-deal-docs",
   crmEmailAttachments: "crm-email-attachments",
+  /** Operator-picked files for speaker emails (Sep 8, 2026): private, read
+   *  back by the send routes; pruned nightly once no queued send needs them. */
+  emailAttachments: "email-attachments",
   /**
    * Supporting documents for a registration type that requires one.
    *
@@ -80,6 +83,7 @@ export const UPLOAD_PREFIX = {
   reimbursements: uploadPrefix(UPLOAD_SEGMENT.reimbursements),
   crmDealDocs: uploadPrefix(UPLOAD_SEGMENT.crmDealDocs),
   crmEmailAttachments: uploadPrefix(UPLOAD_SEGMENT.crmEmailAttachments),
+  emailAttachments: uploadPrefix(UPLOAD_SEGMENT.emailAttachments),
   supportingDocuments: uploadPrefix(UPLOAD_SEGMENT.supportingDocuments),
 } as const;
 

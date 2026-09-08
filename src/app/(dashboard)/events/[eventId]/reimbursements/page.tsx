@@ -45,6 +45,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
+import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -133,6 +135,7 @@ export default function ReimbursementsPage() {
   const [sendTarget, setSendTarget] = useState<"pending" | "all">("pending");
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
+  const [sendFiles, setSendFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [detail, setDetail] = useState<ReimbursementRow | null>(null);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
@@ -319,6 +322,8 @@ export default function ReimbursementsPage() {
             ...(sendRow ? { reimbursementId: sendRow.id } : { target: sendTarget }),
             subject: sendSubject.trim() || undefined,
             message: sendMessage.trim() || undefined,
+            // Picked files go to storage first; the body carries references.
+            attachments: sendFiles.length ? await uploadEmailAttachments(eventId, sendFiles) : undefined,
           }),
         });
         const json = await res.json();
@@ -343,7 +348,7 @@ export default function ReimbursementsPage() {
         setBusyRowId(null);
       }
     },
-    [eventId, sendRow, sendTarget, sendSubject, sendMessage],
+    [eventId, sendRow, sendTarget, sendSubject, sendMessage, sendFiles],
   );
 
   // Renders exactly what the send would produce — the (possibly organizer-
@@ -784,7 +789,10 @@ export default function ReimbursementsPage() {
         open={sendOpen}
         onOpenChange={(open) => {
           setSendOpen(open);
-          if (!open) setSendRow(null);
+          if (!open) {
+            setSendRow(null);
+            setSendFiles([]);
+          }
         }}
       >
         <DialogContent className="sm:max-w-xl">
@@ -856,6 +864,7 @@ export default function ReimbursementsPage() {
                 rows={3}
               />
             </div>
+            <EmailAttachmentPicker files={sendFiles} onChange={setSendFiles} disabled={sending} />
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             <Button

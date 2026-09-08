@@ -46,6 +46,8 @@ import {
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
+import { MAX_MANUAL_ATTACHMENTS, type StoredAttachmentRef } from "@/lib/email-attachment-limits";
+import { resolveStoredAttachments } from "@/lib/email-attachments";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -252,7 +254,10 @@ export interface BulkEmailInput {
    * Server-internal flag — deliberately NOT in bulkEmailSchema.
    */
   customMessageIsHtml?: boolean;
-  attachments?: BulkEmailAttachment[];
+  /** Operator-picked files as storage REFERENCES (Sep 8, 2026); resolved to
+   *  bytes once per send in executeBulkEmail. Internal attachments (barcode,
+   *  .ics, the agreement) are built per recipient as BulkEmailAttachment. */
+  attachments?: StoredAttachmentRef[];
   filters?: BulkEmailFilters;
   organizerName: string;
   organizerEmail: string;
@@ -442,15 +447,17 @@ export const bulkEmailSchema = z.object({
   ]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
+  // References to files uploaded via /email-attachments, never bytes
+  // (Sep 8, 2026). Same count as the single-send route.
   attachments: z
     .array(
       z.object({
-        name: z.string().max(255),
-        content: z.string(),
-        contentType: z.string().max(100).optional(),
+        storedPath: z.string().min(1).max(500),
+        name: z.string().min(1).max(255),
+        contentType: z.string().min(1).max(150),
       })
     )
-    .max(5)
+    .max(MAX_MANUAL_ATTACHMENTS)
     .optional(),
   filters: z
     .object({
@@ -580,8 +587,6 @@ export function assertValidBulkEmailFilters(
   }
 }
 
-// Max total attachment size: 10MB
-export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 
 // ───────────────────────── Helper ─────────────────────────
 
@@ -801,12 +806,12 @@ export async function precheckBulkEmailViability(
     }
   }
 
-  // Validate attachment size
+  // Attachments are references: check they are this event's, still in
+  // storage, and the right bytes NOW, so a bad one is a synchronous 400 at
+  // the enqueue door rather than a FAILED row a minute later.
   if (attachments?.length) {
-    const totalSize = attachments.reduce((sum, a) => sum + a.content.length, 0);
-    if (totalSize > MAX_ATTACHMENT_SIZE) {
-      throw new BulkEmailError("Total attachment size exceeds 10MB limit", 400);
-    }
+    const resolved = await resolveStoredAttachments(attachments, eventId);
+    if (!resolved.ok) throw new BulkEmailError(resolved.error, 400);
   }
 
   const event = await db.event.findFirst({
@@ -928,6 +933,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // synchronously; this call is the fire-time backstop and also loads the
   // event + cert templates + agreement mode for the send below.
   const { event, certTemplates, agreementMode } = await precheckBulkEmailViability(input);
+  // The picked files, read from storage ONCE per send (references in, bytes
+  // out); the precheck above already refused a missing or foreign one.
+  const attachmentBytesResult = await resolveStoredAttachments(attachments, eventId);
+  if (!attachmentBytesResult.ok) throw new BulkEmailError(attachmentBytesResult.error, 400);
+  const attachmentBytes: BulkEmailAttachment[] | undefined =
+    attachmentBytesResult.attachments.length ? attachmentBytesResult.attachments : undefined;
 
   // EmailLog org stamp — callers that omit organizationId (the automated
   // webinar confirmation, payment reminders) used to write org-NULL rows,
@@ -1721,7 +1732,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
           // Per-recipient personalized attachment for speaker agreements.
           // Precedence: explicit .docx upload wins; else inline HTML → PDF.
-          let recipientAttachments: BulkEmailAttachment[] | undefined = attachments;
+          let recipientAttachments: BulkEmailAttachment[] | undefined = attachmentBytes;
           // Inline entry-barcode image (cid:reg-barcode) when the template's
           // {{entryBarcode}} token resolved for this recipient.
           if (emailContent.barcodeAttachment) {

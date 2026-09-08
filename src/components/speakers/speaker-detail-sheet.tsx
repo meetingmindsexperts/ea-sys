@@ -70,8 +70,7 @@ import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
-import { fileToBase64 } from "@/lib/file-to-base64";
-import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
+import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
@@ -492,18 +491,10 @@ export function SpeakerDetailSheet({
     }
     setSendingEmail(true);
     try {
+      // Files go to storage first; the send body carries references only
+      // (Sep 8, 2026). Offered on every email type, not just the invitation.
       const attachments =
-        emailType === "invitation" && invitationFiles.length > 0
-          ? (
-              await Promise.all(
-                invitationFiles.map(async (file) => {
-                  const contentType = resolveAttachmentMime(file);
-                  if (!contentType) return null;
-                  return { name: file.name, content: await fileToBase64(file), contentType };
-                }),
-              )
-            ).filter((a): a is { name: string; content: string; contentType: string } => a !== null)
-          : undefined;
+        invitationFiles.length > 0 ? await uploadEmailAttachments(eventId, invitationFiles) : undefined;
 
       const res = await fetch(`/api/events/${eventId}/speakers/${speaker.id}/email`, {
         method: "POST",
@@ -1096,16 +1087,18 @@ export function SpeakerDetailSheet({
                 </p>
               </div>
               {emailType === "invitation" && (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    This will send a speaker invitation email with event details and a request to confirm participation.
-                  </p>
-                  <EmailAttachmentPicker
-                    files={invitationFiles}
-                    onChange={setInvitationFiles}
-                    disabled={sendingEmail}
-                  />
-                </>
+                <p className="text-sm text-muted-foreground">
+                  This will send a speaker invitation email with event details and a request to confirm participation.
+                </p>
+              )}
+              {/* Attachments on every speaker email type (owner, Sep 8, 2026); the
+                  abstract-confirmation resend is a different route and takes none. */}
+              {emailType !== "abstract-confirmation" && (
+                <EmailAttachmentPicker
+                  files={invitationFiles}
+                  onChange={setInvitationFiles}
+                  disabled={sendingEmail}
+                />
               )}
               {emailType === "agreement" && (
                 <p className="text-sm text-muted-foreground">

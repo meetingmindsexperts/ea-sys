@@ -81,7 +81,7 @@ vi.mock("@/lib/speaker-agreement", () => ({
   SPEAKER_AGREEMENT_PDF_MIME: "application/pdf",
 }));
 vi.mock("@/lib/email-attachments", () => ({
-  validateManualAttachments: vi.fn().mockReturnValue({ ok: true, attachments: [] }),
+  resolveStoredAttachments: vi.fn().mockResolvedValue({ ok: true, attachments: [] }),
 }));
 vi.mock("@/lib/email-attachment-limits", () => ({ MAX_MANUAL_ATTACHMENTS: 3 }));
 

@@ -24,7 +24,7 @@ import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
-import { validateManualAttachments } from "@/lib/email-attachments";
+import { resolveStoredAttachments } from "@/lib/email-attachments";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
 const sendEmailSchema = z.object({
@@ -44,14 +44,15 @@ const sendEmailSchema = z.object({
   // speaker's own address is never BCC'd.
   bcc: z.array(z.string().email()).max(10).optional(),
   bccSelf: z.boolean().optional(),
-  // Operator-picked file attachments (PDF/DOC/DOCX) — surfaced in the UI on the
-  // invitation dialog. Base64 in the body (same shape as the bulk-email path);
-  // re-validated by MIME + magic bytes in validateManualAttachments below.
+  // Operator-picked file attachments (PDF/DOC/DOCX): REFERENCES to files
+  // already uploaded via /email-attachments (Sep 8, 2026; the bytes used to
+  // ride inline and hit the 1 MB body cap). Event-bound, read back and
+  // magic-byte checked in resolveStoredAttachments below.
   attachments: z
     .array(
       z.object({
+        storedPath: z.string().min(1).max(500),
         name: z.string().min(1).max(255),
-        content: z.string().min(1),
         contentType: z.string().min(1).max(150),
       }),
     )
@@ -138,10 +139,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Validate operator-picked attachments (PDF/DOC/DOCX, ≤3 files, ≤10 MB
-    // total, magic-byte checked). These merge into whatever the chosen email
-    // type already attaches (e.g. the agreement doc).
-    const manualAttachments = validateManualAttachments(validated.data.attachments);
+    // Resolve operator-picked attachments (PDF/DOC/DOCX, ≤3 files, 5 MB each,
+    // read from storage + magic-byte checked). These merge into whatever the
+    // chosen email type already attaches (e.g. the agreement doc).
+    const manualAttachments = await resolveStoredAttachments(validated.data.attachments, eventId);
     if (!manualAttachments.ok) {
       apiLogger.warn({
         msg: "events/speakers/email:attachment-rejected",

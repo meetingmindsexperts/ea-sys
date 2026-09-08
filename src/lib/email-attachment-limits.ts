@@ -6,7 +6,26 @@
  * ([email-attachments.ts]) agree on ONE source of truth (no drift).
  */
 export const MAX_MANUAL_ATTACHMENTS = 3;
-export const MAX_MANUAL_ATTACHMENTS_TOTAL_BYTES = 10 * 1024 * 1024; // 10 MB (decoded)
+/**
+ * Per FILE (owner, Sep 8, 2026: "increase the limits to 5mb"). Three files is
+ * 15 MB decoded, about 20 MB as MIME, under SESv2's 40 MB raw ceiling. The
+ * old "10 MB total" was never reachable: files rode inline as base64 in a JSON
+ * body the middleware caps at 1 MB, so anything past ~750 KB was a bare 413.
+ */
+export const MAX_MANUAL_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+export const MAX_MANUAL_ATTACHMENT_MB = 5;
+
+/**
+ * What a send body carries since Sep 8, 2026: a REFERENCE to a file the
+ * operator already uploaded to storage (S3 on prod) via
+ * POST /api/events/[eventId]/email-attachments, never the bytes. The send
+ * routes read the bytes back at send time (src/lib/email-attachments.ts).
+ */
+export interface StoredAttachmentRef {
+  storedPath: string;
+  name: string;
+  contentType: string;
+}
 
 /** contentType → user-facing extension label (also defines display order). */
 export const ALLOWED_MANUAL_ATTACHMENT_TYPES: Record<string, string> = {

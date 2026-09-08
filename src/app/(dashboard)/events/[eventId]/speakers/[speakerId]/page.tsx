@@ -73,8 +73,7 @@ import { SESSION_ROLE_COLORS, formatSessionRole } from "@/lib/session-enums";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
-import { fileToBase64 } from "@/lib/file-to-base64";
-import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
+import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
 import { SpeakerProfileFormCard } from "@/components/speakers/speaker-profile-form-card";
@@ -589,18 +588,10 @@ export default function SpeakerDetailPage() {
     }
     setSendingEmail(true);
     try {
+      // Files go to storage first; the send body carries references only
+      // (Sep 8, 2026). Offered on every email type, not just the invitation.
       const attachments =
-        emailType === "invitation" && invitationFiles.length > 0
-          ? (
-              await Promise.all(
-                invitationFiles.map(async (file) => {
-                  const contentType = resolveAttachmentMime(file);
-                  if (!contentType) return null;
-                  return { name: file.name, content: await fileToBase64(file), contentType };
-                }),
-              )
-            ).filter((a): a is { name: string; content: string; contentType: string } => a !== null)
-          : undefined;
+        invitationFiles.length > 0 ? await uploadEmailAttachments(eventId, invitationFiles) : undefined;
 
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/email`, {
         method: "POST",
@@ -1503,12 +1494,16 @@ export default function SpeakerDetailPage() {
                     agreement content configured.
                   </p>
                 )}
-                <EmailAttachmentPicker
-                  files={invitationFiles}
-                  onChange={setInvitationFiles}
-                  disabled={sendingEmail}
-                />
               </>
+            )}
+            {/* Attachments on every speaker email type (owner, Sep 8, 2026); the
+                abstract-confirmation resend is a different route and takes none. */}
+            {emailType !== "abstract-confirmation" && (
+              <EmailAttachmentPicker
+                files={invitationFiles}
+                onChange={setInvitationFiles}
+                disabled={sendingEmail}
+              />
             )}
             {emailType === "agreement" && (
               <p className="text-sm text-muted-foreground">

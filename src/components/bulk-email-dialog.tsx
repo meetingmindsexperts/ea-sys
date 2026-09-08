@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Calendar, Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
+import { Calendar, Eye, Loader2, Mail, Send } from "lucide-react";
+import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
+import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TagInput } from "@/components/ui/tag-input";
@@ -232,8 +234,6 @@ function isAtLeastMinLeadTime(when: Date): boolean {
   return when.getTime() >= Date.now() + MIN_LEAD_MS;
 }
 
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
-const MAX_FILES = 5;
 
 // Static map: emailType → template slug used by the preview endpoint.
 // Speaker invitations use a dedicated template; other types reuse common slugs.
@@ -359,7 +359,9 @@ export function BulkEmailDialog({
   }
   const [customSubject, setCustomSubject] = useState("");
   const [customMessage, setCustomMessage] = useState("");
-  const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
+  // Picked files; uploaded to storage at submit, the body carries references
+  // (Sep 8, 2026). Same picker + limits as the single-send dialog.
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
   // parity with the CRM email dialog). Copy-to-me defaults ON; on a bulk
   // send the sender receives one BCC copy PER recipient email.
@@ -369,7 +371,6 @@ export function BulkEmailDialog({
   const [scheduledFor, setScheduledFor] = useState<string>("");
   // survey-invitation only — TTL (days) for the minted survey link.
   const [surveyExpiryDays, setSurveyExpiryDays] = useState<string>("7");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
@@ -481,51 +482,6 @@ export function BulkEmailDialog({
       ? recipientCountFor(effectiveFilters)
       : recipientCount
     : recipientCount;
-
-  const totalAttachmentSize = attachments.reduce((sum, a) => sum + a.size, 0);
-
-  const handleFileAdd = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files?.length) return;
-
-    const remaining = MAX_FILES - attachments.length;
-    const filesToAdd = Array.from(files).slice(0, remaining);
-
-    for (const file of filesToAdd) {
-      const newTotal = totalAttachmentSize + file.size;
-      if (newTotal > MAX_ATTACHMENT_SIZE) {
-        toast.error("Total attachment size exceeds 10MB limit");
-        break;
-      }
-
-      const base64 = await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(",")[1] ?? null); // strip data:...;base64, prefix
-        };
-        reader.onerror = () => {
-          toast.error(`Failed to read ${file.name}`);
-          resolve(null);
-        };
-        reader.readAsDataURL(file);
-      });
-
-      if (!base64) continue;
-
-      setAttachments((prev) => [
-        ...prev,
-        { name: file.name, content: base64, contentType: file.type || undefined, size: file.size },
-      ]);
-    }
-
-    // Reset input so the same file can be re-added
-    e.target.value = "";
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
 
   // Certificate cover-email source picker — copies the chosen source into
   // the editable Subject/Message fields. A later manual edit simply diverges
@@ -657,10 +613,7 @@ export function BulkEmailDialog({
         : emailType === "invitation" || isCertificate
         ? customMessage.trim() || undefined
         : undefined,
-      attachments:
-        attachments.length > 0
-          ? attachments.map(({ name, content, contentType }) => ({ name, content, contentType }))
-          : undefined,
+      attachments: attachmentFiles.length > 0 ? await uploadEmailAttachments(eventId, attachmentFiles) : undefined,
       filters: {
         ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
         // W2-F4 — local Select drives the value; falls back to the prop
@@ -743,7 +696,7 @@ export function BulkEmailDialog({
     setEmailType(getDefaultEmailType(recipientType));
     setCustomSubject("");
     setCustomMessage("");
-    setAttachments([]);
+    setAttachmentFiles([]);
     setSendMode("now");
     setScheduledFor("");
     setScheduledAudience("matching");
@@ -1024,55 +977,8 @@ export function BulkEmailDialog({
             </div>
           )}
 
-          {/* File Attachments */}
-          <div className="space-y-2">
-            <Label>Attachments</Label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              aria-label="Upload file attachments"
-              onChange={handleFileAdd}
-            />
-            {attachments.length > 0 && (
-              <div className="space-y-1">
-                {attachments.map((file, index) => (
-                  <div key={index} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{file.name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {(file.size / 1024).toFixed(0)}KB
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(index)}
-                      aria-label={`Remove ${file.name}`}
-                      className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={attachments.length >= MAX_FILES}
-            >
-              <Paperclip className="mr-2 h-4 w-4" />
-              {attachments.length === 0 ? "Add Attachments" : "Add More"}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Max {MAX_FILES} files, 10MB total
-              {totalAttachmentSize > 0 && ` · ${(totalAttachmentSize / (1024 * 1024)).toFixed(1)}MB used`}
-            </p>
-          </div>
+          {/* File Attachments (references; uploaded at submit) */}
+          <EmailAttachmentPicker files={attachmentFiles} onChange={setAttachmentFiles} label="Attachments" />
 
           {/* BCC + copy-to-me (organizer request July 29, 2026) */}
           <div className="space-y-1.5">

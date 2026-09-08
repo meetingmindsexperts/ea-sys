@@ -2,6 +2,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError } from "@/lib/api-fetch";
 
 // Generic fetch wrapper with error handling.
@@ -1249,7 +1250,8 @@ export function useBulkEmail(eventId: string) {
       emailType: string;
       customSubject?: string;
       customMessage?: string;
-      attachments?: Array<{ name: string; content: string; contentType?: string }>;
+      /** Storage references minted by /email-attachments (Sep 8, 2026), never bytes. */
+      attachments?: StoredAttachmentRef[];
       filters?: Record<string, unknown>;
     }) =>
       // Immediate send now ENQUEUES (202) and returns a job id; the
@@ -1321,7 +1323,8 @@ export function useScheduleBulkEmail(eventId: string) {
       emailType: string;
       customSubject?: string;
       customMessage?: string;
-      attachments?: Array<{ name: string; content: string; contentType?: string }>;
+      /** Storage references minted by /email-attachments (Sep 8, 2026), never bytes. */
+      attachments?: StoredAttachmentRef[];
       filters?: { status?: string; ticketTypeId?: string };
       scheduledFor: string; // ISO datetime
     }) =>
