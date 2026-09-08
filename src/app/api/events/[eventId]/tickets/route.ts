@@ -31,8 +31,9 @@ const createTicketTypeSchema = z.object({
   // from the UI even though every create path honors it.
   requiresApproval: z.boolean().default(false),
   sortOrder: z.number().int().optional(),
-  // Type-level seat limit. 999999 = unlimited (the schema default) — caps
-  // admin/desk/import creates and public sign-ups on tier-less types.
+  // Type-level seat limit. 999999 = unlimited (the schema default). The hard
+  // ceiling for the whole type: public tier sign-ups, staff adds and desk
+  // registrations all count against it (see registration-seat.ts).
   quantity: z.number().int().min(1).default(999999),
   // Supporting-document policy (Aug 13, 2026). Two booleans, not one enum:
   // "ask but do not block" has to stay expressible. See

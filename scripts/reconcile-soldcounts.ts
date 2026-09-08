@@ -11,12 +11,16 @@
  * drift; this script repairs counters that already drifted from past activity.
  *
  * HOW: a registration holds a seat iff it is non-cancelled AND in-person
- * (`holdsSeat`), and that seat is tallied on EITHER the tier (public register +
- * pricingTierId) OR the ticket type (`seatCounter`). We re-derive both counters
- * from the live rows using those exact helpers — so the script can never drift
- * from the runtime routing — and write the corrected values.
+ * (`holdsSeat`). Its PRIMARY counter is the tier (public register +
+ * pricingTierId) or the ticket type (`seatCounter`); since Sep 8, 2026 a
+ * tier-held seat is ALSO counted on the ticket type, whose limit is the hard
+ * ceiling over all of its tiers (registration-seat.ts). So: tier counter =
+ * that tier's public sales; type counter = every seat under the type. We
+ * re-derive both from the live rows using those exact helpers — so the script
+ * can never drift from the runtime routing — and write the corrected values.
  *
- * Idempotent + safe to re-run. Run ONCE after deploying the P1.1 code fix.
+ * Idempotent + safe to re-run. Run after the P1.1 code fix, and again whenever
+ * a counter is suspected of drift (a deploy window, a crashed transaction).
  *
  * Usage:
  *   npx tsx scripts/reconcile-soldcounts.ts                    # dry run (all events)
@@ -74,12 +78,19 @@ async function main() {
 
     const tierComputed = new Map<string, number>();
     const typeComputed = new Map<string, number>();
+    const bump = (m: Map<string, number>, id: string) => m.set(id, (m.get(id) ?? 0) + 1);
     for (const r of regs) {
       if (!holdsSeat(r.status, r.attendanceMode)) continue;
       const c = seatCounter(r);
       if (!c) continue;
-      const m = c.kind === "tier" ? tierComputed : typeComputed;
-      m.set(c.id, (m.get(c.id) ?? 0) + 1);
+      if (c.kind === "tier") {
+        bump(tierComputed, c.id);
+        // Since Sep 8, 2026 the ticket type is the ceiling over its tiers, so
+        // it counts this seat too (the appliers move both counters).
+        if (r.ticketTypeId) bump(typeComputed, r.ticketTypeId);
+      } else {
+        bump(typeComputed, c.id);
+      }
     }
 
     const ticketTypes = await db.ticketType.findMany({

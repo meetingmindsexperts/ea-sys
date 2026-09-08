@@ -66,6 +66,8 @@ interface PricingTierData {
   soldCount: number;
   available: number;
   soldOut: boolean;
+  /** Either the tier or its ticket type carries a real seat limit (API-computed). */
+  seatLimited?: boolean;
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
@@ -83,6 +85,8 @@ interface TicketType {
   soldCount: number;
   available: number;
   soldOut: boolean;
+  /** Either the tier or its ticket type carries a real seat limit (API-computed). */
+  seatLimited?: boolean;
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
@@ -310,7 +314,7 @@ function CategoryRegistrationContent() {
                 currency: tier.currency,
                 available: tier.available,
                 canPurchase: tier.canPurchase,
-                hasSeatLimit: tier.quantity < UNLIMITED_SENTINEL,
+                hasSeatLimit: tier.seatLimited ?? tier.quantity < UNLIMITED_SENTINEL,
                 requiresDocument: tt.requiresDocument === true,
                 documentRequired: tt.documentRequired === true,
                 documentLabel: tt.documentLabel ?? null,
@@ -365,7 +369,7 @@ function CategoryRegistrationContent() {
               currency: t.currency,
               available: t.available,
               canPurchase: t.canPurchase,
-              hasSeatLimit: t.quantity < UNLIMITED_SENTINEL,
+              hasSeatLimit: t.seatLimited ?? t.quantity < UNLIMITED_SENTINEL,
               requiresDocument: t.requiresDocument === true,
               documentRequired: t.documentRequired === true,
               documentLabel: t.documentLabel ?? null,

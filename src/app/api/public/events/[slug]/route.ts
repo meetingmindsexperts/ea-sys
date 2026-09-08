@@ -11,6 +11,9 @@ interface RouteParams {
 }
 
 // Get public event details (supports both slug and event ID)
+/** `quantity` at or above this means "no seat limit" (the schema default). */
+const UNLIMITED_SEAT_SENTINEL = 999999;
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
@@ -179,13 +182,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Calculate availability for each registration type and its pricing tiers
     const ticketTypes = event.ticketTypes.map((ticket) => {
       // Compute availability per pricing tier
+      // The ticket type's own limit is the ceiling over all of its tiers
+      // (registration-seat.ts): a tier with 40 seats free under a type with 3
+      // left has 3 available, and "seats left" must say so.
+      const typeAvailable = ticket.quantity - ticket.soldCount;
+      const typeLimited = ticket.quantity < UNLIMITED_SEAT_SENTINEL;
       const pricingTiers = ticket.pricingTiers.map((tier) => {
-        const available = tier.quantity - tier.soldCount;
+        const available = Math.min(tier.quantity - tier.soldCount, typeAvailable);
         const salesStarted = !tier.salesStart || new Date(tier.salesStart) <= now;
         const salesEnded = tier.salesEnd ? new Date(tier.salesEnd) < now : false;
         return {
           ...tier,
           available,
+          // True when EITHER limit is real, so the public form can show
+          // "N seats left" for an unlimited tier under a limited type.
+          seatLimited: typeLimited || tier.quantity < UNLIMITED_SEAT_SENTINEL,
           soldOut: available <= 0,
           salesStarted,
           salesEnded,
@@ -203,6 +214,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         pricingTiers,
         // Legacy availability fields
         available: legacyAvailable,
+        seatLimited: typeLimited,
         soldOut: legacyAvailable <= 0,
         salesStarted: legacySalesStarted,
         salesEnded: legacySalesEnded,

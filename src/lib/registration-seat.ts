@@ -2,9 +2,17 @@
  * Seat accounting — the single source of truth for when a registration
  * consumes a capacity seat and WHICH counter that seat is tallied on.
  *
- * Two counters exist. Every `TicketType` has `soldCount`; a `TicketType` that
- * uses pricing tiers ALSO has a `soldCount` on each `PricingTier`. A given
- * registration is counted on exactly ONE of them:
+ * Two counters exist, and since Sep 8, 2026 they nest. `TicketType.soldCount`
+ * counts EVERY seat held under the type, whichever door it came through, so
+ * the type's `quantity` is a hard ceiling over all of its tiers plus staff
+ * adds (owner decision, after a 35-seat type sold 107 through a tier whose
+ * own limit was empty). `PricingTier.soldCount` counts that tier's public
+ * sales only, so the tier's `quantity` is a sub-cap inside the ceiling. A
+ * registration must fit both. `seatCounter()` names the PRIMARY counter and
+ * the appliers in registration-seat-db.ts expand a tier counter to the pair
+ * (tier, its type) on every claim and release.
+ *
+ * Which registrations sit on a tier counter (and therefore on both):
  *
  *   • Only the PUBLIC self-service paths increment `PricingTier.soldCount`:
  *     individual public registration (`createdSource === PUBLIC_REGISTER`) and
@@ -45,7 +53,12 @@ export function holdsSeat(
   return status !== "CANCELLED" && attendanceMode === "IN_PERSON";
 }
 
-/** Which physical counter a seat is tallied on. */
+/**
+ * Which physical counter a seat is PRIMARILY tallied on. A "tier" counter also
+ * moves its ticket type's counter when applied (registration-seat-db.ts), so
+ * the type limit holds across tiers; the pair is derived from the tier row,
+ * which is why the type id is not carried here.
+ */
 export type SeatCounter =
   | { kind: "tier"; id: string }
   | { kind: "ticketType"; id: string };

@@ -691,9 +691,9 @@ export default function TicketsPage() {
                 onChange={(e) => setTypeSeatLimit(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Leave empty for unlimited. Caps registrations added by admins/the desk
-                and public sign-ups on types without pricing tiers. Public tier
-                sign-ups are capped by each tier&apos;s own seat limit.
+                Leave empty for unlimited. This is the hard ceiling for the whole type:
+                public sign-ups on any of its tiers, staff adds and desk registrations all
+                count against it. A tier can carry its own smaller limit inside it.
                 {editingType && editingType.soldCount > 0 && (
                   <> {editingType.soldCount} seat{editingType.soldCount !== 1 ? "s" : ""} already
                   sold — the limit can&apos;t go below that.</>
@@ -916,8 +916,9 @@ export default function TicketsPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Seat limit caps public self-registrations on this tier (e.g. allocate
-              100 Early Bird seats). Leave empty for unlimited.
+              Caps public self-registrations on this tier (e.g. allocate 100 Early Bird
+              seats) within the registration type&apos;s own limit, which always applies
+              too. Leave empty for unlimited on this tier.
               {editingTier && editingTier.soldCount > 0 && (
                 <> {editingTier.soldCount} seat{editingTier.soldCount !== 1 ? "s" : ""} already
                 sold — the limit can&apos;t go below that.</>

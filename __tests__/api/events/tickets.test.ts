@@ -11,8 +11,12 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       delete: vi.fn(),
     },
+    // The seat-limit PUT re-counts held seats from the rows under a row lock.
+    registration: { count: vi.fn().mockResolvedValue(0) },
+    $queryRaw: vi.fn().mockResolvedValue([]),
     pricingTier: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -37,7 +41,11 @@ vi.mock("next/server", () => ({
 
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // Flag-off tenantTransaction is a plain interactive tx: hand the same mock in.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb),
+}));
 vi.mock("@/lib/auth-guards", () => ({
   WEBINAR_STAFF_ALLOW: ["WEBINARS"],
   REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
@@ -345,6 +353,7 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 50 });
+    mockDb.registration.count.mockResolvedValueOnce(50);
 
     const res = await UpdateTicket(
       makeRequest("PUT", { quantity: 10 }),
@@ -363,6 +372,7 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 50 });
+    mockDb.registration.count.mockResolvedValueOnce(50);
     mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, quantity: 50, soldCount: 50 });
 
     const res = await UpdateTicket(
@@ -370,6 +380,48 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
       makeDetailParams("evt-1", "tt-1")
     );
     expect(res.status).toBe(200);
+  });
+
+  /**
+   * The Oman shape (Sep 8, 2026): the stored counter read 0 because tier sales
+   * never touched it, while 107 people sat under the type. Setting a limit
+   * must judge against the ROWS, not the drifted counter, and must write the
+   * true total back so the public form claims against it from then on.
+   */
+  it("judges the limit against a fresh row count and heals a drifted counter", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 0 });
+    mockDb.registration.count.mockResolvedValueOnce(107);
+
+    const refused = await UpdateTicket(
+      makeRequest("PUT", { quantity: 35 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toContain("already sold (107)");
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+    // The row lock is taken before the count so concurrent claims serialise.
+    expect(mockDb.$queryRaw).toHaveBeenCalled();
+    expect(mockDb.registration.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ ticketTypeId: "tt-1", status: { not: "CANCELLED" }, attendanceMode: "IN_PERSON" }),
+      })
+    );
+
+    // A limit at or above the true total is accepted AND the counter is healed.
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 0 });
+    mockDb.registration.count.mockResolvedValueOnce(107);
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, quantity: 120, soldCount: 107 });
+    const ok = await UpdateTicket(
+      makeRequest("PUT", { quantity: 120 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(ok.status).toBe(200);
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt-1", eventId: "evt-1" },
+      data: { soldCount: 107 },
+    });
   });
 
   it("rejects a zero/negative seat limit", async () => {

@@ -212,8 +212,9 @@ export type ResolvedTypePricing = {
  * Shared by the initial group create and by adding members later, so the two
  * can never drift on the part that would be most damaging if they did: seat
  * accounting. Claims are all-or-nothing and aggregated per COUNTER via the
- * shared `seatCounter` helper (tier-priced members burn the TIER's inventory,
- * tier-less members the ticket type's), then the event-wide cap — never
+ * shared `seatCounter` helper (tier-priced members burn the TIER's inventory
+ * AND their ticket type's, which is the ceiling over its tiers; tier-less
+ * members the ticket type's only), then the event-wide cap — never
  * re-derived here, so the claim side always matches the release side used by
  * cancel/delete.
  *

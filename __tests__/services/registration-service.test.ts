@@ -194,7 +194,7 @@ beforeEach(() => {
   // `claimSeats` reads the cap, then does the guarded increment.
   mockDb.ticketType.findUnique.mockResolvedValue({ quantity: PAID_TICKET.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
-  mockDb.pricingTier.findUnique.mockResolvedValue({ quantity: 999999 });
+  mockDb.pricingTier.findUnique.mockResolvedValue({ quantity: 999999, ticketTypeId: "tt-1" });
   mockDb.pricingTier.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.create.mockResolvedValue(CREATED_REGISTRATION_PAID);
   mockDb.auditLog.create.mockResolvedValue({});
@@ -290,7 +290,7 @@ describe("createRegistration — happy path", () => {
    * two tests pin the routing in BOTH directions, because a fix that always
    * claimed the tier would make every courtesy grant burn a real paid seat.
    */
-  it("a tier-consuming source claims the TIER's seat, not the ticket type's", async () => {
+  it("a tier-consuming source claims the TIER's seat AND the type's ceiling", async () => {
     mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
     await createRegistration({
       ...BASE_INPUT,
@@ -301,7 +301,31 @@ describe("createRegistration — happy path", () => {
       where: { id: "tier-1", soldCount: { lte: 999998 } },
       data: { soldCount: { increment: 1 } },
     });
-    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+    // Since Sep 8, 2026 the ticket type's limit is the ceiling over all of its
+    // tiers, so the same sale is claimed there too (guarded by ITS quantity).
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt-1", soldCount: { lte: PAID_TICKET.quantity - 1 } },
+      data: { soldCount: { increment: 1 } },
+    });
+  });
+
+  it("a tier sale that fits the tier but not the type's ceiling is SOLD_OUT and leaves the tier counter alone", async () => {
+    mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
+    // Tier claim fits; the type (the ceiling) refuses.
+    mockDb.ticketType.updateMany.mockResolvedValueOnce({ count: 0 });
+    const res = await createRegistration({
+      ...BASE_INPUT,
+      pricingTierId: "tier-1",
+      createdSource: "PUBLIC_SUBMITTER",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("SOLD_OUT");
+    // The tier increment is handed back inside the helper.
+    expect(mockDb.pricingTier.updateMany).toHaveBeenCalledWith({
+      where: { id: "tier-1", soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
+    });
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 
   it("a staff grant on the SAME tier still claims the ticket type (courtesy seat)", async () => {

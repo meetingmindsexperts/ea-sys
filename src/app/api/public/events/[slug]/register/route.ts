@@ -15,7 +15,8 @@ import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
-import { claimEventSeats } from "@/lib/registration-seat-db";
+import { claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
+import type { SeatCounter } from "@/lib/registration-seat";
 import { claimSpareDtcmCode } from "@/lib/dtcm-pool";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import {
@@ -339,7 +340,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Early check (non-authoritative — the real check is inside the transaction).
     // Virtual is uncapped, so a sold-out venue can still take virtual signups.
-    if (!isVirtual && capacitySource.soldCount >= capacitySource.quantity) {
+    // A tier sale must also fit under the ticket TYPE's limit, which is the
+    // ceiling over all of its tiers (registration-seat.ts header).
+    const typeFull = ticketType.soldCount >= ticketType.quantity;
+    if (!isVirtual && (capacitySource.soldCount >= capacitySource.quantity || typeFull)) {
       apiLogger.warn({ msg: "public/register:sold-out", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json({ error: "Sold out" }, { status: 400 });
     }
@@ -521,23 +525,17 @@ export async function POST(req: Request, { params }: RouteParams) {
           })
         : await tx.attendee.create({ data: attendeeData });
 
-      // Atomically increment soldCount on the correct capacity source.
-      // Virtual is uncapped → no increment, no sold-out guard (physical seats
-      // are unaffected by online attendees).
+      // Atomically claim the seat through the shared seat helper. A tier sale
+      // is claimed on the tier's own limit AND on the ticket type's limit (the
+      // ceiling over all tiers); a tier-less sale on the type alone. Virtual is
+      // uncapped → no claim, no sold-out guard (physical seats are unaffected
+      // by online attendees).
       if (!isVirtual) {
-        if (pricingTier) {
-          const updated = await tx.pricingTier.updateMany({
-            where: { id: pricingTier.id, soldCount: { lt: pricingTier.quantity } },
-            data: { soldCount: { increment: 1 } },
-          });
-          if (updated.count === 0) throw new Error("SOLD_OUT");
-        } else {
-          const updated = await tx.ticketType.updateMany({
-            where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-            data: { soldCount: { increment: 1 } },
-          });
-          if (updated.count === 0) throw new Error("SOLD_OUT");
-        }
+        const counter: SeatCounter = pricingTier
+          ? { kind: "tier", id: pricingTier.id }
+          : { kind: "ticketType", id: ticketTypeId };
+        const claimed = await claimSeats(tx, counter, 1);
+        if (!claimed) throw new Error("SOLD_OUT");
         // Event-wide cap (Event.maxAttendees): an in-person public registration
         // also holds an event seat. Atomic conditional claim in the same tx —
         // null maxAttendees (the default) never blocks.

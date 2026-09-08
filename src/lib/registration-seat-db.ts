@@ -1,7 +1,11 @@
 /**
  * Prisma appliers for the seat model in registration-seat.ts. Kept separate so
- * the model stays pure/unit-testable. Both operate on the correct counter
- * (PricingTier or TicketType) as decided by `seatCounter` / `planSeatTransition`.
+ * the model stays pure/unit-testable. They operate on the counter decided by
+ * `seatCounter` / `planSeatTransition`, and EXPAND a tier counter to the pair
+ * (tier, its ticket type): a tier sale is claimed on the tier's own limit AND
+ * on the type's limit, and released from both. That is what makes the ticket
+ * type's seat limit a hard ceiling over all of its tiers (registration-seat.ts
+ * header, owner decision Sep 8, 2026) without any caller having to know.
  */
 import type { Prisma } from "@prisma/client";
 import { planSeatTransition, type SeatCounter, type SeatState } from "./registration-seat";
@@ -17,14 +21,24 @@ export async function releaseSeats(
   count: number,
 ): Promise<void> {
   if (count <= 0) return;
-  // `soldCount >= count` so the counter can never drop below 0.
-  const where = { id: counter.id, soldCount: { gte: count } };
+  // `soldCount >= count` so a counter can never drop below 0.
+  const guarded = (id: string) => ({ id, soldCount: { gte: count } });
   const data = { soldCount: { decrement: count } };
   if (counter.kind === "tier") {
-    await tx.pricingTier.updateMany({ where, data });
-  } else {
-    await tx.ticketType.updateMany({ where, data });
+    const tier = await tx.pricingTier.findUnique({
+      where: { id: counter.id },
+      select: { ticketTypeId: true },
+    });
+    await tx.pricingTier.updateMany({ where: guarded(counter.id), data });
+    // The parent type counted this seat too (it is the ceiling over every
+    // tier, see the header), so it gives the seat back as well. A tier row
+    // that no longer exists has no parent to release on.
+    if (tier?.ticketTypeId) {
+      await tx.ticketType.updateMany({ where: guarded(tier.ticketTypeId), data });
+    }
+    return;
   }
+  await tx.ticketType.updateMany({ where: guarded(counter.id), data });
 }
 
 export async function releaseSeat(
@@ -51,22 +65,47 @@ export async function claimSeats(
   if (counter.kind === "tier") {
     const tier = await tx.pricingTier.findUnique({
       where: { id: counter.id },
-      select: { quantity: true },
+      select: { quantity: true, ticketTypeId: true },
     });
-    if (!tier) return false;
-    const res = await tx.pricingTier.updateMany({
+    // A tier without a parent type cannot exist (NOT NULL FK). Refusing here
+    // rather than skipping the ceiling keeps a malformed row from selling
+    // past the type's limit; it can never fire on real data.
+    if (!tier || !tier.ticketTypeId) return false;
+    const onTier = await tx.pricingTier.updateMany({
       where: { id: counter.id, soldCount: { lte: tier.quantity - count } },
       data: { soldCount: { increment: count } },
     });
-    return res.count > 0;
+    if (onTier.count === 0) return false;
+    // The ceiling (owner decision Sep 8, 2026): a tier sale must ALSO fit
+    // under its ticket type's limit, which spans every tier plus staff adds.
+    // Before this, an organiser's "35 seats" on the type was never read by
+    // the public form when the type had tiers, and 107 people registered.
+    if (await claimTypeSeats(tx, tier.ticketTypeId, count)) return true;
+    // Give the tier increment back. Every caller aborts its transaction on a
+    // false return, which would undo it anyway; doing it here means the two
+    // counters cannot disagree even for a caller that does not.
+    await tx.pricingTier.updateMany({
+      where: { id: counter.id, soldCount: { gte: count } },
+      data: { soldCount: { decrement: count } },
+    });
+    return false;
   }
+  return claimTypeSeats(tx, counter.id, count);
+}
+
+/** Guarded claim on a ticket type: `soldCount + count` never exceeds `quantity`. */
+async function claimTypeSeats(
+  tx: Prisma.TransactionClient,
+  ticketTypeId: string,
+  count: number,
+): Promise<boolean> {
   const ticket = await tx.ticketType.findUnique({
-    where: { id: counter.id },
+    where: { id: ticketTypeId },
     select: { quantity: true },
   });
   if (!ticket) return false;
   const res = await tx.ticketType.updateMany({
-    where: { id: counter.id, soldCount: { lte: ticket.quantity - count } },
+    where: { id: ticketTypeId, soldCount: { lte: ticket.quantity - count } },
     data: { soldCount: { increment: count } },
   });
   return res.count > 0;
@@ -185,18 +224,39 @@ export async function claimSeatsOverselling(
   if (counter.kind === "tier") {
     const tier = await tx.pricingTier.findUnique({
       where: { id: counter.id },
-      select: { quantity: true, soldCount: true, name: true },
+      select: { quantity: true, soldCount: true, name: true, ticketTypeId: true },
     });
     await tx.pricingTier.updateMany({
       where: { id: counter.id },
       data: { soldCount: { increment: count } },
     });
     if (!tier) return none;
+    // The parent type (the ceiling) counts the seat too, unguarded like the
+    // tier: bulk paths proceed and report, they do not partial-fail.
+    const type = await tx.ticketType.findUnique({
+      where: { id: tier.ticketTypeId },
+      select: { quantity: true, soldCount: true, name: true },
+    });
+    await tx.ticketType.updateMany({
+      where: { id: tier.ticketTypeId },
+      data: { soldCount: { increment: count } },
+    });
+    const tierOver = tier.soldCount + count > tier.quantity;
+    const typeOver = type != null && type.soldCount + count > type.quantity;
+    // Report whichever limit overflowed; the tier first when both did.
+    if (tierOver || !typeOver || !type) {
+      return {
+        oversold: tierOver,
+        counterName: tier.name,
+        newSoldCount: tier.soldCount + count,
+        quantity: tier.quantity,
+      };
+    }
     return {
-      oversold: tier.soldCount + count > tier.quantity,
-      counterName: tier.name,
-      newSoldCount: tier.soldCount + count,
-      quantity: tier.quantity,
+      oversold: true,
+      counterName: type.name,
+      newSoldCount: type.soldCount + count,
+      quantity: type.quantity,
     };
   }
   const ticket = await tx.ticketType.findUnique({

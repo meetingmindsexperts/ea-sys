@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -16,10 +16,9 @@ const updateTicketTypeSchema = z.object({
   // Type-level approval gate — editable so a tier-less type can toggle it.
   requiresApproval: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
-  // Seat limit. 999999 (the schema default) = unlimited — the UI sends the
-  // sentinel for an empty input. Caps admin/desk/import creates and public
-  // sign-ups on tier-less types; public tier sign-ups are capped by each
-  // tier's own quantity (independent counters — see registration-seat.ts).
+  // Seat limit — the hard ceiling for the whole type: public tier sign-ups,
+  // staff adds and desk registrations all count against it; each tier's own
+  // quantity is a sub-cap inside it (see registration-seat.ts).
   quantity: z.number().int().min(1).optional(),
   // Supporting-document policy (Aug 13, 2026). Two booleans, not one enum:
   // "ask but do not block" has to stay expressible. See
@@ -134,21 +133,47 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Seat limit can never drop below what's already sold (mirrors the
-    // pricing-tier PUT guard).
-    if (data.quantity !== undefined && data.quantity < existing.soldCount) {
-      apiLogger.warn({
-        msg: "events/tickets:quantity-below-sold-count",
-        eventId,
-        ticketTypeId: ticketId,
-        requestedQuantity: data.quantity,
-        soldCount: existing.soldCount,
-        userId: session.user.id,
+    // Setting a seat limit RE-COUNTS the seats held under this type from the
+    // registration rows first, under a row lock so concurrent claims serialise
+    // against it (the event-cap PUT does the same). The type's limit is the
+    // ceiling over every tier plus staff adds (registration-seat.ts), so the
+    // number it is compared against, and the counter the public form will
+    // claim against from now on, must be the true total rather than whatever
+    // the counter had drifted to. The limit can never drop below that total
+    // (mirrors the pricing-tier PUT guard); to stop sales, deactivate the type.
+    if (data.quantity !== undefined) {
+      const requested = data.quantity;
+      const recount = await tenantTransaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "TicketType" WHERE "id" = ${ticketId} FOR UPDATE`;
+        // Row-truth mirror of holdsSeat() + seatCounter(): not cancelled, in
+        // person, not a speaker companion. The explicit OR keeps null
+        // createdSource rows IN (Prisma `not` excludes nulls).
+        const held = await tx.registration.count({
+          where: {
+            ticketTypeId: ticketId,
+            status: { not: "CANCELLED" },
+            attendanceMode: "IN_PERSON",
+            OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+          },
+        });
+        if (requested < held) return { ok: false as const, held };
+        await tx.ticketType.updateMany({ where: { id: ticketId, eventId }, data: { soldCount: held } });
+        return { ok: true as const, held };
       });
-      return NextResponse.json(
-        { error: `Seat limit cannot be less than seats already sold (${existing.soldCount})` },
-        { status: 400 }
-      );
+      if (!recount.ok) {
+        apiLogger.warn({
+          msg: "events/tickets:quantity-below-sold-count",
+          eventId,
+          ticketTypeId: ticketId,
+          requestedQuantity: requested,
+          soldCount: recount.held,
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          { error: `Seat limit cannot be less than seats already sold (${recount.held})` },
+          { status: 400 }
+        );
+      }
     }
 
     // Check uniqueness if name is changing

@@ -86,7 +86,7 @@ beforeEach(() => {
   mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, name: "Nurse" });
-  mockDb._tx.pricingTier.findUnique.mockResolvedValue({ quantity: 100 });
+  mockDb._tx.pricingTier.findUnique.mockResolvedValue({ quantity: 100, ticketTypeId: OLD_TYPE });
   mockDb._tx.registration.findUniqueOrThrow.mockResolvedValue({
     id: "reg1", status: "CONFIRMED", paymentStatus: "UNPAID", ticketTypeId: NEW_TYPE,
     notes: null, attendee: { id: "att1", firstName: "A", lastName: "B", email: "a@b.com" },
@@ -117,8 +117,16 @@ describe("MCP update_registration — re-tier / reprice parity", () => {
       where: { id: NEW_TIER, soldCount: { lte: 99 } },
       data: { soldCount: { increment: 1 } },
     });
-    // never touched the ticket-type counter
-    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
+    // The ticket type is the ceiling over its tiers (Sep 8, 2026): the seat
+    // leaves it with the old tier and comes back with the new one, net zero.
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: OLD_TYPE, soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
+    });
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: OLD_TYPE, soldCount: { lte: 99 } },
+      data: { soldCount: { increment: 1 } },
+    });
   });
 
   it("type + tier change validates the tier against the NEW type + reprices", async () => {

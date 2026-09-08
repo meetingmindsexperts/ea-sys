@@ -23,8 +23,10 @@ import { db } from "@/lib/db";
 import {
   applyRegistrationTransition,
   claimEventSeats,
+  claimSeats,
   incrementEventSeatsOverselling,
   releaseEventSeats,
+  releaseSeats,
 } from "@/lib/registration-seat-db";
 import { resetCrm, type CrmSeed } from "./helper";
 
@@ -190,5 +192,70 @@ describe("applyRegistrationTransition — event counter rides the real transacti
     const tt = await db.ticketType.findUniqueOrThrow({ where: { id: ticketTypeId }, select: { soldCount: true } });
     expect(tt.soldCount).toBe(0);
     expect(await readSeatCount(eventId)).toBe(1);
+  });
+});
+
+/**
+ * The ticket type's seat limit is a hard ceiling over all of its pricing tiers
+ * (Sep 8, 2026). A tier claim is claimed on the tier AND on its type in one
+ * transaction; the mocked suite pins the call shapes, this pins that real
+ * Postgres locking admits exactly the ceiling under concurrency and that a
+ * refused claim leaves BOTH counters untouched.
+ */
+describe("type seat limit — the ceiling over its tiers (real locking)", () => {
+  async function seedTypeWithTier(typeQuantity: number, tierQuantity = 999999) {
+    const { eventId } = await seedEvent(null);
+    const type = await db.ticketType.create({
+      data: { eventId, name: "Delegate", price: 0, quantity: typeQuantity },
+      select: { id: true },
+    });
+    const tier = await db.pricingTier.create({
+      data: { ticketTypeId: type.id, name: "Standard", price: 0, quantity: tierQuantity, sortOrder: 0 },
+      select: { id: true },
+    });
+    return { eventId, typeId: type.id, tierId: tier.id };
+  }
+  async function counters(typeId: string, tierId: string) {
+    const [t, p] = await Promise.all([
+      db.ticketType.findUniqueOrThrow({ where: { id: typeId }, select: { soldCount: true } }),
+      db.pricingTier.findUniqueOrThrow({ where: { id: tierId }, select: { soldCount: true } }),
+    ]);
+    return { type: t.soldCount, tier: p.soldCount };
+  }
+
+  it("CONCURRENCY: 10 tier sales against a type limit of 3 (tier unlimited) admit exactly 3", async () => {
+    const { typeId, tierId } = await seedTypeWithTier(3);
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        db.$transaction(async (tx) => {
+          const ok = await claimSeats(tx, { kind: "tier", id: tierId }, 1);
+          if (!ok) throw new Error("SOLD_OUT");
+          return true;
+        }).catch(() => false),
+      ),
+    );
+    expect(results.filter(Boolean)).toHaveLength(3);
+    // Both counters read the same 3: the refused claims rolled back cleanly.
+    expect(await counters(typeId, tierId)).toEqual({ type: 3, tier: 3 });
+  });
+
+  it("the tier's own limit still applies inside the ceiling", async () => {
+    const { typeId, tierId } = await seedTypeWithTier(100, 2);
+    for (let i = 0; i < 2; i++) {
+      expect(await db.$transaction((tx) => claimSeats(tx, { kind: "tier", id: tierId }, 1))).toBe(true);
+    }
+    expect(await db.$transaction((tx) => claimSeats(tx, { kind: "tier", id: tierId }, 1))).toBe(false);
+    expect(await counters(typeId, tierId)).toEqual({ type: 2, tier: 2 });
+  });
+
+  it("a tier release frees the seat on the type too, and a staff add then takes it", async () => {
+    const { typeId, tierId } = await seedTypeWithTier(1);
+    expect(await db.$transaction((tx) => claimSeats(tx, { kind: "tier", id: tierId }, 1))).toBe(true);
+    // ceiling reached: a staff add on the type is refused
+    expect(await db.$transaction((tx) => claimSeats(tx, { kind: "ticketType", id: typeId }, 1))).toBe(false);
+    await db.$transaction((tx) => releaseSeats(tx, { kind: "tier", id: tierId }, 1));
+    expect(await counters(typeId, tierId)).toEqual({ type: 0, tier: 0 });
+    expect(await db.$transaction((tx) => claimSeats(tx, { kind: "ticketType", id: typeId }, 1))).toBe(true);
+    expect(await counters(typeId, tierId)).toEqual({ type: 1, tier: 0 });
   });
 });
