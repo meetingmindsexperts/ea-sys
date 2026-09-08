@@ -12,6 +12,7 @@ import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
 import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import { DEFAULT_TRAVEL_GRANT_CTA_LABEL, TRAVEL_GRANT_CTA_LABEL_MAX } from "@/lib/travel-grant/constants";
 import { countryNamesFor, resolveCountryCode } from "@/lib/travel-grant/eligibility";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
@@ -300,6 +301,8 @@ export default function EventSettingsPage() {
   const [travelGrantEnabled, setTravelGrantEnabled] = useState(false);
   /** ISO alpha-2 codes. Names are for display only; the code is what is stored. */
   const [travelGrantHomeCountries, setTravelGrantHomeCountries] = useState<string[]>([]);
+  // The button text in the email block and on the consent form (Sep 8, 2026).
+  const [travelGrantCtaLabel, setTravelGrantCtaLabel] = useState(DEFAULT_TRAVEL_GRANT_CTA_LABEL);
 
   /**
    * Per-event abstract limits. Held as STRINGS so an organizer can clear a box
@@ -466,6 +469,7 @@ export default function EventSettingsPage() {
           // amber note below is what says it is not running yet.
           setTravelGrantEnabled(tg.switchedOn);
           setTravelGrantHomeCountries(tg.homeCountries);
+          setTravelGrantCtaLabel(tg.ctaLabel);
         }
 
         const lim = readAbstractLimits(settings);
@@ -783,6 +787,7 @@ export default function EventSettingsPage() {
             travelGrant: {
               enabled: travelGrantEnabled,
               homeCountries: travelGrantHomeCountries,
+              ctaLabel: travelGrantCtaLabel.trim() || DEFAULT_TRAVEL_GRANT_CTA_LABEL,
             },
         sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
       },
@@ -2324,6 +2329,21 @@ export default function EventSettingsPage() {
                       would be offered a grant &mdash; so the feature refuses to run instead.
                     </p>
                   )}
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="travel-grant-cta">Button text</Label>
+                    <Input
+                      id="travel-grant-cta"
+                      value={travelGrantCtaLabel}
+                      maxLength={TRAVEL_GRANT_CTA_LABEL_MAX}
+                      onChange={(e) => setTravelGrantCtaLabel(e.target.value)}
+                      placeholder={DEFAULT_TRAVEL_GRANT_CTA_LABEL}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      The button in the confirmation email and on the author&rsquo;s form. Leave
+                      blank for &ldquo;{DEFAULT_TRAVEL_GRANT_CTA_LABEL}&rdquo;.
+                    </p>
+                  </div>
 
                   <p className="text-sm text-muted-foreground">
                     Write the email message and the consent-form terms under{" "}

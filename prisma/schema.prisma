@@ -4629,6 +4629,11 @@ model TravelGrant {
   signedName  String?
   submittedAt DateTime?
   submittedIp String?
+  /// Who set the current status (Sep 8, 2026). Null = the author, through the
+  /// public form. `ORGANIZER:<userId>` = set from the console (reopened,
+  /// recorded as applied, or recorded as declined on the author's behalf), the
+  /// same marker Speaker.agreementAcceptedBy uses. The audit row has the rest.
+  decidedBy   String?
 
   /// When the link was last put in front of this author. Distinct from
   /// createdAt because the console can re-send.

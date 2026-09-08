@@ -52,6 +52,8 @@ export interface SendTravelGrantArgs {
      * gated on — a second source could disagree with it.
      */
     homeCountries: readonly string[];
+    /** The button text (readTravelGrantSettings(event.settings).ctaLabel); absent = default. */
+    ctaLabel?: string | null;
   };
   speakerIds?: string[];
   pendingOnly?: boolean;
@@ -114,6 +116,7 @@ export async function sendTravelGrantInvitations(
         link: buildTravelGrantLink(event.slug, r.token),
         messageHtml: event.travelGrantMessageHtml,
         status: r.status,
+        ctaLabel: event.ctaLabel ?? null,
       });
       const vars: Record<string, string> = {
         speakerName: formatPersonName(r.title, r.firstName ?? "", r.lastName ?? ""),

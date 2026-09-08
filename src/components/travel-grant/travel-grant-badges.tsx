@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import {
   GRANT_STATUS_LABEL,
+  isOrganizerDecided,
   residencyLabel,
   type TravelGrantStatusValue,
 } from "@/lib/travel-grant/constants";
@@ -66,18 +67,29 @@ export function ResidencyBadge({
 export function GrantStatusLabel({
   status,
   signedName,
+  decidedBy,
 }: {
   /** Null means no grant row exists: invited is a different thing from pending. */
   status: TravelGrantStatusValue | null;
   signedName?: string | null;
+  /**
+   * Who set the status (Sep 8, 2026). An organizer-set status is labelled so a
+   * console reader never mistakes it for the author's own declaration.
+   */
+  decidedBy?: string | null;
 }) {
   if (!status) return <span className="text-muted-foreground">Not invited</span>;
+  const byOrganizer = isOrganizerDecided(decidedBy);
   if (status === "CONSENTED") {
     return (
       <span className="flex items-center gap-1.5 text-emerald-700">
         <Check className="h-3.5 w-3.5" />
         {GRANT_STATUS_LABEL.CONSENTED}
-        {signedName && <span className="text-xs text-muted-foreground">({signedName})</span>}
+        {byOrganizer ? (
+          <span className="text-xs text-muted-foreground">(set by organiser)</span>
+        ) : (
+          signedName && <span className="text-xs text-muted-foreground">({signedName})</span>
+        )}
       </span>
     );
   }
@@ -86,8 +98,14 @@ export function GrantStatusLabel({
       <span className="flex items-center gap-1.5 text-muted-foreground">
         <X className="h-3.5 w-3.5" />
         {GRANT_STATUS_LABEL.DECLINED}
+        {byOrganizer && <span className="text-xs">(set by organiser)</span>}
       </span>
     );
   }
-  return <span className="text-amber-700">{GRANT_STATUS_LABEL.PENDING}</span>;
+  return (
+    <span className="text-amber-700">
+      {GRANT_STATUS_LABEL.PENDING}
+      {byOrganizer && <span className="text-xs text-muted-foreground"> (reopened by organiser)</span>}
+    </span>
+  );
 }

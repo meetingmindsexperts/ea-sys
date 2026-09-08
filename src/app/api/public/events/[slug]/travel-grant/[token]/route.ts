@@ -83,6 +83,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: row.status,
         signedName: row.signedName,
         submittedAt: row.submittedAt,
+        // The organizer's button text (Settings -> Abstracts), default when unset.
+        ctaLabel: readTravelGrantSettings(row.event.settings).ctaLabel,
         recipientName: [row.speaker.firstName, row.speaker.lastName].filter(Boolean).join(" "),
         termsHtml: row.event.travelGrantTermsHtml?.trim() || DEFAULT_TRAVEL_GRANT_TERMS_HTML,
         event: {
@@ -184,8 +186,10 @@ export async function POST(req: Request, { params }: RouteParams) {
               signedName: d.signedName?.trim() ?? null,
               submittedAt: new Date(),
               submittedIp: ip,
+              // The author answered: any organizer marker from a reopen is gone.
+              decidedBy: null,
             }
-          : { status: "DECLINED", submittedAt: new Date(), submittedIp: ip },
+          : { status: "DECLINED", submittedAt: new Date(), submittedIp: ip, decidedBy: null },
       });
 
       if (count === 0) {

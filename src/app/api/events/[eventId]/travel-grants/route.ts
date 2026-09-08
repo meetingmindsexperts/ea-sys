@@ -113,6 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           "Status",
           "Signed name",
           "Responded at",
+          "Set by",
           "Abstracts",
         ].join(",");
         const lines = roster.map((r) =>
@@ -125,6 +126,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             csvCell(r.grant?.status ?? "NOT_INVITED"),
             csvCell(r.grant?.signedName ?? ""),
             csvCell(r.grant?.submittedAt ? r.grant.submittedAt.toISOString() : ""),
+            csvCell(r.grant?.decidedBy ? "organiser" : r.grant?.submittedAt ? "author" : ""),
             csvCell(String(r.abstractCount)),
           ].join(","),
         );
@@ -227,7 +229,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(event.organizationId, async () => {
       const result = await sendTravelGrantInvitations({
-        event: { ...event, homeCountries: grantSettings.homeCountries },
+        event: { ...event, homeCountries: grantSettings.homeCountries, ctaLabel: grantSettings.ctaLabel },
         speakerIds: parsed.data.speakerIds,
         // D9: "remind everyone pending" resolves from the GRANT table, never
         // from the roster the console is rendering. The roster deliberately

@@ -19,6 +19,7 @@ import { useParams } from "next/navigation";
 import { AlertCircle, CalendarDays, Check, Loader2, MapPin, Plane } from "lucide-react";
 import { formatEventDateRange } from "@/lib/event-time";
 import { Button } from "@/components/ui/button";
+import { DEFAULT_TRAVEL_GRANT_CTA_LABEL } from "@/lib/travel-grant/constants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,6 +28,8 @@ import { sanitizeHtml } from "@/lib/sanitize";
 
 interface LoadedGrant {
   status: "PENDING" | "CONSENTED" | "DECLINED";
+  /** The organizer's button text (Settings -> Abstracts); absent on an older payload. */
+  ctaLabel?: string;
   signedName: string | null;
   submittedAt: string | null;
   recipientName: string;
@@ -272,7 +275,7 @@ export default function TravelGrantPage() {
                     disabled={!confirmed || signedName.trim().length < 2 || submitting !== null}
                   >
                     {submitting === "consent" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Confirm my travel grant request
+                    {data.ctaLabel || DEFAULT_TRAVEL_GRANT_CTA_LABEL}
                   </Button>
                   <Button
                     variant="ghost"
@@ -284,7 +287,7 @@ export default function TravelGrantPage() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Confirming does not award you a grant. It records that you are eligible and
+                  Applying does not award you a grant. It records that you are eligible and
                   interested.
                 </p>
               </div>

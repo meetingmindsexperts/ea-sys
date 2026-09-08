@@ -136,6 +136,7 @@ export async function resolveTravelGrantBlock(
       link: buildTravelGrantLink(eventSlug, row.token),
       messageHtml: input.messageHtml,
       status: row.status as TravelGrantBlockStatus,
+      ctaLabel: grantSettings.ctaLabel,
     });
   } catch (err) {
     // Failure-isolated by contract: the confirmation email still goes out.

@@ -336,7 +336,8 @@ export default function ContentPage() {
                 <CardTitle>Travel Grant &mdash; email message</CardTitle>
                 <CardDescription>
                   Shown inside the abstract submission-confirmation email, above the
-                  &ldquo;Confirm your travel grant&rdquo; button, to authors based{" "}
+                  &ldquo;Apply for Travel Grant&rdquo; button (its text is editable under
+                  Settings &rarr; Abstracts), to authors based{" "}
                   <strong>outside the UAE</strong>. Authors in the UAE never see it and
                   receive no extra content at all. Only takes effect once Travel Grant is
                   enabled under <strong>Settings &rarr; Abstracts</strong>.

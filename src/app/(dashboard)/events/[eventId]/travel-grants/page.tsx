@@ -25,6 +25,7 @@ import {
   Loader2,
   Plane,
   Send,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,14 @@ import {
 } from "@/lib/travel-grant/constants";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 
 interface Row {
@@ -54,6 +63,7 @@ interface Row {
     invitedAt: string | null;
     submittedAt: string | null;
     signedName: string | null;
+    decidedBy: string | null;
   } | null;
 }
 
@@ -137,6 +147,39 @@ export default function TravelGrantsPage() {
         await load();
       } catch {
         toast.error("Couldn't send. Please try again.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [eventId, load],
+  );
+
+  // Organizer override of the author's answer (Sep 8, 2026): reopen, or
+  // record applied / declined on their behalf. The author's own form is locked
+  // after they answer, so this is the only way to change it.
+  const setStatus = useCallback(
+    async (row: Row, status: "PENDING" | "CONSENTED" | "DECLINED") => {
+      if (!eventId || !row.grant) return;
+      setBusy(`status:${row.speakerId}`);
+      try {
+        const res = await fetch(`/api/events/${eventId}/travel-grants/${row.grant.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(json.error || "Couldn't change the status.");
+          return;
+        }
+        toast.success(
+          status === "PENDING"
+            ? `Reopened for ${row.name}: their link accepts a new answer.`
+            : `${row.name} recorded as ${GRANT_STATUS_LABEL[status].toLowerCase()} (set by you).`,
+        );
+        await load();
+      } catch {
+        toast.error("Couldn't change the status. Please try again.");
       } finally {
         setBusy(null);
       }
@@ -301,6 +344,7 @@ export default function TravelGrantsPage() {
                         <GrantStatusLabel
                           status={r.grant?.status ?? null}
                           signedName={r.grant?.signedName}
+                          decidedBy={r.grant?.decidedBy}
                         />
                       </td>
                       <td className="px-4 py-3">
@@ -329,6 +373,46 @@ export default function TravelGrantsPage() {
                               <Send className="h-3.5 w-3.5" />
                             )}
                           </Button>
+                          {r.grant && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busy !== null}
+                                  title="Set status on the author's behalf"
+                                >
+                                  {busy === `status:${r.speakerId}` ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Set status</DropdownMenuLabel>
+                                <DropdownMenuItem
+                                  disabled={r.grant.status === "CONSENTED"}
+                                  onSelect={() => void setStatus(r, "CONSENTED")}
+                                >
+                                  Mark as applied
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={r.grant.status === "DECLINED"}
+                                  onSelect={() => void setStatus(r, "DECLINED")}
+                                >
+                                  Mark as declined
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  disabled={r.grant.status === "PENDING"}
+                                  onSelect={() => void setStatus(r, "PENDING")}
+                                >
+                                  Reopen (await reply)
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </td>
                     </tr>

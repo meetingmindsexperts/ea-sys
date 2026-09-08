@@ -3219,9 +3219,9 @@ export function getSamplePreviewVariables(
     // because minting a real per-author token for a preview would hand out a
     // live credential (the agreementBlock rule, same reason).
     travelGrantBlock:
-      '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><div style="margin: 0 0 16px 0; color: #374151; font-size: 14px;"><p>Your travel-grant message from Content &rarr; Abstracts appears here.</p></div><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Confirm your travel grant</a></div><p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p></div>',
+      '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><div style="margin: 0 0 16px 0; color: #374151; font-size: 14px;"><p>Your travel-grant message from Content &rarr; Abstracts appears here.</p></div><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Apply for Travel Grant</a></div><p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p></div>',
     travelGrantBlockText:
-      "Your travel-grant message from Content -> Abstracts appears here.\n\nConfirm your travel grant here (link unique to you): #",
+      "Your travel-grant message from Content -> Abstracts appears here.\n\nApply for Travel Grant (link unique to you): #",
     // Presenter fee on the abstract-submitter welcome (plan D2/D3). Renders as
     // NOTHING on an event with no presenter rates, which is every event until
     // an organizer configures one — the preview shows the populated shape.

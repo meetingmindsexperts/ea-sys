@@ -44,6 +44,8 @@ export interface TravelGrantRosterRow {
     invitedAt: Date | null;
     submittedAt: Date | null;
     signedName: string | null;
+    /** Null = the author answered; ORGANIZER:<userId> = set from the console. */
+    decidedBy: string | null;
   } | null;
 }
 
@@ -93,6 +95,7 @@ export async function buildTravelGrantRoster(
         invitedAt: true,
         submittedAt: true,
         signedName: true,
+        decidedBy: true,
         // Selected so a grant-holder with no CURRENT abstract can still be
         // listed. See the union below.
         speaker: {
@@ -137,6 +140,7 @@ export async function buildTravelGrantRoster(
             invitedAt: g.invitedAt,
             submittedAt: g.submittedAt,
             signedName: g.signedName,
+            decidedBy: g.decidedBy,
           }
         : null,
     });
@@ -165,6 +169,7 @@ export async function buildTravelGrantRoster(
         invitedAt: g.invitedAt,
         submittedAt: g.submittedAt,
         signedName: g.signedName,
+        decidedBy: g.decidedBy,
       },
     });
   }
@@ -217,6 +222,7 @@ export async function getTravelGrantForSpeaker(
           invitedAt: true,
           submittedAt: true,
           signedName: true,
+          decidedBy: true,
         },
       },
     },
@@ -238,6 +244,7 @@ export async function getTravelGrantForSpeaker(
           invitedAt: sp.travelGrant.invitedAt,
           submittedAt: sp.travelGrant.submittedAt,
           signedName: sp.travelGrant.signedName,
+          decidedBy: sp.travelGrant.decidedBy,
         }
       : null,
   };

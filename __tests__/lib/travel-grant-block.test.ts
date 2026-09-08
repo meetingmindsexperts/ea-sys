@@ -59,7 +59,7 @@ describe("buildTravelGrantBlock", () => {
     const b = buildTravelGrantBlock({ link: "https://x/t", messageHtml: "<p>Hello</p>", status: "PENDING" });
     expect(b.html).toContain("https://x/t");
     expect(b.html).toContain("Hello");
-    expect(b.html).toContain("Confirm your travel grant");
+    expect(b.html).toContain("Apply for Travel Grant");
     expect(b.text).toContain("https://x/t");
     expect(b.text).toContain("Hello");
     expect(b.text).not.toContain("<p>"); // plain-text part carries no markup
@@ -81,8 +81,17 @@ describe("buildTravelGrantBlock", () => {
 
   it("renders a bare CTA when the organizer wrote no message", () => {
     const b = buildTravelGrantBlock({ link: "https://x/t", messageHtml: "  ", status: "PENDING" });
-    expect(b.html).toContain("Confirm your travel grant");
+    expect(b.html).toContain("Apply for Travel Grant");
     expect(b.html).not.toContain("<div style=\"margin: 0 0 16px 0;");
+  });
+
+  it("renders the organizer's button text, escaped, and falls back to the default when blank", () => {
+    const custom = buildTravelGrantBlock({ link: "https://x/t", status: "PENDING", ctaLabel: "Request <b>travel</b> support" });
+    expect(custom.html).toContain("Request &lt;b&gt;travel&lt;/b&gt; support</a>");
+    expect(custom.html).not.toContain("<b>travel</b>");
+    expect(custom.text).toContain("Request <b>travel</b> support (link unique to you)");
+    const blank = buildTravelGrantBlock({ link: "https://x/t", status: "PENDING", ctaLabel: "   " });
+    expect(blank.html).toContain("Apply for Travel Grant</a>");
   });
 });
 

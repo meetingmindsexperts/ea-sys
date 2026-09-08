@@ -28,6 +28,7 @@ describe("readTravelGrantSettings", () => {
       enabled: true,
       homeCountries: ["AE"],
       switchedOn: true,
+      ctaLabel: "Apply for Travel Grant",
     });
   });
 
@@ -133,5 +134,22 @@ describe("isTravelGrantEnabled", () => {
     expect(isTravelGrantEnabled({ travelGrant: { enabled: "true", homeCountries: ["AE"] } })).toBe(false);
     expect(isTravelGrantEnabled({ travelGrant: { enabled: true } })).toBe(false);
     expect(isTravelGrantEnabled(null)).toBe(false);
+  });
+});
+
+describe("ctaLabel: the organizer's button text (Sep 8, 2026)", () => {
+  const withLabel = (ctaLabel: unknown) =>
+    readTravelGrantSettings({ travelGrant: { enabled: true, homeCountries: ["AE"], ctaLabel } }).ctaLabel;
+
+  it("defaults to the shipped wording when absent, blank, non-string or over the cap", () => {
+    expect(withLabel(undefined)).toBe("Apply for Travel Grant");
+    expect(withLabel("   ")).toBe("Apply for Travel Grant");
+    expect(withLabel(42)).toBe("Apply for Travel Grant");
+    expect(withLabel("x".repeat(61))).toBe("Apply for Travel Grant");
+    expect(readTravelGrantSettings(null).ctaLabel).toBe("Apply for Travel Grant");
+  });
+
+  it("keeps the organizer's text, trimmed", () => {
+    expect(withLabel("  Request travel support  ")).toBe("Request travel support");
   });
 });

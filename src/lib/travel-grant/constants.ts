@@ -20,17 +20,25 @@ import { z } from "zod";
 export const DEFAULT_TRAVEL_GRANT_TERMS_HTML = `
 <p>We offer a limited number of travel grants to help authors travelling from
 outside the United Arab Emirates to attend and present in person.</p>
-<p>By confirming below you are telling us that:</p>
+<p>By applying below you are telling us that:</p>
 <ul>
   <li>You are <strong>not a resident of the United Arab Emirates</strong>.</li>
   <li>You would like to be considered for a travel grant.</li>
   <li>The details you have given us are accurate to the best of your knowledge.</li>
 </ul>
-<p><strong>Confirming does not award you a grant.</strong> It records that you are
+<p><strong>Applying does not award you a grant.</strong> It records that you are
 eligible and interested. Grants are limited, decided by the organising committee,
 and you will be contacted separately about the outcome. Your own declaration
 above is what determines eligibility.</p>
 `.trim();
+
+/**
+ * The button the author clicks, in the email block and on the consent form.
+ * Organizer-editable under Settings -> Abstracts (Sep 8, 2026); this is the
+ * default and the fallback for anything unreadable.
+ */
+export const DEFAULT_TRAVEL_GRANT_CTA_LABEL = "Apply for Travel Grant";
+export const TRAVEL_GRANT_CTA_LABEL_MAX = 60;
 
 export const TRAVEL_GRANT_DECISIONS = ["consent", "decline"] as const;
 export type TravelGrantDecision = (typeof TRAVEL_GRANT_DECISIONS)[number];
@@ -120,9 +128,14 @@ export const RESIDENCY_LABEL_FIXED = {
 /** What an organizer sees in the Status column / row. */
 export const GRANT_STATUS_LABEL: Record<TravelGrantStatusValue, string> = {
   PENDING: "Awaiting reply",
-  CONSENTED: "Confirmed",
+  CONSENTED: "Applied",
   DECLINED: "Declined",
 };
+
+/** True when the current status was set from the console, not by the author. */
+export function isOrganizerDecided(decidedBy: string | null | undefined): boolean {
+  return typeof decidedBy === "string" && decidedBy.startsWith("ORGANIZER:");
+}
 
 /**
  * Who may see and act on travel grants.

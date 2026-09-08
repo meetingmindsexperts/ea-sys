@@ -243,3 +243,22 @@ describe("POST", () => {
     expect(updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("organizer controls (Sep 8, 2026)", () => {
+  it("GET carries the organizer's button text, defaulting when none is set", async () => {
+    expect((await (await GET(req(), { params })).json()).ctaLabel).toBe("Apply for Travel Grant");
+    loadRow.mockResolvedValue({
+      ...ROW,
+      event: { ...ROW.event, settings: { travelGrant: { enabled: true, homeCountries: ["AE"], ctaLabel: "Request travel support" } } },
+    });
+    expect((await (await GET(req(), { params })).json()).ctaLabel).toBe("Request travel support");
+  });
+
+  it("the author's own answer clears any organizer marker left by a reopen", async () => {
+    await POST(req({ decision: "consent", confirmedNotUaeResident: true, signedName: "Ana Silva" }), { params });
+    expect(updateMany.mock.calls[0][0].data.decidedBy).toBeNull();
+    updateMany.mockClear();
+    await POST(req({ decision: "decline" }), { params });
+    expect(updateMany.mock.calls[0][0].data.decidedBy).toBeNull();
+  });
+});

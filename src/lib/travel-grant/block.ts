@@ -21,6 +21,8 @@
  * in an event's saved template. One token, one contract.
  */
 
+import { DEFAULT_TRAVEL_GRANT_CTA_LABEL } from "@/lib/travel-grant/constants";
+
 export type TravelGrantBlockStatus = "PENDING" | "CONSENTED" | "DECLINED";
 
 const TRAVEL_GRANT_TOKEN_RE = /\{\{(travelGrantBlock|travelGrantBlockText)\}\}/;
@@ -54,6 +56,12 @@ export function buildTravelGrantBlock(opts: {
   messageHtml?: string | null;
   /** Current row status. Absent is treated as PENDING (a freshly minted row). */
   status?: TravelGrantBlockStatus | null;
+  /**
+   * The button text, from Settings -> Abstracts (readTravelGrantSettings().ctaLabel).
+   * Absent or blank renders the default. Escaped here: it is organizer-typed
+   * plain text landing inside an anchor.
+   */
+  ctaLabel?: string | null;
 }): { html: string; text: string } {
   // Already answered yes: acknowledge, never ask again. Mirrors the green
   // already-accepted note on the agreement block.
@@ -69,6 +77,7 @@ export function buildTravelGrantBlock(opts: {
 
   if (!opts.link) return { html: "", text: "" };
 
+  const label = (opts.ctaLabel ?? "").trim() || DEFAULT_TRAVEL_GRANT_CTA_LABEL;
   const message = (opts.messageHtml ?? "").trim();
   const messageHtml = message
     ? `<div style="margin: 0 0 16px 0; color: #374151; font-size: 14px;">${message}</div>`
@@ -77,17 +86,26 @@ export function buildTravelGrantBlock(opts: {
   return {
     html: `<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
       ${messageHtml}<div style="text-align: center;">
-        <a href="${opts.link}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Confirm your travel grant</a>
+        <a href="${opts.link}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">${escapeHtml(label)}</a>
       </div>
       <p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p>
     </div>`,
     text: [
       stripHtmlToText(message),
-      `Confirm your travel grant here (link unique to you):\n${opts.link}`,
+      `${label} (link unique to you):\n${opts.link}`,
     ]
       .filter(Boolean)
       .join("\n\n"),
   };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /**

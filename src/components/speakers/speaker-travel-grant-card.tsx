@@ -26,7 +26,7 @@ import { Copy, ExternalLink, Loader2, Plane, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
-import { canManageTravelGrants, publicTravelGrantUrl } from "@/lib/travel-grant/constants";
+import { GRANT_STATUS_LABEL, canManageTravelGrants, publicTravelGrantUrl } from "@/lib/travel-grant/constants";
 import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import { useEvent } from "@/hooks/use-api";
@@ -45,6 +45,7 @@ interface Row {
     invitedAt: string | null;
     submittedAt: string | null;
     signedName: string | null;
+    decidedBy: string | null;
   } | null;
 }
 
@@ -156,6 +157,39 @@ export function SpeakerTravelGrantCard({
     }
   }, [eventId, speakerId, load]);
 
+  // Organizer override (Sep 8, 2026): the author's form locks after their
+  // answer; this reopens it or records the answer on their behalf.
+  const [settingStatus, setSettingStatus] = useState(false);
+  const setStatus = useCallback(
+    async (status: "PENDING" | "CONSENTED" | "DECLINED") => {
+      if (!row?.grant) return;
+      setSettingStatus(true);
+      try {
+        const res = await fetch(`/api/events/${eventId}/travel-grants/${row.grant.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(json.error || "Couldn't change the status.");
+          return;
+        }
+        toast.success(
+          status === "PENDING"
+            ? "Reopened: their link accepts a new answer."
+            : `Recorded as ${GRANT_STATUS_LABEL[status].toLowerCase()} (set by you).`,
+        );
+        await load();
+      } catch {
+        toast.error("Couldn't change the status.");
+      } finally {
+        setSettingStatus(false);
+      }
+    },
+    [eventId, row, load],
+  );
+
   const copy = useCallback(() => {
     if (!row?.grant || !eventSlug) return;
     void navigator.clipboard
@@ -209,7 +243,7 @@ export function SpeakerTravelGrantCard({
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">Status</span>
           <span className="text-sm">
-            <GrantStatusLabel status={row.grant?.status ?? null} />
+            <GrantStatusLabel status={row.grant?.status ?? null} decidedBy={row.grant?.decidedBy} />
           </span>
         </div>
 
@@ -252,6 +286,41 @@ export function SpeakerTravelGrantCard({
             </Link>
           </Button>
         </div>
+
+        {row.grant && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Set status on their behalf</span>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={settingStatus || row.grant.status === "CONSENTED"}
+                onClick={() => void setStatus("CONSENTED")}
+              >
+                Mark as applied
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={settingStatus || row.grant.status === "DECLINED"}
+                onClick={() => void setStatus("DECLINED")}
+              >
+                Mark as declined
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                disabled={settingStatus || row.grant.status === "PENDING"}
+                onClick={() => void setStatus("PENDING")}
+              >
+                {settingStatus ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Reopen"}
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -33,6 +33,10 @@
  */
 
 import { resolveCountryCode } from "@/lib/travel-grant/eligibility";
+import {
+  DEFAULT_TRAVEL_GRANT_CTA_LABEL,
+  TRAVEL_GRANT_CTA_LABEL_MAX,
+} from "@/lib/travel-grant/constants";
 
 export interface TravelGrantSettings {
   /**
@@ -66,13 +70,27 @@ export interface TravelGrantSettings {
    * third boolean.
    */
   switchedOn: boolean;
+  /**
+   * The button text in the email block and on the consent form (Sep 8, 2026).
+   * Organizer-typed, trimmed, capped; blank or unreadable falls back to the
+   * default, so a cleared field can never render an empty button.
+   */
+  ctaLabel: string;
 }
 
 export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = {
   enabled: false,
   homeCountries: [],
   switchedOn: false,
+  ctaLabel: DEFAULT_TRAVEL_GRANT_CTA_LABEL,
 };
+
+function readCtaLabel(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_TRAVEL_GRANT_CTA_LABEL;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > TRAVEL_GRANT_CTA_LABEL_MAX) return DEFAULT_TRAVEL_GRANT_CTA_LABEL;
+  return trimmed;
+}
 
 /**
  * Read the travel-grant config off an event's `settings` JSON.
@@ -111,6 +129,7 @@ export function readTravelGrantSettings(settings: unknown): TravelGrantSettings 
     enabled: switchedOn && homeCountries.length > 0,
     homeCountries,
     switchedOn,
+    ctaLabel: readCtaLabel(blob.ctaLabel),
   };
 }
 

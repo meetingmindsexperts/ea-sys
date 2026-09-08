@@ -93,8 +93,12 @@ without one. The console listing is a safety net, not a daily workflow.
 
 ## Configuration
 
-`Event.settings.travelGrant = { enabled: boolean }`. Settings JSON, no column,
-no migration.
+`Event.settings.travelGrant = { enabled: boolean, homeCountries: string[],
+ctaLabel?: string }`. Settings JSON, no column, no migration. `ctaLabel` (Sep 8,
+2026) is the button text in the email block and on the consent form, default
+"Apply for Travel Grant", trimmed and capped at 60 characters; blank or
+unreadable falls back to the default so a cleared field never renders an
+empty button. It is HTML-escaped where it lands in an anchor.
 
 **The reader fails CLOSED and the check is `=== true`.** An absent key, a
 corrupted blob, the string `"true"`, a `1` and a `null` all resolve to disabled,
@@ -111,6 +115,32 @@ Content → Abstracts:
 - **`travelGrantTermsHtml`** renders on the consent form and is **snapshotted
   onto the row at consent**, so a later edit changes what future authors see and
   never rewrites what somebody signed.
+
+## Organizer status override (Sep 8, 2026)
+
+The author's form is **locked after their own answer**: the public POST is a
+conditional claim on `PENDING`, so a second submit is a 409 and the page shows
+the already-answered state. The only way to change it is the organizer, through
+`PATCH /api/events/[eventId]/travel-grants/[grantId]` with
+`{ status: "PENDING" | "CONSENTED" | "DECLINED" }`, the speaker-agreement
+accept/revoke pattern:
+
+- **Reopen (`PENDING`)** clears the author's answer (signature, snapshot,
+  timestamps); the same link accepts a new one and the email block re-asks on
+  their next abstract.
+- **`CONSENTED` / `DECLINED` on the author's behalf** stamps `submittedAt` and
+  the organizer's IP; an organizer-set application snapshots the terms but
+  carries **no signed name**, and the console labels it "set by organiser".
+- Every transition writes `TravelGrant.decidedBy = ORGANIZER:<userId>` and an
+  audit row `TRAVEL_GRANT_STATUS_SET` with before → after. The author's own
+  answer through the public form resets `decidedBy` to null. A same-status call
+  is a no-op with no audit.
+- Boundary: `denyReviewer(session)` with no allow-list, event through
+  `buildEventAccessWhere`, the write bound to `{ id, eventId }`.
+
+Surfaces: a "Set status" menu on each console row that has a grant, and the
+same menu on the speaker profile's Travel Grant card. The CSV gained a "Set by"
+column (author / organiser).
 
 ## Gotchas for whoever builds steps 4 to 6
 
