@@ -49,7 +49,9 @@ import { EmailAttachmentPicker } from "@/components/email/email-attachment-picke
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
+import { ClaimItemsPicker, claimItemsSummary } from "@/components/reimbursement/claim-items-picker";
 import {
+  CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
   canManageReimbursements,
   claimItemLabel,
@@ -58,6 +60,7 @@ import {
   formatHonorarium,
   readHonorarium,
   type BankDetails,
+  type ClaimItemKey,
   type ClaimLine,
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
@@ -95,6 +98,8 @@ interface ReimbursementRow {
     // Decimal serialises as a string; readHonorarium() accepts either.
     honorariumAmount: string | number | null;
     honorariumCurrency: string | null;
+    // null = this speaker follows the event default (Sep 8, 2026).
+    reimbursementClaimItems: ClaimItemKey[] | null;
   };
   documents: DocumentRow[];
 }
@@ -165,6 +170,18 @@ export default function ReimbursementsPage() {
   const role = session?.user?.role;
   const allowed = canManageReimbursements(role);
 
+  // Which reimbursement types the event offers (Sep 8, 2026). The draft is
+  // what the picker shows; `eventClaimItems` is what is saved.
+  const [eventClaimItems, setEventClaimItems] = useState<ClaimItemKey[]>([...CLAIM_ITEM_KEYS]);
+  const [eventClaimDraft, setEventClaimDraft] = useState<ClaimItemKey[]>([...CLAIM_ITEM_KEYS]);
+  const [eventClaimSaving, setEventClaimSaving] = useState(false);
+  // Per-speaker override edited from the detail dialog; re-seeded whenever a
+  // different row opens (the "store info from previous renders" pattern).
+  const [speakerTypesDraft, setSpeakerTypesDraft] = useState<ClaimItemKey[]>([...CLAIM_ITEM_KEYS]);
+  const [speakerTypesInherit, setSpeakerTypesInherit] = useState(true);
+  const [speakerTypesSaving, setSpeakerTypesSaving] = useState(false);
+  const [speakerTypesFor, setSpeakerTypesFor] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/events/${eventId}/reimbursements`);
@@ -175,6 +192,9 @@ export default function ReimbursementsPage() {
         return;
       }
       setRows(json.reimbursements);
+      const offered: ClaimItemKey[] = json.eventClaimItems ?? [...CLAIM_ITEM_KEYS];
+      setEventClaimItems(offered);
+      setEventClaimDraft(offered);
     } catch (err) {
       console.error("reimbursements:load-error", err);
       toast.error("Failed to load reimbursements");
@@ -182,6 +202,68 @@ export default function ReimbursementsPage() {
       setLoading(false);
     }
   }, [eventId]);
+
+  const saveEventClaimItems = useCallback(async () => {
+    setEventClaimSaving(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/reimbursements/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claimItems: eventClaimDraft }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("reimbursements:settings-save-failed", res.status, json?.error);
+        toast.error(json?.error || "Could not save the reimbursement types");
+        return;
+      }
+      setEventClaimItems(json.claimItems);
+      setEventClaimDraft(json.claimItems);
+      toast.success(`This event offers: ${claimItemsSummary(json.claimItems)}`);
+    } catch (err) {
+      console.error("reimbursements:settings-save-error", err);
+      toast.error("Could not save the reimbursement types");
+    } finally {
+      setEventClaimSaving(false);
+    }
+  }, [eventId, eventClaimDraft]);
+
+  const saveSpeakerClaimItems = useCallback(
+    async (row: ReimbursementRow, claimItems: ClaimItemKey[] | null) => {
+      setSpeakerTypesSaving(true);
+      try {
+        const res = await fetch(`/api/events/${eventId}/speakers/${row.speakerId}/reimbursement-types`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ claimItems }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          console.error("reimbursements:speaker-types-save-failed", res.status, json?.error);
+          toast.error(json?.error || "Could not save the speaker's reimbursement types");
+          return;
+        }
+        const saved: ClaimItemKey[] | null = json.claimItems ?? null;
+        const patch = (r: ReimbursementRow) =>
+          r.id === row.id ? { ...r, speaker: { ...r.speaker, reimbursementClaimItems: saved } } : r;
+        setRows((prev) => prev.map(patch));
+        setDetail((prev) => (prev && prev.id === row.id ? patch(prev) : prev));
+        setSpeakerTypesInherit(saved === null);
+        setSpeakerTypesDraft(saved ?? eventClaimItems);
+        toast.success(
+          saved === null
+            ? "This speaker follows the event default"
+            : `This speaker can claim: ${claimItemsSummary(saved)}`,
+        );
+      } catch (err) {
+        console.error("reimbursements:speaker-types-save-error", err);
+        toast.error("Could not save the speaker's reimbursement types");
+      } finally {
+        setSpeakerTypesSaving(false);
+      }
+    },
+    [eventId, eventClaimItems],
+  );
 
   useEffect(() => {
     if (allowed) void load();
@@ -476,6 +558,14 @@ export default function ReimbursementsPage() {
     );
   }
 
+  // Re-seed the per-speaker draft when a different row's detail opens.
+  if (detail && detail.id !== speakerTypesFor) {
+    setSpeakerTypesFor(detail.id);
+    setSpeakerTypesInherit(detail.speaker.reimbursementClaimItems === null);
+    setSpeakerTypesDraft(detail.speaker.reimbursementClaimItems ?? eventClaimItems);
+  }
+  if (!detail && speakerTypesFor !== null) setSpeakerTypesFor(null);
+
   return (
     <div className="container max-w-6xl py-8">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
@@ -512,6 +602,31 @@ export default function ReimbursementsPage() {
           </Button>
         </div>
       </div>
+
+      {!loading && (
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">Reimbursement types offered</h2>
+                <p className="text-sm text-muted-foreground">
+                  Every speaker&rsquo;s form shows only the ticked types. Untick Honorarium and the
+                  locked fee line disappears from the form; untick an expense and the speaker cannot
+                  claim it. Change it for one person from their row&rsquo;s detail or their profile.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                disabled={eventClaimSaving || eventClaimDraft.join() === eventClaimItems.join()}
+                onClick={() => void saveEventClaimItems()}
+              >
+                {eventClaimSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save types"}
+              </Button>
+            </div>
+            <ClaimItemsPicker value={eventClaimDraft} onChange={setEventClaimDraft} disabled={eventClaimSaving} />
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="py-16 text-center text-muted-foreground">
@@ -556,6 +671,11 @@ export default function ReimbursementsPage() {
                             {formatPersonName(row.speaker.title, row.speaker.firstName, row.speaker.lastName)}
                           </div>
                           <div className="text-xs text-muted-foreground">{row.speaker.email}</div>
+                          {row.speaker.reimbursementClaimItems && (
+                            <div className="text-xs text-muted-foreground">
+                              Can claim: {claimItemsSummary(row.speaker.reimbursementClaimItems)}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {honorariumEditId === row.id ? (
@@ -912,6 +1032,45 @@ export default function ReimbursementsPage() {
                   {formatPersonName(detail.speaker.title, detail.speaker.firstName, detail.speaker.lastName)}
                 </DialogTitle>
               </DialogHeader>
+              <section className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">Reimbursement types this speaker can claim</span>
+                  <label className="flex items-center gap-2 text-xs">
+                    <Checkbox
+                      checked={speakerTypesInherit}
+                      disabled={speakerTypesSaving}
+                      onCheckedChange={(v) => {
+                        if (v) {
+                          void saveSpeakerClaimItems(detail, null);
+                        } else {
+                          setSpeakerTypesInherit(false);
+                          setSpeakerTypesDraft(detail.speaker.reimbursementClaimItems ?? eventClaimItems);
+                        }
+                      }}
+                    />
+                    Use event default ({claimItemsSummary(eventClaimItems)})
+                  </label>
+                </div>
+                {!speakerTypesInherit && (
+                  <>
+                    <ClaimItemsPicker
+                      value={speakerTypesDraft}
+                      onChange={setSpeakerTypesDraft}
+                      disabled={speakerTypesSaving}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        className="h-8"
+                        disabled={speakerTypesSaving}
+                        onClick={() => void saveSpeakerClaimItems(detail, speakerTypesDraft)}
+                      >
+                        {speakerTypesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save types"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </section>
               {detail.status !== "SUBMITTED" ? (
                 <p className="text-sm text-muted-foreground">
                   Not submitted yet. Copy or email the speaker their personal link to fill the

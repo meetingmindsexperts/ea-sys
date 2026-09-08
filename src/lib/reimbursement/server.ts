@@ -84,6 +84,8 @@ export async function loadReimbursementForSlug(req: Request, slug: string, token
           // writes it from here (never from the body).
           honorariumAmount: true,
           honorariumCurrency: true,
+          // Which types this speaker may claim (null = the event default).
+          reimbursementClaimItems: true,
         },
       },
       event: {
@@ -101,6 +103,8 @@ export async function loadReimbursementForSlug(req: Request, slug: string, token
           venue: true,
           city: true,
           organization: { select: { name: true } },
+          // Event default for the offered reimbursement types.
+          settings: true,
         },
       },
       documents: {

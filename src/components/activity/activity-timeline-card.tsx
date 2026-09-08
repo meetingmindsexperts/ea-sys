@@ -52,6 +52,8 @@ const AUDIT_LABELS: Record<string, string> = {
   REIMBURSEMENT_DELETED: "Reimbursement form deleted",
   // Organiser set / cleared the honorarium (speaker-honorarium route).
   HONORARIUM_SET: "Honorarium / speaker fee set",
+  // Organiser chose which reimbursement types this speaker may claim.
+  REIMBURSEMENT_TYPES_SET: "Reimbursement types set",
 };
 
 const CERT_LABELS: Record<string, string> = {
@@ -84,6 +86,7 @@ function iconFor(item: ActivityItem) {
     case "EMAIL_SENT":
       return Mail;
     case "HONORARIUM_SET":
+    case "REIMBURSEMENT_TYPES_SET":
       return Banknote;
     default:
       if (item.action?.startsWith("REIMBURSEMENT_")) return Banknote;

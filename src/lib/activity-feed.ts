@@ -120,6 +120,8 @@ async function collect(
       // The honorarium audit's before/after IS the fee; outside the
       // reimbursement boundary the row is dropped, not merely un-diffed.
       if (r.action === "HONORARIUM_SET" && !canViewReimbursements) continue;
+      // Same boundary: what a speaker may claim is reimbursement data.
+      if (r.action === "REIMBURSEMENT_TYPES_SET" && !canViewReimbursements) continue;
       const diffs = computeAuditDiffs(r.changes, canViewFinance);
       items.push({
         id: `audit:${r.id}`,

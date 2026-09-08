@@ -29,6 +29,7 @@ import { generateReimbursementToken } from "@/lib/reimbursement/server";
 import {
   formatClaimTotals,
   formatHonorarium,
+  readEventClaimItems,
   readHonorarium,
   type ClaimLine,
   type BankDetails,
@@ -67,6 +68,8 @@ const LIST_SELECT = {
       // reimbursement boundary, so it is returned as-is (console + card).
       honorariumAmount: true,
       honorariumCurrency: true,
+      // Per-speaker offered types (null = the event default), Sep 8, 2026.
+      reimbursementClaimItems: true,
     },
   },
   documents: {
@@ -86,7 +89,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursements:list-event-not-found");
@@ -185,7 +188,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       });
     }
 
-    return NextResponse.json({ reimbursements });
+    // The event default rides along so the console and the speaker card can
+    // show "uses the event default (Flights, Hotel)" without a second fetch.
+    return NextResponse.json({ reimbursements, eventClaimItems: readEventClaimItems(event.settings) });
   } catch (err) {
     apiLogger.error({ err }, "reimbursements:list-failed");
     return NextResponse.json({ error: "Failed to load reimbursements" }, { status: 500 });

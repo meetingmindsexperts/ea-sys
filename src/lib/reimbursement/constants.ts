@@ -37,8 +37,63 @@ export const CLAIM_ITEMS = [
   { key: "OTHER", label: "Other Expenses", receiptKind: "OTHER" },
 ] as const;
 export type ClaimItemKey = (typeof CLAIM_ITEMS)[number]["key"];
+export const CLAIM_ITEM_KEYS = CLAIM_ITEMS.map((c) => c.key) as [ClaimItemKey, ...ClaimItemKey[]];
+export const claimItemKeySchema = z.enum(CLAIM_ITEM_KEYS);
+/** A configured set of offered types: at least one, no duplicates, canonical order. */
+export const claimItemsSchema = z
+  .array(claimItemKeySchema)
+  .min(1)
+  .transform((keys) => CLAIM_ITEM_KEYS.filter((k) => keys.includes(k)));
 
-const CLAIM_ITEM_KEYS = CLAIM_ITEMS.map((c) => c.key) as [ClaimItemKey, ...ClaimItemKey[]];
+// ── Configurable reimbursement types (Sep 8, 2026) ─────────────────────
+/**
+ * Which claim items an event offers, and which a given speaker may claim.
+ *   - Event default: `Event.settings.reimbursement.claimItems`. ABSENT (or
+ *     unreadable) means ALL FIVE, so an event that never touched the setting
+ *     behaves exactly as before. A saved list is honoured as saved.
+ *   - Per speaker: `Speaker.reimbursementClaimItems`. Null = inherit the
+ *     event default; a saved list REPLACES it (it is not intersected: an
+ *     organiser granting one speaker flights on an event that offers none is
+ *     a deliberate per-person exception, which is the whole point of the
+ *     override).
+ * The public form renders only the allowed items and the public POST refuses
+ * a line of any other kind, so a form left open across a change cannot claim
+ * what was withdrawn. `SPEAKER_FEE` in the set means the organiser's agreed
+ * honorarium is PART OF this reimbursement (rendered locked, injected into
+ * the claim); out of the set, the figure stays on the speaker record for
+ * {{honorarium}} in emails but is neither shown nor claimed here.
+ */
+function readClaimItemList(value: unknown): ClaimItemKey[] | null {
+  if (!Array.isArray(value)) return null;
+  const keys = value.filter((v): v is ClaimItemKey => (CLAIM_ITEM_KEYS as readonly string[]).includes(v as string));
+  if (keys.length === 0) return null;
+  return CLAIM_ITEM_KEYS.filter((k) => keys.includes(k));
+}
+
+/** The event's offered types. Absent / unreadable / empty → all five. */
+export function readEventClaimItems(settings: unknown): ClaimItemKey[] {
+  const block = (settings as { reimbursement?: { claimItems?: unknown } } | null | undefined)?.reimbursement;
+  return readClaimItemList(block?.claimItems) ?? [...CLAIM_ITEM_KEYS];
+}
+
+/** A speaker's own list, or null to inherit the event default. */
+export function readSpeakerClaimItems(value: unknown): ClaimItemKey[] | null {
+  return readClaimItemList(value);
+}
+
+/** What one speaker may claim: their own list when set, else the event's. */
+export function allowedClaimItems(input: {
+  eventSettings: unknown;
+  speakerClaimItems: unknown;
+}): ClaimItemKey[] {
+  return readSpeakerClaimItems(input.speakerClaimItems) ?? readEventClaimItems(input.eventSettings);
+}
+
+/** Body of PUT .../reimbursements/settings and PATCH .../speakers/[id]/reimbursement-types. */
+export const claimItemsInputSchema = z.object({ claimItems: claimItemsSchema });
+/** The per-speaker PATCH also accepts null to fall back to the event default. */
+export const speakerClaimItemsInputSchema = z.object({ claimItems: claimItemsSchema.nullable() });
+
 
 export function claimItemLabel(key: string): string {
   return CLAIM_ITEMS.find((c) => c.key === key)?.label ?? key;
@@ -271,9 +326,21 @@ export function honorariumVars(h: Honorarium | null): {
  * nothing. Shared by the form (totals + receipt rule) and the public POST so
  * the two cannot disagree about what is being claimed.
  */
-export function effectiveClaimLines(honorarium: Honorarium | null, lines: ClaimLine[]): ClaimLine[] {
-  const expenses = lines.filter((l) => l.item !== "SPEAKER_FEE");
-  if (!honorarium) return expenses;
+export function effectiveClaimLines(
+  honorarium: Honorarium | null,
+  lines: ClaimLine[],
+  /**
+   * The types this speaker may claim (allowedClaimItems). When given, lines of
+   * any other kind are DROPPED and the honorarium is injected only when
+   * SPEAKER_FEE is in the set; the public POST additionally REFUSES a
+   * disallowed line before reaching here, so a crafted request is answered,
+   * not silently trimmed. Omitted = every type (older callers, tests).
+   */
+  allowed?: readonly ClaimItemKey[],
+): ClaimLine[] {
+  const offered = (item: string) => !allowed || (allowed as readonly string[]).includes(item);
+  const expenses = lines.filter((l) => l.item !== "SPEAKER_FEE" && offered(l.item));
+  if (!honorarium || !offered("SPEAKER_FEE")) return expenses;
   return [{ item: "SPEAKER_FEE", currency: honorarium.currency, amount: honorarium.amount }, ...expenses];
 }
 
@@ -293,11 +360,14 @@ export type HonorariumInput = z.infer<typeof honorariumInputSchema>;
  */
 export function stripHonorariumFields<T extends object>(
   row: T,
-): Omit<T, "honorariumAmount" | "honorariumCurrency"> {
+): Omit<T, "honorariumAmount" | "honorariumCurrency" | "reimbursementClaimItems"> {
   const copy = { ...(row as Record<string, unknown>) };
   delete copy.honorariumAmount;
   delete copy.honorariumCurrency;
-  return copy as Omit<T, "honorariumAmount" | "honorariumCurrency">;
+  // Same boundary (Sep 8, 2026): what a speaker is entitled to claim is
+  // reimbursement data, not roster data.
+  delete copy.reimbursementClaimItems;
+  return copy as Omit<T, "honorariumAmount" | "honorariumCurrency" | "reimbursementClaimItems">;
 }
 
 /** Max uploaded documents per reimbursement (sanity cap on the token route). */

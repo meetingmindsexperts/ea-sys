@@ -25,6 +25,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ClaimItemsPicker, claimItemsSummary } from "@/components/reimbursement/claim-items-picker";
 import {
   Dialog,
   DialogContent,
@@ -37,10 +39,12 @@ import { EmailAttachmentPicker } from "@/components/email/email-attachment-picke
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { useEvent, usePreviewEmailBySlug } from "@/hooks/use-api";
 import {
+  CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
   canManageReimbursements,
   formatClaimTotals,
   formatHonorarium,
+  type ClaimItemKey,
   type ClaimLine,
   type Honorarium,
   type ReimbursementCurrency,
@@ -78,6 +82,14 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
     currency: ReimbursementCurrency;
   }>({ amount: "", currency: "USD" });
   const [honorariumSaving, setHonorariumSaving] = useState(false);
+  // Which reimbursement types this speaker may claim (Sep 8, 2026): null =
+  // the event default; a list overrides it for this person only.
+  const [claimTypes, setClaimTypes] = useState<{
+    claimItems: ClaimItemKey[] | null;
+    eventClaimItems: ClaimItemKey[];
+  } | null>(null);
+  const [claimTypesDraft, setClaimTypesDraft] = useState<ClaimItemKey[]>([...CLAIM_ITEM_KEYS]);
+  const [claimTypesSaving, setClaimTypesSaving] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
@@ -90,9 +102,10 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [res, honRes] = await Promise.all([
+      const [res, honRes, typesRes] = await Promise.all([
         fetch(`/api/events/${eventId}/reimbursements?speakerId=${speakerId}`),
         fetch(`/api/events/${eventId}/speakers/${speakerId}/honorarium`),
+        fetch(`/api/events/${eventId}/speakers/${speakerId}/reimbursement-types`),
       ]);
       const json = await res.json();
       if (!res.ok) {
@@ -106,6 +119,16 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
       } else {
         setHonorarium(honJson.honorarium ?? null);
       }
+      const typesJson = await typesRes.json();
+      if (!typesRes.ok) {
+        console.error("speaker-reimbursement-card:types-load-failed", typesRes.status, typesJson?.error);
+      } else {
+        setClaimTypes({
+          claimItems: typesJson.claimItems ?? null,
+          eventClaimItems: typesJson.eventClaimItems ?? [...CLAIM_ITEM_KEYS],
+        });
+        setClaimTypesDraft(typesJson.claimItems ?? typesJson.eventClaimItems ?? [...CLAIM_ITEM_KEYS]);
+      }
     } catch (err) {
       console.error("speaker-reimbursement-card:load-error", err);
     } finally {
@@ -116,6 +139,38 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
   useEffect(() => {
     if (allowed) void load();
   }, [allowed, load]);
+
+  const saveClaimTypes = useCallback(
+    async (claimItems: ClaimItemKey[] | null) => {
+      setClaimTypesSaving(true);
+      try {
+        const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/reimbursement-types`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ claimItems }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          console.error("speaker-reimbursement-card:types-save-failed", res.status, json?.error);
+          toast.error(json?.error ?? "Could not save the reimbursement types");
+          return;
+        }
+        setClaimTypes({ claimItems: json.claimItems ?? null, eventClaimItems: json.eventClaimItems });
+        setClaimTypesDraft(json.effective ?? json.eventClaimItems);
+        toast.success(
+          claimItems === null
+            ? "Reimbursement types follow the event default"
+            : `Reimbursement types set: ${claimItemsSummary(claimItems)}`,
+        );
+      } catch (err) {
+        console.error("speaker-reimbursement-card:types-save-error", err);
+        toast.error("Could not save the reimbursement types");
+      } finally {
+        setClaimTypesSaving(false);
+      }
+    },
+    [eventId, speakerId],
+  );
 
   const handleCreate = useCallback(
     async (sendAfter: boolean) => {
@@ -380,6 +435,47 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                 {formatHonorarium(honorarium)}
                 <PenLine className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary" />
               </button>
+            )}
+          </div>
+        )}
+        {!loading && claimTypes && (
+          <div className="space-y-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted-foreground">Reimbursement types this speaker can claim</span>
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={claimTypes.claimItems === null}
+                  disabled={claimTypesSaving}
+                  onCheckedChange={(v) => {
+                    if (v) {
+                      void saveClaimTypes(null);
+                    } else {
+                      setClaimTypesDraft(claimTypes.claimItems ?? claimTypes.eventClaimItems);
+                      setClaimTypes({ ...claimTypes, claimItems: claimTypes.eventClaimItems });
+                    }
+                  }}
+                />
+                Use event default ({claimItemsSummary(claimTypes.eventClaimItems)})
+              </label>
+            </div>
+            {claimTypes.claimItems !== null && (
+              <>
+                <ClaimItemsPicker
+                  value={claimTypesDraft}
+                  onChange={setClaimTypesDraft}
+                  disabled={claimTypesSaving}
+                />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    disabled={claimTypesSaving}
+                    onClick={() => void saveClaimTypes(claimTypesDraft)}
+                  >
+                    {claimTypesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save types"}
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         )}

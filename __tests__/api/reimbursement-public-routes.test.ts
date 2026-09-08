@@ -111,6 +111,8 @@ function baseRow(over: Record<string, unknown> = {}) {
       organization: "Tawam Hospital",
       jobTitle: "Consultant",
       country: "UAE",
+      // null = follows the event default (Sep 8, 2026).
+      reimbursementClaimItems: null,
     },
     event: {
       id: "evt1",
@@ -126,6 +128,7 @@ function baseRow(over: Record<string, unknown> = {}) {
       venue: null,
       city: "Dubai",
       organization: { name: "Meeting Minds" },
+      settings: {},
     },
     documents: [
       { id: "d1", kind: "PASSPORT", filename: "passport.pdf", size: 1000, createdAt: new Date() },
@@ -443,5 +446,85 @@ describe("honorarium lock", () => {
       baseRow({ speaker: { ...baseRow().speaker, honorariumAmount: "100.00", honorariumCurrency: "EUR" } }),
     );
     expect((await (await GET(jsonReq(undefined), params())).json()).honorarium).toBeNull();
+  });
+});
+
+/** Event that offers only the given types (Sep 8, 2026). */
+const offering = (keys: string[], over: Record<string, unknown> = {}) =>
+  withFee({
+    event: { ...baseRow().event, settings: { reimbursement: { claimItems: keys } } },
+    ...over,
+  });
+
+describe("reimbursement types offered (Sep 8, 2026)", () => {
+  it("GET carries allowedItems: all five by default, the event's list when set, the speaker's override first", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow());
+    expect((await (await GET(jsonReq(undefined), params())).json()).allowedItems).toEqual([
+      "SPEAKER_FEE",
+      "FLIGHT",
+      "HOTEL",
+      "TRANSPORT",
+      "OTHER",
+    ]);
+
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(offering(["FLIGHT", "HOTEL"]));
+    expect((await (await GET(jsonReq(undefined), params())).json()).allowedItems).toEqual(["FLIGHT", "HOTEL"]);
+
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      offering(["FLIGHT", "HOTEL"], { speaker: { ...withFee().speaker, reimbursementClaimItems: ["OTHER"] } }),
+    );
+    expect((await (await GET(jsonReq(undefined), params())).json()).allowedItems).toEqual(["OTHER"]);
+  });
+
+  it("POST refuses a line of a type the speaker was not offered: 400 CLAIM_ITEM_NOT_OFFERED, nothing written", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(offering(["SPEAKER_FEE", "FLIGHT"]));
+    const res = await POST(
+      jsonReq({
+        ...validBody,
+        claimLines: [
+          { item: "FLIGHT", currency: "USD", amount: 100 },
+          { item: "HOTEL", currency: "USD", amount: 300 },
+        ],
+      }),
+      params(),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("CLAIM_ITEM_NOT_OFFERED");
+    expect(body.notOffered).toEqual(["HOTEL"]);
+    expect(mockDb.speakerReimbursement.updateMany).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    const { apiLogger } = await import("@/lib/logger");
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ notOffered: ["HOTEL"] }),
+      "reimbursement-public:claim-item-not-offered",
+    );
+  });
+
+  it("an agreed fee is NOT injected when Honorarium is not among the offered types", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(offering(["FLIGHT"]));
+    mockDb.speakerReimbursement.updateMany.mockResolvedValue({ count: 1 });
+    const res = await POST(
+      jsonReq({ ...validBody, claimLines: [{ item: "FLIGHT", currency: "USD", amount: 100 }] }),
+      params(),
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.speakerReimbursement.updateMany.mock.calls[0][0].data.claimLines).toEqual([
+      { item: "FLIGHT", currency: "USD", amount: 100 },
+    ]);
+  });
+
+  it("GET does not prefill a saved line of a type the organiser has since withdrawn", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(
+      offering(["FLIGHT"], {
+        claimLines: [
+          { item: "FLIGHT", currency: "USD", amount: 100 },
+          { item: "HOTEL", currency: "AED", amount: 400 },
+        ],
+      }),
+    );
+    const body = await (await GET(jsonReq(undefined), params())).json();
+    expect(body.allowedItems).toEqual(["FLIGHT"]);
+    expect(body.prefill.claimLines).toEqual([{ item: "FLIGHT", currency: "USD", amount: 100 }]);
   });
 });

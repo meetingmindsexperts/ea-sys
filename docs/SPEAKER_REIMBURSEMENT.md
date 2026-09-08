@@ -175,6 +175,45 @@ speaker fees, not just speaker fees".
   is deliberately untouched. An event that pays one edits its own copy and can
   state the amount with the variable.
 
+## 4d. Which types a speaker may claim is organiser-set (Sep 8, 2026)
+
+The form used to offer all five claim items to everyone. An organiser now
+chooses, per event and per speaker, which of Honorarium / Flights / Hotel /
+Ground transport / Other appear on the form, and the server enforces it.
+
+- **Event default** lives in `Event.settings.reimbursement.claimItems` (no
+  migration). Absent, empty or corrupt reads as **all five**: the reader
+  fails OPEN because an empty set would make every form say "nothing to
+  claim" with no way for the speaker to tell why. Set from the console's
+  "Reimbursement types offered" card through `GET/PUT
+  /api/events/[eventId]/reimbursements/settings` (the atomic
+  `updateEventSettings` merge, so a concurrent webinar/sponsor save cannot
+  clobber it; audited `REIMBURSEMENT_SETTINGS_SET`).
+- **Per-speaker override** lives on the Speaker record
+  (`Speaker.reimbursementClaimItems Json?`, migration `20260908130000`),
+  beside the honorarium and for the same reason: settable before any link
+  exists. `null` = follow the event default; a list wins outright (it is not
+  intersected with the event list, so a single speaker can be offered a type
+  the event withholds from everyone else). Set from the console row's detail
+  dialog or the speaker profile's Reimbursement card through `GET/PATCH
+  /api/events/[eventId]/speakers/[speakerId]/reimbursement-types`
+  (honorarium-route boundary: `denyReviewer(session)` with no allow-list,
+  write bound to `{ id, eventId }`, audited `REIMBURSEMENT_TYPES_SET`).
+- **One resolver**: `allowedClaimItems({ eventSettings, speakerClaimItems })`
+  in [constants.ts](../src/lib/reimbursement/constants.ts). The public GET
+  returns it as `allowedItems`; the form renders only those expense rows and
+  shows the locked honorarium line only when `SPEAKER_FEE` is in the set. The
+  public POST **refuses** any other line with 400 `CLAIM_ITEM_NOT_OFFERED`
+  (naming the offending keys, warn-logged) rather than trimming it, so a
+  crafted request is answered, not silently corrected; and
+  `effectiveClaimLines(honorarium, lines, allowed)` injects the organiser's
+  fee only when Honorarium is offered. A saved line of a type the organiser
+  has since withdrawn is dropped from the prefill for the same reason.
+- **Visibility** follows the honorarium: `stripHonorariumFields()` also
+  removes `reimbursementClaimItems` from the speaker list/detail payloads for
+  everyone outside `canManageReimbursements`, and the Activity feed drops the
+  `REIMBURSEMENT_TYPES_SET` row for that population.
+
 ## 5. Emails
 
 Two system templates (both in `DEFAULT_TEMPLATES`, editable per-event under
@@ -230,6 +269,18 @@ merged) and a deep link to the template editor.
   real `denyReviewer` (MEMBER / ONSITE / WEBINARS / REVIEWER / SUBMITTER /
   REGISTRANT refused), the `{ id, eventId }` write, 0 clears both columns,
   the audit's before/after, unsupported currency reads as unset.
+- `__tests__/api/reimbursement-settings-route.test.ts` (Sep 8) — the
+  event-level types: the same RBAC matrix, GET defaults to all five, PUT's
+  function-form patch keeps sibling settings keys, audit before → after.
+- `__tests__/api/speaker-reimbursement-types-route.test.ts` (Sep 8) — the
+  per-speaker override: null = inherit stored as JSON null, `{ id, eventId }`
+  write, a missed write is a 404 with no audit, effective = override ?? event.
+- `__tests__/lib/reimbursement.test.ts` also pins the readers (Sep 8): absent /
+  empty / corrupt event config reads as all five, the override wins, the
+  submit schema canonicalises order, `effectiveClaimLines` drops a disallowed
+  line and injects the fee only when Honorarium is offered; and the public
+  route suite pins `allowedItems` on GET, 400 `CLAIM_ITEM_NOT_OFFERED` on
+  POST, no fee injected when not offered, withdrawn types not prefilled.
 - `__tests__/lib/speaker-honorarium-context.test.ts` — the three variables in
   `buildSpeakerEmailContext` + `mergeAgreementHtml`.
 - `__tests__/api/restricted-role-reads.test.ts` — the roster strips the fee

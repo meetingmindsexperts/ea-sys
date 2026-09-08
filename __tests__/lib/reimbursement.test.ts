@@ -6,7 +6,10 @@
 import { describe, it, expect } from "vitest";
 import {
   CLAIM_ITEMS,
+  CLAIM_ITEM_KEYS,
+  allowedClaimItems,
   canManageReimbursements,
+  claimItemsSchema,
   computeClaimTotals,
   effectiveClaimLines,
   formatClaimTotals,
@@ -14,7 +17,9 @@ import {
   honorariumInputSchema,
   honorariumVars,
   missingDocumentKinds,
+  readEventClaimItems,
   readHonorarium,
+  readSpeakerClaimItems,
   reimbursementSubmitSchema,
   requiredDocumentKinds,
   stripHonorariumFields,
@@ -277,5 +282,71 @@ describe("honorarium: organiser-set, locked, 0 when unset", () => {
     expect(out).toEqual({ id: "s1", firstName: "Jane" });
     expect(row.honorariumAmount).toBe("1500.00");
     expect("honorariumAmount" in out).toBe(false);
+  });
+});
+
+describe("reimbursement types offered (Sep 8, 2026)", () => {
+  it("an event with nothing configured offers all five, in canonical order", () => {
+    expect(readEventClaimItems(null)).toEqual(CLAIM_ITEM_KEYS);
+    expect(readEventClaimItems({})).toEqual(CLAIM_ITEM_KEYS);
+    expect(readEventClaimItems({ reimbursement: {} })).toEqual(CLAIM_ITEM_KEYS);
+  });
+
+  it("a configured event offers exactly its list, unknown keys dropped, order canonical", () => {
+    expect(
+      readEventClaimItems({ reimbursement: { claimItems: ["HOTEL", "FLIGHT", "BOGUS"] } }),
+    ).toEqual(["FLIGHT", "HOTEL"]);
+  });
+
+  it("a corrupt or empty event list fails OPEN to all five (never locks the form)", () => {
+    expect(readEventClaimItems({ reimbursement: { claimItems: [] } })).toEqual(CLAIM_ITEM_KEYS);
+    expect(readEventClaimItems({ reimbursement: { claimItems: "FLIGHT" } })).toEqual(CLAIM_ITEM_KEYS);
+    expect(readEventClaimItems({ reimbursement: { claimItems: [1, null] } })).toEqual(CLAIM_ITEM_KEYS);
+  });
+
+  it("a speaker override is null when unset, empty or all-unknown (= inherit)", () => {
+    expect(readSpeakerClaimItems(null)).toBeNull();
+    expect(readSpeakerClaimItems(undefined)).toBeNull();
+    expect(readSpeakerClaimItems([])).toBeNull();
+    expect(readSpeakerClaimItems(["NOPE"])).toBeNull();
+    expect(readSpeakerClaimItems(["OTHER", "SPEAKER_FEE"])).toEqual(["SPEAKER_FEE", "OTHER"]);
+  });
+
+  it("allowedClaimItems: the speaker's list wins; otherwise the event's; otherwise all", () => {
+    const eventSettings = { reimbursement: { claimItems: ["FLIGHT", "HOTEL"] } };
+    expect(allowedClaimItems({ eventSettings, speakerClaimItems: null })).toEqual(["FLIGHT", "HOTEL"]);
+    expect(allowedClaimItems({ eventSettings, speakerClaimItems: ["OTHER"] })).toEqual(["OTHER"]);
+    expect(allowedClaimItems({ eventSettings: null, speakerClaimItems: null })).toEqual(CLAIM_ITEM_KEYS);
+  });
+
+  it("claimItemsSchema requires at least one key and returns them in canonical order", () => {
+    expect(claimItemsSchema.safeParse([]).success).toBe(false);
+    expect(claimItemsSchema.safeParse(["BOGUS"]).success).toBe(false);
+    expect(claimItemsSchema.parse(["OTHER", "FLIGHT", "FLIGHT"])).toEqual(["FLIGHT", "OTHER"]);
+  });
+
+  it("effectiveClaimLines drops lines of a type not offered and injects the fee only when offered", () => {
+    const fee = { amount: 500, currency: "USD" as const };
+    const lines: ClaimLine[] = [
+      { item: "FLIGHT", currency: "USD", amount: 100 },
+      { item: "HOTEL", currency: "USD", amount: 200 },
+    ];
+    expect(effectiveClaimLines(fee, lines, ["FLIGHT"])).toEqual([{ item: "FLIGHT", currency: "USD", amount: 100 }]);
+    expect(effectiveClaimLines(fee, lines, ["SPEAKER_FEE", "HOTEL"])).toEqual([
+      { item: "SPEAKER_FEE", currency: "USD", amount: 500 },
+      { item: "HOTEL", currency: "USD", amount: 200 },
+    ]);
+    // No allowed list = the pre-Sep-8 behaviour: everything, fee first.
+    expect(effectiveClaimLines(fee, lines)).toHaveLength(3);
+  });
+
+  it("stripHonorariumFields also removes the per-speaker types (reimbursement boundary)", () => {
+    const out = stripHonorariumFields({
+      id: "s1",
+      honorariumAmount: 1,
+      honorariumCurrency: "USD",
+      reimbursementClaimItems: ["FLIGHT"],
+    });
+    expect(out).toEqual({ id: "s1" });
   });
 });

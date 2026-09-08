@@ -235,6 +235,15 @@ export function describeAuditAction(log: AuditLogLike): string {
     const after = changes.after as { amount?: number; currency?: string } | null | undefined;
     return after?.amount ? `Honorarium set to ${after.currency} ${after.amount}` : "Honorarium cleared";
   }
+  if (log.action === "REIMBURSEMENT_TYPES_SET") {
+    // { before, after } are claim-item key lists | null (null = event default).
+    const after = changes.after as string[] | null | undefined;
+    return after && after.length ? `Reimbursement types set: ${after.join(", ")}` : "Reimbursement types reset to the event default";
+  }
+  if (log.action === "REIMBURSEMENT_SETTINGS_SET") {
+    const after = (changes.after as { claimItems?: string[] } | undefined)?.claimItems;
+    return after?.length ? `Reimbursement types offered: ${after.join(", ")}` : "Reimbursement types updated";
+  }
   if (log.action === "DELETE") return `${log.entityType} deleted`;
   if (log.action === "UPDATE") return `${log.entityType} updated`;
   if (log.action === "BULK_UPDATE") return `Bulk update on ${log.entityType}`;

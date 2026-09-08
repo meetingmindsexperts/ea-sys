@@ -25,6 +25,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
   claimItemLabel,
+  allowedClaimItems,
   effectiveClaimLines,
   formatHonorarium,
   missingDocumentKinds,
@@ -77,6 +78,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
 
+    // The types this speaker may claim (Sep 8, 2026): the form renders only
+    // these, the POST refuses any other kind, and the prefill below follows it.
+    const allowedItems = allowedClaimItems({
+      eventSettings: row.event.settings,
+      speakerClaimItems: row.speaker.reimbursementClaimItems,
+    });
     return NextResponse.json({
       event: {
         slug: row.event.slug,
@@ -96,6 +103,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       // The organiser-agreed fee (Sep 3, 2026): rendered LOCKED on the form.
       // Null when none is agreed — the form shows 0 and offers no input.
       honorarium: readHonorarium(row.speaker),
+      // The types this speaker may claim (Sep 8, 2026): the form renders only
+      // these, and the POST refuses any other kind.
+      allowedItems,
       // Prefill: the saved snapshot wins (reopened edits resume where the
       // speaker left off); else seed from the Speaker record.
       prefill: {
@@ -115,7 +125,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         // Expense lines only. A snapshot saved before the fee lock may
         // carry a speaker-typed SPEAKER_FEE line; the organiser's figure
         // (`honorarium` above) is the only fee, so it is never re-offered.
-        claimLines: ((row.claimLines as ClaimLine[] | null) ?? []).filter((l) => l.item !== "SPEAKER_FEE"),
+        // A line of a type the organiser has since withdrawn is not
+        // re-offered either: the POST would refuse it (CLAIM_ITEM_NOT_OFFERED).
+        claimLines: ((row.claimLines as ClaimLine[] | null) ?? []).filter(
+          (l) => l.item !== "SPEAKER_FEE" && (allowedItems as readonly string[]).includes(l.item),
+        ),
         bankDetails: row.bankDetails ?? null,
         signedName: row.signedName ?? "",
       },
@@ -202,6 +216,30 @@ export async function POST(req: Request, { params }: RouteParams) {
         "reimbursement-public:speaker-fee-in-body-ignored",
       );
     }
+    // Only the types this speaker was offered (Sep 8, 2026). A line of any
+    // other kind is refused, not trimmed: a form left open across an
+    // organiser's change, or a crafted request, gets an answer it can act on.
+    const allowedItems = allowedClaimItems({
+      eventSettings: row.event.settings,
+      speakerClaimItems: row.speaker.reimbursementClaimItems,
+    });
+    const notOffered = d.claimLines
+      .map((l) => l.item)
+      .filter((item) => item !== "SPEAKER_FEE" && !(allowedItems as readonly string[]).includes(item));
+    if (notOffered.length > 0) {
+      apiLogger.warn(
+        { slug, reimbursementId: row.id, notOffered, allowedItems, stage: "claim-items" },
+        "reimbursement-public:claim-item-not-offered",
+      );
+      return NextResponse.json(
+        {
+          error: "One of the expense types you selected is not offered for your reimbursement. Please reload the form.",
+          code: "CLAIM_ITEM_NOT_OFFERED",
+          notOffered,
+        },
+        { status: 400 },
+      );
+    }
     const claimLines: ClaimLine[] = effectiveClaimLines(
       honorarium,
       d.claimLines.map((l) => ({
@@ -209,6 +247,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         currency: l.currency,
         amount: Math.round(l.amount * 100) / 100,
       })),
+      allowedItems,
     );
     if (claimLines.length === 0) {
       apiLogger.warn(

@@ -40,6 +40,7 @@ import { EventBanner } from "@/components/public/event-banner";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
   CLAIM_ITEMS,
+  CLAIM_ITEM_KEYS,
   DOCUMENT_KINDS,
   REIMBURSEMENT_CURRENCIES,
   ROLE_AT_EVENT_OPTIONS,
@@ -50,6 +51,7 @@ import {
   missingDocumentKinds,
   reimbursementSubmitSchema,
   type BankDetails,
+  type ClaimItemKey,
   type ClaimLine,
   type Honorarium,
   type ReimbursementCurrency,
@@ -80,6 +82,9 @@ interface LoadedData {
   submittedAt: string | null;
   // The organiser-agreed fee, rendered LOCKED (Sep 3, 2026). Null = none.
   honorarium: Honorarium | null;
+  // The types this speaker may claim (Sep 8, 2026): the form renders only
+  // these and the server refuses any other kind. Absent on an older payload.
+  allowedItems?: ClaimItemKey[];
   prefill: {
     fullName: string;
     designation: string;
@@ -210,11 +215,15 @@ export default function ReimbursementFormPage() {
           }
         }
         if (p.claimLines?.length) {
+          const offered = loaded.allowedItems ?? CLAIM_ITEM_KEYS;
           setClaims((prev) => {
             const next = { ...prev };
             for (const line of p.claimLines) {
               // The GET already drops it; belt-and-braces for an older payload.
               if (line.item === "SPEAKER_FEE") continue;
+              // A saved line of a type the organiser has since withdrawn is
+              // not restored: the server would refuse it on submit.
+              if (!(offered as readonly string[]).includes(line.item)) continue;
               next[line.item] = {
                 enabled: true,
                 currency: line.currency,
@@ -264,9 +273,20 @@ export default function ReimbursementFormPage() {
   // the expenses. Totals + the receipt rule run over THIS list, through the
   // same helper the POST uses, so the form cannot disagree with the submit.
   const honorarium = data?.honorarium ?? null;
+  // Which types this speaker was offered; the honorarium line and the expense
+  // checkboxes both follow it (an older payload without the field = all).
+  const allowedItems = useMemo<readonly ClaimItemKey[]>(
+    () => data?.allowedItems ?? CLAIM_ITEM_KEYS,
+    [data?.allowedItems],
+  );
+  const honorariumOffered = allowedItems.includes("SPEAKER_FEE");
+  const offeredExpenseItems = useMemo(
+    () => EXPENSE_ITEMS.filter((c) => allowedItems.includes(c.key)),
+    [allowedItems],
+  );
   const claimLines = useMemo<ClaimLine[]>(
-    () => effectiveClaimLines(honorarium, expenseLines),
-    [honorarium, expenseLines],
+    () => effectiveClaimLines(honorarium, expenseLines, allowedItems),
+    [honorarium, expenseLines, allowedItems],
   );
   const totals = useMemo(() => computeClaimTotals(claimLines), [claimLines]);
   const missingDocs = useMemo(
@@ -650,11 +670,14 @@ export default function ReimbursementFormPage() {
               <section>
                 <SectionHeading letter="C" title="Reimbursement Type" />
                 <p className="text-sm text-slate-600 mb-3">
-                  Your honorarium / speaker fee is set by the organising team. Tick the expenses
-                  you are claiming and enter each amount.
+                  {honorariumOffered
+                    ? "Your honorarium / speaker fee is set by the organising team. Tick the expenses you are claiming and enter each amount."
+                    : "Tick the expenses you are claiming and enter each amount."}
                 </p>
                 <div className="space-y-2">
-                  {/* Locked line: the organiser's agreed fee, never an input (Sep 3, 2026). */}
+                  {/* Locked line: the organiser's agreed fee, never an input (Sep 3, 2026).
+                      Rendered only when the honorarium is part of this reimbursement. */}
+                  {honorariumOffered && (
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
                     <div className="flex items-center gap-2.5 flex-1 min-w-40">
                       <Lock className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
@@ -671,7 +694,8 @@ export default function ReimbursementFormPage() {
                       {formatHonorarium(honorarium)}
                     </span>
                   </div>
-                  {EXPENSE_ITEMS.map((item) => {
+                  )}
+                  {offeredExpenseItems.map((item) => {
                     const draft = claims[item.key];
                     return (
                       <div

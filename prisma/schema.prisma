@@ -1477,6 +1477,12 @@ model Speaker {
   // Read through readHonorarium() in src/lib/reimbursement/constants.ts.
   honorariumAmount               Decimal?      @db.Decimal(12, 2)
   honorariumCurrency             String?
+  /// Sep 8, 2026: which reimbursement types THIS speaker may claim (subset of
+  /// CLAIM_ITEMS keys: SPEAKER_FEE | FLIGHT | HOTEL | TRANSPORT | OTHER). Null =
+  /// inherit the event default in Event.settings.reimbursement.claimItems
+  /// (absent there = all five). On Speaker, like the honorarium, so it is
+  /// settable before any reimbursement link exists.
+  reimbursementClaimItems Json?
   tags                           String[]      @default([])
   socialLinks                    Json          @default("{}")
   status                         SpeakerStatus @default(INVITED)
