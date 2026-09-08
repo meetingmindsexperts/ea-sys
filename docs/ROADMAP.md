@@ -4246,3 +4246,10 @@ whenever the class shows up.
 exhaustive over a known key set. `Record<SlugUnion, V>` makes a missing key a
 compile error today, with the flag off, and is a per-site change rather than a
 project. Prefer it whenever the keys are known.
+
+### Travel grant follow-ups (parked Sep 8, 2026)
+
+| Item | Note |
+|---|---|
+| **Offer the grant on the ACCEPTED decision email** | Owner parked this Sep 8, 2026. Today `{{travelGrantBlock}}` is built by exactly two senders, the abstract submission confirmation and the travel-grant invitation; `abstract-status-update` never computes it. Building it there means resolving the block per recipient inside `notifyAbstractStatusChange` (same `resolveTravelGrantBlock` call the confirmation makes) and advertising the token on that slug. A product change, not a fix: it re-offers the grant weeks after submission, to authors who may already have answered. |
+| **Bulk send to a SELECTION of authors** | The POST accepts up to 500 `speakerIds` but the console sends one row at a time or "Remind N pending" (grant rows only). A checkbox column plus one send is the missing piece; "send to every eligible author who has no link yet" is the same button with a different resolver. |

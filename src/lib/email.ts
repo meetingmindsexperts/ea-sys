@@ -1455,6 +1455,12 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "authorName", description: "Submitting author's full name (with title)" },
     { key: "coAuthorNames", description: "Co-author names, comma-separated — blank if none" },
     { key: "managementLink", description: "Abstract management link" },
+    {
+      key: "travelGrantBlock",
+      description:
+        "Travel-grant offer (message + button) for an author based outside the event's home country when Travel Grants are switched on; renders as nothing for everyone else. Same block the travel-grant invitation uses, so the two cannot drift. Appended automatically at send time if your saved template does not carry it.",
+    },
+    { key: "travelGrantBlockText", description: "Plain-text version of the travel-grant block" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "session-proposal-confirmation": [
