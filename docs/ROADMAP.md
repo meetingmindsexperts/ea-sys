@@ -280,6 +280,41 @@ one sponsor and a promo code from another, and summing them over-counts.
 
 ---
 
+## Event clone leaves speakers without companions (found Sep 8, 2026): recorded, not fixed
+
+**The symptom.** On Oman Oncology Pharmacy Value Forum 2026 every speaker's page
+showed the **Grant Registration** button. Ten speakers, none with an attendee
+facet, on an event that was never touched by the proposal door.
+
+**The cause.** The event is a clone of OSH Monthly Meeting 2026 (created
+08:37:23 on Sep 2, all ten speakers created in the same second, no per-speaker
+audit row: the clone route's signature). [clone/route.ts](../src/app/api/events/%5BeventId%5D/clone/route.ts)
+copies each speaker row with a fresh id and deliberately starts the clone with
+zero registrations, and it is the ONE speaker-add path (manual, CSV,
+import-contacts, MCP all do) that never calls the companion helper. So the copied
+faculty land with no badge, no entry barcode, no check-in, no survey, and the
+speaker page offers Grant Registration on each of them. Same class as the
+sponsor rows the clone used to drop: a copy that carries one half of a linked
+pair and not the other.
+
+**Owner decision (Sep 8, 2026): document, nothing for now.** Organisers grant
+per speaker from the speaker page, which works and is audited.
+
+**Repair for one event** is the existing idempotent backfill, run on the box:
+
+```
+docker exec ea-sys-worker npx tsx scripts/backfill-speaker-companion-registrations.ts --event <eventId>
+docker exec ea-sys-worker npx tsx scripts/backfill-speaker-companion-registrations.ts --event <eventId> --write
+```
+
+**Durable fix, when picked up.** After the clone transaction commits, run the
+copied speakers through `ensureCompanionsForSpeakerEmails` (failure-isolated,
+like every other add path) so a cloned event is attend-ready on arrival; pin it
+with a clone test asserting each copied speaker holds a companion on the NEW
+event, never a pointer into the source event's registrations. Cost: one call and
+one test.
+
+
 ## Deferred review findings
 
 ### Public-by-id routes and media lifecycle review (Sep 8, 2026): cheap fixes shipped, the token scheduled, one race recorded
