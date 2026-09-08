@@ -263,12 +263,18 @@ function emailTypeToSlug(emailType: string, recipientType: RecipientType): strin
     // Reminder → Preview.
     case "payment-reminder":
     case "survey-invitation":
+    case "abstract-reminder":
     case "webinar-confirmation":
     case "webinar-reminder-24h":
     case "webinar-reminder-1h":
     case "webinar-live-now":
     case "webinar-thank-you":
       return emailType;
+    // Abstract types (Sep 8, 2026): the slugs their sends render with.
+    case "abstract-confirmation":
+      return "abstract-submission-confirmation";
+    case "abstract-decision":
+      return "abstract-status-update";
     default:
       return null;
   }
@@ -976,6 +982,24 @@ export function BulkEmailDialog({
                 <p>
                   This will send your saved{savedTemplateName ? ` “${savedTemplateName}”` : ""} template,
                   rendered with this event&apos;s details and branding for each recipient.
+                </p>
+              )}
+              {emailType === "abstract-confirmation" && (
+                <p>
+                  Resends the submission confirmation, one email per abstract: its number, title, type, theme and
+                  co-authors. An author with two abstracts receives two. Drafts and withdrawn abstracts are skipped.
+                </p>
+              )}
+              {emailType === "abstract-decision" && (
+                <p>
+                  Resends the decision email, one per decided abstract, rendered from that abstract&apos;s current
+                  status with its reviewer notes. Abstracts still awaiting a decision are skipped.
+                </p>
+              )}
+              {isReminder && (
+                <p>
+                  Sends the submission reminder template once per author who still has a draft. The message
+                  above lands in the email&apos;s message slot.
                 </p>
               )}
             </div>
