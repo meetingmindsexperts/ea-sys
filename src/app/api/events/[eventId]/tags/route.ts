@@ -12,7 +12,9 @@
  * filters (e.g. "checked-in", "vip", "survey-completed") rise to the
  * top.
  *
- * Auth: same as the other event-scoped admin routes. denyReviewer +
+ * Auth: the registration-desk allow-list (MEMBER / ONSITE / WEBINARS opt
+ * back in) + the DESK event surface, because the registrations list this
+ * feeds is readable by exactly that population. denyReviewer +
  * org-scope check. MEMBER is allowed (read-only).
  *
  * Implementation: pulls Attendee.tags arrays for every non-cancelled
@@ -30,7 +32,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -43,13 +45,22 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tags:list", eventId });
+    // Desk allow-list (Sep 8, 2026): the registrations list this feeds is
+    // readable by MEMBER / ONSITE / WEBINARS, and the rows carry their tags,
+    // so the aggregate below discloses nothing those roles do not already see.
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "tags:list", eventId });
     if (denied) return denied;
 
     // Event-access check first. Returns 404 instead of 403 on a foreign
     // event id to avoid an enumeration oracle.
+    //
+    // DESK surface (Sep 8, 2026): this feeds the registrations list's tag
+    // filter, and that list resolves the event on the desk surface, so a
+    // WEBINARS user opening a CONFERENCE's registrations saw the rows (tags
+    // included, per row) while this call 404'd behind them. The payload is
+    // tag names + counts, nothing the list does not already show.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       // organizationId, not just id: the read below is on a POLICIED table and
       // needs the event's tenant lane. Event carries no policy, so resolving it
       // first works without one — which is exactly why this route (and the two

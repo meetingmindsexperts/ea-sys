@@ -1298,6 +1298,13 @@ The sweep: triage each of the ~59 GETs under `src/app/api/events/[eventId]/` and
 `{ surface: "desk" }` where MEMBER-equivalent read is intended. Fails closed on anything
 missed (a 404 is a feature gap, never a leak), so it can land incrementally.
 
+**First one landed (Sep 8, 2026):** the registrations `tags` GET (the list's tag
+filter) now resolves on the desk surface and admits `REGISTRATION_DESK_ALLOW`
+(it was `WEBINAR_STAFF_ALLOW`, so MEMBER and ONSITE got a 403 on the filter of a
+list they could read). Found from eight `tags:event-not-found` warnings in one
+minute while an organiser was temporarily on the WEBINARS role. Pinned with the
+real builder in `__tests__/api/event-tags-desk-surface.test.ts`. ~58 to go.
+
 **Must STAY refused**, or the sweep quietly reverses decisions already made:
 - the **org-wide invoice ledger** (`/api/invoices` + export) — the Aug-4 H-1 ruling,
   *finance-capable ≠ org-ledger access*. Full MEMBER parity would hand it back.
