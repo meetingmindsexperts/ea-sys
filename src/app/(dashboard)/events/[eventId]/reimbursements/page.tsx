@@ -124,6 +124,12 @@ export default function ReimbursementsPage() {
   const [speakerSearch, setSpeakerSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  // Single-speaker mode for the send dialog: set from a row's paper-plane
+  // icon, null from the toolbar's "Email links". ONE dialog, ONE preview,
+  // ONE send handler serve both; the mode only decides the scope. Before
+  // Sep 8, 2026 the row icon posted on the spot with no preview and no way
+  // to add a subject or message.
+  const [sendRow, setSendRow] = useState<ReimbursementRow | null>(null);
   const [sendTarget, setSendTarget] = useState<"pending" | "all">("pending");
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
@@ -301,22 +307,19 @@ export default function ReimbursementsPage() {
   }, [eventId, selectedSpeakerIds, load]);
 
   const handleSend = useCallback(
-    async (reimbursementId?: string) => {
+    async () => {
       setSending(true);
-      if (reimbursementId) setBusyRowId(reimbursementId);
+      if (sendRow) setBusyRowId(sendRow.id);
       try {
         const res = await fetch(`/api/events/${eventId}/reimbursements/send`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            reimbursementId
-              ? { reimbursementId }
-              : {
-                  target: sendTarget,
-                  subject: sendSubject.trim() || undefined,
-                  message: sendMessage.trim() || undefined,
-                },
-          ),
+          // The route applies subject/message to either scope.
+          body: JSON.stringify({
+            ...(sendRow ? { reimbursementId: sendRow.id } : { target: sendTarget }),
+            subject: sendSubject.trim() || undefined,
+            message: sendMessage.trim() || undefined,
+          }),
         });
         const json = await res.json();
         if (!res.ok) {
@@ -340,7 +343,7 @@ export default function ReimbursementsPage() {
         setBusyRowId(null);
       }
     },
-    [eventId, sendTarget, sendSubject, sendMessage],
+    [eventId, sendRow, sendTarget, sendSubject, sendMessage],
   );
 
   // Renders exactly what the send would produce — the (possibly organizer-
@@ -350,6 +353,9 @@ export default function ReimbursementsPage() {
     try {
       const result = await previewMutation.mutateAsync({
         slug: "speaker-reimbursement-invitation",
+        // Single mode greets THAT speaker; bulk keeps the sample greeting
+        // (audience-level previews stay representative, July 29, 2026).
+        speakerId: sendRow?.speakerId,
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
@@ -359,7 +365,7 @@ export default function ReimbursementsPage() {
       console.error("reimbursements:preview-error", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
-  }, [previewMutation, sendSubject, sendMessage]);
+  }, [previewMutation, sendRow, sendSubject, sendMessage]);
 
   const handleCopyLink = useCallback(
     async (row: ReimbursementRow) => {
@@ -488,7 +494,10 @@ export default function ReimbursementsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setSendOpen(true)}
+            onClick={() => {
+              setSendRow(null);
+              setSendOpen(true);
+            }}
             disabled={rows.length === 0}
           >
             <Send className="h-4 w-4 mr-1" /> Email links
@@ -642,7 +651,10 @@ export default function ReimbursementsPage() {
                               size="icon"
                               title="Email the link to this speaker"
                               disabled={busy}
-                              onClick={() => void handleSend(row.id)}
+                              onClick={() => {
+                                setSendRow(row);
+                                setSendOpen(true);
+                              }}
                             >
                               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                             </Button>
@@ -768,13 +780,29 @@ export default function ReimbursementsPage() {
       </Dialog>
 
       {/* Email links */}
-      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+      <Dialog
+        open={sendOpen}
+        onOpenChange={(open) => {
+          setSendOpen(open);
+          if (!open) setSendRow(null);
+        }}
+      >
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Email reimbursement links</DialogTitle>
+            <DialogTitle>
+              {sendRow
+                ? `Email the link to ${formatPersonName(sendRow.speaker.title, sendRow.speaker.firstName, sendRow.speaker.lastName)}`
+                : "Email reimbursement links"}
+            </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Each speaker receives their own personalized link, using the{" "}
+            {sendRow ? (
+              <>
+                <strong>{sendRow.speaker.email}</strong> receives their personalized link, using the{" "}
+              </>
+            ) : (
+              <>Each speaker receives their own personalized link, using the{" "}</>
+            )}
             <strong>Speaker Reimbursement Form</strong> email template.{" "}
             {invitationTemplateId ? (
               <Link
@@ -790,24 +818,26 @@ export default function ReimbursementsPage() {
             <span>(opens in a new tab — your draft here is kept)</span>
           </p>
           <div className="space-y-3">
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={sendTarget === "pending" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSendTarget("pending")}
-              >
-                Not yet submitted ({pendingCount})
-              </Button>
-              <Button
-                type="button"
-                variant={sendTarget === "all" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSendTarget("all")}
-              >
-                Everyone ({rows.length})
-              </Button>
-            </div>
+            {!sendRow && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={sendTarget === "pending" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSendTarget("pending")}
+                >
+                  Not yet submitted ({pendingCount})
+                </Button>
+                <Button
+                  type="button"
+                  variant={sendTarget === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSendTarget("all")}
+                >
+                  Everyone ({rows.length})
+                </Button>
+              </div>
+            )}
             <div>
               <Label htmlFor="reimb-subject">Subject (optional override)</Label>
               <Input
