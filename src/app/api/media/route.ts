@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
-import { uploadMedia, storageProvider } from "@/lib/storage";
+import { uploadMedia, deleteMedia, storageProvider } from "@/lib/storage";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -148,17 +148,29 @@ export async function POST(req: Request) {
 
     const url = await uploadMedia(buffer, filename, detectedMime);
 
-    const mediaFile = await db.mediaFile.create({
-      data: {
-        organizationId: orgGuard.orgId,
-        uploadedById: session.user.id,
-        filename: file.name,
-        url,
-        mimeType: detectedMime,
-        size: file.size,
-      },
-      select: { id: true, url: true, filename: true, mimeType: true, size: true, createdAt: true },
-    });
+    let mediaFile;
+    try {
+      mediaFile = await db.mediaFile.create({
+        data: {
+          organizationId: orgGuard.orgId,
+          uploadedById: session.user.id,
+          filename: file.name,
+          url,
+          mimeType: detectedMime,
+          size: file.size,
+        },
+        select: { id: true, url: true, filename: true, mimeType: true, size: true, createdAt: true },
+      });
+    } catch (dbErr) {
+      // The object is publicly addressable but not recoverable from the UI
+      // without its MediaFile row. Match the event-scoped uploader's
+      // compensating cleanup so a transient database failure cannot orphan it.
+      apiLogger.error({ err: dbErr, msg: "Media DB create failed; deleting orphaned storage file", url });
+      await deleteMedia(url).catch((storageErr) =>
+        apiLogger.error({ err: storageErr, msg: "Failed to clean up orphaned media from storage", url })
+      );
+      throw dbErr;
+    }
 
     apiLogger.info({ msg: "Media file uploaded", mediaId: mediaFile.id, url, storageProvider, userId: session.user.id });
 

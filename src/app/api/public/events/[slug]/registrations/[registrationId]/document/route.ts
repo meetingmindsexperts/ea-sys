@@ -6,6 +6,7 @@ import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getClientIp, checkRateLimit } from "@/lib/security";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 
 interface RouteParams {
   params: Promise<{ slug: string; registrationId: string }>;
@@ -51,6 +52,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Establish the tenant lane *before* the first tenant-scoped query. The
+    // invoice query below was already wrapped, but that is too late under RLS:
+    // this registration lookup would otherwise see zero rows on the platform.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
@@ -150,6 +156,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "public document download failed" });
