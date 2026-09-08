@@ -170,6 +170,28 @@ export default function AbstractsPage() {
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  // Per-row resend of the submission confirmation (Sep 8, 2026). Until now
+  // the only resend lived on the speaker page and quick-view sheet, so an
+  // organiser working from this page had no way to do it.
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const handleResendConfirmation = async (abstractId: string) => {
+    setResendingId(abstractId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}/resend-confirmation`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("abstracts:resend-confirmation-failed", res.status, data?.error);
+        toast.error(data?.error || "Failed to resend the confirmation email");
+        return;
+      }
+      toast.success(`Submission confirmation resent to ${data.sentTo}`);
+    } catch (err) {
+      console.error("abstracts:resend-confirmation-error", err);
+      toast.error("Failed to resend the confirmation email");
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -1081,6 +1103,21 @@ export default function AbstractsPage() {
                           >
                             Review
                           </Button>
+                          {isAbstractManager && !["DRAFT", "WITHDRAWN"].includes(abstract.status) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              title="Resend the submission confirmation email"
+                              disabled={resendingId === abstract.id}
+                              onClick={() => void handleResendConfirmation(abstract.id)}
+                            >
+                              {resendingId === abstract.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
                           {abstract.status === "SUBMITTED" && (
                             <>
                               <Button

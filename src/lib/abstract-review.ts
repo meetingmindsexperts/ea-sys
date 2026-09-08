@@ -196,7 +196,7 @@ export async function computeSubmissionAggregates(
  * numbered so multi-reviewer structure survives without identity; the full
  * attributed view stays in the dashboard for ADMIN/ORGANIZER.
  */
-export function consolidateReviewNotes(submissions: SubmissionSummary[]): string | null {
+export function consolidateReviewNotes(submissions: Pick<SubmissionSummary, "reviewNotes">[]): string | null {
   const withNotes = submissions.filter((s) => s.reviewNotes?.trim());
   if (!withNotes.length) return null;
   if (withNotes.length === 1) return withNotes[0].reviewNotes;

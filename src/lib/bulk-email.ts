@@ -48,6 +48,12 @@ import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 import { MAX_MANUAL_ATTACHMENTS, type StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
+import {
+  buildAbstractConfirmationVars,
+  buildAbstractDecisionVars,
+  buildAbstractManagementLink,
+} from "@/lib/abstract-notifications";
+import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -64,6 +70,10 @@ export type BulkEmailType =
   | "abstract-rejected"
   | "abstract-revision"
   | "abstract-reminder"
+  // Sep 8, 2026: the two abstract types that actually send, one email PER
+  // ABSTRACT with that abstract's own context (see PER_ABSTRACT_EMAIL_TYPES).
+  | "abstract-confirmation"
+  | "abstract-decision"
   | "webinar-confirmation"
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
@@ -337,12 +347,22 @@ export const NO_RECIPIENTS_CODE = "NO_RECIPIENTS";
  * type must appear here — a type accepted by the schema but absent from this
  * map cannot send and is rejected by precheckBulkEmailViability (review A2).
  *
- * The 4 abstract-* types are deliberately ABSENT: the bulk helper cannot
- * enrich per-recipient abstract context (abstractTitle, newStatus,
- * reviewNotes…), so sending them here would render emails with empty
- * placeholders. They stay in the schema for backward compat with persisted
- * ScheduledEmail rows, but new sends are rejected up-front. Send abstract
- * status updates from the abstract detail route instead.
+ * Abstract types (Sep 8, 2026). The July-16 review (A2) removed the four
+ * abstract-* types because the pipeline could not build per-abstract
+ * context, which left organisers with no way to resend an abstract email in
+ * bulk at all. Three now send, using the SAME var builders as the automatic
+ * emails (buildAbstractConfirmationVars / buildAbstractDecisionVars):
+ *   - abstract-confirmation: one email PER ABSTRACT, the submission
+ *     confirmation (an author with two abstracts gets two).
+ *   - abstract-decision: one email PER ABSTRACT, the status-update email
+ *     rendered from each abstract's CURRENT status (never from the type
+ *     name, so a bulk resend cannot tell a rejected author they were
+ *     accepted). Only decided abstracts are eligible.
+ *   - abstract-reminder: one email per SUBMITTER, defaulting to authors with
+ *     a DRAFT abstract.
+ * The old accepted/rejected/revision names stay in the schema for persisted
+ * ScheduledEmail rows and are still refused: a type that asserts a status
+ * is the wrong shape.
  */
 const BULK_EMAIL_TEMPLATE_SLUGS: Partial<Record<BulkEmailType, string>> = {
   invitation: "speaker-invitation",
@@ -357,10 +377,48 @@ const BULK_EMAIL_TEMPLATE_SLUGS: Partial<Record<BulkEmailType, string>> = {
   "webinar-live-now": "webinar-live-now",
   "webinar-thank-you": "webinar-thank-you",
   "survey-invitation": "survey-invitation",
+  "abstract-confirmation": "abstract-submission-confirmation",
+  "abstract-decision": "abstract-status-update",
+  "abstract-reminder": "abstract-reminder",
 };
 
+/** Types that send one email per ABSTRACT rather than per submitter. */
+const PER_ABSTRACT_EMAIL_TYPES = new Set<string>(["abstract-confirmation", "abstract-decision"]);
+/** Statuses a decision email can describe (the template heading comes from the status). */
+export const ABSTRACT_DECISION_STATUSES = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] as const;
+/** Mirrors the single resend route's NOT_RESENDABLE set. */
+export const ABSTRACT_NOT_RESENDABLE_STATUSES = ["DRAFT", "WITHDRAWN"] as const;
+
+/**
+ * The status scope an abstract type applies when the organiser sets none:
+ * a confirmation resend skips drafts and withdrawals, a decision resend
+ * takes only decided abstracts, a reminder goes to authors still in DRAFT.
+ * An explicit status filter overrides it (validated by
+ * assertAbstractTypeStatus so it cannot contradict the type).
+ */
+export function defaultAbstractStatusFilter(
+  emailType: string,
+): AbstractStatus | { in: AbstractStatus[] } | { notIn: AbstractStatus[] } | undefined {
+  if (emailType === "abstract-confirmation") return { notIn: [...ABSTRACT_NOT_RESENDABLE_STATUSES] };
+  if (emailType === "abstract-decision") return { in: [...ABSTRACT_DECISION_STATUSES] };
+  if (emailType === "abstract-reminder") return "DRAFT";
+  return undefined;
+}
+
+/** An explicit abstract status that contradicts the type is a 400, never a silent widen. */
+export function assertAbstractTypeStatus(emailType: string, status: string | undefined): void {
+  if (!status || status === "all") return;
+  const s = status as AbstractStatus;
+  if (emailType === "abstract-confirmation" && (ABSTRACT_NOT_RESENDABLE_STATUSES as readonly string[]).includes(s)) {
+    throw new BulkEmailError(`A submission confirmation cannot be resent for ${s} abstracts.`, 400, "INVALID_FILTER");
+  }
+  if (emailType === "abstract-decision" && !(ABSTRACT_DECISION_STATUSES as readonly string[]).includes(s)) {
+    throw new BulkEmailError(`A decision email needs a decided abstract; ${s} has no decision to send.`, 400, "INVALID_FILTER");
+  }
+}
+
 const UNSUPPORTED_EMAIL_TYPE_MESSAGE = (emailType: string) =>
-  `Bulk send for "${emailType}" is not supported — send abstract status updates from the abstract detail page instead`;
+  `Bulk send for "${emailType}" is not supported. Use "Resend Decision" (each abstract's current status) or "Resend Submission Confirmation".`;
 
 /**
  * Enqueue-time idempotency guard shared by the send-now + schedule routes
@@ -436,6 +494,8 @@ export const bulkEmailSchema = z.object({
     "abstract-rejected",
     "abstract-revision",
     "abstract-reminder",
+    "abstract-confirmation",
+    "abstract-decision",
     "webinar-confirmation",
     "webinar-reminder-24h",
     "webinar-reminder-1h",
@@ -605,6 +665,20 @@ interface ResolvedRecipient {
    * there.
    */
   title?: string | null;
+  /** Per-abstract context for the per-abstract types (one recipient per abstract). */
+  abstract?: {
+    id: string;
+    title: string;
+    serialId: number | null;
+    presentationType: string | null;
+    themeName: string | null;
+    coAuthors: unknown;
+    status: string;
+    reviewNotes: string | null;
+    reviewScore: number | null;
+  };
+  /** EmailLog entity when it differs from `id` (abstract sends log against the SPEAKER). */
+  logEntityId?: string;
   ticketType?: string;
   serialId?: number | null;
   /**
@@ -696,6 +770,7 @@ export async function precheckBulkEmailViability(
   // — dropping them silently widened the audience to everyone.
   assertValidBulkEmailFilters(recipientType, filters);
 
+  if (recipientType === "abstracts") assertAbstractTypeStatus(emailType, filters?.status);
   // A2 (July 16, 2026): a type with no slug mapping (the 4 abstract-* types)
   // can NEVER send — reject it here, synchronously at the routes, instead of
   // returning 202 "queued" and flipping the row FAILED a minute later with an
@@ -1047,31 +1122,60 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // unchecked `as never` cast let a bad value reach Prisma and abort the
     // whole send with a cryptic throw. "all" parses false → no filter.
     const parsedAbstractStatus = filters?.status ? abstractStatusSchema.safeParse(filters.status) : null;
-    const abstractStatus = parsedAbstractStatus?.success ? parsedAbstractStatus.data : undefined;
+    const explicitStatus = parsedAbstractStatus?.success ? parsedAbstractStatus.data : undefined;
+    // No explicit status ⇒ the type's own scope (drafts excluded from a
+    // confirmation resend, decided-only for a decision, DRAFT for a reminder).
+    const statusWhere = explicitStatus ?? defaultAbstractStatusFilter(emailType);
+    const perAbstract = PER_ABSTRACT_EMAIL_TYPES.has(emailType);
     const abstracts = await db.abstract.findMany({
       where: {
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
-        ...(abstractStatus && { status: abstractStatus }),
+        ...(statusWhere ? { status: statusWhere } : {}),
       },
       select: {
         id: true,
-        speaker: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
+        title: true,
+        serialId: true,
+        presentationType: true,
+        coAuthors: true,
+        status: true,
+        theme: { select: { name: true } },
+        submissions: { select: { reviewNotes: true, overallScore: true } },
+        speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
       },
     });
     const seen = new Set<string>();
     for (const a of abstracts) {
-      if (!seen.has(a.speaker.email)) {
+      // Per-abstract types send one email per ABSTRACT; the rest one per author.
+      if (!perAbstract) {
+        if (seen.has(a.speaker.email)) continue;
         seen.add(a.speaker.email);
-        recipients.push({
-          id: a.id,
-          email: a.speaker.email,
-          additionalEmail: a.speaker.additionalEmail,
-          firstName: a.speaker.firstName,
-          lastName: a.speaker.lastName,
-          title: a.speaker.title,
-        });
       }
+      recipients.push({
+        id: a.id,
+        email: a.speaker.email,
+        additionalEmail: a.speaker.additionalEmail,
+        firstName: a.speaker.firstName,
+        lastName: a.speaker.lastName,
+        title: a.speaker.title,
+        logEntityId: a.speaker.id,
+        ...(perAbstract
+          ? {
+              abstract: {
+                id: a.id,
+                title: a.title,
+                serialId: a.serialId,
+                presentationType: a.presentationType,
+                themeName: a.theme?.name ?? null,
+                coAuthors: a.coAuthors,
+                status: a.status,
+                reviewNotes: consolidateReviewNotes(a.submissions),
+                reviewScore: meanOverallScore(a.submissions.map((sub) => sub.overallScore)),
+              },
+            }
+          : {}),
+      });
     }
   } else {
     const parsedStatus = filters?.status ? registrationStatusSchema.safeParse(filters.status) : null;
@@ -1470,6 +1574,38 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       entryBarcodeText: "",
     };
 
+    if (recipientType === "abstracts") {
+      // Every abstract email carries the author's management link; the
+      // per-abstract types add that abstract's own tokens via the SAME
+      // builders the automatic emails use (preview == send == bulk).
+      vars.managementLink = buildAbstractManagementLink(event.slug);
+      const ab = recipient.abstract;
+      if (ab) {
+        Object.assign(
+          vars,
+          buildAbstractConfirmationVars({
+            abstractTitle: ab.title,
+            serialId: ab.serialId,
+            presentationType: ab.presentationType,
+            themeName: ab.themeName,
+            coAuthors: ab.coAuthors,
+            speaker: { title: recipient.title, firstName: recipient.firstName, lastName: recipient.lastName },
+          }),
+        );
+        // A bulk RESEND never re-mints a travel-grant offer; that belongs to
+        // submission time. The token renders empty.
+        vars.travelGrantBlock = "";
+        vars.travelGrantBlockText = "";
+        if (emailType === "abstract-decision") {
+          for (const [k, v] of Object.entries(
+            buildAbstractDecisionVars({ status: ab.status, reviewNotes: ab.reviewNotes, reviewScore: ab.reviewScore }),
+          )) {
+            if (v !== undefined) vars[k] = v;
+          }
+        }
+      }
+    }
+
     if (isSpeakerContextNeeded) {
       const ctx = await buildSpeakerEmailContext(eventId, recipient.id);
       if (ctx) {
@@ -1518,11 +1654,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // hydration of the per-recipient vars.
       vars.subject = customSubject!;
       vars.message = customMessage!;
-    } else if (emailType === "template") {
-      // A saved custom template defines its own subject + body, but may also
-      // reference {{subject}} / {{message}} placeholders for an optional
-      // per-send note. Both are optional here (the template, not the
-      // operator, owns the content), so default to empty.
+    } else if (emailType === "template" || emailType === "abstract-reminder") {
+      // A saved custom template (or the abstract-reminder template) defines
+      // its own subject + body, but may also reference {{subject}} /
+      // {{message}} placeholders for an optional per-send note. Both are
+      // optional here (the template, not the operator, owns the content), so
+      // default to empty.
       vars.subject = customSubject ?? "";
       vars.message = customMessage ?? "";
     }
@@ -1633,6 +1770,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // escaped, MCP sanitized HTML kept — the A1 contract), so both render
       // raw here.
       "message",
+      // Reviewer-notes block (abstract-decision): our markup, dynamic text
+      // escaped inside buildAbstractDecisionVars.
+      "reviewNotes",
     ]);
 
     // Resolve tokens the organizer typed INTO the message itself —
@@ -1806,7 +1946,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
                 ? ("REGISTRATION" as const)
                 : recipientType === "reviewers"
                   ? ("USER" as const)
-                  : ("OTHER" as const);
+                  : recipientType === "abstracts"
+                    ? ("SPEAKER" as const)
+                    : ("OTHER" as const);
           const bccRecipients = [...bccSet]
             .filter((e) => e !== recipient.email.trim().toLowerCase())
             .map((email) => ({ email }));
@@ -1835,7 +1977,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               organizationId: resolvedOrganizationId,
               eventId,
               entityType: bulkEntityType,
-              entityId: recipient.id,
+              entityId: recipient.logEntityId ?? recipient.id,
               templateSlug: `bulk-${emailType}`,
               triggeredByUserId: triggeredByUserId ?? null,
             },

@@ -122,6 +122,41 @@ export function buildAbstractConfirmationVars(input: AbstractConfirmationVarInpu
   };
 }
 
+export interface AbstractDecisionVarInput {
+  /** The abstract's CURRENT status; the heading and message come from it. */
+  status: string;
+  reviewNotes: string | null;
+  reviewScore: number | null;
+  /** Notes/score changed without a status transition. */
+  feedbackOnly?: boolean;
+}
+
+/**
+ * The decision-scoped variable set of the `abstract-status-update` email
+ * (status label, heading, message, the reviewer-notes block, the score).
+ * Shared by the automatic status-change sender and the bulk "Resend
+ * decision" type (Sep 8, 2026), so the two cannot drift. Reviewer notes are
+ * author-visible free text from reviewers, escaped here; the block itself is
+ * our markup and must render raw (register `reviewNotes` as a raw key).
+ */
+export function buildAbstractDecisionVars(
+  input: AbstractDecisionVarInput,
+): Record<string, string | number | undefined> {
+  const statusInfo = getAbstractStatusInfo(input.status);
+  const reviewNotesHtml = input.reviewNotes
+    ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${escapeHtml(input.reviewNotes)}</span></div>`
+    : "";
+  return {
+    newStatus: input.status.replace(/_/g, " "),
+    statusHeading: input.feedbackOnly ? "Reviewer Feedback Received" : statusInfo.heading,
+    statusMessage: input.feedbackOnly
+      ? "A reviewer has provided feedback on your abstract. Log in to view the details."
+      : statusInfo.message,
+    reviewNotes: reviewNotesHtml,
+    reviewScore: input.reviewScore ?? undefined,
+  };
+}
+
 /**
  * Sends the `abstract-submission-confirmation` email to the submitting
  * speaker. ONE implementation for all three callers (create POST, resubmit
@@ -330,11 +365,6 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       .join(", ");
     const authorName = formatPersonName(speaker.title, speaker.firstName, speaker.lastName);
 
-    const statusInfo = getAbstractStatusInfo(newStatus);
-    const reviewNotesHtml = reviewNotes
-      ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${escapeHtml(reviewNotes)}</span></div>`
-      : "";
-
     const vars: Record<string, string | number | undefined> = {
       title: getTitleLabel(speaker.title),
       firstName: speaker.firstName,
@@ -345,13 +375,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       theme: themeName,
       authorName,
       coAuthorNames,
-      newStatus: newStatus.replace(/_/g, " "),
-      statusHeading: feedbackOnly ? "Reviewer Feedback Received" : statusInfo.heading,
-      statusMessage: feedbackOnly
-        ? "A reviewer has provided feedback on your abstract. Log in to view the details."
-        : statusInfo.message,
-      reviewNotes: reviewNotesHtml,
-      reviewScore: reviewScore ?? undefined,
+      ...buildAbstractDecisionVars({ status: newStatus, reviewNotes, reviewScore, feedbackOnly }),
       managementLink,
     };
 

@@ -186,12 +186,15 @@ const registrationEmailTypes: EmailTypeOption[] = [
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
-// The four abstract-* status types were removed (review A2, July 16, 2026):
-// the bulk pipeline has never supported them (no slug mapping — it cannot
-// enrich per-recipient abstract context), so offering them produced a
-// success toast followed by a FAILED row a minute later. Status updates are
-// sent from the abstract detail page; bulk sends to submitters are custom.
+// Sep 8, 2026: the abstract types are back, and they send. The July-16
+// review (A2) removed accepted/rejected/revision because the pipeline could
+// not build per-abstract context; these three are built on the same var
+// builders as the automatic emails, and the decision one renders each
+// abstract's CURRENT status rather than asserting one.
 const abstractEmailTypes: EmailTypeOption[] = [
+  { value: "abstract-confirmation", label: "Resend Submission Confirmation", description: "One email per abstract, with its number, title and details" },
+  { value: "abstract-decision", label: "Resend Decision", description: "One email per decided abstract, with its current status and reviewer notes" },
+  { value: "abstract-reminder", label: "Submission Reminder", description: "Authors who still have a draft; add a message" },
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
@@ -442,6 +445,7 @@ export function BulkEmailDialog({
     (t) => t.slug === savedTemplateSlug
   )?.name;
   const isCustom = emailType === "custom";
+  const isReminder = emailType === "abstract-reminder";
   const isCertificate = emailType === "certificate";
   const label = getRecipientLabel(recipientType);
 
@@ -605,12 +609,12 @@ export function BulkEmailDialog({
       // blank falls back to the template's saved cover email / system default.
       customSubject: isCustom
         ? customSubject.trim()
-        : isCertificate
+        : isCertificate || isReminder
         ? customSubject.trim() || undefined
         : undefined,
       customMessage: isCustom
         ? customMessage.trim()
-        : emailType === "invitation" || isCertificate
+        : emailType === "invitation" || isCertificate || isReminder
         ? customMessage.trim() || undefined
         : undefined,
       attachments: attachmentFiles.length > 0 ? await uploadEmailAttachments(eventId, attachmentFiles) : undefined,
@@ -890,9 +894,9 @@ export function BulkEmailDialog({
           )}
 
           {/* Custom Subject (custom emails require it; certificate sends may override) */}
-          {(isCustom || isCertificate) && (
+          {(isCustom || isCertificate || isReminder) && (
             <div className="space-y-2">
-              <Label htmlFor="bulk-subject">{isCertificate ? "Subject (optional)" : "Subject"}</Label>
+              <Label htmlFor="bulk-subject">{isCertificate || isReminder ? "Subject (optional)" : "Subject"}</Label>
               <Input
                 id="bulk-subject"
                 placeholder={
@@ -922,10 +926,10 @@ export function BulkEmailDialog({
           )}
 
           {/* Message field (custom emails require it, invitation allows optional personal message, certificate sends may override the cover email) */}
-          {(isCustom || emailType === "invitation" || isCertificate) && (
+          {(isCustom || emailType === "invitation" || isCertificate || isReminder) && (
             <div className="space-y-2">
               <Label htmlFor="bulk-message">
-                {isCustom ? "Message" : isCertificate ? "Message (optional)" : "Personal Message (optional)"}
+                {isCustom ? "Message" : isCertificate || isReminder ? "Message (optional)" : "Personal Message (optional)"}
               </Label>
               <Textarea
                 id="bulk-message"

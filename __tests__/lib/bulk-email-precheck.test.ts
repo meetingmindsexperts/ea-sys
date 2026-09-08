@@ -78,11 +78,12 @@ beforeEach(() => {
 });
 
 describe("precheckBulkEmailViability — unsupported email types (review A2, July 16 2026)", () => {
-  // The 4 abstract-* types have no slug mapping and can NEVER send. Before
-  // this guard the routes returned 202 "queued" and the row flipped FAILED a
-  // minute later (success toast → error-level page). Rejected synchronously,
-  // BEFORE the event load.
-  it.each(["abstract-accepted", "abstract-rejected", "abstract-revision", "abstract-reminder"])(
+  // The three status-ASSERTING abstract types have no slug mapping and can
+  // NEVER send: a type named "accepted" would tell a rejected author they
+  // were accepted. Before this guard the routes returned 202 "queued" and the
+  // row flipped FAILED a minute later. Rejected synchronously, BEFORE the
+  // event load. (abstract-reminder left this list on Sep 8, 2026: it sends.)
+  it.each(["abstract-accepted", "abstract-rejected", "abstract-revision"])(
     "rejects %s up-front with a 400 pointing at the abstract detail page",
     async (emailType) => {
       await expect(
@@ -96,6 +97,45 @@ describe("precheckBulkEmailViability — unsupported email types (review A2, Jul
       expect(mockDb.event.findFirst).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["abstract-confirmation", "abstract-decision", "abstract-reminder"])(
+    "%s is slug-mapped and passes the guard (Sep 8, 2026)",
+    async (emailType) => {
+      const res = await precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "abstracts",
+        emailType: emailType as never,
+      });
+      expect(res.event.id).toBe("evt-1");
+    },
+  );
+
+  it("an explicit status that contradicts the abstract type is a 400, never a silent widen", async () => {
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "abstracts",
+        emailType: "abstract-decision",
+        filters: { status: "DRAFT" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "abstracts",
+        emailType: "abstract-confirmation",
+        filters: { status: "WITHDRAWN" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    // A compatible explicit status passes.
+    const ok = await precheckBulkEmailViability({
+      eventId: "evt-1",
+      recipientType: "abstracts",
+      emailType: "abstract-decision",
+      filters: { status: "ACCEPTED" },
+    });
+    expect(ok.event.id).toBe("evt-1");
+  });
 
   it("still allows every slug-mapped type through the guard", async () => {
     const res = await precheckBulkEmailViability({
