@@ -5,6 +5,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
 interface RouteParams {
@@ -33,6 +34,13 @@ interface RouteParams {
  *     retry a few times but not enough for enumeration.
  *   - Credit notes are NOT returned here (refund flows are handled
  *     from the authenticated portal).
+ *   - Review Sep 8, 2026 (P1a): the bare id is still the credential here.
+ *     An id is an identifier, not a secret (it appears in admin screens,
+ *     exports, MCP responses, audit rows), so a per-registration document
+ *     token is the scheduled fix (ROADMAP). Same round: the Registration
+ *     read moved INSIDE a host-resolved tenant lane (P2a); it used to sit
+ *     outside with only the Invoice/PDF wrapped, which fails closed on the
+ *     platform (registration.sql is policied, Event is not).
  */
 export async function GET(req: Request, { params }: RouteParams) {
   try {
@@ -51,6 +59,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Lane from the request HOST, before the swept Registration read; the
+    // same shape as payment-status and the promo route beside it. Passthrough
+    // on master (host unresolved → orgId "" → no SET LOCAL).
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
@@ -108,24 +121,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     // payer an unpaid-looking SENT document when a PAID one existed. Pick in
     // JS instead: PAID first (newest), else the newest non-CANCELLED row —
     // a CANCELLED-only invoice falls through to the quote below.
-    // The Invoice reads + PDF ride the tenant lane on the platform (inert on
-    // master); org resolved from the slug-scoped registration lookup above.
-    const invoiceDoc = await runWithTenant(registration.event.organizationId, async () => {
-      const invoiceRows = await db.invoice.findMany({
-        where: {
-          registrationId,
-          type: "INVOICE",
-          status: { not: "CANCELLED" },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, invoiceNumber: true, status: true },
-        take: 10,
-      });
-      const invoice = invoiceRows.find((r) => r.status === "PAID") ?? invoiceRows[0] ?? null;
-      if (!invoice) return null;
-      const pdfBuffer = await generatePDFForInvoice(invoice.id);
-      return { pdfBuffer, invoiceNumber: invoice.invoiceNumber };
+    // Rides the outer lane opened above (was its own inner wrap).
+    const invoiceRows = await db.invoice.findMany({
+      where: {
+        registrationId,
+        type: "INVOICE",
+        status: { not: "CANCELLED" },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, invoiceNumber: true, status: true },
+      take: 10,
     });
+    const invoice = invoiceRows.find((r) => r.status === "PAID") ?? invoiceRows[0] ?? null;
+    const invoiceDoc = invoice
+      ? { pdfBuffer: await generatePDFForInvoice(invoice.id), invoiceNumber: invoice.invoiceNumber }
+      : null;
 
     if (invoiceDoc) {
       return new NextResponse(new Uint8Array(invoiceDoc.pdfBuffer), {
@@ -150,6 +160,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "public document download failed" });

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { rateLimited } from "@/lib/api-errors";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -13,6 +15,27 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, registrationId } = await params;
+
+    // Review Sep 8, 2026 (P1b): this route had no throttle at all, so a leaked
+    // registration id was a durable, unthrottled payment-status oracle. The
+    // confirmation page polls at most 8 times per load; 120 per 15 min per IP
+    // bounds the oracle without blocking a venue NAT where a dozen
+    // self-registrants poll at once. The id-as-credential itself is the
+    // scheduled document-token change (ROADMAP).
+    const rl = checkRateLimit({
+      key: `public-payment-status:${getClientIp(req)}`,
+      limit: 120,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return rateLimited(rl, {
+        route: "public/payment-status",
+        slug,
+        registrationId,
+        limit: 120,
+        windowSeconds: 900,
+      });
+    }
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from the request HOST — this route reads no un-swept Event

@@ -161,6 +161,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/public/events/[slug]/register/route.ts"                                 # Reg-core (July 29, 2026)
   "src/app/api/public/events/[slug]/checkout/route.ts"                                 # Reg-core (July 29, 2026)
   "src/app/api/public/events/[slug]/payment-status/[registrationId]/route.ts"          # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/registrations/[registrationId]/document/route.ts" # Public document (Sep 8, 2026 review, P2a)
   "src/app/api/public/events/[slug]/check-email/route.ts"                              # Reg-core (July 29, 2026)
   "src/app/api/public/events/[slug]/complete-registration/route.ts"                    # Reg-core (July 29, 2026)
   "src/app/api/public/events/[slug]/validate-promo/route.ts"                           # Reg-core (July 29, 2026)

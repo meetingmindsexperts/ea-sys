@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
@@ -7,7 +6,8 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
-import { uploadMedia, deleteMedia, storageProvider } from "@/lib/storage";
+import { storageProvider } from "@/lib/storage";
+import { storeUploadedMedia } from "@/lib/media-upload";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -22,11 +22,6 @@ const MAGIC_BYTES: Record<string, { bytes: number[]; offset: number }[]> = {
   ],
 };
 
-const MIME_TO_EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
 
 function detectMimeType(buffer: Buffer): string | null {
   for (const [mime, signatures] of Object.entries(MAGIC_BYTES)) {
@@ -164,37 +159,19 @@ export async function POST(
       return NextResponse.json({ error: "File content is not a valid JPEG, PNG, or WebP image" }, { status: 400 });
     }
 
-    // Sanitize filename: strip path components, limit length
-    const safeFilename = file.name.replace(/[/\\]/g, "").slice(0, 255) || "upload";
+    // Storage-then-row with compensating cleanup lives in ONE helper shared
+    // with the org upload route (review Sep 8, 2026, P2c).
+    const mediaFile = await storeUploadedMedia({
+      buffer,
+      detectedMime,
+      originalFilename: file.name,
+      size: file.size,
+      organizationId: orgGuard.orgId,
+      uploadedById: session.user.id,
+      eventId,
+    });
 
-    const fileExtension = MIME_TO_EXT[detectedMime];
-    const filename = `${randomUUID()}.${fileExtension}`;
-    const url = await uploadMedia(buffer, filename, detectedMime);
-
-    let mediaFile;
-    try {
-      mediaFile = await db.mediaFile.create({
-        data: {
-          organizationId: orgGuard.orgId,
-          eventId,
-          uploadedById: session.user.id,
-          filename: safeFilename,
-          url,
-          mimeType: detectedMime,
-          size: file.size,
-        },
-        select: { id: true, url: true, filename: true, mimeType: true, size: true, createdAt: true },
-      });
-    } catch (dbErr) {
-      // DB create failed — delete the already-uploaded file to avoid storage orphan
-      apiLogger.error({ err: dbErr, msg: "Event media DB create failed; deleting orphaned storage file", url, eventId });
-      await deleteMedia(url).catch((storageErr) =>
-        apiLogger.error({ err: storageErr, msg: "Failed to clean up orphaned event media from storage", url })
-      );
-      throw dbErr;
-    }
-
-    apiLogger.info({ msg: "Event media file uploaded", mediaId: mediaFile.id, eventId, url, storageProvider, userId: session.user.id });
+    apiLogger.info({ msg: "Event media file uploaded", mediaId: mediaFile.id, eventId, url: mediaFile.url, storageProvider, userId: session.user.id });
 
     return NextResponse.json(mediaFile, { status: 201 });
     });

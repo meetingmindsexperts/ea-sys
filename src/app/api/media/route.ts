@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
-import { uploadMedia, storageProvider } from "@/lib/storage";
+import { storageProvider } from "@/lib/storage";
+import { storeUploadedMedia } from "@/lib/media-upload";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -21,11 +21,6 @@ const MAGIC_BYTES: Record<string, { bytes: number[]; offset: number }[]> = {
   ],
 };
 
-const MIME_TO_EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
 
 function detectMimeType(buffer: Buffer): string | null {
   for (const [mime, signatures] of Object.entries(MAGIC_BYTES)) {
@@ -143,24 +138,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "File content is not a valid JPEG, PNG, or WebP image" }, { status: 400 });
     }
 
-    const fileExtension = MIME_TO_EXT[detectedMime];
-    const filename = `${randomUUID()}.${fileExtension}`;
-
-    const url = await uploadMedia(buffer, filename, detectedMime);
-
-    const mediaFile = await db.mediaFile.create({
-      data: {
-        organizationId: orgGuard.orgId,
-        uploadedById: session.user.id,
-        filename: file.name,
-        url,
-        mimeType: detectedMime,
-        size: file.size,
-      },
-      select: { id: true, url: true, filename: true, mimeType: true, size: true, createdAt: true },
+    // Storage-then-row with compensating cleanup lives in ONE helper shared
+    // with the event upload route (review Sep 8, 2026, P2c: this route used
+    // to leave the object in public storage when the row insert failed).
+    const mediaFile = await storeUploadedMedia({
+      buffer,
+      detectedMime,
+      originalFilename: file.name,
+      size: file.size,
+      organizationId: orgGuard.orgId,
+      uploadedById: session.user.id,
     });
 
-    apiLogger.info({ msg: "Media file uploaded", mediaId: mediaFile.id, url, storageProvider, userId: session.user.id });
+    apiLogger.info({ msg: "Media file uploaded", mediaId: mediaFile.id, url: mediaFile.url, storageProvider, userId: session.user.id });
 
     return NextResponse.json(mediaFile, { status: 201 });
     });

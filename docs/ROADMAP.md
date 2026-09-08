@@ -282,6 +282,13 @@ one sponsor and a promo code from another, and summing them over-counts.
 
 ## Deferred review findings
 
+### Public-by-id routes and media lifecycle review (Sep 8, 2026): cheap fixes shipped, the token scheduled, one race recorded
+
+External review of the confirmation-page routes and the media library: **0 BLOCKER / 2 P1 / 3 P2**, all five verified against source. Shipped the same day: a rate limit on the public payment-status route (it had none), the host-resolved tenant lane around the public document route (its Registration read sat outside the lane and would fail closed on the platform), and one shared storage-then-row helper for both media upload routes (the org route left an orphan in public storage when the row insert failed).
+
+- **SCHEDULED as its own change: a per-registration document token (P1a / P1b).** The public document, payment-status and promo routes authorise by registration id plus event slug. A cuid is unguessable and the routes are throttled, so this is not enumerable, but an id is an identifier, not a credential: it appears in admin screens, CSV exports, MCP responses and audit rows, and a leaked confirmation URL is a durable read on the invoice (attendee, payer address and tax number, event bank details). Plan: mint a hashed token per registration in `VerificationToken` as `document:{registrationId}` (the survey-link pattern, no migration), carry it on the confirmation URL, the Stripe success and cancel URLs and the emailed Pay Now link, verify it on the three routes with a timing-safe compare, expire it after the event, revoke by deleting the row; the signed-in portal switches to the authenticated quote route. **Owner decision needed first:** confirmation emails already sent carry the bare id, so requiring the token breaks their Pay Now links. Either a grace window for registrations created before the cutover, or a backfill mint plus accepting that old links stop working.
+- **P2b, recorded not fixed: media delete is check-then-act.** Both media DELETE routes scan for references and then delete the object and the row together; an event save that assigns that URL in the window between the scan and the delete leaves a durable 404. The window is milliseconds and needs a second admin at that instant. The structural fix is a lifecycle state (ACTIVE to DELETING behind a conditional claim, with reference assignment validating an active row), which is heavier than the bug. Revisit if a broken branding image is ever traced to a delete.
+
 ### HR module review (Aug 31, 2026): highs shipped as batch 1, the rest recorded here
 
 First adversarial review of the HR module (security/tenancy/privacy · correctness/maths/concurrency ·
