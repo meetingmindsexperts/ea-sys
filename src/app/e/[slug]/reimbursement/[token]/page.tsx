@@ -284,6 +284,20 @@ export default function ReimbursementFormPage() {
     () => EXPENSE_ITEMS.filter((c) => allowedItems.includes(c.key)),
     [allowedItems],
   );
+  // Section C intro follows the data (organiser request, Sep 8, 2026): the
+  // honorarium sentence only when a fee is actually agreed (an offered-but-
+  // unset fee is explained by the locked line itself), the expenses sentence
+  // only when at least one expense type is offered, and a plain statement
+  // when nothing is offered so the section never reads as broken.
+  const sectionIntro = (() => {
+    const parts: string[] = [];
+    if (honorariumOffered && honorarium) parts.push("Your honorarium / speaker fee is set by the organising team.");
+    if (offeredExpenseItems.length > 0) parts.push("Tick the expenses you are claiming and enter each amount.");
+    if (parts.length === 0 && !honorariumOffered) {
+      parts.push("The organising team has not enabled any reimbursement types for you yet.");
+    }
+    return parts.join(" ");
+  })();
   const claimLines = useMemo<ClaimLine[]>(
     () => effectiveClaimLines(honorarium, expenseLines, allowedItems),
     [honorarium, expenseLines, allowedItems],
@@ -669,11 +683,7 @@ export default function ReimbursementFormPage() {
               {/* Section C */}
               <section>
                 <SectionHeading letter="C" title="Reimbursement Type" />
-                <p className="text-sm text-slate-600 mb-3">
-                  {honorariumOffered
-                    ? "Your honorarium / speaker fee is set by the organising team. Tick the expenses you are claiming and enter each amount."
-                    : "Tick the expenses you are claiming and enter each amount."}
-                </p>
+                {sectionIntro && <p className="text-sm text-slate-600 mb-3">{sectionIntro}</p>}
                 <div className="space-y-2">
                   {/* Locked line: the organiser's agreed fee, never an input (Sep 3, 2026).
                       Rendered only when the honorarium is part of this reimbursement. */}
