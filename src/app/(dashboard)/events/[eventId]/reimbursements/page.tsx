@@ -192,6 +192,29 @@ export default function ReimbursementsPage() {
       );
   }, [speakers, invitedSpeakerIds, speakerSearch]);
 
+  // "Select all" acts on the LIST AS FILTERED, so a search narrows what it
+  // picks, and it never touches a selection the search is currently hiding:
+  // ticking, searching, ticking again accumulates, the way per-row ticks do.
+  const addableSelectedCount = useMemo(
+    () => addableSpeakers.filter((s) => selectedSpeakerIds.has(s.id)).length,
+    [addableSpeakers, selectedSpeakerIds],
+  );
+  const allAddableSelected =
+    addableSpeakers.length > 0 && addableSelectedCount === addableSpeakers.length;
+  const toggleSelectAllAddable = useCallback(
+    (checked: boolean) => {
+      setSelectedSpeakerIds((prev) => {
+        const next = new Set(prev);
+        for (const s of addableSpeakers) {
+          if (checked) next.add(s.id);
+          else next.delete(s.id);
+        }
+        return next;
+      });
+    },
+    [addableSpeakers],
+  );
+
   const pendingCount = rows.filter((r) => r.status === "PENDING").length;
 
   const startHonorariumEdit = useCallback((row: ReimbursementRow) => {
@@ -675,6 +698,27 @@ export default function ReimbursementsPage() {
             onChange={(e) => setSpeakerSearch(e.target.value)}
           />
           <div className="max-h-72 overflow-y-auto border rounded-md divide-y">
+            {addableSpeakers.length > 0 && (
+              <label className="flex items-center gap-3 px-3 py-2 cursor-pointer bg-muted/30 hover:bg-muted/50">
+                <Checkbox
+                  checked={
+                    allAddableSelected ? true : addableSelectedCount > 0 ? "indeterminate" : false
+                  }
+                  // Radix reports a click on an indeterminate box as `true`,
+                  // so "some picked" → "all picked", then → none.
+                  onCheckedChange={(v) => toggleSelectAllAddable(v === true)}
+                  aria-label="Select all listed speakers"
+                />
+                <span className="flex-1 text-sm font-medium">
+                  Select all{speakerSearch.trim() ? " matching" : ""} ({addableSpeakers.length})
+                </span>
+                {selectedSpeakerIds.size > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {selectedSpeakerIds.size} selected
+                  </span>
+                )}
+              </label>
+            )}
             {addableSpeakers.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">
                 {speakers.length === 0
