@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Budget & Procurement Module rev. 3.4</title>
+<title>Budget & Procurement Module rev. 3.5</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -105,12 +105,12 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 </head>
 <body>
 <header class="masthead"><div class="masthead-inner">
-  <p class="eyebrow">EA-SYS · Plain-language edition · rev. 3.4 · 9 September 2026</p>
+  <p class="eyebrow">EA-SYS · Plain-language edition · rev. 3.5 · 9 September 2026</p>
   <h1>MMG Conference Budget &amp; Procurement Module</h1>
   <dl class="meta">
     <div class="meta-row"><dt>What this is</dt><dd>The same plan as the technical specification, written for reading rather than building. Same decisions, same timeline, fewer technical terms. Part 2 keeps the full technical specification word for word, for engineers and for AI-assisted review. Part 3 at the end lists everything that changed between versions.</dd></div>
-    <div class="meta-row"><dt>Status</dt><dd><strong>Ready to start.</strong> Every question that could block the start was answered on 3 September 2026. A handful of confirmations remain (section 14) and can be settled while the first phase is under way.</dd></div>
-    <div class="meta-row"><dt>Build time</dt><dd><strong>3 to 4 months.</strong> About three months to a parallel run on real events (budget, purchasing, QuickBooks, migration and pilot); the revenue and margin phase follows and brings the whole build to about four months. ProcurementExpress is cancelled after the parallel run and one clean month-end close, so the subscription stops around month five. Phase 6, the benchmarking screens, adds about two weeks after that.</dd></div>
+    <div class="meta-row"><dt>Status</dt><dd><strong>Ready to start.</strong> Every question that could block the start was answered on 3 September 2026. The review of 9 September added two checks for Phase 0 (how bills are entered in QuickBooks today, and the exchange-rate source); the remaining confirmations (section 14) can be settled while the first phase is under way.</dd></div>
+    <div class="meta-row"><dt>Build time</dt><dd><strong>4 to 5 months.</strong> About four months to a parallel run on real events (budget, purchasing, QuickBooks, migration and pilot); the revenue and benchmarking phases follow and bring the whole build to about five months. ProcurementExpress is cancelled after the parallel run and one clean month-end close, so the subscription stops around month five to six.</dd></div>
     <div class="meta-row"><dt>Prepared by</dt><dd>Krishna Pallapolu, Development Manager · <strong>For:</strong> Medhat, finance</dd></div>
   </dl>
 </div></header>
@@ -165,7 +165,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <ul>
 <li>Staff raise spend requests inside EA-SYS, where they already log in, instead of ProcurementExpress.</li>
 <li>Lina and Medhat approve from an inbox that reminds and escalates on its own.</li>
-<li>Muthu keeps recording bills and payments in QuickBooks exactly as today. The module reads them back.</li>
+<li>Muthu keeps recording bills and payments in QuickBooks, with one rule: a bill against a purchase order is entered from that order and carries the event code, so the module can read it back onto the right line.</li>
 <li>Event owners get one dashboard per event and one view across every event in the year.</li>
 <li>A new budget starts from the previous edition, or a similar event, compared per attendee, instead of from a blank page.</li>
 <li>ProcurementExpress is cancelled after the first clean month-end close on the new module.</li>
@@ -182,12 +182,13 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 </div>
 <div class="callout">
 <p><strong>Remaining = Planned minus open commitments minus Actual.</strong> This is why "remaining" is truthful from day one: a purchase order reduces it the moment it is approved, not weeks later when the bill turns up.</p>
-<p><strong>Forecast</strong> is the system's estimate of where the line will finish. When the forecast for the whole event is higher than planned plus contingency, the budget is flagged <strong>at risk</strong> on the dashboard and in the daily email, weeks before the invoices arrive.</p>
+<p><strong>Forecast</strong> is where the line is expected to finish: the plan, or more as soon as commitments and bills exceed it, and the owner can adjust it with a reason. When the forecast for the whole event is higher than planned plus contingency, the budget is flagged <strong>at risk</strong> on the dashboard and by email to the owner and Muthu, weeks before the invoices arrive.</p>
 </div>
 <ul>
 <li>Every figure is <strong>excluding VAT</strong>, with the VAT amount shown beside it. Finance signed this off on 3 September 2026.</li>
 <li>A budget is kept in one currency of its choice (AED, USD, EUR, GBP or SAR). Exchange rates are fixed on each line when it is written, so a rate change later never rewrites history.</li>
 <li>Approval limits and the cross-event view are always in <strong>AED</strong>.</li>
+<li>Contingency (10% by default) is its own line and is not counted inside the planned total.</li>
 <li>Bills that arrive for an event with no purchase order behind them are shown in a separate "unallocated" bucket, so nothing is hidden and finance can see the gap between the module and the QuickBooks profit and loss.</li>
 </ul>
 
@@ -195,44 +196,44 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <p>A budget is not a spreadsheet uploaded once. It is proposed, approved, revised, drawn on, frozen and closed, and each step leaves a trail. ProcurementExpress never had this half.</p>
 <ol class="steps">
 <li><strong>Start from a template.</strong> One template per event type (conference, webinar, hybrid) with the usual lines already listed. Editing a template later never changes a live budget.</li>
-<li><strong>Fill in the lines.</strong> Quantity, unit cost, currency, VAT code, dates, supplier if known. Totals, VAT and contingency recalculate as you type. Where a benchmark has been chosen (section 7), its planned and actual figures sit beside each category for reference.</li>
-<li><strong>Submit for approval.</strong> Finance checks it is complete (every category has lines or is marked not applicable, contingency and currency set). Then it is approved on the same limits as spending: Lina up to AED 1,000,000 of planned expense, Medhat above.</li>
+<li><strong>Fill in the lines.</strong> Quantity, unit cost, currency, VAT code, dates, supplier if known. Totals, VAT and contingency recalculate as you type. Where a benchmark has been chosen (section 7), its figures sit beside each category for reference (from Phase 6).</li>
+<li><strong>Submit for approval.</strong> Muthu checks it is complete (every category has lines or is marked not applicable; contingency, currency and expected attendance set). Then it is approved on the same limits as spending: Lina up to AED 1,000,000 of planned expense (contingency excluded), Medhat above.</li>
 <li><strong>Active.</strong> Only an active budget accepts spend requests.</li>
-<li><strong>Revise through versions.</strong> Changing planned amounts creates a new version that goes through approval. The old version stays active until then, so spending never stops during a revision. Committed and actual figures follow each line into the new version. A compare view shows old against new, the difference, and who approved it.</li>
-<li><strong>Move money between lines.</strong> An event owner may move up to 10% of a line on their own; finance may move any amount. Every move is recorded. Spending from contingency is a request against the contingency line and always needs finance approval.</li>
-<li><strong>Freeze before the event.</strong> On demand or on a set date (typically two weeks out) the plan locks. Spending continues; approvals on a frozen budget need the top approver and a written reason.</li>
-<li><strong>Close out after the event.</strong> Once every bill is allocated, the owner closes the budget. Any line more than 10% or AED 5,000 off plan (whichever is larger) needs a written explanation. A close-out summary is produced, finance signs it off, and the budget becomes read-only. Reopening needs an admin and a reason.</li>
+<li><strong>Revise through versions.</strong> Changing planned amounts creates a new version that goes through approval. The old version stays active until then, so spending never stops during a revision. Committed and actual figures follow each line into the new version. A compare view shows old against new, the difference, and who approved it. A revision whose change is within Lina's limit can be approved by Lina even when Medhat approved the original total.</li>
+<li><strong>Move money between lines.</strong> An event owner may move up to 10% of a line's approved amount per version, and never into a line that carries their own pending request; larger moves are approved on the same limits as spending. Every move is recorded. Spending from contingency is a request against the contingency line, approved on the same limits.</li>
+<li><strong>Freeze before the event.</strong> On demand or on a set date (typically two weeks out) the planned amounts lock and money can no longer be moved between lines. Spending continues on the normal limits; only a request that exceeds its line on a frozen budget goes to Medhat as an exception.</li>
+<li><strong>Close out after the event.</strong> Once every bill is allocated, or written off by Muthu, the owner closes the budget. Any line more than 10% or AED 5,000 off plan (whichever is larger) needs a written explanation. A close-out summary is produced, listing any written-off bills separately so that it reconciles to the QuickBooks figure for the event; Muthu signs it off, and the budget becomes read-only. Reopening needs an admin and a reason.</li>
 </ol>
 
 <h2 id="s4"><span class="sec">4</span>Buying something</h2>
 <p>This is the daily flow, so its screens get the most polish. From request to paid bill:</p>
 <ol class="steps">
 <li><strong>Raise the request.</strong> The requester picks the event and the budget line. The form shows what is left on that line, open commitments, past dealings with the supplier, and who will approve.</li>
-<li><strong>Attach quotes.</strong> A new supplier can be proposed on the same form. Finance approves the supplier (tax number, terms, currency) before any purchase order can be issued to them.</li>
+<li><strong>Attach quotes.</strong> A new supplier can be proposed on the same form. Muthu approves the supplier (tax number, terms, currency) before any purchase order can be issued to them; an approved request waits for that if it has to.</li>
 <li><strong>Budget check.</strong> Within budget: goes to Lina, or to Medhat above AED 1,000,000. Over budget: <strong>blocked</strong> and routed to Medhat as an exception. It is never silently allowed through.</li>
-<li><strong>Approval.</strong> The approver decides from the inbox. Reminder after 24 hours, passed to a delegate after 48, escalated to the next level after 96. Medhat is the top of the chain, so a request waiting on him is reminded daily instead.</li>
-<li><strong>Purchase order.</strong> Approval creates the purchase order, posts it to QuickBooks, and emails a PDF to the supplier using the same layout as our invoices and quotes.</li>
-<li><strong>Receiving.</strong> The requester (or finance) marks the order partly or fully received.</li>
-<li><strong>Bill and payment.</strong> Muthu records the bill and the payment in QuickBooks as today. Within 24 hours the line shows the new actual and paid figures.</li>
-<li><strong>Changes after approval.</strong> A changed amount is re-approved for the difference only. A purchase order already posted is cancelled and re-issued rather than edited, so QuickBooks and EA-SYS never disagree about it.</li>
+<li><strong>Approval.</strong> The approver decides from the inbox. Reminder after 24 hours; after 48 hours without a decision it passes to Medhat. A request Lina raises herself goes straight to Medhat. Medhat is the top of the chain, so a request waiting on him is reminded daily; there is no standby for him in the first release.</li>
+<li><strong>Purchase order.</strong> Approval creates the purchase order and emails the PDF to the supplier straight away, using the same layout as our invoices and quotes. Posting to QuickBooks follows in the background and never holds the supplier up.</li>
+<li><strong>Receiving.</strong> The requester marks the order partly or fully received; above AED 50,000 a second person confirms it.</li>
+<li><strong>Bill and payment.</strong> Muthu records the bill in QuickBooks from the purchase order, and the payment against it. Within 24 hours the line shows the new actual and paid figures. A bill that arrives with no order behind it goes to the unallocated bucket, where Muthu links it to an order or writes it off. A supplier credit note reduces the line it relates to.</li>
+<li><strong>Changes after approval.</strong> A changed amount is re-approved for the difference, by whoever the new total requires. A purchase order already posted is cancelled and re-issued rather than edited, so QuickBooks and EA-SYS never disagree about it.</li>
 </ol>
 
 <h2 id="s5"><span class="sec">5</span>Who does what</h2>
-<p>Nobody gets a new login. Procurement permissions are added on top of the EA-SYS account people already have.</p>
+<p>Almost nobody gets a new login. Three permissions are added on top of the EA-SYS account people already have: <strong>request</strong>, <strong>approve</strong> (with a limit) and <strong>settle</strong>.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Who</th><th>What they can do</th></tr></thead>
 <tbody>
 <tr><td>Any staff member with the "request" permission</td><td>Raise and submit their own spend requests, attach quotes, propose a new supplier, see what is left on the lines they can request against, mark their own orders as received.</td></tr>
-<tr><td>Event owner (organiser)</td><td>Write and revise the budget for their events, move up to 10% between lines, watch requests on their events. No accounting access.</td></tr>
-<tr><td>Lina</td><td>Approves budgets and spend up to AED 1,000,000. Medhat is her delegate when she is away.</td></tr>
-<tr><td>Medhat</td><td>Approves anything above AED 1,000,000 and every over-budget exception. Final approver on everything. <strong>Never raises a request</strong>, and the system refuses one from his account, so a request can never be left with nobody able to approve it.</td></tr>
-<tr><td>Muthu (finance)</td><td>Approves new suppliers, checks budgets for completeness, records bills and payments in QuickBooks, reviews unallocated bills, uses the reconciliation view, dashboards and exports. Not an approver of spend.</td></tr>
-<tr><td>Admins</td><td>Everything above, plus the QuickBooks connection, account mappings, overrides, close-out reopening and resolving differences with QuickBooks.</td></tr>
+<tr><td>Event owner (organiser)</td><td>Write and revise the budget for their events, move up to 10% of a line per version, close the budget after the event, watch requests on their events. No accounting access.</td></tr>
+<tr><td>Lina</td><td>Approves budgets and spend up to AED 1,000,000. After 48 hours without her decision a request passes to Medhat. Her own requests go to Medhat.</td></tr>
+<tr><td>Medhat</td><td>Approves anything above AED 1,000,000 and every over-budget exception. Final approver on everything. A request waiting on him is reminded daily; there is no standby for him in the first release. <strong>Never raises a request</strong>, and the system refuses one from his account, so a request can never be left with nobody able to approve it.</td></tr>
+<tr><td>Muthu (finance)</td><td>Holds the settle permission: checks budgets for completeness, approves new suppliers, confirms receipt above the threshold, records bills and payments in QuickBooks, links or writes off unallocated bills, keeps the QuickBooks connection alive, resolves differences with QuickBooks, signs off close-out. Never approves spend.</td></tr>
+<tr><td>Admins</td><td>Everything above (except that the final approver's account never holds the request permission), plus the QuickBooks connection settings, account mappings, overrides and reopening a closed budget.</td></tr>
 </tbody>
 </table></div>
 <p><strong>Hard rules, with no way round them:</strong></p>
 <ul>
-<li>Nobody can approve their own request. Where a second approval is required, it must be a different person.</li>
+<li>Nobody can approve their own request. A request raised by an approver goes to the level above them.</li>
 <li>A delegate can never be the person who raised the request.</li>
 <li>Limits are checked in AED at the moment of the decision.</li>
 <li>Supplier bank details and tax numbers are treated like passport and bank details in the speaker reimbursement module: visible to finance and admins only, never quoted in the audit trail.</li>
@@ -244,29 +245,30 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <li><strong>Planned revenue:</strong> one line per registration type (expected numbers times price, taken from the event's registration types), one per sponsorship package or exhibitor (from the CRM pipeline), plus grants and other income.</li>
 <li><strong>Actual revenue is calculated, never typed:</strong> paid registrations at the price actually paid (after promo codes and refunds), and won sponsorship deals at their value. Only "other" income is entered by hand.</li>
 <li><strong>Margin:</strong> revenue minus expense on the same excluding-VAT basis, shown as an amount and a percentage against the target set on the budget. Below target flags the event at risk, the same way an expense overrun does.</li>
+<li><strong>How each figure is computed</strong> (which price, refunds, group bookings, sponsor-paid places) is written down in the technical part, §6b.</li>
 <li><strong>Not included:</strong> posting revenue to QuickBooks (it is already invoiced through EA-SYS and the CRM), deferred revenue accounting, and sharing costs across events. Each of those would be a later decision.</li>
 </ul>
 
 <h2 id="s-benchmark"><span class="sec">7</span>Benchmarking against past events</h2>
 <p>A new budget should not start from a blank page. When it is created, the organiser chooses what it is measured against, and that reference sits beside every figure until the budget closes.</p>
 <ul>
-<li><strong>Repeat event:</strong> pick the previous edition. For an event that has already run in EA-SYS that is its closed budget, line by line. For anything before October 2026 it is the EventsAir archive entry, which holds totals by category rather than lines.</li>
+<li><strong>Repeat event:</strong> pick the previous edition. For an event that has already run in EA-SYS that is its closed budget, line by line. For anything before October 2026 it is the archive entry for that event: spend by category from QuickBooks and ProcurementExpress, attendance and revenue from EventsAir. A previous edition that is still open can be used as it stands, marked as in progress.</li>
 <li><strong>First-time event:</strong> the system suggests up to three similar past events (same type, same brand, a comparable expected attendance) and the organiser picks one. Suggested, never chosen automatically: a wrong reference quietly picked by the system is worse than none.</li>
-<li><strong>What is compared:</strong> for each category, and for each line where the lines match, the benchmark's planned, actual and variance sit beside the new planned figure with the difference. Totals are also shown <strong>per attendee</strong>, because a 300-delegate meeting measured against a 900-delegate congress only makes sense per head. Revenue and margin join the comparison once the revenue phase has landed.</li>
+<li><strong>What is compared:</strong> planned against planned while the budget is being written and, at close-out, actual against actual; for each category, and for each line that came from the same template line. Totals are also shown <strong>per attendee</strong>, because a 300-delegate meeting measured against a 900-delegate congress only makes sense per head. Revenue and margin join the comparison once the revenue phase has landed.</li>
 <li><strong>Where it shows:</strong> a benchmark column in the budget editor, one line on the approver's screen ("12% above the 2026 edition per attendee"), the close-out summary (this edition against its benchmark) and the cross-event report (year over year by brand).</li>
 </ul>
-<div class="callout"><p><strong>Planned from day one, built last.</strong> The comparison screens are Phase 6, after revenue, because by then there will be closed EA-SYS budgets worth comparing against. What cannot wait is the data that makes budgets comparable, so Phase 1 captures four things from the first day: the expected attendance on every budget, categories from the shared list with fixed codes (never free text), a pointer to the previous edition where there is one, and category-level financial summaries for past events in the EventsAir archive.</p></div>
-<p>One honest limit: benchmarks against events that ran in EventsAir are by category only. Line-by-line comparison starts with the first budgets closed in EA-SYS.</p>
+<div class="callout"><p><strong>Planned from day one, built last.</strong> The comparison screens are Phase 6, after revenue, because by then there will be closed EA-SYS budgets worth comparing against. What cannot wait is the data that makes budgets comparable, so Phase 1 captures four things from the first day: the expected attendance on every budget, categories from the shared list with fixed codes (never free text), a pointer to the previous edition where there is one, and one archive entry per past event (spend by category from QuickBooks and ProcurementExpress, attendance and revenue from EventsAir), loaded once the QuickBooks connection exists.</p></div>
+<p>One honest limit: benchmarks against events from before October 2026 are by category only, and only where finance can supply the figures. Line-by-line comparison starts with the first budgets closed in EA-SYS. An event with nothing comparable simply shows no benchmark.</p>
 
 <h2 id="s7"><span class="sec">8</span>QuickBooks</h2>
 <ul>
 <li><strong>One company.</strong> Everything posts to the single MME QuickBooks file. There is no separate entity dimension.</li>
-<li><strong>Event code is the QuickBooks Class.</strong> Finance already tracks events this way, so event spend stays reportable inside QuickBooks. Every purchase order line carries the event code. In the first phase the event code becomes unique across MMG and cannot change once a budget or order uses it.</li>
+<li><strong>Event code is the QuickBooks Class.</strong> Finance already tracks events this way, so event spend stays reportable inside QuickBooks. Every purchase order line carries the event code, and the Class is created when the budget is approved, so it exists before the first order. In the first phase the event code becomes unique across MMG and cannot change once a budget or order uses it.</li>
 <li><strong>Multi-currency</strong> is switched on in QuickBooks and required. The module double-checks this when it connects.</li>
-<li><strong>We only create in QuickBooks, never edit.</strong> Approved orders are posted as purchase orders. A change means cancel and re-issue. New suppliers are created in QuickBooks the first time they get an order.</li>
-<li><strong>We read back every night, and on demand:</strong> purchase orders, bills and payments. A bill linked to our order updates actual and paid. A bill for an event with no order behind it goes to the unallocated bucket. A payment updates paid.</li>
-<li><strong>Changes made directly in QuickBooks</strong> (an order edited, closed or deleted there) are flagged as "diverged" and shown to finance and admins to resolve: accept the QuickBooks version, or cancel and re-issue ours.</li>
-<li><strong>Connection health.</strong> The QuickBooks connection expires periodically. The module warns ahead of time and finance re-authorises in a couple of clicks. An Integration Monitor screen shows the last sync, failures, the retry queue and the unallocated count. Nothing fails silently.</li>
+<li><strong>We only create in QuickBooks, never edit.</strong> Approved orders are posted as purchase orders. A change means cancel and re-issue; cancelling closes the order in QuickBooks and releases whatever was not yet billed. New suppliers are created in QuickBooks the first time they get an order.</li>
+<li><strong>We read back every night, and on demand:</strong> purchase orders, bills, supplier credit notes and payments. A bill linked to our order updates actual and paid. A bill for an event with no order behind it goes to the unallocated bucket. A payment updates paid.</li>
+<li><strong>Changes made directly in QuickBooks</strong> (an order edited, closed or deleted there) are flagged as "diverged" and shown to Muthu and the admins to resolve: accept the QuickBooks version, or cancel and re-issue ours.</li>
+<li><strong>Connection health.</strong> The QuickBooks connection expires periodically. The module warns ahead of time and Muthu or an admin re-authorises in a couple of clicks. An Integration Monitor screen shows the last sync, failures, the retry queue and the unallocated count. Nothing fails silently.</li>
 <li><strong>Proof before we rely on it.</strong> In the first week a short trial against QuickBooks confirms the connection, the Class lookup, a purchase order with an event code, and reading a linked bill back.</li>
 </ul>
 
@@ -274,32 +276,32 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <p><strong>Budget screens, used every day:</strong></p>
 <ul>
 <li>Budget dashboard per event: planned, committed, actual, paid, remaining, forecast, at-risk flag, unallocated bills, contingency left, open approvals, failed syncs.</li>
-<li>Budget editor with running totals, last year's reference figures and the contingency panel.</li>
+<li>Budget editor with running totals and the contingency panel (the benchmark column from Phase 6).</li>
 <li>Version compare: old against new, line by line, with the approver.</li>
 <li>Move-between-lines and contingency actions, with the authority rules built in.</li>
 <li>Freeze and close-out, with variance explanations and the close-out summary.</li>
 <li>Event profit and loss (Phase 5) and the cross-event view: every event this year by brand with planned, forecast, actual and margin.</li>
 <li>Benchmark picker when a budget is created, a benchmark column in the editor, and the approver's "against last edition" line (Phase 6).</li>
 </ul>
-<p><strong>Procurement screens:</strong> spend request form with a live budget side panel · approval inbox (requests, budgets, exceptions, contingency draws, supplier approvals) · purchase order list with sync and receiving status, linked bills and the PDF · supplier list with the proposed-supplier queue · mapping admin · Integration Monitor. English first; Arabic later, platform-wide.</p>
+<p><strong>Procurement screens:</strong> spend request form with a live budget side panel · approval inbox (requests, budgets, exceptions, contingency draws) · unallocated bills, where Muthu links a bill to an order or writes it off · purchase order list with sync and receiving status, linked bills and the PDF · supplier list with the proposed-supplier queue · mapping admin · Integration Monitor. English first; Arabic later, platform-wide.</p>
 <p><strong>Reports:</strong> planned versus committed versus actual versus paid by event, with unallocated bills shown separately · variance by category with the owner's explanations · forecast and at-risk list across events · contingency usage · close-out summary · cross-event comparison by year and brand · event profit and loss (Phase 5) · this edition against its benchmark, per category and per attendee, and year over year by brand (Phase 6) · supplier spend by event · open commitments · approval turnaround. All exportable to CSV and Excel.</p>
 <div class="note"><p><strong>Expectation to set with finance:</strong> until the later "invoice exception" phase, the module's actual figure for an event will sit below the QuickBooks profit and loss, because bills without a purchase order are counted in the unallocated bucket rather than on a line. The gap is visible, not hidden.</p></div>
 
 <h2 id="s9"><span class="sec">10</span>Timeline</h2>
-<p><strong>Build time is three to four months.</strong> The first four phases take about three months (12 to 14 weeks) to a parallel run on real events and, as a result, retire ProcurementExpress after one clean month-end close. Phase 5 follows directly, bringing the whole build to about four months, and does not hold up the cancellation. The subscription itself stops around month five: the parallel run and the month-end close come after the build, not inside it. Phase 6 adds the benchmarking screens once there are closed EA-SYS budgets to compare against, about two weeks more.</p>
+<p><strong>Build time is four to five months.</strong> The first four phases take 16 weeks to a parallel run on real events (the run is the last month of Phase 4) and, as a result, retire ProcurementExpress after one clean month-end close, around month five to six. Phases 5 and 6 (revenue, then benchmarking) follow directly and bring the whole build to about five months; neither holds up the cancellation.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Phase</th><th>Weeks</th><th>What is delivered</th></tr></thead>
 <tbody>
-<tr><td>0. Decisions</td><td>before start</td><td>The confirmations in section 14, a list of what ProcurementExpress is used for today, finance sign-off on the category list and the excluding-VAT basis.</td></tr>
-<tr><td>1. Budget core</td><td>1 to 3</td><td>Templates, the budget editor, approval, versions and compare, moving money and contingency rules, forecast and at-risk, freeze, currency and VAT rules, the dashboard. Unique event codes, and the four benchmarking foundations (expected attendance on every budget, fixed category codes, a previous-edition pointer, category summaries for past events in the EventsAir archive). In parallel in week 1: the short QuickBooks trial.</td></tr>
-<tr><td>2. Purchasing flow</td><td>4 to 7</td><td>Spend requests with quotes, supplier onboarding, budget check, approval routing with reminders and escalation, purchase orders, PDF to supplier, receiving, approval inbox. QuickBooks sign-in and the mapping screens.</td></tr>
-<tr><td>3. QuickBooks connector</td><td>8 to 10</td><td>Posting orders, cancelling, nightly read-back of orders, bills and payments, the unallocated bucket, difference handling, Integration Monitor.</td></tr>
-<tr><td>4. Migration and pilot</td><td>11 to 14</td><td>Suppliers matched to QuickBooks, open orders linked, live budgets rebuilt with opening balances, parallel run with a pilot group, first close-out exercised on the first event to finish, first real QuickBooks postings verified. <strong>One full month-end close before cancelling ProcurementExpress.</strong></td></tr>
-<tr><td>5. Revenue and margin</td><td>15 to 18</td><td>Planned revenue from registration types and sponsorship packages, actual revenue from paid registrations and won deals, margin against target, the profit-and-loss and cross-event views.</td></tr>
-<tr><td>6. Benchmarking</td><td>19 to 20</td><td>Benchmark picker with ranked similar-event suggestions, benchmark column in the editor, the approver's delta line, close-out against benchmark, year-over-year report by brand. Built once closed EA-SYS budgets exist to compare against.</td></tr>
+<tr><td>0. Decisions</td><td>before start</td><td>The confirmations in section 14, a list of what ProcurementExpress is used for today, finance sign-off on the category list and the excluding-VAT basis, a check of how bills are entered in QuickBooks today, and the choice of exchange-rate source.</td></tr>
+<tr><td>1. Budget core</td><td>1 to 5</td><td>Templates, the budget editor, budget approval on the limits, versions, moving money and contingency rules, currency and VAT rules, the dashboard, the three permissions. Unique event codes, and the four benchmarking foundations (expected attendance on every budget, fixed category codes, a previous-edition pointer, the archive entry table). In parallel in week 1: the short QuickBooks trial.</td></tr>
+<tr><td>2. Purchasing flow</td><td>6 to 9</td><td>Spend requests with quotes, supplier onboarding, budget check, the full approval engine (limits, reminders, escalation), purchase orders, PDF to supplier on approval, receiving with the second-person rule, approval inbox, version compare, freeze, forecast and at-risk. QuickBooks sign-in and the mapping screens.</td></tr>
+<tr><td>3. QuickBooks connector</td><td>10 to 12</td><td>Reliable posting of orders, closing them, nightly read-back of orders, bills, credit notes and payments, the unallocated bucket with link-or-write-off, difference handling, Integration Monitor.</td></tr>
+<tr><td>4. Migration and pilot</td><td>13 to 16</td><td>Suppliers matched to QuickBooks, open orders linked, live budgets rebuilt with opening balances, archive entries loaded for past events, parallel run with a pilot group, first close-out exercised on the first event to finish, first real QuickBooks postings verified. <strong>One full month-end close before cancelling ProcurementExpress.</strong></td></tr>
+<tr><td>5. Revenue and margin</td><td>17 to 20</td><td>Planned revenue from registration types and sponsorship packages, actual revenue from paid registrations and won deals, margin against target, the profit-and-loss and cross-event views.</td></tr>
+<tr><td>6. Benchmarking</td><td>21 to 22</td><td>Benchmark picker with ranked similar-event suggestions, benchmark column in the editor, the approver's delta line, close-out against benchmark, year-over-year report by brand. Built once closed EA-SYS budgets exist to compare against.</td></tr>
 </tbody>
 </table></div>
-<p><strong>After that:</strong> an invoice exception queue with matching rules, a workflow to assign unallocated bills to lines, payment ageing, a delegation admin screen, and cost sharing across events. <strong>Later still:</strong> other accounting systems, offering the module to outside customers, advanced analytics.</p>
+<p><strong>After that:</strong> an invoice exception queue with matching rules (the manual link-or-write-off ships in the first release), payment ageing, a delegation admin screen, and cost sharing across events. <strong>Later still:</strong> other accounting systems, offering the module to outside customers, advanced analytics.</p>
 
 <h2 id="s10"><span class="sec">11</span>Leaving ProcurementExpress</h2>
 <ul>
@@ -308,13 +310,13 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <li>Open purchase orders already exist in QuickBooks, so they are <strong>linked, not re-created</strong>. The historical export is archived, not imported.</li>
 <li>Live event budgets are rebuilt with their current committed amounts, so "remaining" is right on day one.</li>
 <li>ProcurementExpress's own QuickBooks connection is disconnected only after ours is verified.</li>
-<li>Parallel run with a pilot group, then one clean month-end close, then the subscription is cancelled. From the first day of building that is around month five.</li>
+<li>Parallel run with a pilot group, then one clean month-end close, then the subscription is cancelled. From the first day of building that is around month five to six.</li>
 </ul>
 
 <h2 id="s11"><span class="sec">12</span>EventsAir</h2>
 <ul>
 <li>Budgets attach only to events that live in EA-SYS. Today that means the upcoming events from October 2026 onward; everything earlier is in EventsAir and is treated as history.</li>
-<li>EventsAir history is <strong>archived and indexed, never imported</strong> into the live system (decision of 2 September 2026). An early export of past events, registrations and financial summaries goes to the backup bucket, with a searchable index, so it does not depend on how long EventsAir access lasts.</li>
+<li>EventsAir history is <strong>archived and indexed, never imported</strong> into the live system (decision of 2 September 2026). An early export of past events, registrations, revenue and attendance goes to the backup bucket, with a searchable index, so it does not depend on how long EventsAir access lasts. Past spend by category comes from QuickBooks and ProcurementExpress, not from EventsAir, which never held it.</li>
 <li>When a budget is created, its event code is checked against that index. A code that clashes with a historical event is refused, so year-on-year comparison by code stays possible without importing anything.</li>
 <li>How long EventsAir stays in use is Medhat's decision. Nothing in this module depends on a date.</li>
 </ul>
@@ -337,6 +339,12 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <tr><td>Open ProcurementExpress orders are linked, not re-created</td><td>They already exist in QuickBooks.</td></tr>
 <tr><td>EventsAir history is archived and indexed, never imported</td><td>Decision of 2 September 2026.</td></tr>
 <tr><td>Supplier financial data is classified</td><td>Bank details and tax numbers follow the same rules as reimbursement documents. The security posture document we give to health-authority clients is updated before the pilot.</td></tr>
+<tr><td>Three permissions: request, approve, settle</td><td>Muthu's settle permission covers completeness checks, suppliers, receiving confirmation, unallocated bills, the QuickBooks connection and close-out sign-off. Spend approvals stay with Lina and Medhat (9 September 2026).</td></tr>
+<tr><td>Bills are entered from the purchase order</td><td>The one operating rule the model depends on: a bill against an order is created from that order in QuickBooks and carries the event code. Phase 0 checks today's practice; the pilot adopts the rule.</td></tr>
+<tr><td>The supplier gets the order on approval</td><td>The PDF goes out the moment the request is approved; QuickBooks posting follows in the background and can never hold a supplier up.</td></tr>
+<tr><td>Freeze locks the plan, not spending</td><td>A frozen budget still takes requests within a line's remaining on the normal limits; only over-budget requests go to Medhat.</td></tr>
+<tr><td>Past spend comes from QuickBooks and ProcurementExpress</td><td>EventsAir supplies attendance and revenue for past events; it never held costs.</td></tr>
+<tr><td>Build re-baselined to four to five months</td><td>Phase 1 was three weeks for six weeks of work (9 September review); the phases were re-cut rather than compressed.</td></tr>
 <tr><td>Benchmarking is planned from day one and built last</td><td>The data that makes budgets comparable is captured from Phase 1; the comparison screens come as Phase 6, when closed EA-SYS budgets exist to compare against (section 7).</td></tr>
 <tr><td>Ready for more than one company later</td><td>Every record is tagged with the organisation from day one, so the module can serve other tenants of the platform without a rebuild.</td></tr>
 </tbody>
@@ -348,16 +356,18 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <thead><tr><th>#</th><th>Question</th><th>Suggested answer</th><th>Needed by</th></tr></thead>
 <tbody>
 <tr><td>1</td><td><strong>Departments.</strong> Is "a department draws from the event budget" covered by giving each budget line an owning team, or do departments need their own allocation on top?</td><td>Owning team per line.</td><td>End of Phase 1</td></tr>
-<tr><td>2</td><td><strong>Moving money between lines.</strong> Who may do it, and up to what?</td><td>Event owner up to 10% of a line; finance any amount; finance approves over-budget exceptions.</td><td>End of Phase 1</td></tr>
-<tr><td>3</td><td><strong>Office and non-event spend.</strong> Does it go through purchase orders today?</td><td>If yes, one operational budget per year alongside the event budgets.</td><td>End of Phase 1</td></tr>
+<tr><td>2</td><td><strong>Moving money between lines.</strong> Who may do it, and up to what?</td><td>Adopted 9 September: owner up to 10% of a line per version, larger moves on the approval limits; over-budget exceptions go to Medhat (settled 3 September).</td><td>Confirm by end of Phase 1</td></tr>
+<tr><td>3</td><td><strong>Office and non-event spend.</strong> Does it go through purchase orders today?</td><td>If yes, one operational budget per year alongside the event budgets, posting to a fixed QuickBooks Class for that year.</td><td>End of Phase 1</td></tr>
 <tr><td>4</td><td><strong>Delegates.</strong> Set per role, with a per-person override where needed?</td><td>Yes.</td><td>End of Phase 1</td></tr>
 <tr><td>5</td><td><strong>Currencies.</strong> Confirm the list AED, USD, EUR, GBP, SAR, and that the QuickBooks home currency is AED.</td><td>List as drafted; home currency AED.</td><td>End of Phase 1</td></tr>
-<tr><td>6</td><td><strong>Contingency.</strong> A percentage or a fixed amount? Who approves drawing on it?</td><td>Percentage, 10% by default; finance approves draws.</td><td>End of Phase 1</td></tr>
-<tr><td>7</td><td><strong>Close-out.</strong> Who closes a budget, when, and what variance needs a written explanation?</td><td>Owner closes, finance signs off, after the last bill is allocated; explanation above 10% or AED 5,000, whichever is larger.</td><td>Before the first event closes (Phase 4)</td></tr>
+<tr><td>6</td><td><strong>Contingency.</strong> A percentage or a fixed amount? Who approves drawing on it?</td><td>Percentage, 10% by default, kept outside the planned total; draws approved on the normal limits.</td><td>End of Phase 1</td></tr>
+<tr><td>7</td><td><strong>Close-out.</strong> Who closes a budget, when, and what variance needs a written explanation?</td><td>Owner closes, Muthu signs off, after the last bill is allocated or written off; explanation above 10% or AED 5,000, whichever is larger.</td><td>Before the first event closes (Phase 4)</td></tr>
 <tr><td>8</td><td><strong>Monthly reports.</strong> Muthu to list the exact reports pulled from ProcurementExpress today.</td><td>Checked line by line against section 9.</td><td>Phase 2</td></tr>
 <tr><td>9</td><td><strong>QuickBooks Class names.</strong> Confirm existing Class names match EA-SYS event codes, or give the mapping for the exceptions. Phase 1 will also report any two live events sharing a code.</td><td>Finance decides which event keeps a shared code.</td><td>Phase 1</td></tr>
 <tr><td>10</td><td><strong>Accounts.</strong> The few employees with no EA-SYS account yet.</td><td>Short list from HR.</td><td>Phase 2</td></tr>
-<tr><td>11</td><td><strong>Benchmarking.</strong> What counts as a similar event for a first-time budget (same type, same brand, comparable attendance?), and which past figures exist in a form we can load: EventsAir financial summaries by category, ProcurementExpress orders by event, anything else finance keeps?</td><td>Type, brand and attendance within half either way; the organiser picks from up to three suggestions. Category totals from EventsAir and the ProcurementExpress export by event.</td><td>Archive export in Phase 1; the definition before Phase 6</td></tr>
+<tr><td>11</td><td><strong>Benchmarking.</strong> What counts as a similar event for a first-time budget (same type, same brand, comparable attendance?), and which past figures exist in a form we can load: EventsAir financial summaries by category, ProcurementExpress orders by event, anything else finance keeps?</td><td>Type, brand and attendance within half either way; the organiser picks from up to three suggestions. Spend by category from QuickBooks (by event Class) and the ProcurementExpress export; attendance and revenue from EventsAir.</td><td>Figures loaded in Phase 4; the definition before Phase 6</td></tr>
+<tr><td>12</td><td><strong>Exchange rates.</strong> Which daily rate source do we use?</td><td>The Central Bank of the UAE published rates, fetched once a day.</td><td>Phase 0</td></tr>
+<tr><td>13</td><td><strong>Bills in QuickBooks today.</strong> Are bills entered from the purchase order or standalone, and does every line carry the event Class?</td><td>From the order, with the Class, from the pilot onward.</td><td>Phase 0</td></tr>
 </tbody>
 </table></div>
 <p class="appendix-intro">Already answered and kept for the record: the approval chain, the event code as QuickBooks Class, the excluding-VAT basis, multi-currency being enabled, who gets accounts, ProcurementExpress parity, and EventsAir origination. See section 13.</p>
@@ -366,13 +376,14 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <ul>
 <li>A budget can be created from a template, filled in with correct currency and VAT handling, submitted and approved on the AED limits. A new version keeps every line's committed and actual figures, and the compare view shows each change with its approver.</li>
 <li>Moving money and drawing on contingency follow the authority rules and are recorded. The at-risk flag fires before any bill arrives. Freeze locks the plan while spending continues.</li>
-<li>A budget cannot close with unallocated bills. Every line over the variance threshold carries an explanation. The close-out summary reconciles to QuickBooks. Closed budgets are read-only.</li>
+<li>A budget cannot close with unallocated bills. Every line over the variance threshold carries an explanation. The close-out summary reconciles to the QuickBooks figure for the event, with written-off bills listed separately. Closed budgets are read-only.</li>
 <li>The year view lists every event by brand with planned, forecast and actual, from the same figures the event dashboards show.</li>
-<li>Benchmark foundations (Phase 1): a budget cannot be submitted without its expected attendance; every category is a fixed code; a cloned event points at its previous edition; the archive index holds one financial summary per past event.</li>
+<li>Benchmark foundations (Phase 1): a budget cannot be submitted without its expected attendance; every category is a fixed code; a cloned event points at its previous edition; the archive entry table exists and closed budgets write to it (past events are loaded in Phase 4).</li>
 <li>A spend request with quotes can be raised against an active budget. Over-budget requests are blocked and routed. A proposed supplier is approved before an order is issued.</li>
 <li>Nobody approves their own request. Limits are checked in AED. Inaction is reminded and escalated with notifications.</li>
-<li>Approved requests become purchase orders, post to QuickBooks with the event code, and the PDF reaches the supplier.</li>
-<li>Bills and payments recorded in QuickBooks update actual and paid within 24 hours. Non-order bills appear as unallocated. An order edited in QuickBooks is flagged.</li>
+<li>Approved requests become purchase orders and the PDF reaches the supplier on approval, even when QuickBooks is unreachable; the order posts to QuickBooks with the event code in the background.</li>
+<li>Bills and payments recorded in QuickBooks update actual and paid within 24 hours. Non-order bills appear as unallocated and can be linked to an order or written off. Supplier credit notes reduce the line. An order edited in QuickBooks is flagged.</li>
+<li>A staff member without a permission cannot write any procurement data; the settle permission cannot approve spend; a request raised by an approver goes to the level above.</li>
 <li>Every important action (submission, approval, amount change, override, sync fix, close-out) is in the audit trail with before, after and reason. Sync failures are visible and can be re-run by hand. Nothing fails silently.</li>
 <li>Migration is complete with linked (not re-created) orders, and one finance month-end close has passed on real data.</li>
 <li>Phase 5: planned revenue by registration type and sponsorship package; actual revenue computed from paid registrations and won deals with no manual entry; margin against target on the event and cross-event views.</li>
@@ -386,11 +397,13 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <dt>Committed, open commitment</dt><dd>Purchase order value not yet billed. As bills arrive, value moves from committed to actual.</dd>
 <dt>Actual</dt><dd>Bills received against our purchase orders, matched line by line.</dd>
 <dt>Unallocated</dt><dd>A bill for an event that has no purchase order behind it. Counted separately so it is not lost and not hidden.</dd>
-<dt>Excluding VAT (ex-VAT)</dt><dd>Amounts shown without the 5% VAT, which is recorded beside them. UAE VAT is recoverable, so this is the basis finance asked for.</dd>
+<dt>Excluding VAT (ex-VAT)</dt><dd>Amounts shown without the VAT on the line, which is recorded beside them. UAE VAT is recoverable, so this is the basis finance asked for; foreign VAT that cannot be recovered is treated as cost.</dd>
+<dt>Settle permission</dt><dd>Muthu's permission: everything that keeps the books true (suppliers, receiving, bills, write-offs, the QuickBooks connection, close-out sign-off) and nothing that approves spend.</dd>
+<dt>Write-off</dt><dd>A bill for an event that will never be matched to a purchase order, accepted by Muthu as a cost and listed separately at close-out.</dd>
 <dt>Class (QuickBooks)</dt><dd>The label QuickBooks uses to tag transactions to an event. Our event code is that label.</dd>
 <dt>Read-back</dt><dd>The nightly and on-demand pull of purchase orders, bills and payments from QuickBooks into the budget.</dd>
 <dt>Diverged</dt><dd>A purchase order that was changed directly in QuickBooks so it no longer matches ours. Shown for finance to resolve.</dd>
-<dt>Contingency</dt><dd>A reserve line, 10% of planned expense by default, that only finance can approve spending from.</dd>
+<dt>Contingency</dt><dd>A reserve line, 10% of the plan by default and kept outside the planned total, drawn on through a spend request approved on the normal limits.</dd>
 <dt>Freeze</dt><dd>The point, typically two weeks before the event, when the plan stops changing and only spending continues.</dd>
 <dt>Close-out</dt><dd>The final step after the event: all bills allocated, variances explained, summary signed off, budget made read-only.</dd>
 <dt>Parallel run</dt><dd>A period when the pilot group uses the new module while ProcurementExpress is still available, before it is cancelled.</dd>
@@ -400,10 +413,11 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 
 <div class="part-divider" id="part2">
 <span class="sec">Part 2</span>
-<h2>Technical specification, rev. 3.4</h2>
-<p>This is the full engineering text: entities and fields, the approval engine, the QuickBooks adapter, the money rules as constraints, the phasing. It is the rev. 3.3 text plus the rev. 3.4 additions of 9 September 2026 (benchmarking in §6c with its fields, phase, screens, reports and acceptance criteria; the EventsAir scope correction in §13a), every change recorded in Part 3, so it can be handed to a developer or to an AI reviewer without loss. Part 1 above says the same things in plain language; where the two differ, this part is the specification.</p>
+<h2>Technical specification, rev. 3.5</h2>
+<p>This is the full engineering text: entities and fields, the approval engine, the QuickBooks adapter, the money rules as constraints, the phasing. It is the rev. 3.3 text plus the rev. 3.4 additions (benchmarking, §6c) and the rev. 3.5 review fixes of 9 September 2026 (the settle grant, the bill-entry rule, the past-expense source, the re-baselined timeline, and the rules the review found missing), every change recorded in Part 3, so it can be handed to a developer or to an AI reviewer without loss. Part 1 above says the same things in plain language; where the two differ, this part is the specification.</p>
 </div>
 <h2 id="1-decisions-taken-vs-the-source-documents"><span class="sec">§1</span>Decisions Taken vs. the Source Documents</h2>
+<p>Doc 1 is <code>conference_budget_module_spec.md</code> (the standalone-system proposal); Doc 2 is <code>MMG-conference-budget-module-developer-handover.md</code> (the developer handover). Both are superseded by this specification.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -486,7 +500,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <li><strong>The budget is the product.</strong> Every screen answers one question, "where does this event stand against its plan", and everything else (spend requests, purchase orders, the accounting connector, the reports) exists to keep that answer truthful. A feature that does not improve the answer is out of scope.</li>
 <li><strong>EA-SYS is the system of record</strong> — workflow, approvals, budget logic, event metadata, audit history, procurement decisions. A change made directly in QuickBooks is a <em>divergence</em> to be surfaced, never silently absorbed.</li>
 <li><strong>QuickBooks is a posting target</strong>, not the architectural centre. QBO-specific logic lives only in the provider adapter and mapping config.</li>
-<li><strong>No core table, screen, or business rule named after QuickBooks.</strong> Generic names: <code>Commitment.externalDocumentId</code>, <code>AccountMapping.providerName</code>.</li>
+<li><strong>Inside this module, no table, screen, or business rule named after QuickBooks.</strong> (Core already exports invoices in a QuickBooks format; the principle is scoped to the module.) Generic names: <code>Commitment.externalDocumentId</code>, <code>AccountMapping.providerName</code>.</li>
 <li><strong>Event code is the reconciliation key</strong> on every transactional object.</li>
 <li><strong>Replaceable connector:</strong> <code>AccountingProvider</code> interface; <code>QuickBooksProvider</code> first.</li>
 <li><strong>One money basis everywhere:</strong> ex-VAT, in the budget's reporting currency, 4 decimals stored (§7).</li>
@@ -498,13 +512,13 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <ul>
 <li><strong>EA-SYS module:</strong> <code>src/procurement/</code>, one-way imports <code>procurement → core</code> (CRM/HR pattern). Next.js 16 / TypeScript / Prisma / PostgreSQL.</li>
 <li><strong>Two new core primitives, built in this project, owned by the platform:</strong></li>
-<li><code>src/lib/outbox/</code> — transactional outbox table, drainer in the worker container, idempotency keys, exponential backoff, dead-letter with alerting. EA-SYS has no outbox today (April 2026 resilience audit: not implemented); procurement is its first consumer, SES sends and Stripe follow-ups are the next. The drainer is a worker job under the expiring-lease singleton the worker already uses.</li>
-<li><code>src/lib/approvals/</code> — <code>ApprovalWorkflowDefinition / ApprovalRequest / ApprovalStep</code>, amount-banded routing, escalation, optimistic locking, requester ≠ approver. Procurement is the first consumer; the HR module (leave approvals) is the second. Placing these in <code>src/procurement/</code> would make them unreachable to HR under the one-way import rule.</li>
-<li><strong>Services layer</strong> shared by REST + MCP + cron, errors-as-values, every failure path logged, AuditLog with source tagging — platform conventions apply unchanged.</li>
+<li><code>src/lib/outbox/</code> — transactional outbox table, drainer in the worker container, idempotency keys, exponential backoff, dead-letter with alerting. EA-SYS has no outbox today (April 2026 resilience audit: not implemented); procurement is its first consumer, SES sends and Stripe follow-ups are the next. The drainer is a worker job under the expiring-lease singleton the worker already uses. Built in Phase 3 together with its first consumer, the QBO push (rev. 3.5).</li>
+<li><code>src/lib/approvals/</code> — <code>ApprovalWorkflowDefinition / ApprovalRequest / ApprovalStep</code>, amount-banded routing, escalation, optimistic locking, requester ≠ approver. Procurement is the first consumer; it lives in core so the HR module can reuse it for leave approvals when those are built (HR has no approval workflow today). Phase 1 ships single-step budget approval on the matrix; bands, escalation, delegation and notifications land in Phase 2 with spend requests (rev. 3.5).</li>
+<li><strong>Services layer</strong> shared by REST + MCP + cron, errors-as-values, every failure path logged, AuditLog with source tagging (<code>rest | mcp | api</code>, plus <code>worker</code> for the read-back) — platform conventions apply unchanged.</li>
 <li><strong>Tenancy:</strong> <code>organizationId</code> on every table. RLS policy files ship in <code>prisma/rls/</code> with the same change, together with the tenancy-harness assertions and the CI gate entries; they are applied by the harness and the platform bootstrap and <strong>never inside a Prisma migration</strong> (master keeps a database with zero RLS objects). The worker (outbox drainer, CDC poll) reads the organization off each row and runs it in that tenant&rsquo;s lane, the pattern every existing worker job uses, so the first outbox row does not fail under RLS.</li>
 <li><strong>Database pool:</strong> web and worker each hold their own Prisma pool of 10 on the shared pooler (production measured 24 of 90 connections). The drainer and the CDC poll are batch-bounded worker jobs, so two new background consumers cannot exhaust the worker&rsquo;s pool or starve the registration desk.</li>
-<li><strong>Capability grants:</strong> two nullable columns on <code>User</code> (<code>procurementRequest</code>, <code>procurementApproveCeilingAed</code>), carried in the JWT and re-validated on the existing 5-minute cycle, exactly like the HR module&rsquo;s <code>hrAccess</code> grant. The Edge middleware that confines CRM_USER to <code>/crm</code> and HR_USER to <code>/hr</code> gains a <code>/procurement</code> exemption for grant-holders, and every procurement route opts grant-holders in through the write guard&rsquo;s allow-list, so a role that is refused by default stays refused unless the grant is present.</li>
-<li><strong>Provider adapter:</strong> <code>src/procurement/providers/AccountingProvider.ts</code> — <code>syncVendors, createVendor, createPurchaseOrder, voidPurchaseOrder, createBill (Phase 2), getPurchaseOrder, getBillStatus, getPaymentStatus, syncChartOfAccounts, syncTaxCodes, syncClassesOrLocations, healthCheck</code> — implemented by <code>QuickBooksProvider</code>.</li>
+<li><strong>Capability grants:</strong> three nullable columns on <code>User</code> (<code>procurementRequest</code>, <code>procurementApproveCeilingAed</code> with an explicit <code>procurementApproveUnlimited</code> flag for the final approver, and <code>procurementSettle</code>; null means no grant), carried in the JWT and re-validated on the existing 5-minute cycle, exactly like the HR module&rsquo;s <code>hrAccess</code> grant. Enforcement follows the HR shape, not the write guard&rsquo;s role allow-list (which matches role names only): a dedicated <code>denyNonProcurement</code> guard with <code>canRequestProcurement</code> / <code>canApproveProcurement</code> / <code>canSettleProcurement</code> predicates that read the columns and refuse API keys outright, on every procurement route; the procurement pages are added to the middleware matcher and gated on the grants. A role that is refused by default stays refused unless the grant is present.</li>
+<li><strong>Provider adapter:</strong> <code>src/procurement/providers/AccountingProvider.ts</code> — <code>syncVendors, createVendor, createPurchaseOrder, closePurchaseOrder, createBill (post-v1), getPurchaseOrder, getBillStatus, getVendorCredits, getPaymentStatus, syncChartOfAccounts, syncTaxCodes, syncClassesOrLocations, createClass, getProfitAndLossByClass (benchmark load, Phase 4), healthCheck</code> — implemented by <code>QuickBooksProvider</code>.</li>
 <li><strong>MCP:</strong> procurement tools added to the per-domain tool set (spend-request creation/status via the in-app agent and claude.ai) for signed-in users holding a grant. Organization API keys carry no user and are admin-equivalent everywhere else, so they get <strong>no procurement tools in v1</strong>.</li>
 </ul>
 <hr />
@@ -524,61 +538,68 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 </tr>
 <tr>
 <td><code>procurement.approve</code> (with an AED ceiling)</td>
-<td>Approval inbox, decide within authority ceiling. Launch matrix (§14 Q3): <strong>Lina</strong> approves up to <strong>AED 1,000,000</strong>; anything above goes to <strong>Medhat</strong>, who is unlimited and the final approver on everything. Lina's escalation delegate is Medhat; Medhat has no delegate — requests above Lina's ceiling wait for him.</td>
+<td>Approval inbox, decide within authority ceiling. Launch matrix (§14 Q3): <strong>Lina</strong> approves up to <strong>AED 1,000,000</strong>; anything above goes to <strong>Medhat</strong>, who is unlimited and the final approver on everything. Lina&rsquo;s delegate and next tier are both Medhat, so her inaction passes to him at 48h, and a request Lina raises herself routes to Medhat (§8.2). Medhat has no delegate or standby in v1 (decision 9 Sep 2026): requests waiting on him are reminded daily.</td>
+</tr>
+<tr>
+<td><code>procurement.settle</code></td>
+<td><strong>Muthu.</strong> Completeness check on submitted budgets (§6a), supplier approval from the proposed-supplier queue, receipt confirmation above the threshold (§6), link-or-write-off of unallocated bills, QuickBooks re-authorisation, divergence resolution, close-out sign-off, reconciliation view, exports. Never a spend approver: the grant cannot decide a spend request or a budget.</td>
 </tr>
 <tr>
 <td>ORGANIZER</td>
-<td>Event-scoped budget authoring (propose lines), monitor requests for their events. No accounting access.</td>
+<td>Event-scoped budget authoring, reallocation within the 10% rule, close-out; monitor requests for their events. No accounting access.</td>
 </tr>
 <tr>
 <td>MEMBER (finance-capable)</td>
-<td><strong>Muthu</strong> — settlement: records bills and payments against POs in QuickBooks, reconciliation view, supplier approval, unallocated-actuals review, dashboards, exports. Not an approver.</td>
+<td>Read-only on procurement data (dashboards, exports) unless the account also holds a grant. Muthu is MEMBER + <code>procurement.settle</code>.</td>
 </tr>
 <tr>
 <td>ADMIN / SUPER_ADMIN</td>
-<td>Full module access; connector settings, mappings, overrides, close-out, divergence resolution.</td>
+<td>Full module access; connector settings, mappings, overrides, reopening closed budgets. The final approver&rsquo;s account never holds <code>procurement.request</code> (§8.8).</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Hard rules:</strong> requester ≠ approver on the same entity, enforced in the approvals service regardless of role, no bypass. Where <code>requiresSecondApproval</code> is set, the second approver must be a different person from the first. A delegate can never be the requester. Approval authority is an amount ceiling in <strong>AED</strong> (organization base currency, §7.9), checked at decision time on the AED-converted amount. Enforcement at all 3 layers (guard, <code>proxy.ts</code> middleware, UI).</p>
+<p><strong>Hard rules:</strong> requester ≠ approver on the same entity, enforced in the approvals service regardless of role, no bypass. A delegate can never be the requester. Approval authority is an amount ceiling in <strong>AED</strong> (organization base currency, §7.9), checked at decision time on the AED-converted amount. Enforcement at all 3 layers (guard, <code>proxy.ts</code> middleware, UI).</p>
 <hr />
 <h2 id="5-domain-model-prisma-entities-key-fields"><span class="sec">§5</span>Domain Model (Prisma entities, key fields)</h2>
-<p>All monetary values <code>Decimal</code> (NUMERIC), never float; all stored <strong>ex-VAT</strong> with a sibling tax amount. All tables carry <code>organizationId</code> (RLS), <code>createdAt/updatedAt</code>, row versioning where mutable. Number sequences (<code>requestNo</code>, <code>commitmentNo</code>) reuse the platform&rsquo;s atomic counter pattern (one organization-scoped counter row per sequence, incremented inside the creating transaction), the mechanism behind registration serials; invoice numbers are per event and do not fit.</p>
+<p>All monetary values <code>Decimal</code> (NUMERIC), never float; all stored <strong>ex-VAT</strong> with a sibling tax amount. All tables carry <code>organizationId</code> (RLS), <code>createdAt/updatedAt</code>, row versioning where mutable. Number sequences (<code>requestNo</code>, <code>commitmentNo</code>) reuse the platform&rsquo;s atomic counter pattern (one organization-scoped counter row per sequence carrying <code>organizationId</code>, incremented inside the creating transaction), the mechanism behind registration serials and the org-scoped <code>CrmQuoteCounter</code>; invoice numbers are per event and do not fit.</p>
 <ul>
-<li><strong>EventBudget:</strong> <code>eventId</code> → EA-SYS Event (nullable, reserved for one entity-level operational budget — §14 Q4), <code>eventCode</code> (copied from <code>Event.code</code>, which Phase 1 makes <strong>unique per organization</strong> and immutable once a budget or commitment references it; today it is a free, non-unique, name-derived string), <code>versionNo</code> (monotonic per event, exactly one <em>active</em> version), <code>brand?</code> (MMG Experts | MedCom | MedULive — reporting label only, never pushed to accounting: MME is the single QuickBooks company), <code>reportingCurrency</code> (immutable once lines exist), <code>contingencyPercent/Amount</code>, <code>plannedExpenseTotal</code>, <code>ownerUserId</code>, <code>financeOwnerUserId</code>, status <code>draft → under_review → approved → active → frozen → closed → archived</code>, <code>at_risk</code> flag. <em>(Phase 5, §6b: <code>plannedRevenueTotal</code>, <code>actualRevenueTotal</code>, <code>targetMarginPercent</code>.)</em> <em>(Benchmarking, §6c, fields from Phase 1: <code>expectedAttendance</code> required at submission, <code>benchmarkSourceType</code> <code>ea_sys_budget | archive_summary | none</code>, <code>benchmarkSourceId?</code>.)</em></li>
+<li><strong>EventBudget:</strong> <code>eventId</code> → EA-SYS Event (nullable, reserved for one entity-level operational budget — §14 Q4), <code>eventCode</code> (copied from <code>Event.code</code>, which Phase 1 makes <strong>unique per organization</strong> and immutable once any numbered document, budget or commitment references it, enforced in the Settings form, the event PUT and the MCP <code>update_event</code> whitelist alike; today it is a free, non-unique, name-derived string), <code>versionNo</code> (monotonic per event, exactly one <em>active</em> version), <code>brand?</code> (MMG Experts | MedCom | MedULive — reporting label only, never pushed to accounting: MME is the single QuickBooks company; <code>Event</code> has no brand column, so similar-event matching and cross-event views read brand from budgets and index rows), <code>reportingCurrency</code> (immutable once lines exist), <code>contingencyPercent/Amount</code>, <code>plannedExpenseTotal</code> (<strong>excludes the contingency line</strong>; the approval ceiling and the at-risk test read this), <code>ownerUserId</code>, <code>financeOwnerUserId</code> (the settle-grant holder responsible for this budget&rsquo;s completeness check and close-out sign-off), <code>recordedAttendance?</code> (written at close-out: checked-in registrations excluding faculty companions; the per-attendee divisor for actuals, §6c), status <code>draft → under_review → approved → active → frozen → closed → archived</code>, <code>at_risk</code> flag. <em>(Phase 5, §6b: <code>plannedRevenueTotal</code>, <code>actualRevenueTotal</code>, <code>targetMarginPercent</code>.)</em> <em>(Benchmarking, §6c, fields from Phase 1: <code>expectedAttendance</code> required at submission, <code>benchmarkSourceType</code> <code>ea_sys_budget | archive_summary | none</code>, <code>benchmarkSourceId?</code>.)</em></li>
 <li><strong>BudgetTemplate / BudgetTemplateLine:</strong> per event type; seeds lines when a budget is created. Admin-editable.</li>
 <li><strong>BudgetCategory:</strong> hierarchical (max depth 3), <code>code</code> ("VENUE.AV"), <code>type</code> (expense | revenue), <code>defaultAccountMappingId</code>, <code>owningDepartmentId?</code> (§14 Q1). Seeded with Doc 2's list (Venue, F&amp;B, AV &amp; Production, Speakers &amp; Faculty, Travel, Accommodation, Staffing, Marketing, Printing &amp; Signage, Registration Ops, Technology, Compliance &amp; Accreditation, Translation, Misc, Contingency).</li>
-<li><strong>BudgetLine:</strong> <code>lineKey</code> (UUID, <strong>stable across versions</strong> — copied on version clone; Commitments and reports resolve through it), category, description, <code>supplierId?</code>, qty, unitCost, <code>transactionCurrency</code>, <code>fxRateToReporting</code> + <code>fxRateSource</code> (snapshot at creation), <strong>planned / committedOpen / committedTotal / actual / paid</strong> (ex-VAT, reporting currency), <code>taxAmountPlanned</code>, <code>forecastFinalAmount</code>, tax code, service dates, soft delete, status. A line with open commitments cannot be deleted in a new version; it must be reassigned. <code>varianceNote</code> (close-out, §6a): the owner&rsquo;s explanation, required on any line whose actual differs from planned by more than the threshold.</li>
+<li><strong>BudgetLine:</strong> <code>lineKey</code> (UUID, <strong>stable across versions</strong> — copied on version clone; Commitments and reports resolve through it), <code>templateLineId?</code> (set when the line is seeded from a template; the benchmark matching key <em>across</em> budgets, since <code>lineKey</code> is minted per budget, §6c), category, description, <code>supplierId?</code>, qty, unitCost, <code>transactionCurrency</code>, <code>fxRateToReporting</code> + <code>fxRateSource</code> (snapshot at creation), <strong>planned / committedOpen / committedTotal / actual / paid</strong> (ex-VAT, reporting currency), <code>taxAmountPlanned</code>, <code>forecastFinalAmount</code>, tax code, service dates, soft delete, status. A line with open commitments cannot be deleted in a new version; it must be reassigned. <code>varianceNote</code> (close-out, §6a): the owner&rsquo;s explanation, required on any line whose actual differs from planned by more than the threshold.</li>
 <li><strong>BudgetRevenueLine</strong> <em>(Phase 5, §6b)</em>: <code>lineKey</code>, <code>source</code> (<code>registration_type | sponsorship | exhibition | grant | other</code>), <code>ticketTypeId?</code> (EA-SYS registration type), <code>crmDealId?</code> (CRM sponsorship deal), description, <code>plannedQty</code>, <code>plannedUnitAmount</code>, <code>plannedAmount</code>, <code>actualAmount</code> (computed: paid registrations at their settled price for a registration type; won deal value for a sponsorship; manual for other), currency + FX snapshot as for expense lines, ex-VAT with tax alongside. Never posted to accounting: revenue is already invoiced through EA-SYS and the CRM; this line reads it back.</li>
-<li><strong>Supplier:</strong> internal code, legal/display name, tax registration no., country, currency, contacts, payment terms, <code>externalSystemType</code> + <code>externalVendorId</code>, <code>approvalStatus</code> (<code>proposed → approved | rejected</code>), risk status, active flag. Only approved suppliers can appear on a Commitment. Bank details and tax registration numbers are classified financial data (§2.8): staff-only reads, never in audit diffs.</li>
+<li><strong>Supplier:</strong> internal code, legal/display name, tax registration no., country, currency, contacts, payment terms, <code>externalSystemType</code> + <code>externalVendorId</code>, <code>approvalStatus</code> (<code>proposed → approved | rejected</code>), risk status, active flag. Only approved suppliers can appear on a Commitment. Bank details and tax registration numbers are classified financial data (§2.9): staff-only reads, never in audit diffs.</li>
 <li><strong>SupplierProduct:</strong> catalog items for recurring purchases; convenience only.</li>
-<li><strong>SpendRequest:</strong> <code>requestNo</code>, budget + optional line (<code>lineKey</code>), <code>eventCode</code>, requester, <code>departmentId?</code>, supplier or <code>proposedVendorName</code>, title, justification, amount + <code>taxAmount</code> + currency, category, needed-by date, sourcing method, <code>budgetCheckStatus</code>, approval status, priority, <code>linkedCommitmentId</code>. Status <code>draft → submitted → budget_checked → pending_approval → approved | rejected | cancelled → converted → closed</code>.</li>
+<li><strong>SpendRequest:</strong> <code>requestNo</code>, budget + line (<code>lineKey</code>, required at submission, optional on a draft; the budget check is per line), <code>eventCode</code>, requester, <code>departmentId?</code>, supplier or <code>proposedVendorName</code>, title, justification, amount + <code>taxAmount</code> + currency, category, needed-by date, sourcing method, <code>budgetCheckStatus</code>, approval status, priority, <code>linkedCommitmentId</code>. Status <code>draft → submitted → budget_checked → pending_approval → approved | rejected | cancelled</code>; an approved request whose supplier is not yet approved waits in <code>awaiting_supplier</code>, then <code>converted → closed</code>.</li>
 <li><strong>SpendRequestQuote:</strong> vendor, amounts, tax, dates, validity, recommended flag + notes, attachment (MediaFile).</li>
-<li><strong>Commitment</strong> (the PO): <code>commitmentNo</code>, <code>spendRequestId</code>, <code>lineKey</code>, supplier, <code>eventCode</code>, amount + <code>taxAmount</code> + currency, <code>fulfillmentStatus</code> (<code>open | partially_received | received</code>), <code>accountingSyncStatus</code> (<code>pending | synced | failed | linked_external | diverged</code>), <code>externalDocumentType/Id</code>, <code>externalDocNumber</code>. Status <code>approved → sent_to_accounting → posted → partially_fulfilled → fully_fulfilled → cancelled → closed</code>.</li>
+<li><strong>Commitment</strong> (the PO): <code>commitmentNo</code>, <code>spendRequestId?</code> (null only on <code>linked_external</code> rows imported from ProcurementExpress, §13), <code>lineKey</code>, supplier, <code>eventCode</code>, amount + <code>taxAmount</code> + currency, <code>fulfillmentStatus</code> (<code>open | partially_received | received</code>), <code>accountingSyncStatus</code> (<code>pending | synced | failed | linked_external | diverged</code>), <code>externalDocumentType/Id</code>, <code>externalDocNumber</code>. Status <code>approved → sent_to_accounting → posted → closed</code>, with <code>cancelled</code> reachable from any of them; fulfilment is tracked separately in <code>fulfillmentStatus</code>.</li>
 <li><strong>CommitmentLine:</strong> one per PO line — category/<code>lineKey</code>, description, qty, unit cost, tax code. Needed so a bill line can allocate to the right budget line.</li>
-<li><strong>SupplierInvoice</strong> + <strong>SupplierInvoiceLine</strong> <em>(exception workflow Phase 2; tables in v1 for read-back)</em>: invoice no., supplier, <code>eventCode</code>, amounts ex-VAT + tax + gross, dates, <code>matchedStatus</code> (<code>matched | unallocated | mismatch</code>), <code>externalBillId</code>. Lines: <code>commitmentLineId?</code>, <code>lineKey?</code>, amount, <code>allocationMethod</code> (<code>explicit | proportional | manual</code>).</li>
-<li><strong>PaymentRecord:</strong> <code>supplierInvoiceId</code>, reference, date, gross amount, method, status, <code>externalPaymentId</code>. Read-only from accounting.</li>
+<li><strong>SupplierInvoice</strong> + <strong>SupplierInvoiceLine</strong> <em>(tables in v1 for read-back and the manual link-or-write-off action; the matching-rules exception queue is post-v1, §12)</em>: invoice no., supplier, <code>eventCode</code>, amounts ex-VAT + tax + gross, dates, <code>matchedStatus</code> (<code>matched | unallocated | mismatch</code>), <code>externalBillId</code>. Lines: <code>commitmentLineId?</code>, <code>lineKey?</code>, amount, <code>allocationMethod</code> (<code>explicit | proportional | manual</code>).</li>
+<li><strong>PaymentRecord:</strong> <code>supplierInvoiceId?</code> or <code>commitmentId?</code> (a deposit is a payment against a commitment before any bill exists; it settles onto the bill when it arrives), reference, date, gross amount, <code>fxRate</code> (the payment&rsquo;s own rate), method, status, <code>externalPaymentId</code>. Read-only from accounting; allocated across the bill&rsquo;s lines pro rata to line ex-VAT value.</li>
 <li><strong>AccountMapping:</strong> <code>providerName</code>, MMG category / tax code / payment method → external account / class / location / tax code. Admin-editable.</li>
 <li><strong>Outbox</strong> (core) and <strong>SyncLog:</strong> outbox row written in the same DB transaction as the state change; SyncLog records every request/response, direction, status, error — feeds the Integration Monitor.</li>
 <li><strong>FxRate:</strong> base/quote/rate/source/asOf, <code>CHECK (rate &gt; 0)</code>.</li>
-<li><strong>Event</strong> (core table, one added column): <code>previousEditionEventId?</code>, set by the clone route and editable in Settings; the default benchmark source for a repeat event (§6c).</li>
-<li><strong>EventFinancialSummary</strong> <em>(the archive index of §13a made concrete; read-only for the module)</em>: <code>sourceSystem</code> (<code>eventsair | procurementexpress | ea_sys</code>), <code>eventCode</code>, name, year, <code>eventType</code>, <code>brand?</code>, <code>attendance</code>, currency, <code>categoryTotals</code> JSON (planned and actual per <code>BudgetCategory.code</code>), <code>revenueTotal?</code>, <code>asOf</code>. One row per past event and no transactions: this is the index the 2 Sep 2026 decision allows, not a migration of EventsAir data. A closed EA-SYS budget writes its own row at close-out, so the cross-event and benchmark reports read one shape whatever the source.</li>
+<li><strong>Event</strong> (core table, one added column): <code>previousEditionEventId?</code>, set by the clone route, otherwise in Settings (expect the manual path to be the common one); the default benchmark source for a repeat event (§6c).</li>
+<li><strong>EventFinancialSummary</strong> <em>(the archive index of §13a made concrete; read-only for the module)</em>: <code>sourceSystem</code> (<code>quickbooks | procurementexpress | eventsair | ea_sys</code>), <code>eventCode</code>, name, year, <code>eventType</code>, <code>brand?</code>, <code>attendance</code>, currency, <code>categoryTotals</code> JSON (planned and actual per <code>BudgetCategory.code</code>; for pre-EA-SYS events actual comes from a QuickBooks profit-and-loss by Class mapped through <code>AccountMapping</code>, planned where it exists from the ProcurementExpress export, attendance and revenue from EventsAir, which never held costs), <code>revenueTotal?</code>, <code>asOf</code>. One row per past event and no transactions: this is the index the 2 Sep 2026 decision allows, not a migration. Read-only except the close-out writer: a closed EA-SYS budget writes its own row at close-out (rewritten if it is reopened and closed again), so the cross-event and benchmark reports read one shape whatever the source. Loaded for past events in Phase 4, once the connector exists.</li>
 </ul>
 <hr />
 <h2 id="6-core-workflows"><span class="sec">§6</span>Core Workflows</h2>
 <p><strong>Budget:</strong> create for event (optionally from template) → auto-version → enter lines (FX snapshot per line) → totals + contingency computed → submit → approval per workflow rules → active. New version clones lines with their <code>lineKey</code>; commitments follow the key.</p>
-<p><strong>Spend request (the daily-use flow — polish this UI):</strong> requester picks event + active budget → side panel shows available budget on the category/line, current open commitments, suggested approval route, vendor history → submits with quotes (and a proposed supplier if new) → <strong>budget availability check</strong> (ex-VAT, reporting currency): within budget → Lina (Medhat above AED 1M); over budget → blocked and routed as an exception to Medhat, never silent → approval (ceiling checked in AED) → <strong>Commitment created</strong> with lines → outbox → posted to QBO as Purchase Order → <code>externalDocumentId</code> stored, status <code>posted</code> → <strong>PO PDF generated and emailed to the supplier</strong> (reusing the invoice / quote PDF layout in <code>src/lib/pdf/document-layout.ts</code>: logo, bill-to boxes, line table, totals; the certificate pipeline is a text overlay on an uploaded background and does not fit), send recorded in audit.</p>
-<p><strong>Supplier onboarding:</strong> a proposed supplier rides along with the request; finance approves the supplier (TRN, terms, currency) before or as part of the request's finance step. Adapter creates the vendor in QBO on first commitment; <code>externalVendorId</code> stored.</p>
-<p><strong>Approver notifications:</strong> email on assignment, reminder at 24h, delegate at 48h, next tier at 96h (§8.3). Without push, escalation becomes the normal path.</p>
-<p><strong>Receiving:</strong> requester (or finance) marks a commitment partially/fully received; <code>fulfillmentStatus</code> drives the open-commitment view alongside bill linkage.</p>
-<p><strong>Read-back (v1, read-only):</strong> nightly + on-demand CDC poll pulls <strong>PurchaseOrders, Bills and BillPayments</strong> changed since cursor.
+<p><strong>Spend request (the daily-use flow — polish this UI):</strong> requester picks event + active budget + line → side panel shows available budget on the category/line, current open commitments, suggested approval route, vendor history → submits with quotes (and a proposed supplier if new) → <strong>budget availability check</strong> (ex-VAT, reporting currency): within budget → Lina (Medhat above AED 1M); over budget → blocked and routed as an exception to Medhat, never silent → approval (ceiling checked in AED) → supplier not yet approved? <code>awaiting_supplier</code> until the settle grant approves it → <strong>Commitment created</strong> with lines → <strong>PO PDF generated and emailed to the supplier at once</strong>, carrying <code>commitmentNo</code> (reusing the invoice / quote PDF layout in <code>src/lib/pdf/document-layout.ts</code>: logo, bill-to boxes, totals, plus a small line table for qty, unit cost and tax code; the certificate pipeline is a text overlay on an uploaded background and does not fit), send recorded in audit → outbox → posted to QBO as Purchase Order in the background → <code>externalDocumentId</code> stored, status <code>posted</code>. <strong>Procurement never waits on accounting</strong> (rev. 3.5): a failed or held post is an Integration Monitor item, never a supplier without an order.</p>
+<p><strong>Supplier onboarding:</strong> a proposed supplier rides along with the request; the settle grant approves the supplier (TRN, terms, currency) from the proposed-supplier queue on the supplier master; an approved request whose supplier is not yet approved waits in <code>awaiting_supplier</code> and converts on approval. Adapter creates the vendor in QBO on first commitment; <code>externalVendorId</code> stored.</p>
+<p><strong>Approver notifications:</strong> email on assignment, reminder at 24h, delegate at 48h, next tier at 96h (§8.3). At launch Lina&rsquo;s delegate and next tier are both Medhat, so her inaction passes to him at 48h. Without push, escalation becomes the normal path.</p>
+<p><strong>Receiving:</strong> the requester marks a commitment partially/fully received; above AED 50,000 (a setting) a second person, the settle grant or an approver, confirms it. <code>fulfillmentStatus</code> drives the open-commitment view alongside bill linkage.</p>
+<p><strong>Operating rule the model depends on (rev. 3.5):</strong> a bill against a PO is created <em>from</em> that PO in QBO (Copy to Bill), so it carries <code>LinkedTxn</code>, and every bill line carries the event Class. Phase 0 checks how bills are entered today; the pilot adopts the rule. Without it every bill lands in the unallocated bucket and committed never falls.</p>
+<p><strong>Read-back (v1, read-only):</strong> nightly + on-demand CDC poll pulls <strong>PurchaseOrders, Bills, VendorCredits and BillPayments</strong> changed since cursor.
 - Bill lines with <code>LinkedTxn.TxnLineId</code> → that CommitmentLine's <code>lineKey</code> (<code>explicit</code>). Header-only linkage → proportional by PO line value (<code>proportional</code>), flagged for finance override. Amounts that do not reconcile → <code>mismatch</code>, surfaced.
-- Bills and Purchases carrying the event dimension but no PO link → recorded as <strong>unallocated actuals</strong> for the event (bucket visible in v1; assignment workflow Phase 2).
-- BillPayments → <code>PaymentRecord</code> (gross); line <code>paid</code> = gross × (invoice ex-VAT ÷ invoice gross).
+- Bills and Purchases carrying the event dimension but no PO link → recorded as <strong>unallocated actuals</strong> for the event (bucket visible in v1 with a manual link-to-PO or write-off action for the settle grant; the matching-rules exception queue is post-v1, §12).
+- VendorCredits → negative actual on the lines of the bill they credit (proportional when the credit does not name lines).
+- BillPayments → <code>PaymentRecord</code> (gross); line <code>paid</code> = gross × (invoice ex-VAT ÷ invoice gross), allocated across the bill&rsquo;s lines pro rata; a payment against a vendor with no bill yet is a deposit on the commitment and settles onto the bill when it arrives.
+- FX: <code>actual</code> converts at the bill&rsquo;s own QBO exchange rate and <code>paid</code> at the payment&rsquo;s; the difference to the line&rsquo;s planned snapshot rate is shown per line as FX variance, never folded into the line (§7.7).
 - Bill voided in QBO → local void + <code>committedOpen</code> restored + event emitted.
 - PO edited/closed/deleted in QBO → Commitment <code>diverged</code>, surfaced in Integration Monitor for ADMIN/finance resolution (accept QBO / void-and-recreate).
 - CDC cursor older than the 30-day window → automatic full re-list by date range, logged.</p>
-<p><strong>Post-approval changes:</strong> amount change after approval → new approval scoped to the delta, reason captured, audited; posted PO → <strong>void and recreate</strong> (create-only policy). Cancelling a posted Commitment voids the QBO PO through the adapter. Moving budget between lines = first-class audited action, authority per §14 Q2.</p>
+<p><strong>Post-approval changes:</strong> amount change after approval → routed on the <strong>new total</strong> and approved for the delta, reason captured, audited (a series of deltas cannot lift a request past a ceiling in pieces); posted PO → <strong>close and recreate</strong> (create-only policy). Cancelling a posted Commitment closes the QBO PO (<code>POStatus = Closed</code>, the one update the policy allows) through the adapter, releases <code>committedOpen</code> for the unbilled remainder and keeps <code>actual</code> for what was billed; the week-1 spike confirms which operations QBO offers per entity (a PurchaseOrder is closed or deleted, never voided). Moving budget between lines = first-class audited action, authority per §14 Q2.</p>
 <hr />
 <h2 id="6a-budget-lifecycle"><span class="sec">§6a</span>Budget Lifecycle</h2>
 <p>This is the half of the module ProcurementExpress never had. A budget is not a spreadsheet uploaded once; it is a record that is proposed, approved, revised, drawn on, frozen and closed, and every one of those steps leaves a trail.</p>
@@ -587,17 +608,17 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <h3>Authoring</h3>
 <p>The editor groups lines by category, each with quantity, unit cost, transaction currency (FX snapshot per line, §7), tax code, service dates, optional supplier and notes. Totals, VAT and contingency recompute as lines change; nothing is saved until the owner saves. Where a benchmark source is set (§6c), the editor shows its planned and actual beside each category and, where lines match, beside each line, read-only (Phase 6; until then the source is recorded and nothing is shown).</p>
 <h3>Budget approval</h3>
-<p>A draft is submitted by the event owner (ORGANIZER), checked for completeness by finance (Muthu: every category either has lines or is explicitly marked not applicable, contingency set, reporting currency set), then approved on the same matrix as spend: Lina up to AED 1,000,000 of planned expense, Medhat above, checked on the AED-converted total. Approval makes the version <em>active</em>; only an active version accepts spend requests.</p>
+<p>A draft is submitted by the event owner (ORGANIZER), checked for completeness by the settle grant (Muthu: every category either has lines or is explicitly marked not applicable, contingency set, reporting currency set, <code>expectedAttendance</code> set), then approved on the same matrix as spend: Lina up to AED 1,000,000 of <code>plannedExpenseTotal</code> (contingency excluded), Medhat above, checked on the AED-converted total. Approval makes the version <em>active</em> and creates the event&rsquo;s QuickBooks Class if it does not exist yet (§9.4); only an active version accepts spend requests.</p>
 <h3>Versions</h3>
-<p>Any change to an active budget&rsquo;s planned amounts creates a new draft version, approved the same way; the previous version stays active until then, so spend never stops during a revision. Lines keep their <code>lineKey</code> across versions, which is what lets committed and actual figures follow the line rather than the version. A version compare view shows planned by line, old against new, with the delta and who approved it.</p>
+<p>Any change to an active budget&rsquo;s planned amounts creates a new draft version, approved the same way; the previous version stays active until then, so spend never stops during a revision. Lines keep their <code>lineKey</code> across versions, which is what lets committed and actual figures follow the line rather than the version. A version compare view shows planned by line, old against new, with the delta and who approved it. A new version routes on its total, but Lina may approve a version whose delta is within her ceiling when Medhat approved the previous total (a setting Medhat can switch off).</p>
 <h3>Reallocation and contingency</h3>
-<p>Moving planned amount between lines inside the active version is a first-class audited action rather than a new version: the event owner may move up to 10% of a line&rsquo;s planned amount, finance any amount (§14 Q2, recommended answer adopted until changed). Contingency is a percentage of planned expense, default 10% (§14 Q8), carried as its own line; a draw from it is a spend request against that line and needs finance approval regardless of amount. A request that cannot fit its line or contingency is the over-budget exception in §6.</p>
+<p>Moving planned amount between lines inside the active version is a first-class audited action rather than a new version: the event owner may move, per version, up to 10% of a line&rsquo;s approved planned amount in total, and never into a line carrying their own pending request; larger moves are approval requests on the AED matrix (§14 Q2). Contingency is a percentage of <code>plannedExpenseTotal</code> (which excludes it), default 10% (§14 Q8), carried as its own line; a draw from it is a spend request against that line, approved on the AED matrix like any other. A request that exceeds its line is the over-budget exception in §6; the requester may raise it against the contingency line instead, and an approved exception leaves the line&rsquo;s remaining negative and shown as such.</p>
 <h3>Forecast and at-risk</h3>
-<p><code>forecastFinalAmount</code> per line defaults to <code>committedTotal + actual − overlap</code> (§7.7) and is editable by the owner with a reason. The budget forecast is the sum; the budget is flagged <em>at risk</em> when forecast exceeds planned plus contingency, on the dashboard and in the daily digest, so a problem is visible weeks before the invoices arrive rather than at close-out.</p>
+<p><code>forecastFinalAmount</code> per line defaults to the larger of <code>planned</code> and <code>committedOpen + actual</code> (§7.7) and is editable by the owner with a reason. The budget forecast is the sum; the budget is flagged <em>at risk</em> when forecast exceeds <code>plannedExpenseTotal</code> plus contingency, on the dashboard and by a notification to the budget owner and the settle grant (the daily digest stays infrastructure-only by the August 2026 decision), so a problem is visible weeks before the invoices arrive rather than at close-out.</p>
 <h3>Freeze</h3>
-<p>Freeze on demand or on a date the owner sets (typically two weeks before the event): planned amounts and reallocation lock, spend requests still run, approvals on a frozen budget need the highest-tier override with a reason (§8.5). Freeze is the point at which the plan stops moving and the actuals start to tell the story.</p>
+<p>Freeze on demand or on a date the owner sets (typically two weeks before the event): planned amounts and reallocation lock; spend requests within a line&rsquo;s remaining run on the normal matrix; only an over-budget request on a frozen budget goes to Medhat as an exception with a reason (§8.5). Freeze is the point at which the plan stops moving and the actuals start to tell the story.</p>
 <h3>Close-out</h3>
-<p>After the event, once every bill for it is allocated (the unallocated bucket in §6 is empty or explicitly written off by finance), the owner closes the budget: each line whose actual differs from planned by more than the threshold (10% or AED 5,000, whichever is larger; §14 Q13) requires a <code>varianceNote</code>, the close-out summary in §11 is generated, and the budget moves to <em>closed</em>. Closed budgets are read-only; reopening is an ADMIN action with a reason. Archiving follows the event.</p>
+<p>After the event, once every bill for it is allocated (the unallocated bucket in §6 is empty or explicitly written off by the settle grant), the owner closes the budget: each line whose actual differs from planned by more than the threshold (10% or AED 5,000, whichever is larger; §14 Q13) requires a <code>varianceNote</code>, the close-out summary in §11 is generated with written-off bills as a reconciling item, the settle grant signs it off, <code>recordedAttendance</code> is written, and the budget moves to <em>closed</em>. Closed budgets are read-only; reopening is an ADMIN action with a reason, and the next close rewrites the budget&rsquo;s <code>EventFinancialSummary</code> row. Archiving follows the event.</p>
 <hr />
 <h2 id="6b-revenue-and-event-pl"><span class="sec">§6b</span>Revenue &amp; Event P&amp;L (Phase 5)</h2>
 <p>Expense control alone tells an organiser what an event costs, not whether it made money. The revenue side uses data EA-SYS and the CRM already hold, so it is mostly reading, not entering.</p>
@@ -607,6 +628,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <li><strong>Margin</strong>: revenue minus expense on the same ex-VAT basis, shown as amount and percentage against a <code>targetMarginPercent</code> set on the budget; below target flags the budget at risk the same way forecast overrun does.</li>
 <li><strong>Not in scope</strong>: posting revenue to accounting (it is already invoiced through EA-SYS and the CRM), deferred-revenue accounting, and cost allocation across events. If any of these is needed it is a later phase with its own decisions.</li>
 </ul>
+<p><strong>Computation rules (rev. 3.5, verified against the schema):</strong> the ex-VAT base of a registration is <code>readRegistrationBasePrice</code> (<code>originalPrice − discountAmount</code>; never the raw column, which is null on older rows and on some import paths) · refunds (<code>Registration.refundedAmount</code>, <code>Payment.refundedAmount</code>) are gross and are netted back to ex-VAT · a group registration carries its payment on <code>Payment.groupId</code>, the members still carry <code>originalPrice</code> · <code>INCLUSIVE</code> (sponsor-paid) registrations count zero attendee revenue, the sponsor&rsquo;s money is the CRM deal; <code>COMPLIMENTARY</code> counts zero · currency comes from the ticket type, tier or payment, never from the event · sponsorship revenue is <code>CrmDeal.dealValue</code> where <code>status = WON</code> and the deal is linked to the event, not the deal&rsquo;s product lines (value is manual by owner decision).</p>
 <hr />
 <h2 id="6c-benchmarking"><span class="sec">§6c</span>Benchmarking (foundations Phase 1, feature Phase 6)</h2>
 <p>Added in rev. 3.4 (9 Sep 2026). A budget declares what it is measured against; the comparison is computed at read time from that source and never copied into the budget, so a corrected source corrects every comparison that reads it.</p>
@@ -621,48 +643,48 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <ol>
 <li>Store 4 decimals, display 2; sum-vs-total drift ≤ 0.02 resolved at the total via banker's rounding — never by adjusting lines.</li>
 <li>FX rate snapshotted at line creation with source recorded; edits reuse the stored rate unless <code>refresh_fx</code> requested.</li>
-<li>Stale rate (&gt; 24h, Asia/Dubai) blocks the write with a clear error and triggers a fetch. Rate ≤ 0 rejected at DB and API.</li>
+<li>Stale rate (&gt; 24h, Asia/Dubai) blocks the write with a clear error and triggers a fetch. Rate ≤ 0 rejected at DB and API. Rates come from one named daily source chosen in Phase 0 (recommended: the Central Bank of the UAE published rates; §14 Q15) through an <code>FxRateProvider</code> interface beside <code>AccountingProvider</code> and a bounded worker job; historical rates are kept so a past date can be converted.</li>
 <li><code>reportingCurrency</code> immutable once lines exist; changing it = clone to a new version, re-snapshot.</li>
 <li>Multicurrency is enabled on MME and required (confirmed 3 Sep 2026). The connector still verifies it at connection time and blocks pushes with an explicit error if it ever reports disabled. Exchange rate is carried on every foreign-currency push (QBO does not auto-apply ours).</li>
 <li>Negative amounts only on invoices/credits; planned lines ≥ 0. Zero-decimal currencies formatted via ISO 4217 minor units.</li>
-<li><strong>Commitment convention (open-commitment):</strong> <code>committedTotal</code> = full PO value; <code>committedOpen</code> = PO value not yet billed. A matched bill moves value from <code>committedOpen</code> to <code>actual</code>. <strong><code>remaining = planned − committedOpen − actual</code></strong> per line; <code>forecastFinalAmount</code> defaults to <code>committedTotal + actual − overlap</code> and is editable by the budget owner with reason. This is what makes "remaining" truthful on day one.</li>
-<li><strong>Tax basis (signed off 3 Sep 2026):</strong> every planned / committed / actual / paid figure is <strong>ex-VAT</strong>; VAT (UAE 5%, recoverable) is carried in <code>taxAmount</code> fields at every level. QBO pushes use <code>GlobalTaxCalculation = TaxExcluded</code> with the mapped tax code per line. Payments arrive gross and are netted back as in §6.</li>
+<li><strong>Commitment convention (open-commitment):</strong> <code>committedTotal</code> = full PO value; <code>committedOpen</code> = PO value not yet billed. A matched bill moves value from <code>committedOpen</code> to <code>actual</code>. <strong><code>remaining = planned − committedOpen − actual</code></strong> per line; <code>forecastFinalAmount</code> defaults to <code>max(planned, committedOpen + actual)</code> and is editable by the budget owner with reason. <code>actual</code> converts at the bill&rsquo;s own rate and <code>paid</code> at the payment&rsquo;s; FX variance against the line&rsquo;s snapshot is shown per line, never hidden in it. This is what makes "remaining" truthful on day one.</li>
+<li><strong>Tax basis (signed off 3 Sep 2026):</strong> every planned / committed / actual / paid figure is <strong>ex-VAT</strong>; VAT (UAE 5%, recoverable) is carried in <code>taxAmount</code> fields at every level. QBO pushes use <code>GlobalTaxCalculation = TaxExcluded</code> with the mapped tax code per line. Payments arrive gross and are netted back as in §6. Tax codes include reverse-charge (foreign suppliers) and out-of-scope; foreign VAT that is not recoverable in the UAE (for example KSA VAT on a Riyadh event) is part of the line amount, not <code>taxAmount</code>.</li>
 <li><strong>Currencies:</strong> budgets may report in AED, USD, EUR, GBP or SAR (§14 Q7). The organization <strong>base currency is AED</strong>; approval bands, ceilings, and cross-event dashboards are evaluated in AED using the line's snapshot rate. All rules enforced as DB CHECK constraints as well as in the service layer.</li>
 </ol>
 <hr />
 <h2 id="8-approval-edge-cases"><span class="sec">§8</span>Approval Edge Cases</h2>
 <ol>
 <li>Amount edited while approval pending → pending request auto-<code>superseded</code>, fresh request generated, audit links old → new.</li>
-<li>Requester = approver → hard 403, no role bypasses it. Second approver ≠ first approver. Delegate ≠ requester.</li>
-<li>Approver inaction 48h → delegate; further 48h → next tier. Escalations audited and notified. Delegates per-role, overrideable per-user (§14 Q5). At launch the chain is Lina → Medhat; Medhat is the top, so a request waiting on him is reminded daily rather than escalated.</li>
+<li>Requester = approver → hard 403, no role bypasses it. A request raised by an approver routes to the tier above them (Lina&rsquo;s own requests go to Medhat). Delegate ≠ requester.</li>
+<li>Approver inaction 48h → delegate; further 48h → next tier. Escalations audited and notified. Delegates per-role, overrideable per-user (§14 Q5). At launch the chain is Lina → Medhat; Lina&rsquo;s delegate and next tier are both Medhat, so her inaction passes to him at 48h. Medhat is the top, so a request waiting on him is reminded daily rather than escalated; there is no standby for him in v1 (decision 9 Sep 2026).</li>
 <li>Concurrent decisions → optimistic locking, stale client refetches.</li>
-<li>Approvals on frozen budgets require override with reason, highest tier only; UI warns loudly.</li>
-<li>Rejecting a budget does <strong>not</strong> auto-cancel posted commitments — they remain valid until finance explicitly cancels (which voids the QBO PO).</li>
+<li>On a frozen budget, requests within a line&rsquo;s remaining follow the normal matrix; only over-budget requests need Medhat&rsquo;s override with a reason; UI warns loudly.</li>
+<li>Rejecting a new budget version does <strong>not</strong> auto-cancel posted commitments (the previous version stays active) — they remain valid until the settle grant explicitly cancels them (which closes the QBO PO).</li>
 <li>Partial approvals not supported in v1.</li>
 <li><strong>The top approver never requests.</strong> Medhat approves and never raises a request (8 Sep 2026). Enforced rather than assumed: the final approver&rsquo;s account holds <code>procurement.approve</code> only, never <code>procurement.request</code>, and a spend request from the final approver is refused at submission, so requester ≠ approver can never leave a request with no approver.</li>
 </ol>
 <hr />
 <h2 id="9-quickbooks-online-integration-single-mme-realm"><span class="sec">§9</span>QuickBooks Online Integration (single MME realm)</h2>
 <ol>
-<li><strong>Auth:</strong> OAuth 2.0 per realm; tokens encrypted at rest in <code>Organization.settings</code> with the platform&rsquo;s AES-256-GCM pattern already used for the Zoom, EventsAir, Stripe and AI credentials (the documented fallback-key rotation applies; moving every integration secret to SSM is a separate platform decision, not this module&rsquo;s), never cached in process memory (blue-green wipes it); refresh rotation persisted atomically under a single-writer lock; proactive refresh + expiry alerting; "connection expired → finance re-authorizes" is a first-class admin flow. Intuit refresh tokens now carry a max 5-year validity (first hard expiries 2027–2028).</li>
-<li><strong>Push (create-only):</strong> approved Commitments → QBO PurchaseOrder via outbox; vendor created first if <code>externalVendorId</code> is empty. No updates to posted documents — post-approval change = void-and-recreate.</li>
-<li><strong>Pull:</strong> vendors, chart of accounts, tax codes, Classes/Locations (mapping screens); PurchaseOrders, Bills, BillPayments and Purchases via CDC (30-day window, with re-list fallback). No webhooks in v1.</li>
-<li><strong>Dimensions:</strong> MME is the only QuickBooks company, so there is no entity dimension. The <strong>event code is the QuickBooks Class</strong> — confirmed 3 Sep 2026; finance already tracks events this way. Every PO line carries the event's ClassRef, so event spend is reportable inside QBO. The connector syncs the Class list (<code>syncClassesOrLocations</code>) and maps event code ↔ Class id in <code>AccountMapping</code>; a Commitment whose event has no Class yet is held with a clear error until the Class is created (adapter creates it on request, ADMIN-gated). No custom fields needed in v1.</li>
+<li><strong>Auth:</strong> OAuth 2.0 per realm; tokens encrypted at rest in <code>Organization.settings</code> with the platform&rsquo;s AES-256-GCM pattern already used for the Zoom, EventsAir, Stripe and AI credentials (the documented fallback-key rotation applies; moving every integration secret to SSM is a separate platform decision, not this module&rsquo;s), never cached in process memory (blue-green wipes it); refresh rotation persisted atomically under a single-writer lock; proactive refresh + expiry alerting; "connection expired → the settle grant or an ADMIN re-authorizes" is a first-class flow. Intuit refresh tokens now carry a max 5-year validity (first hard expiries 2027–2028).</li>
+<li><strong>Push (create-only):</strong> approved Commitments → QBO PurchaseOrder via outbox; vendor created first if <code>externalVendorId</code> is empty. No updates to posted documents — post-approval change = close-and-recreate (<code>POStatus = Closed</code> is the one update the policy allows).</li>
+<li><strong>Pull:</strong> vendors, chart of accounts, tax codes, Classes/Locations (mapping screens); PurchaseOrders, Bills, VendorCredits, BillPayments and Purchases via CDC (30-day window, with re-list fallback); a profit-and-loss-by-Class report for the benchmark load (Phase 4). No webhooks in v1.</li>
+<li><strong>Dimensions:</strong> MME is the only QuickBooks company, so there is no entity dimension. The <strong>event code is the QuickBooks Class</strong> — confirmed 3 Sep 2026; finance already tracks events this way. Every PO line carries the event's ClassRef, so event spend is reportable inside QBO. The connector syncs the Class list (<code>syncClassesOrLocations</code>) and maps event code ↔ Class id in <code>AccountMapping</code>; the Class is created when the budget is approved (§6a), so it exists before the first PO; a Commitment whose event still has no Class is an Integration Monitor item, not a blocked supplier (§6). Operational, non-event budgets post to a fixed Class <code>OPS-{year}</code> (§14 Q4). No custom fields needed in v1.</li>
 <li><strong>Push mechanics:</strong> PO lines post as account-based expense lines through AccountMapping, each line carrying the event-code ClassRef. Location (DepartmentRef) is left unused in v1.</li>
-<li><strong>Edge cases:</strong> duplicate DocNumber rejected only when the realm enforces custom-transaction-number uniqueness — handler kept defensively (suffix <code>-R{n}</code>, retry once, warn). Vendor merged in QBO → remap in one transaction. Voided bill → local void + committed restoration. Rate limits → honour Retry-After. 5xx → bounded retry then dead-letter with alert. Permanent 4xx → SyncLog + Integration Monitor.</li>
-<li><strong>Integration Monitor:</strong> last sync, connection status, failed count, retry queue with manual reprocess, diverged commitments, unallocated actuals count, top error reasons. Visible to ADMIN + finance.</li>
-<li><strong>Verification before Phase 3 starts (week 1 spike):</strong> sandbox company with UAE VAT and AED home currency obtainable (if not, tax and multicurrency paths are first exercised in production — plan the pilot accordingly); existing event Classes readable and a PO create with ClassRef succeeds; multicurrency confirmed on the realm; one OAuth round-trip, one vendor pull, one PO create with ClassRef, one CDC read of a linked Bill.</li>
+<li><strong>Edge cases:</strong> duplicate DocNumber rejected only when the realm enforces custom-transaction-number uniqueness — handler kept defensively (suffix <code>-R{n}</code>, retry once, warn; the supplier PDF always shows <code>commitmentNo</code>). Vendor merged in QBO → remap in one transaction. Voided bill → local void + committed restoration. Rate limits → honour Retry-After. 5xx → bounded retry then dead-letter with alert. Permanent 4xx → SyncLog + Integration Monitor.</li>
+<li><strong>Integration Monitor:</strong> last sync, connection status, failed count, retry queue with manual reprocess, diverged commitments, unallocated actuals count, top error reasons. Visible to ADMIN + the settle grant.</li>
+<li><strong>Verification before Phase 3 starts (week 1 spike):</strong> sandbox company with UAE VAT and AED home currency obtainable (if not, tax and multicurrency paths are first exercised in production — plan the pilot accordingly); existing event Classes readable and a PO create with ClassRef succeeds; multicurrency confirmed on the realm; one OAuth round-trip, one vendor pull, one PO create with ClassRef, one CDC read of a linked Bill, which operations QBO offers on PurchaseOrder (close and delete, not void), a VendorCredit read, and the profit-and-loss-by-Class report.</li>
 </ol>
 <hr />
 <h2 id="10-screens-v1"><span class="sec">§10</span>Screens (v1)</h2>
-<p><strong>Budget-side, the daily screens:</strong> Budget dashboard per event (planned / committed open / <strong>actual (PO-matched)</strong> / paid, remaining, forecast and at-risk, unallocated actuals, contingency remaining, open approvals, failed syncs) · Budget editor (lines by category, running totals, last-year reference, contingency panel, attachments) · Version compare (planned by line, old against new, delta, approver) · Reallocation and contingency-draw actions with authority checks · Freeze and close-out (variance notes, close-out summary) · Event P&amp;L (Phase 5: revenue lines, actual revenue, margin against target) · Cross-event view (every event this year by brand: planned, forecast, actual, margin) · Benchmark picker at creation and a read-only benchmark column per category and matched line, with the approver&rsquo;s delta line (Phase 6, §6c).</p>
-<p><strong>Procurement-side:</strong> Spend request form with live budget side panel · Approval inbox (requests, budgets, over-budget exceptions, contingency requests, supplier approvals) · Commitment list (sync + fulfilment status, linked invoices, paid, PO PDF, receive action) · Supplier master (with proposed-supplier queue) · Mapping admin · Integration Monitor. English first; AR/RTL later (platform-wide).</p>
+<p><strong>Budget-side, the daily screens:</strong> Budget dashboard per event (planned / committed open / <strong>actual (PO-matched)</strong> / paid, remaining, forecast and at-risk, unallocated actuals, contingency remaining, open approvals, failed syncs) · Budget editor (lines by category, running totals, contingency panel, attachments; benchmark column from Phase 6) · Version compare (planned by line, old against new, delta, approver) · Reallocation and contingency-draw actions with authority checks · Freeze and close-out (variance notes, close-out summary) · Event P&amp;L (Phase 5: revenue lines, actual revenue, margin against target) · Cross-event view (every event this year by brand: planned, forecast, actual, margin) · Benchmark picker at creation and a read-only benchmark column per category and matched line, with the approver&rsquo;s delta line (Phase 6, §6c).</p>
+<p><strong>Procurement-side:</strong> Spend request form with live budget side panel · Approval inbox (requests, budgets, over-budget exceptions, contingency requests) · Unallocated bills (link to PO or write off, settle grant) · Commitment list (sync + fulfilment status, linked invoices, paid, PO PDF, receive action) · Supplier master (with proposed-supplier queue) · Mapping admin · Integration Monitor. English first; AR/RTL later (platform-wide).</p>
 <hr />
 <h2 id="11-reporting-v1-minimum"><span class="sec">§11</span>Reporting (v1 minimum)</h2>
-<p><strong>Budget reports first:</strong> planned vs committed vs actual (PO-matched) vs paid by event, with unallocated actuals shown separately · variance by category with the owner&rsquo;s variance notes · forecast at completion and at-risk list across events · contingency usage · budget close-out summary (the document the event owner and finance sign off) · cross-event comparison by year and brand (planned, actual, margin once Phase 5 lands) · event P&amp;L (Phase 5) · benchmark comparison: this edition against its source per category and per attendee, and year over year by brand (Phase 6, §6c). <strong>Procurement reports:</strong> vendor spend by event · open commitments · approval turnaround. CSV + XLSX export. Finance should expect v1 "actual" to sit below the QBO P&amp;L for an event until the later invoice-exception phase allocates non-PO spend; the gap is visible, not hidden. (Payment aging comes with that phase.)</p>
+<p><strong>Budget reports first:</strong> planned vs committed vs actual (PO-matched) vs paid by event, with unallocated actuals shown separately · variance by category with the owner&rsquo;s variance notes · forecast at completion and at-risk list across events · contingency usage · budget close-out summary (the document the event owner and the settle grant sign off; it lists written-off unallocated bills as a reconciling item and matches the QuickBooks Class total for the event within AED 100) · cross-event comparison by year and brand (planned, actual, margin once Phase 5 lands) · event P&amp;L (Phase 5) · benchmark comparison: this edition against its source per category and per attendee, and year over year by brand (Phase 6, §6c). <strong>Procurement reports:</strong> vendor spend by event · open commitments · approval turnaround. CSV + XLSX export. Finance should expect v1 "actual" to sit below the QBO P&amp;L for an event until the later invoice-exception phase allocates non-PO spend; the gap is visible, not hidden. (Payment aging comes with that phase.)</p>
 <hr />
 <h2 id="12-phasing-timeline"><span class="sec">§12</span>Phasing &amp; Timeline</h2>
-<p><strong>v1 is the budget module, delivered in slices.</strong> The first four phases take 12–14 weeks to a parallel run and, as a consequence, retire ProcurementExpress after one clean month-end close. Phase 5 adds the revenue side and follows directly; it does not gate the subscription cancel. Phase 6 adds the benchmarking surfaces once closed EA-SYS budgets exist to compare against.</p>
+<p><strong>v1 is the budget module, delivered in slices.</strong> Re-baselined 9 Sep 2026 (rev. 3.5): the first four phases take 16 weeks to a parallel run (weeks 13–16, inside Phase 4) and, as a consequence, retire ProcurementExpress after one clean month-end close, around month five to six. Phase 5 adds the revenue side and follows directly; Phase 6 adds the benchmarking surfaces once closed EA-SYS budgets exist to compare against. Neither gates the subscription cancel.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -675,48 +697,48 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <tr>
 <td>0. Decisions</td>
 <td>pre-start</td>
-<td>§14 blocking questions · ProcurementExpress feature inventory · finance sign-off on category seed list and tax basis.</td>
+<td>§14 blocking questions · ProcurementExpress feature inventory · finance sign-off on category seed list and tax basis · how bills are entered in QBO today (§6 operating rule) · FX source (§7.3).</td>
 </tr>
 <tr>
 <td>1. Budget core + connector spike</td>
-<td>1–3</td>
-<td>Schema + RLS policy files, <code>Event.code</code> made unique per organization (backfill + collision report), EventBudget/Template/Category/Line with <code>lineKey</code>, templates per event type, the budget editor, budget approval on the matrix, versioning with compare, reallocation and contingency authority, forecast and at-risk, freeze, FX &amp; tax rules, core outbox and approvals primitives, capability-grant columns, dashboard. Benchmarking foundations (§6c): <code>expectedAttendance</code>, the benchmark-source fields, <code>Event.previousEditionEventId</code>, the <code>EventFinancialSummary</code> index fed from the EventsAir archive export. <strong>In parallel, week 1: the QBO spike in §9.8.</strong></td>
+<td>1–5</td>
+<td>Schema + RLS policy files, <code>Event.code</code> made unique per organization (backfill + collision report, MCP whitelist gated), EventBudget/Template/Category/Line with <code>lineKey</code> and <code>templateLineId</code>, templates per event type, the budget editor, single-step budget approval on the matrix, versioning, reallocation and contingency authority, FX &amp; tax rules, capability-grant columns and the <code>denyNonProcurement</code> guard, dashboard. Benchmarking foundations (§6c): <code>expectedAttendance</code>, the benchmark-source fields, <code>Event.previousEditionEventId</code>, the <code>EventFinancialSummary</code> table (empty until Phase 4). <strong>In parallel, week 1: the QBO spike in §9.8.</strong></td>
 </tr>
 <tr>
 <td>2. Procurement workflow</td>
-<td>4–7</td>
-<td>SpendRequest + quotes, supplier onboarding, budget check, approval routing/escalation/notifications, Commitment + lines, PO PDF, receiving, approval inbox, request UI. Connector: OAuth + token lifecycle, vendor/CoA/tax/Class pulls, mapping screens (junior developer).</td>
+<td>6–9</td>
+<td>SpendRequest + quotes, supplier onboarding with <code>awaiting_supplier</code>, budget check, the full approvals primitive (bands, escalation, delegation, notifications), Commitment + lines, PO PDF on approval, receiving with the second-person rule, approval inbox, request UI, version compare, freeze, forecast editing and the at-risk notification. Connector: OAuth + token lifecycle, vendor/CoA/tax/Class pulls, mapping screens (junior developer).</td>
 </tr>
 <tr>
 <td>3. Accounting connector</td>
-<td>8–10</td>
-<td>PO push via outbox, void, CDC read-back (POs, bills, payments, unallocated), divergence handling, Integration Monitor.</td>
+<td>10–12</td>
+<td>Outbox primitive, PO push and close, CDC read-back (POs, bills, vendor credits, payments, unallocated with link-or-write-off), FX on actual and paid, divergence handling, Integration Monitor.</td>
 </tr>
 <tr>
 <td>4. Migration + pilot</td>
-<td>11–14</td>
-<td>Supplier matching + link-don't-push import of open POs, live-budget recreation with opening <code>committedOpen</code>, parallel run with pilot group, close-out with variance notes exercised on the first event to finish, tests to platform standard, posture document updated for supplier financial data, first real QBO transactions verified. <strong>One full finance month-end close before cancelling the subscription.</strong></td>
+<td>13–16</td>
+<td>Supplier matching + link-don't-push import of open POs, live-budget recreation with opening <code>committedOpen</code>, <code>EventFinancialSummary</code> load from the QBO profit-and-loss-by-Class report and the ProcurementExpress export, parallel run with pilot group, close-out with variance notes exercised on the first event to finish, tests to platform standard, posture document updated for supplier financial data, first real QBO transactions verified. <strong>One full finance month-end close before cancelling the subscription.</strong></td>
 </tr>
 <tr>
 <td>5. Revenue &amp; event P&amp;L</td>
-<td>15–18</td>
+<td>17–20</td>
 <td><code>BudgetRevenueLine</code>, planned revenue from registration types and CRM sponsorship packages, computed actuals from paid registrations and won deals, margin against target, the P&amp;L and cross-event views, at-risk on margin. Read-only against accounting; no posting.</td>
 </tr>
 <tr>
 <td>6. Benchmarking</td>
-<td>19&ndash;20</td>
+<td>21&ndash;22</td>
 <td>Benchmark picker with ranked similar-event suggestions, benchmark column in the editor, approver delta line, &ldquo;against benchmark&rdquo; in the close-out summary, year-over-year report by brand (§6c). Runs once closed EA-SYS budgets exist.</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>After v1:</strong> invoice exception queue + matching rules, unallocated-actuals assignment workflow, payment aging, delegation admin UI, cost allocation across events. <strong>Later still:</strong> additional accounting providers, tenant-facing product features (check Intuit App Partner API pricing before promising external QBO connections), advanced analytics.</p>
+<p><strong>After v1:</strong> invoice exception queue + matching rules (the manual link-or-write-off ships in v1), payment aging, delegation admin UI, cost allocation across events. <strong>Later still:</strong> additional accounting providers, tenant-facing product features (check Intuit App Partner API pricing before promising external QBO connections), advanced analytics.</p>
 <hr />
 <h2 id="13-migration-from-procurementexpress"><span class="sec">§13</span>Migration from ProcurementExpress</h2>
-<p>Feature inventory confirmed 3 Sep 2026: budgets, approval routing, PO PDFs to suppliers and the monthly finance reports are all in daily use and are v1 parity; Muthu supplies the exact report list to check §11 against. Export suppliers + open POs. <strong>Suppliers:</strong> match to existing QBO vendors by TRN then normalised name; ambiguous matches go to a manual-resolve screen; <code>externalVendorId</code> populated on import. <strong>Open POs:</strong> these already exist in the MME realm — imported Commitments get <code>accountingSyncStatus = linked_external</code> with <code>externalDocumentId</code> set from a mapping file and are <strong>never pushed</strong>; archive the historical export, don't import it. Recreate live event budgets with <code>committedOpen</code> opening balances so "remaining" is truthful day one. Disconnect ProcurementExpress's MME connection only after ours is verified. Parallel run with a pilot group. The subscription survives until one clean month-end close.</p>
-<h2 id="13a-eventsair-transition-history"><span class="sec">§13a</span>EventsAir Transition &amp; History</h2>
+<p>Feature inventory confirmed 3 Sep 2026: budgets, approval routing, PO PDFs to suppliers and the monthly finance reports are all in daily use and are v1 parity; Muthu supplies the exact report list to check §11 against. Export suppliers + open POs. <strong>Suppliers:</strong> match to existing QBO vendors by TRN then normalised name; ambiguous matches go to a manual-resolve screen; <code>externalVendorId</code> populated on import. <strong>Open POs:</strong> these already exist in the MME realm — imported Commitments get <code>accountingSyncStatus = linked_external</code> with <code>externalDocumentId</code> set from a mapping file and are <strong>never pushed</strong>; they carry <code>spendRequestId = null</code> and a PO-to-budget-line mapping file supplied by finance (unmapped lines land on the category&rsquo;s default line); archive the historical export, don't import it. Recreate live event budgets with <code>committedOpen</code> opening balances so "remaining" is truthful day one. Disconnect ProcurementExpress's MME connection only after ours is verified. Parallel run with a pilot group. The subscription survives until one clean month-end close.</p>
+<h2 id="13a-eventsair-transition-history"><span class="sec">§13a</span>EventsAir History</h2>
 <p>Budgets attach only to EA-SYS Event records. EA-SYS holds the upcoming events from October 2026 onward; every earlier event lives in EventsAir. How long EventsAir stays in use is Medhat&rsquo;s decision and nothing in this module depends on a date. The decision of 2 Sep 2026 stands: <strong>archive and index EventsAir history; never migrate it into live tables.</strong> There is no <code>eventsAirId</code> column and none is added.</p>
 <ol>
-<li><strong>Historical events:</strong> a tier-1 export of the EventsAir data (events, registrations, financial summaries) into the disaster-recovery bucket, taken early so it does not depend on how long EventsAir access continues, plus a searchable index whose per-event financial summaries by category (<code>EventFinancialSummary</code>, §5) feed benchmarking (§6c). No Event rows are created for them and no retroactive budgets exist. Event-code continuity is checked against that index when a budget is created: a new code that collides with a historical one is refused, so benchmarking by code stays possible without importing anything.</li>
+<li><strong>Historical events:</strong> a tier-1 export of the EventsAir data (events, registrations, revenue and attendance) into the disaster-recovery bucket, taken early so it does not depend on how long EventsAir access continues, plus a searchable index whose per-event rows (<code>EventFinancialSummary</code>, §5) carry attendance and revenue from EventsAir and spend by category from QuickBooks and ProcurementExpress, loaded in Phase 4; EventsAir never held expense data. No Event rows are created for them and no retroactive budgets exist. Event-code continuity is checked against that index when a budget is created: a new code that collides with a historical one is refused, so benchmarking by code stays possible without importing anything.</li>
 <li><strong>In-flight events:</strong> events before October 2026 run and finish in EventsAir and join the archive; nothing new originates there, so the transitional pull proposed in rev. 3.1 is dropped.</li>
 <li><strong>Steady state:</strong> EA-SYS is the only origin of events; the EventsAir contacts adapter is decommissioned when Medhat decides EventsAir is no longer needed.</li>
 </ol>
@@ -743,7 +765,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <td>2</td>
 <td><strong>Over-budget &amp; reallocation authority.</strong> Who approves over-budget exceptions; who may move budget between lines — finance only, or event owner within a limit?</td>
 <td><span class="chip chip-later">Later</span></td>
-<td>Finance approves exceptions; event owner may move up to 10% of a line, finance above that.</td>
+<td>Adopted 9 Sep 2026: over-budget exceptions go to Medhat (Q3); the owner may move up to 10% of a line per version, larger moves on the AED matrix.</td>
 </tr>
 <tr>
 <td>3</td>
@@ -755,7 +777,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <td>4</td>
 <td><strong>Non-event spend.</strong> Does office/subscription/equipment spend go through POs today?</td>
 <td><span class="chip chip-later">Later</span> — nullable <code>eventId</code> reserved</td>
-<td>If yes, one entity-level operational budget per year.</td>
+<td>If yes, one entity-level operational budget per year, posting to a fixed Class <code>OPS-{year}</code>.</td>
 </tr>
 <tr>
 <td>5</td>
@@ -779,7 +801,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <td>8</td>
 <td><strong>Contingency.</strong> Percent of total or fixed amount per budget? Who approves spending from contingency?</td>
 <td><span class="chip chip-later">Later</span></td>
-<td>Percent, default 10%; finance approves draws.</td>
+<td>Percent of <code>plannedExpenseTotal</code> (which excludes it), default 10%; draws on the AED matrix.</td>
 </tr>
 <tr>
 <td>9</td>
@@ -809,13 +831,25 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <td>13</td>
 <td><strong>Close-out.</strong> Who closes a budget (event owner with finance sign-off, or finance alone), when (after the last bill is allocated, or at month-end), and what variance threshold requires a written explanation per line?</td>
 <td><span class="chip chip-later">Later</span> — needed before the first event closes under the module (Phase 4)</td>
-<td>Owner closes, finance signs off; after the last bill is allocated; threshold 10% or AED 5,000, whichever is larger.</td>
+<td>Owner closes, the settle grant signs off; after the last bill is allocated or written off; threshold 10% or AED 5,000, whichever is larger.</td>
 </tr>
 <tr>
 <td>14</td>
 <td><strong>Benchmarking.</strong> What counts as a similar event for a first-time budget (same type, same brand, comparable attendance?), and which past figures exist in a loadable form: EventsAir financial summaries by category, ProcurementExpress orders by event, anything else finance keeps?</td>
-<td><span class="chip chip-later">Later</span> — the archive export is early (Phase 1); the definition is needed before Phase 6</td>
-<td>Same type and brand, attendance within &plusmn;50%, the organiser picks from up to three; category-level summaries from EventsAir; the ProcurementExpress export by event.</td>
+<td><span class="chip chip-later">Later</span>, the load is Phase 4; the definition is needed before Phase 6</td>
+<td>Same type and brand, attendance within &plusmn;50%, the organiser picks from up to three; spend by category from the QBO profit-and-loss-by-Class report and the ProcurementExpress export; attendance and revenue from EventsAir.</td>
+</tr>
+<tr>
+<td>15</td>
+<td><strong>FX rate source.</strong> Which daily source, and is a commercial feed acceptable?</td>
+<td><span class="chip chip-later">Later</span>, Phase 0</td>
+<td>Central Bank of the UAE published rates, fetched daily by a worker job; commercial feed only if finance needs intraday rates.</td>
+</tr>
+<tr>
+<td>16</td>
+<td><strong>Bill entry in QuickBooks today.</strong> Are bills created from the purchase order or standalone, and does every line carry the event Class? (§6 operating rule)</td>
+<td><span class="chip chip-later">Later</span>, Phase 0</td>
+<td>From the PO with the Class, adopted by the pilot; standalone bills go to the unallocated bucket and are linked by hand.</td>
 </tr>
 </tbody>
 </table></div>
@@ -824,13 +858,14 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <ul>
 <li><strong>Budget:</strong> create a budget from a template, author lines with FX-correct, ex-VAT amounts and contingency, submit it and approve it on the AED matrix; a new version preserves committed and actual figures per line and the compare view shows every delta with its approver.</li>
 <li><strong>Control:</strong> reallocation and contingency draws respect the authority rules and are audited; forecast per line rolls up to the budget and the at-risk flag fires on the dashboard and in the daily digest before any bill arrives; freeze locks the plan while spend continues.</li>
-<li><strong>Close-out:</strong> a budget cannot close with unallocated actuals; every line over the variance threshold carries an explanation; the close-out summary reconciles to the QuickBooks figures for the event to the amount stated in §11; closed budgets are read-only.</li>
+<li><strong>Close-out:</strong> a budget cannot close with unallocated actuals; every line over the variance threshold carries an explanation; the close-out summary reconciles to the QuickBooks Class total for the event within the §11 tolerance, with write-offs listed as a reconciling item; closed budgets are read-only.</li>
 <li><strong>Cross-event:</strong> the year view lists every event by brand with planned, forecast and actual from the same figures the event dashboards show.</li>
-<li><strong>Benchmark foundations (Phase 1):</strong> a budget cannot be submitted without <code>expectedAttendance</code>; every category is a fixed <code>BudgetCategory.code</code>; a cloned event carries <code>previousEditionEventId</code>; the archive index holds one <code>EventFinancialSummary</code> per past event.</li>
+<li><strong>Benchmark foundations (Phase 1):</strong> a budget cannot be submitted without <code>expectedAttendance</code>; every category is a fixed <code>BudgetCategory.code</code>; a cloned event carries <code>previousEditionEventId</code>; the <code>EventFinancialSummary</code> table exists and closed budgets write to it (past-event rows load in Phase 4).</li>
 <li>Submit a spend request with quotes against an active budget; the system blocks or exception-routes over-budget requests; a proposed supplier is approved before a PO can be posted.</li>
 <li>Requester can never approve own request; second approver is independent; approvals respect AED ceilings and escalate on inaction with notifications.</li>
-<li>Approved requests create Commitments with lines; Commitments post to QuickBooks as POs via the adapter; external ID stored; event code preserved end-to-end; PO PDF reaches the supplier.</li>
-<li>Bills and payments entered in QBO against our POs update actual (PO-matched) and paid within 24h; non-PO bills for an event appear as unallocated actuals; a PO edited in QBO is flagged as diverged.</li>
+<li>Approved requests create Commitments with lines; the PO PDF reaches the supplier on approval even when QBO is unreachable; Commitments post to QuickBooks as POs via the adapter in the background; external ID stored; event code preserved end-to-end.</li>
+<li>Bills created from our POs in QBO update actual (PO-matched) and paid within 24h; non-PO bills for an event appear as unallocated actuals and can be linked to a PO or written off; vendor credits reduce actual; a PO edited in QBO is flagged as diverged.</li>
+<li><strong>Grants:</strong> a MEMBER without a grant cannot write any procurement data; the settle grant cannot decide a spend request or a budget; a spend request from an approver routes to the tier above; a delta re-approval is routed on the new total.</li>
 <li>Dashboard shows planned / committed open / actual (PO-matched) / paid / remaining per event; sync failures are visible and manually reprocessable; nothing fails silently.</li>
 <li>Audit log captures every critical action (submission, approval, amount change, override, sync resolution, divergence resolution, close-out) with before/after and reason.</li>
 <li>RLS active on all module tables and honoured by the worker; migration completed with linked (not re-pushed) POs; one finance month-end close passed on real data.</li>
@@ -841,9 +876,82 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <div class="part-divider" id="part3">
 <span class="sec">Part 3</span>
 <h2>Revision history</h2>
-<p>What changed between rev. 3, 3.1, 3.2, 3.3 and 3.4, in the original wording. Newest first.</p>
+<p>What changed between rev. 3, 3.1, 3.2, 3.3, 3.4 and 3.5, in the original wording. Newest first.</p>
 </div>
 <div id="rev-33"></div>
+<h3>rev. 3.4 &rarr; rev. 3.5 (9 September 2026, review fixes)</h3>
+<p>Two independent reviews (one against the EA-SYS code, one of the document itself) found nothing impossible on the platform and a set of rules that were assumed, contradictory or missing. Owner rulings on the six that needed a decision, and the rest fixed in place. Every platform claim about grants, worker leases, RLS files, encrypted secrets, counters, the PDF layout and MCP checked out against the code.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Area</th>
+<th>rev. 3.4</th>
+<th>rev. 3.5</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The finance actor</td>
+<td>&ldquo;Finance approves&rdquo; contingency draws, reallocations, write-offs, supplier approval and close-out, while Muthu is &ldquo;not an approver&rdquo; and holds no grant</td>
+<td>Third grant <code>procurement.settle</code> (Muthu): completeness check, suppliers, receipt confirmation, link-or-write-off, QBO re-authorisation, divergence resolution, close-out sign-off. Everything that decides spend routes through <code>procurement.approve</code> on the AED matrix (§3, §4, §6a, §8)</td>
+</tr>
+<tr>
+<td>Bill entry in QuickBooks</td>
+<td>&ldquo;Muthu keeps recording bills exactly as today&rdquo;</td>
+<td>Operating rule: a bill against a PO is created from that PO and carries the event Class, else nothing matches; Phase 0 checks today&rsquo;s practice (§14 Q16); a manual link-or-write-off action ships in v1 (§6, §10)</td>
+</tr>
+<tr>
+<td>Past-event expense source</td>
+<td>Category summaries from the EventsAir archive</td>
+<td>EventsAir never held costs: actual from the QBO profit-and-loss-by-Class report mapped through <code>AccountMapping</code>, planned from the ProcurementExpress export, attendance and revenue from EventsAir; <code>quickbooks</code> added as a source; load moves to Phase 4 (§5, §6c, §13a, §14 Q14)</td>
+</tr>
+<tr>
+<td>Timeline</td>
+<td>Phase 1 in weeks 1&ndash;3; 12&ndash;14 weeks to a parallel run</td>
+<td>Phase 1 re-cut to weeks 1&ndash;5 (outbox to Phase 3, compare/freeze/forecast to Phase 2, index load to Phase 4, approvals primitive trimmed to single-step); 16 weeks to a parallel run, Phase 5 weeks 17&ndash;20, Phase 6 weeks 21&ndash;22; subscription stop around month five to six (§12)</td>
+</tr>
+<tr>
+<td>Supplier PDF</td>
+<td>Emailed after the QBO post succeeded</td>
+<td>Emailed on approval with <code>commitmentNo</code>; QBO post in the background; Class created at budget approval (§6, §9.4)</td>
+</tr>
+<tr>
+<td>Freeze</td>
+<td>Every approval on a frozen budget needs the top-tier override</td>
+<td>Freeze locks planned amounts and reallocation; requests within a line&rsquo;s remaining run on the normal matrix; only over-budget requests go to Medhat (§6a, §8.5)</td>
+</tr>
+<tr>
+<td>Delta re-approval</td>
+<td>Approved for the delta only (a ceiling could be crossed in pieces)</td>
+<td>Routed on the new total, approved for the delta (§6); budget versions the same, with Lina able to approve a within-ceiling delta on a Medhat-approved total (§6a)</td>
+</tr>
+<tr>
+<td>Approval routing</td>
+<td>No route for Lina&rsquo;s own requests; &ldquo;Medhat is her delegate when away&rdquo;</td>
+<td>An approver&rsquo;s own request routes to the tier above; Lina&rsquo;s inaction passes to Medhat at 48h; no standby for Medhat in v1 (§8.2, §8.3)</td>
+</tr>
+<tr>
+<td>Benchmark matching</td>
+<td>By <code>lineKey</code> (minted per budget, so nothing matched)</td>
+<td>By <code>templateLineId</code>, category code as fallback; planned to planned, actual to actual; <code>recordedAttendance</code> at close-out; an open previous edition usable as &ldquo;in progress&rdquo;; zero candidates shows no benchmark (§5, §6c)</td>
+</tr>
+<tr>
+<td>Money rules</td>
+<td>Forecast default <code>committedTotal + actual − overlap</code>; contingency both inside and outside planned; no FX source; UAE VAT only; no deposits, vendor credits or cancel-after-partial semantics</td>
+<td><code>plannedExpenseTotal</code> excludes contingency; forecast default <code>max(planned, committedOpen + actual)</code>; FX provider chosen in Phase 0 (§14 Q15), actual and paid at their own rates with FX variance per line; reverse-charge and non-recoverable foreign VAT; deposits on commitments; VendorCredits read back; cancel = close in QBO, release the unbilled remainder (§5, §6, §7, §9)</td>
+</tr>
+<tr>
+<td>Segregation and scope</td>
+<td>Owner reallocation uncapped per version; requester confirms own receipt; line optional on a request; <code>requiresSecondApproval</code> undefined</td>
+<td>10% cumulative per version, never into a line with the owner&rsquo;s own pending request; second-person receipt above AED 50,000; line required at submission; second approval removed from v1 (§4, §5, §6, §6a)</td>
+</tr>
+<tr>
+<td>Wording and pointers</td>
+<td>&ldquo;Phase 2&rdquo; meaning two things; &ldquo;§2.8&rdquo;; &ldquo;to the amount stated in §11&rdquo;; void-and-recreate; allow-list grants; Doc 1/Doc 2 unnamed</td>
+<td>Post-v1 named as such; §2.9; a stated §11 tolerance (AED 100) with write-offs as a reconciling item; close-and-recreate; the <code>denyNonProcurement</code> guard; Doc 1 and Doc 2 named in §1; <code>update_event</code> whitelist gated for <code>code</code>; at-risk by notification, not the digest</td>
+</tr>
+</tbody>
+</table></div>
 <h3>rev. 3.3 &rarr; rev. 3.4 (9 September 2026)</h3>
 <p>Benchmarking was a single sentence in §6a. The owner asked for it as a feature: a new budget is measured against its previous edition, or a similar event when it is the first of its kind, per category and per attendee. Decision: the data that makes budgets comparable is captured from Phase 1; the comparison screens come last, as Phase 6, when closed EA-SYS budgets exist to compare against. One factual correction rides along.</p>
 <div class="table-wrap"><table>
@@ -994,7 +1102,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <tr>
 <td>Supplier financial data</td>
 <td>Not classified</td>
-<td>New principle §2.8: TRNs, bank details and payments follow the reimbursement boundary; posture document updated before the pilot (§15)</td>
+<td>New principle §2.9: TRNs, bank details and payments follow the reimbursement boundary; posture document updated before the pilot (§15)</td>
 </tr>
 </tbody>
 </table></div>
