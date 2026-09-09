@@ -10,6 +10,12 @@
  * exact rendered email — console parity), copy it, or jump to the full
  * console for the submission detail.
  *
+ * Also lists the documents the speaker attached to the form (Sep 9, 2026,
+ * owner: "can they be attached against the speaker profile?"): the same rows
+ * and the same authed download route the console uses, so they stay behind
+ * the reimbursement boundary rather than the Documents card's (which MEMBER
+ * may read). Nothing is copied; the card is a second window onto the claim.
+ *
  * SELF-HIDES for roles outside the reimbursement boundary
  * (canManageReimbursements: SUPER_ADMIN / ADMIN / ORGANIZER only) — the
  * card's data is fetched from the staff-gated list API, and bank/passport
@@ -19,7 +25,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Banknote, Check, Copy, ExternalLink, Eye, Loader2, PenLine, Plus, Send } from "lucide-react";
+import { Banknote, Check, Copy, ExternalLink, Eye, FileText, Loader2, PenLine, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +48,7 @@ import {
   CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
   canManageReimbursements,
+  documentKindLabel,
   formatClaimTotals,
   formatHonorarium,
   type ClaimItemKey,
@@ -49,6 +56,7 @@ import {
   type Honorarium,
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
+import { formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Props {
@@ -62,7 +70,7 @@ interface Row {
   status: "PENDING" | "SUBMITTED";
   submittedAt: string | null;
   claimLines: ClaimLine[] | null;
-  documents: { id: string }[];
+  documents: { id: string; kind: string; filename: string; size: number; createdAt: string }[];
 }
 
 export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
@@ -362,6 +370,35 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                 <span className="tabular-nums font-medium">{formatClaimTotals(row.claimLines)}</span>
               ) : null}
             </div>
+            {row.documents.length > 0 && (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                  Documents the speaker attached ({row.documents.length})
+                </p>
+                <ul className="space-y-1">
+                  {row.documents.map((doc) => (
+                    <li key={doc.id}>
+                      <a
+                        href={`/api/events/${eventId}/reimbursements/${row.id}/documents/${doc.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-start gap-2 text-primary hover:underline"
+                      >
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                        {/* Stacked, not inline: the card sits in a narrow sidebar
+                            column, where label and filename would wrap into each other. */}
+                        <span className="min-w-0">
+                          <span className="block">{documentKindLabel(doc.kind)}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {doc.filename} · {formatFileSize(doc.size)}
+                          </span>
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" disabled={busy} onClick={() => setSendOpen(true)}>
                 <Send className="h-4 w-4 mr-1" />

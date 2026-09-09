@@ -495,6 +495,10 @@ was fixed in-band (see the CLAUDE.md entry). These are the deliberate carry-over
 | C12 | LOW | **`emailDomain` is duplicated** between `contact-import-blocklist.ts` and the private one in `internal-domains.ts` (already a documented dependency-free leaf module — the natural home). |
 | C13 | LOW | **`sanitizeImportedTag` is exported from a self-executing script**, so it is untestable (importing it runs `main()`) and untested, despite carrying the JSON-blob unwrapping and machine-id rejection logic. Fix: move it beside `screenContact`. |
 
+### Reimbursement documents on the speaker profile (Sep 9, 2026): the passport mirror is an owner call
+
+The speaker page's Reimbursement card now lists the files a speaker attached to their reimbursement form, linking to the same authed download route the console uses. That was the easy fix, shipped Sep 9, 2026. What was deliberately NOT done: copying the passport into the speaker's **Documents** card (`SpeakerDocument`), which is where the *profile form* already puts its passport copy. Two reasons it needs a decision rather than a patch. The Documents card is readable by **MEMBER**, the reimbursement rows are not, so a mirror widens who can open that passport (consistent with the profile form, but a widening all the same). And it is a real file copy across two storage prefixes with replace-in-place semantics (one passport per speaker, whichever form it came through), plus the question of which copy wins when both forms are used. Receipts never belong in the Documents card; they are claim evidence. Build the mirror only if the owner wants one passport slot regardless of the door it came through.
+
 ### Speaker honorarium (Sep 3, 2026): left out on purpose
 
 - **MCP.** `create_speaker` / `update_speaker` / `list_speakers` do not carry the honorarium; it is set from the reimbursement console or the speaker page only. Exposing it means deciding whether an org API key (admin-equivalent everywhere) may set a payment figure through an agent, which is a policy call, not a wiring one.
