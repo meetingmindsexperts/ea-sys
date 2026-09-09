@@ -64,3 +64,28 @@ export function normalizeCoAuthors(input: unknown): CoAuthor[] {
   }
   return out.slice(0, CO_AUTHORS_HARD_CEILING);
 }
+
+/**
+ * What `{{coAuthorNames}}` prints when an abstract has no co-authors
+ * (Sep 9, 2026, owner decision). "None" states the fact beside a label
+ * ("Co-Author: None"); "N/A" would say the field did not apply, and it did.
+ */
+export const NO_CO_AUTHORS_LABEL = "None";
+
+/**
+ * The `{{coAuthorNames}}` email variable: "First Last, First Last", or
+ * NO_CO_AUTHORS_LABEL when there are none. ONE implementation for the
+ * automatic confirmation, the decision email, the bulk resends and the
+ * preview, so they cannot disagree.
+ *
+ * Why not an empty string: the template renderer is plain substitution with
+ * no conditionals, so an organiser who adds a "Co-Author:" row cannot hide it
+ * for a sole author. Three live events had done exactly that, and about a
+ * third of their confirmations showed a labelled row beside an empty cell,
+ * which reads as a rendering fault. Emails only: the CSV export keeps its
+ * blank cell, which is what a spreadsheet wants.
+ */
+export function formatCoAuthorNames(input: unknown): string {
+  const names = normalizeCoAuthors(input).map((c) => `${c.firstName} ${c.lastName}`);
+  return names.length > 0 ? names.join(", ") : NO_CO_AUTHORS_LABEL;
+}

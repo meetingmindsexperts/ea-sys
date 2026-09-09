@@ -13,7 +13,7 @@ import {
 import { notifyEventAdmins } from "@/lib/notifications";
 import { db } from "@/lib/db";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
-import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { formatCoAuthorNames } from "@/lib/abstract-coauthors";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 
@@ -116,9 +116,7 @@ export function buildAbstractConfirmationVars(input: AbstractConfirmationVarInpu
       : "",
     theme: input.themeName ?? "",
     authorName: formatPersonName(input.speaker.title, input.speaker.firstName, input.speaker.lastName),
-    coAuthorNames: normalizeCoAuthors(input.coAuthors)
-      .map((c) => `${c.firstName} ${c.lastName}`)
-      .join(", "),
+    coAuthorNames: formatCoAuthorNames(input.coAuthors),
   };
 }
 
@@ -361,9 +359,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       ? PRESENTATION_TYPE_LABELS[details.presentationType] ?? details.presentationType
       : "";
     const themeName = details?.theme?.name ?? "";
-    const coAuthorNames = normalizeCoAuthors(details?.coAuthors)
-      .map((c) => `${c.firstName} ${c.lastName}`)
-      .join(", ");
+    const coAuthorNames = formatCoAuthorNames(details?.coAuthors);
     const authorName = formatPersonName(speaker.title, speaker.firstName, speaker.lastName);
 
     const vars: Record<string, string | number | undefined> = {

@@ -1453,7 +1453,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "presentationType", description: "Presentation type (e.g. Oral, Poster) — blank if not set" },
     { key: "theme", description: "Abstract theme name — blank if none" },
     { key: "authorName", description: "Submitting author's full name (with title)" },
-    { key: "coAuthorNames", description: "Co-author names, comma-separated — blank if none" },
+    { key: "coAuthorNames", description: "Co-author names, comma-separated; prints None when the abstract has no co-authors" },
     { key: "managementLink", description: "Abstract management link" },
     {
       key: "travelGrantBlock",
@@ -1497,7 +1497,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "presentationType", description: "Presentation type (e.g. Oral, Poster) — blank if not set" },
     { key: "theme", description: "Abstract theme name — blank if none" },
     { key: "authorName", description: "Submitting author's full name (with title)" },
-    { key: "coAuthorNames", description: "Co-author names, comma-separated — blank if none" },
+    { key: "coAuthorNames", description: "Co-author names, comma-separated; prints None when the abstract has no co-authors" },
     { key: "newStatus", description: "New status (e.g. ACCEPTED)" },
     { key: "statusHeading", description: "Status heading text" },
     { key: "statusMessage", description: "Status description text" },

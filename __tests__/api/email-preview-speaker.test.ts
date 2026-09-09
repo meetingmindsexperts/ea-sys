@@ -252,6 +252,14 @@ describe("email-preview with abstractId (Abstract Confirmation resend, Aug 4 202
     expect(vars.abstractTitle).toBe("AI in Cardiology");
   });
 
+  it("a sole author previews coAuthorNames as None, the send's word (preview == send)", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ ...abstractRow, coAuthors: [] });
+    const res = await POST(req({ slug: "abstract-submission-confirmation", abstractId: "ab1" }), params);
+    expect(res.status).toBe(200);
+    const vars = mockRender.mock.calls[0][1] as Record<string, string>;
+    expect(vars.coAuthorNames).toBe("None");
+  });
+
   it("404s an abstractId from another event", async () => {
     mockDb.abstract.findFirst.mockResolvedValue(null);
     const res = await POST(req({ slug: "abstract-submission-confirmation", abstractId: "foreign" }), params);
