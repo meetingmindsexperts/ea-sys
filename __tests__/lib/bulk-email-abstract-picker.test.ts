@@ -53,8 +53,8 @@ describe("status options mirror what the server accepts", () => {
       "REVISION_REQUESTED",
     ]);
   });
-  it("a reminder and a custom email may target anything", () => {
-    expect(abstractStatusOptionsFor("abstract-reminder")).toHaveLength(7);
+  it("a reminder may target only authors with something left to submit (review M3), a custom email anything", () => {
+    expect(abstractStatusOptionsFor("abstract-reminder")).toEqual(["DRAFT", "REVISION_REQUESTED"]);
     expect(abstractStatusOptionsFor("custom")).toHaveLength(7);
   });
   it("every offered option passes the shared allow predicate", () => {

@@ -89,6 +89,12 @@ export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
 export const ABSTRACT_DECISION_STATUSES = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] as const;
 /** Mirrors the single resend route's NOT_RESENDABLE set. */
 export const ABSTRACT_NOT_RESENDABLE_STATUSES = ["DRAFT", "WITHDRAWN"] as const;
+/**
+ * Statuses a "submit your abstract" reminder may target (review M3, Sep 9,
+ * 2026): authors who still have something to submit. The default scope is
+ * DRAFT; REVISION_REQUESTED is an explicit choice for "please resubmit".
+ */
+export const ABSTRACT_REMINDER_STATUSES = ["DRAFT", "REVISION_REQUESTED"] as const;
 
 /**
  * The status scope an abstract type applies when the organiser sets none:
@@ -117,6 +123,9 @@ export function abstractStatusAllowedForType(emailType: string, status: string):
   }
   if (emailType === "abstract-decision") {
     return (ABSTRACT_DECISION_STATUSES as readonly string[]).includes(status);
+  }
+  if (emailType === "abstract-reminder") {
+    return (ABSTRACT_REMINDER_STATUSES as readonly string[]).includes(status);
   }
   return true;
 }

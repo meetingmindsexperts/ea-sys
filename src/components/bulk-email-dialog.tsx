@@ -34,6 +34,7 @@ import {
   useScheduleBulkEmail,
   useTickets,
   useEventTags,
+  useBulkEmailAudienceCount,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -46,6 +47,7 @@ import {
 } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import {
+  ABSTRACT_PICKER_FETCH_LIMIT,
   abstractScopeLabel,
   abstractStatusLabel,
   abstractStatusOptionsFor,
@@ -171,6 +173,8 @@ interface BulkEmailDialogProps {
    * rows are sent as `recipientIds` (abstract ids), overriding the props.
    */
   abstractOptions?: AbstractPickerOption[];
+  /** True when the host's fetch hit the list cap, so the picker is incomplete (review MED 2). */
+  abstractOptionsTruncated?: boolean;
 }
 
 const speakerEmailTypes: EmailTypeOption[] = [
@@ -318,6 +322,7 @@ export function BulkEmailDialog({
   defaultEmailType,
   recipientCountFor,
   abstractOptions,
+  abstractOptionsTruncated,
 }: BulkEmailDialogProps) {
   const [emailType, setEmailType] = useState<string>(
     defaultEmailType ?? getDefaultEmailType(recipientType)
@@ -492,7 +497,11 @@ export function BulkEmailDialog({
   // A status the current type cannot send resolves to "all" (the type's own
   // scope) rather than reaching the server as an INVALID_FILTER.
   const abstractStatus = isAbstracts ? resolveAbstractStatusFilter(emailType, localAbstractStatus) : "all";
-  const abstractSelected = hasAbstractPicker && localAbstractIds.size > 0;
+  // A reminder has nothing to tick (drafts are never listed to staff), so any
+  // ticks left over from another type are ignored rather than silently
+  // narrowing a send whose list is hidden.
+  const abstractSelected =
+    hasAbstractPicker && emailType !== "abstract-reminder" && localAbstractIds.size > 0;
   // Ticked abstracts behave exactly like a row selection made on a list page.
   const effectiveSelectionMode: "selected" | "all" = abstractSelected ? "selected" : selectionMode;
   const effectiveRecipientIds = abstractSelected ? Array.from(localAbstractIds) : recipientIds;
@@ -545,14 +554,28 @@ export function BulkEmailDialog({
   // late-inclusive "matching" choice. Immediate selected sends stay a fixed list.
   const resolvesToMatching =
     effectiveSelectionMode === "all" || (sendMode === "later" && scheduledAudience === "matching");
+  // Abstracts are counted on the SERVER by the resolver's own where (review
+  // HIGH 1): the list this dialog holds never contains a draft, and a reminder
+  // mails exactly draft authors, so a client-side count read 0 while the server
+  // mailed everyone with a draft. The client count is only the placeholder.
+  const serverCountQuery = useBulkEmailAudienceCount(
+    eventId,
+    {
+      recipientType: "abstracts",
+      emailType,
+      status: abstractStatus,
+      recipientIds: abstractSelected && !resolvesToMatching ? Array.from(localAbstractIds) : undefined,
+    },
+    open && hasAbstractPicker,
+  );
+  const abstractServerCount = hasAbstractPicker ? (serverCountQuery.data?.count ?? null) : null;
   const displayCount = hasAbstractPicker
-    ? // Same scope rule the server applies, restricted to the ticked rows unless
-      // the send resolves to "everyone matching" at send time.
+    ? (abstractServerCount ??
       countAbstractRecipients(abstractOptions ?? [], {
         emailType,
         status: abstractStatus,
         selectedIds: resolvesToMatching ? undefined : localAbstractIds,
-      })
+      }))
     : resolvesToMatching
       ? recipientCountFor
         ? recipientCountFor(effectiveFilters)
@@ -1327,6 +1350,14 @@ export function BulkEmailDialog({
                     </p>
                   </div>
 
+                  {emailType === "abstract-reminder" && (
+                    <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                      A reminder goes to every author in scope. Drafts are never listed to staff, so there is
+                      nothing to tick here; the recipient count below comes from the server and does include
+                      them.
+                    </p>
+                  )}
+                  {emailType !== "abstract-reminder" && (
                   <div className="space-y-2">
                     <Label htmlFor="bulk-email-abstract-search">Pick abstracts</Label>
                     <Input
@@ -1392,7 +1423,19 @@ export function BulkEmailDialog({
                         </button>
                       )}
                     </p>
+                    {abstractOptionsTruncated && (
+                      <p className="text-xs text-amber-700">
+                        Showing the newest {ABSTRACT_PICKER_FETCH_LIMIT} abstracts; older ones cannot be
+                        ticked here. The recipient count still covers everyone in scope.
+                      </p>
+                    )}
+                    {(emailType === "custom" || isSavedTemplate) && abstractStatus === "all" && (
+                      <p className="text-xs text-muted-foreground">
+                        Authors whose only abstract is a draft are counted and emailed but not listed.
+                      </p>
+                    )}
                   </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1403,7 +1446,18 @@ export function BulkEmailDialog({
             <p className="font-medium">
               <span className="font-bold text-primary">{displayCount}</span>{" "}
               {displayCount === 1 ? "recipient" : "recipients"}
+              {hasAbstractPicker && abstractServerCount == null && !serverCountQuery.isError && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">(counting on the server…)</span>
+              )}
             </p>
+            {hasAbstractPicker && serverCountQuery.isError && (
+              <p className="text-destructive">
+                Couldn&apos;t count recipients on the server, so Send is paused.{" "}
+                <button type="button" className="underline underline-offset-2" onClick={() => void serverCountQuery.refetch()}>
+                  Retry
+                </button>
+              </p>
+            )}
             {!isAbstracts && statusFilter && statusFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by status: {statusFilter}</p>
             )}
@@ -1579,7 +1633,10 @@ export function BulkEmailDialog({
             disabled={
               bulkEmail.isPending ||
               scheduleEmail.isPending ||
-              (isCertificate && certTemplateIds.length === 0)
+              (isCertificate && certTemplateIds.length === 0) ||
+              // Review MED 4: never enqueue a send the server will resolve to
+              // nobody, and never one whose audience could not be counted.
+              (hasAbstractPicker && (abstractServerCount == null || abstractServerCount === 0))
             }
           >
             {bulkEmail.isPending || scheduleEmail.isPending ? (

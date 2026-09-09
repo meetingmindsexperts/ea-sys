@@ -61,7 +61,7 @@ import {
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import type { AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
+import { ABSTRACT_PICKER_FETCH_LIMIT, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
@@ -298,7 +298,10 @@ export default function CommunicationsPage() {
   // Fetch all data for counts
   const registrationsQuery = useRegistrations(eventId);
   const speakersQuery = useSpeakers(eventId);
-  const abstractsQuery = useAbstracts(eventId);
+  // The list GET defaults to the newest 200 and caps at 500 (review MED 2): ask
+  // for the cap so the picker can find older numbers, and tell the dialog when
+  // even that was not everything.
+  const abstractsQuery = useAbstracts(eventId, { limit: String(ABSTRACT_PICKER_FETCH_LIMIT) });
   const reviewersQuery = useReviewers(eventId);
   const templatesQuery = useEmailTemplates(eventId);
 
@@ -1088,6 +1091,7 @@ export default function CommunicationsPage() {
         defaultEmailType={activeDefaultEmailType}
         recipientCountFor={recipientCountFor}
         abstractOptions={abstractOptions}
+        abstractOptionsTruncated={abstracts.length >= ABSTRACT_PICKER_FETCH_LIMIT}
       />
     </div>
   );

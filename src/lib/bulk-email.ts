@@ -46,6 +46,7 @@ import {
   PER_ABSTRACT_EMAIL_TYPES,
   ABSTRACT_DECISION_STATUSES,
   ABSTRACT_NOT_RESENDABLE_STATUSES,
+  ABSTRACT_REMINDER_STATUSES,
   defaultAbstractStatusFilter,
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
@@ -403,6 +404,68 @@ export function assertAbstractTypeStatus(emailType: string, status: string | und
   if (emailType === "abstract-decision" && !(ABSTRACT_DECISION_STATUSES as readonly string[]).includes(s)) {
     throw new BulkEmailError(`A decision email needs a decided abstract; ${s} has no decision to send.`, 400, "INVALID_FILTER");
   }
+  // Review M3 (Sep 9, 2026): "Reminder: submit your abstract" to an ACCEPTED
+  // author is a contradiction the same way a decision to a draft is.
+  if (emailType === "abstract-reminder" && !(ABSTRACT_REMINDER_STATUSES as readonly string[]).includes(s)) {
+    throw new BulkEmailError(`A submission reminder is for authors still working on an abstract; ${s} has nothing left to submit.`, 400, "INVALID_FILTER");
+  }
+}
+
+/** The dedup key for per-author abstract sends. Shared by the send and the count. */
+function abstractAuthorKey(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/**
+ * The abstracts audience `where`, used by the send AND the count. "all" and an
+ * unparsable status both mean the type's default scope (the precheck rejects
+ * an unparsable one before either runs, so here it can only be "all").
+ */
+function abstractRecipientWhere(args: {
+  eventId: string;
+  emailType: string;
+  status: string | undefined;
+  recipientIds: string[] | undefined;
+}): Prisma.AbstractWhereInput {
+  const parsed = args.status ? abstractStatusSchema.safeParse(args.status) : null;
+  const explicitStatus = parsed?.success ? parsed.data : undefined;
+  const statusWhere = explicitStatus ?? defaultAbstractStatusFilter(args.emailType);
+  return {
+    eventId: args.eventId,
+    ...(args.recipientIds?.length ? { id: { in: args.recipientIds } } : {}),
+    ...(statusWhere ? { status: statusWhere } : {}),
+  };
+}
+
+/**
+ * How many emails an abstracts send would produce (review HIGH 1, Sep 9, 2026).
+ *
+ * The dialog cannot compute this from the rows it holds: the abstracts list
+ * hides DRAFTs from staff by design, and a Submission Reminder mails exactly
+ * draft authors, so a client-side count read "0" while the server mailed every
+ * draft. This runs the resolver's own `where` and dedup, so count == send.
+ * Validates the filter the same way the precheck does (throws BulkEmailError
+ * 400 INVALID_FILTER on a contradiction).
+ */
+export async function countAbstractEmailRecipients(args: {
+  eventId: string;
+  emailType: string;
+  status?: string;
+  recipientIds?: string[];
+}): Promise<number> {
+  assertValidBulkEmailFilters("abstracts", args.status ? { status: args.status } : undefined);
+  assertAbstractTypeStatus(args.emailType, args.status);
+  const rows = await db.abstract.findMany({
+    where: abstractRecipientWhere({
+      eventId: args.eventId,
+      emailType: args.emailType,
+      status: args.status,
+      recipientIds: args.recipientIds,
+    }),
+    select: { id: true, speaker: { select: { email: true } } },
+  });
+  if (PER_ABSTRACT_EMAIL_TYPES.has(args.emailType)) return rows.length;
+  return new Set(rows.map((r) => abstractAuthorKey(r.speaker.email)).filter(Boolean)).size;
 }
 
 const UNSUPPORTED_EMAIL_TYPE_MESSAGE = (emailType: string) =>
@@ -1114,18 +1177,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // Validated by assertValidBulkEmailFilters (via the precheck) — the old
     // unchecked `as never` cast let a bad value reach Prisma and abort the
     // whole send with a cryptic throw. "all" parses false → no filter.
-    const parsedAbstractStatus = filters?.status ? abstractStatusSchema.safeParse(filters.status) : null;
-    const explicitStatus = parsedAbstractStatus?.success ? parsedAbstractStatus.data : undefined;
-    // No explicit status ⇒ the type's own scope (drafts excluded from a
-    // confirmation resend, decided-only for a decision, DRAFT for a reminder).
-    const statusWhere = explicitStatus ?? defaultAbstractStatusFilter(emailType);
     const perAbstract = PER_ABSTRACT_EMAIL_TYPES.has(emailType);
     const abstracts = await db.abstract.findMany({
-      where: {
-        eventId,
-        ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
-        ...(statusWhere ? { status: statusWhere } : {}),
-      },
+      // ONE where for the send and for the audience count the dialog shows
+      // (countAbstractEmailRecipients), so the number cannot drift from the mail.
+      where: abstractRecipientWhere({ eventId, emailType, status: filters?.status, recipientIds }),
       select: {
         id: true,
         title: true,
@@ -1143,9 +1199,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const seen = new Set<string>();
     for (const a of abstracts) {
       // Per-abstract types send one email per ABSTRACT; the rest one per author.
+      // Keyed case-insensitively: Speaker's uniqueness is per (event, email) and
+      // case-sensitive, so a legacy "JANE@x" beside "jane@x" is one mailbox.
       if (!perAbstract) {
-        if (seen.has(a.speaker.email)) continue;
-        seen.add(a.speaker.email);
+        if (seen.has(abstractAuthorKey(a.speaker.email))) continue;
+        seen.add(abstractAuthorKey(a.speaker.email));
       }
       recipients.push({
         id: a.id,

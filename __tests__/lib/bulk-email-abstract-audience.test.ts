@@ -194,6 +194,15 @@ describe("abstract-reminder and custom", () => {
     expect(sentVars(0).managementLink).toContain("/e/hemnet/");
   });
 
+  it("dedupes authors case-insensitively, so the server count and the send agree on a legacy mixed-case row", async () => {
+    mockDb.abstract.findMany.mockResolvedValue([
+      abstractRow({ id: "abs-1", speaker: { ...SPEAKER, email: "jane@x.com" } }),
+      abstractRow({ id: "abs-2", speaker: { ...SPEAKER, email: "JANE@x.com" } }),
+    ]);
+    const r = await executeBulkEmail({ ...BASE, emailType: "custom", customSubject: "Hi", customMessage: "There" });
+    expect(r.successCount).toBe(1);
+  });
+
   it("a custom email keeps the per-author dedup and no status scope", async () => {
     mockDb.abstract.findMany.mockResolvedValue([abstractRow({ id: "abs-1" }), abstractRow({ id: "abs-2" })]);
     const r = await executeBulkEmail({ ...BASE, emailType: "custom", customSubject: "Hi", customMessage: "There" });

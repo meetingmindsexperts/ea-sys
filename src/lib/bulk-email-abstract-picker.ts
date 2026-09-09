@@ -18,6 +18,13 @@ import {
   abstractStatusAllowedForType,
 } from "@/lib/bulk-email-audience";
 
+/**
+ * How many abstracts the Communications page fetches for the picker: the list
+ * GET's hard cap. Past it the picker is incomplete and says so (review MED 2);
+ * the server-side count is what the send is judged by either way.
+ */
+export const ABSTRACT_PICKER_FETCH_LIMIT = 500;
+
 export interface AbstractPickerOption {
   id: string;
   serialId: number | null;

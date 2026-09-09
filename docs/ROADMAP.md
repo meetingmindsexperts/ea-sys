@@ -4303,6 +4303,8 @@ project. Prefer it whenever the keys are known.
 
 Adversarial review of `b6deb72a` (the abstract bulk email moving to Communications with a status filter and a pick-by-number list). Owner chose to ship Phase 3 first and take these on a later pass. Verified against source; none is a leak.
 
+**Update (Sep 9, 2026, same day): #1 to #5 SHIPPED** (the server-side `audience-count` route on the resolver's own where, the 500-row fetch with a truncation notice, the reminder restricted to Draft / Revision requested, Send paused at zero or while uncounted, the lowercased dedup key). #6 to #9 remain.
+
 | # | Sev | Finding | Fix |
 |---|---|---|---|
 | 1 | HIGH | The abstracts GET hides DRAFTs from staff by design, so the picker never holds one, yet **Submission Reminder mails exactly draft authors**: the dialog says "0 recipients", Send stays enabled, the server mails everyone with a draft. Custom has the same gap (drafts mailed, counted 0). | A server-side audience count for abstract types computed by the SAME resolver (`countBulkEmailRecipients` or the precheck returning the size), and no tick list for the reminder type. Do not widen the GET. |

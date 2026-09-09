@@ -1238,6 +1238,31 @@ export function usePreviewEmailBySlug(eventId: string) {
 }
 
 // ============ BULK EMAIL ============
+/**
+ * Server-side audience count for an abstracts bulk send (review HIGH 1, Sep 9,
+ * 2026): the same resolver the send uses, so drafts staff cannot list are still
+ * counted. Only fetched while the dialog is open.
+ */
+export function useBulkEmailAudienceCount(
+  eventId: string,
+  args: { recipientType: "abstracts"; emailType: string; status?: string; recipientIds?: string[] },
+  enabled: boolean,
+) {
+  const q = new URLSearchParams({ recipientType: args.recipientType, emailType: args.emailType });
+  if (args.status && args.status !== "all") q.set("status", args.status);
+  if (args.recipientIds?.length) q.set("recipientIds", args.recipientIds.join(","));
+  const qs = q.toString();
+  return useQuery({
+    queryKey: ["bulk-email-audience-count", eventId, qs],
+    queryFn: () => fetchApi<{ count: number }>(`/api/events/${eventId}/emails/audience-count?${qs}`),
+    enabled: enabled && !!eventId && !!args.emailType,
+    // A contradiction between type and status is a 400 the dialog already
+    // prevents; never hammer it.
+    retry: false,
+    staleTime: 15_000,
+  });
+}
+
 export function useBulkEmail(eventId: string) {
   return useMutation({
     mutationFn: (data: {

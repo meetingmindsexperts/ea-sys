@@ -281,6 +281,7 @@ SWEPT_ROUTE_FILES=(
   # runs-inside-wraps lib (its callers — the sequence route, the provisioner,
   # the public register route — all wrap; not listed).
   "src/app/api/events/[eventId]/emails/bulk/route.ts"                                  # Comms-log (Aug 3, 2026)
+  "src/app/api/events/[eventId]/emails/audience-count/route.ts"                        # Abstract audience count (Sep 9, 2026)
   "src/app/api/events/[eventId]/emails/schedule/route.ts"                              # Comms-log (Aug 3, 2026)
   "src/app/api/events/[eventId]/emails/schedule/[id]/route.ts"                         # Comms-log (Aug 3, 2026)
   "src/app/api/events/[eventId]/emails/schedule/[id]/retry/route.ts"                   # Comms-log (Aug 3, 2026)
