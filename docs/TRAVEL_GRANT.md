@@ -149,6 +149,17 @@ column (author / organiser).
   24 events hold a materialised `abstract-submission-confirmation` row, so the
   shipped default reaches none of them; the block is appended when the resolved
   template lacks the token. Do not "simplify" that away.
+- ✅ **The bulk confirmation resend carries the block too (Sep 9, 2026).** The
+  Communications `abstract-confirmation` type used to render `{{travelGrantBlock}}`
+  as empty by design ("a resend never re-mints"), and two MEHF 2027 resends on
+  Sep 8 reached five eligible authors with no link. `executeBulkEmail` now calls
+  the SAME `resolveTravelGrantBlock` per abstract (mint-or-reuse, the same
+  silence rules) and appends the token to a saved template that lacks it, pinned
+  in [bulk-email-abstract-audience.test.ts](../__tests__/lib/bulk-email-abstract-audience.test.ts).
+  The decision email still never carries it (parked, ROADMAP §"Travel grant
+  follow-ups"). A DECLINED author gets no block on ANY resend; that is the D2
+  silence rule, logged as `travel-grant:block-for-decided-row`, and the console's
+  Reopen is the way to offer again.
 - ✅ **The org-before-token ordering is handled** in
   [lib/travel-grant/public.ts](../src/lib/travel-grant/public.ts) and pinned by a
   test whose assertion is the testable form of the invariant: **when the org

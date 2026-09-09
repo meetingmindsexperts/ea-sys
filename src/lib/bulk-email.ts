@@ -54,6 +54,8 @@ import {
   buildAbstractManagementLink,
 } from "@/lib/abstract-notifications";
 import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review";
+import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
+import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -676,6 +678,9 @@ interface ResolvedRecipient {
     status: string;
     reviewNotes: string | null;
     reviewScore: number | null;
+    /** The author: the travel-grant row keys on the speaker, eligibility on their country (D2, D6). */
+    speakerId: string;
+    speakerCountry: string | null;
   };
   /** EmailLog entity when it differs from `id` (abstract sends log against the SPEAKER). */
   logEntityId?: string;
@@ -734,6 +739,8 @@ const VIABILITY_EVENT_SELECT = {
   emailFooterHtml: true,
   speakerAgreementTemplate: true,
   speakerAgreementHtml: true,
+  // Organizer copy inside {{travelGrantBlock}} on a bulk confirmation resend.
+  travelGrantMessageHtml: true,
   surveyConfig: true,
   taxRate: true,
   taxLabel: true,
@@ -1142,7 +1149,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         status: true,
         theme: { select: { name: true } },
         submissions: { select: { reviewNotes: true, overallScore: true } },
-        speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
+        speaker: {
+          select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true, country: true },
+        },
       },
     });
     const seen = new Set<string>();
@@ -1172,6 +1181,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
                 status: a.status,
                 reviewNotes: consolidateReviewNotes(a.submissions),
                 reviewScore: meanOverallScore(a.submissions.map((sub) => sub.overallScore)),
+                speakerId: a.speaker.id,
+                speakerCountry: a.speaker.country,
               },
             }
           : {}),
@@ -1333,6 +1344,15 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   const templateWantsAgreement =
     recipientType === "speakers" &&
     templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent);
+
+  // Whether the resolved template already places {{travelGrantBlock}}. When it
+  // does not and the block resolved to something, the token is appended per
+  // recipient at render time (see the saved-template trap below).
+  const templateWantsTravelGrant = templateUsesTravelGrantBlock(
+    tpl.subject,
+    tpl.htmlContent,
+    tpl.textContent,
+  );
 
   // {{agreementAttachment}} — invisible marker: attach the personalized
   // agreement WITHOUT rendering the Review & Agree block and WITHOUT minting
@@ -1592,10 +1612,31 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             speaker: { title: recipient.title, firstName: recipient.firstName, lastName: recipient.lastName },
           }),
         );
-        // A bulk RESEND never re-mints a travel-grant offer; that belongs to
-        // submission time. The token renders empty.
-        vars.travelGrantBlock = "";
-        vars.travelGrantBlockText = "";
+        // A bulk confirmation RESEND carries the travel-grant offer exactly as
+        // the automatic send does, through the SAME resolver (mint-or-reuse the
+        // author's one row; silent for a local or unrecognised country and for
+        // an author who already declined). Until Sep 9, 2026 this rendered
+        // empty by design, and two MEHF resends reached five eligible authors
+        // with no link. The decision email stays empty on purpose: offering
+        // the grant on the acceptance email is parked in ROADMAP §"Travel
+        // grant follow-ups". Never throws.
+        if (emailType === "abstract-confirmation") {
+          const tg = await resolveTravelGrantBlock({
+            eventId,
+            organizationId: event.organizationId,
+            eventSlug: event.slug,
+            speakerId: ab.speakerId,
+            speakerCountry: ab.speakerCountry,
+            messageHtml: event.travelGrantMessageHtml,
+            settings: event.settings,
+            abstractId: ab.id,
+          });
+          vars.travelGrantBlock = tg.html;
+          vars.travelGrantBlockText = tg.text;
+        } else {
+          vars.travelGrantBlock = "";
+          vars.travelGrantBlockText = "";
+        }
         if (emailType === "abstract-decision") {
           for (const [k, v] of Object.entries(
             buildAbstractDecisionVars({ status: ab.status, reviewNotes: ab.reviewNotes, reviewScore: ab.reviewScore }),
@@ -1797,8 +1838,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       }
     }
 
+    // THE SAVED-TEMPLATE TRAP, bulk edition. Events hold their OWN saved copy
+    // of abstract-submission-confirmation and most predate the token, so a
+    // block that resolved to something is appended when the template lacks
+    // the token, exactly as sendAbstractSubmissionConfirmation does. Gated on
+    // content: an ineligible author's email is byte-identical to the
+    // organizer's template.
+    const travelGrantHtml = vars.travelGrantBlock;
+    const tplForSend =
+      typeof travelGrantHtml === "string" && travelGrantHtml.length > 0 && !templateWantsTravelGrant
+        ? {
+            ...tpl,
+            htmlContent: `${tpl.htmlContent}\n{{travelGrantBlock}}`,
+            textContent: `${tpl.textContent}\n\n{{travelGrantBlockText}}`,
+          }
+        : tpl;
     return {
-      ...renderAndWrap(tpl, vars, branding, rawHtmlKeys),
+      ...renderAndWrap(tplForSend, vars, branding, rawHtmlKeys),
       barcodeAttachment,
     };
   };

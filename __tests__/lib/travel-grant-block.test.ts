@@ -14,7 +14,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { findUnique, create, updateMany, warn, error } = vi.hoisted(() => ({
+const { findUnique, create, updateMany, info, warn, error } = vi.hoisted(() => ({
+  info: vi.fn(),
   findUnique: vi.fn(),
   create: vi.fn(),
   updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -25,7 +26,7 @@ const { findUnique, create, updateMany, warn, error } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({
   db: { travelGrant: { findUnique, create, updateMany } },
 }));
-vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn, error } }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info, warn, error } }));
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: string, fn: () => unknown) => fn(),
 }));
@@ -170,6 +171,11 @@ describe("resolveTravelGrantBlock", () => {
     findUnique.mockResolvedValue({ token: "existing", status: "DECLINED" });
     const b = await resolveTravelGrantBlock({ ...base, speakerCountry: "Oman" });
     expect(b).toEqual({ html: "", text: "" });
+    // Says so in the log: from the organizer's side "the offer was in the last
+    // email and not in this one" looks like a bug (the Sep 8 MEHF resends).
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "travel-grant:block-for-decided-row", status: "DECLINED", speakerId: base.speakerId }),
+    );
   });
 
   it("renders nothing and logs at ERROR when there is no slug to build a link from", async () => {

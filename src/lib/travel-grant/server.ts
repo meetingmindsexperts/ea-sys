@@ -106,6 +106,20 @@ export async function resolveTravelGrantBlock(
       });
 
       if (existing) {
+        if (existing.status !== "PENDING") {
+          // The block renders an acknowledgement (CONSENTED) or nothing at all
+          // (DECLINED) for a decided row. Say so, because from the organizer's
+          // side "the offer was in the last email and is not in this one" looks
+          // like a bug; the Sep 8 MEHF resends were exactly this. Info, not
+          // warn: it is the design working, and the console shows the status.
+          apiLogger.info({
+            msg: "travel-grant:block-for-decided-row",
+            eventId,
+            abstractId,
+            speakerId,
+            status: existing.status,
+          });
+        }
         // Re-stamp when the link is put in front of them again. Not a status
         // change, so a CONSENTED or DECLINED row is untouched apart from this.
         await db.travelGrant
