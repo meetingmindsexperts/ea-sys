@@ -33,15 +33,11 @@ strong { font-weight:600; }
 .masthead-inner { max-width:1180px; margin:0 auto; padding:40px 28px 32px; }
 .eyebrow { font-family:var(--mono); font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent); margin:0 0 12px; }
 .masthead h1 { font-family:var(--serif); font-weight:600; font-size:clamp(26px, 3.4vw, 38px); line-height:1.15; margin:0 0 24px; max-width:30ch; text-wrap:balance; }
-.meta { display:grid; grid-template-columns:1fr; gap:10px; margin:0 0 28px; max-width:80ch; }
+.meta { display:grid; grid-template-columns:1fr; gap:10px; margin:0; max-width:80ch; }
 .meta-row { display:grid; grid-template-columns:120px minmax(0,1fr); gap:10px; font-size:14px; line-height:1.5; }
 .meta dt { color:var(--muted); font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; text-transform:uppercase; padding-top:3px; }
 .meta dd { margin:0; min-width:0; overflow-wrap:anywhere; }
 
-.stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(215px,1fr)); gap:14px; max-width:960px; }
-.stat { border:1px solid var(--rule); border-radius:6px; padding:14px 16px; background:var(--bg); }
-.stat .big { font-family:var(--serif); font-weight:600; font-size:22px; line-height:1.1; color:var(--accent); font-variant-numeric:tabular-nums; margin:0 0 6px; }
-.stat .small { font-size:13px; color:var(--muted); line-height:1.4; margin:0; }
 
 .layout { max-width:1180px; margin:0 auto; padding:32px 28px 80px; display:grid; grid-template-columns:230px minmax(0,1fr); gap:48px; }
 nav.toc { position:sticky; top:24px; align-self:start; font-size:13.5px; }
@@ -114,13 +110,9 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
   <dl class="meta">
     <div class="meta-row"><dt>What this is</dt><dd>The same plan as the technical specification, written for reading rather than building. Same decisions, same timeline, fewer technical terms. Part 2 keeps the full technical specification word for word, for engineers and for AI-assisted review. Part 3 at the end lists everything that changed between versions.</dd></div>
     <div class="meta-row"><dt>Status</dt><dd><strong>Ready to start.</strong> Every question that could block the start was answered on 3 September 2026. A handful of confirmations remain (section 13) and can be settled while the first phase is under way.</dd></div>
+    <div class="meta-row"><dt>Build time</dt><dd><strong>3 to 4 months.</strong> About three months to a parallel run on real events (budget, purchasing, QuickBooks, migration and pilot); the revenue and margin phase follows and brings the whole build to about four months.</dd></div>
     <div class="meta-row"><dt>Prepared by</dt><dd>Krishna Pallapolu, Development Manager · <strong>For:</strong> Medhat, finance</dd></div>
   </dl>
-  <div class="stats">
-    <div class="stat"><p class="big">12 to 14 weeks</p><p class="small">from the first day of building to a parallel run on real events</p></div>
-    <div class="stat"><p class="big">AED 1,000,000</p><p class="small">Lina approves up to this amount; Medhat approves anything above it</p></div>
-    <div class="stat"><p class="big">10%</p><p class="small">default contingency on every event budget</p></div>
-  </div>
 </div></header>
 <div class="layout">
   <nav class="toc" aria-label="Sections"><p class="toc-title">Sections</p>
@@ -279,7 +271,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <div class="note"><p><strong>Expectation to set with finance:</strong> until the later "invoice exception" phase, the module's actual figure for an event will sit below the QuickBooks profit and loss, because bills without a purchase order are counted in the unallocated bucket rather than on a line. The gap is visible, not hidden.</p></div>
 
 <h2 id="s9"><span class="sec">9</span>Timeline</h2>
-<p>The first four phases take 12 to 14 weeks to a parallel run and, as a result, retire ProcurementExpress after one clean month-end close. Phase 5 follows directly and does not hold up the cancellation.</p>
+<p><strong>Build time is three to four months.</strong> The first four phases take about three months (12 to 14 weeks) to a parallel run on real events and, as a result, retire ProcurementExpress after one clean month-end close. Phase 5 follows directly, bringing the whole build to about four months, and does not hold up the cancellation.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Phase</th><th>Weeks</th><th>What is delivered</th></tr></thead>
 <tbody>
