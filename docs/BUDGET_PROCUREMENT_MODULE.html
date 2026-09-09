@@ -297,7 +297,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 
 <h2 id="s11"><span class="sec">11</span>EventsAir</h2>
 <ul>
-<li>Budgets attach only to events that live in EA-SYS. EA-SYS has created every event since June 2026.</li>
+<li>Budgets attach only to events that live in EA-SYS. Today that means the upcoming events from October 2026 onward; everything earlier is in EventsAir and is treated as history.</li>
 <li>EventsAir history is <strong>archived and indexed, never imported</strong> into the live system (decision of 2 September 2026). An early export of past events, registrations and financial summaries goes to the backup bucket, with a searchable index, so it does not depend on how long EventsAir access lasts.</li>
 <li>When a budget is created, its event code is checked against that index. A code that clashes with a historical event is refused, so year-on-year comparison by code stays possible without importing anything.</li>
 <li>How long EventsAir stays in use is Medhat's decision. Nothing in this module depends on a date.</li>
@@ -379,7 +379,7 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <div class="part-divider" id="part2">
 <span class="sec">Part 2</span>
 <h2>Technical specification, rev. 3.3, unchanged</h2>
-<p>This is the full engineering text: entities and fields, the approval engine, the QuickBooks adapter, the money rules as constraints, the phasing. It is kept word for word so it can be handed to a developer or to an AI reviewer without loss. Part 1 above says the same things in plain language; where the two differ, this part is the specification.</p>
+<p>This is the full engineering text: entities and fields, the approval engine, the QuickBooks adapter, the money rules as constraints, the phasing. It is kept word for word so it can be handed to a developer or to an AI reviewer without loss (one factual correction on 9 September 2026 in §13a, recorded in Part 3). Part 1 above says the same things in plain language; where the two differ, this part is the specification.</p>
 </div>
 <h2 id="1-decisions-taken-vs-the-source-documents"><span class="sec">§1</span>Decisions Taken vs. the Source Documents</h2>
 <div class="table-wrap"><table>
@@ -676,10 +676,10 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <h2 id="13-migration-from-procurementexpress"><span class="sec">§13</span>Migration from ProcurementExpress</h2>
 <p>Feature inventory confirmed 3 Sep 2026: budgets, approval routing, PO PDFs to suppliers and the monthly finance reports are all in daily use and are v1 parity; Muthu supplies the exact report list to check §11 against. Export suppliers + open POs. <strong>Suppliers:</strong> match to existing QBO vendors by TRN then normalised name; ambiguous matches go to a manual-resolve screen; <code>externalVendorId</code> populated on import. <strong>Open POs:</strong> these already exist in the MME realm — imported Commitments get <code>accountingSyncStatus = linked_external</code> with <code>externalDocumentId</code> set from a mapping file and are <strong>never pushed</strong>; archive the historical export, don't import it. Recreate live event budgets with <code>committedOpen</code> opening balances so "remaining" is truthful day one. Disconnect ProcurementExpress's MME connection only after ours is verified. Parallel run with a pilot group. The subscription survives until one clean month-end close.</p>
 <h2 id="13a-eventsair-transition-history"><span class="sec">§13a</span>EventsAir Transition &amp; History</h2>
-<p>Budgets attach only to EA-SYS Event records. EA-SYS has originated every event since it went live in June 2026. How long EventsAir stays in use is Medhat&rsquo;s decision and nothing in this module depends on a date. The decision of 2 Sep 2026 stands: <strong>archive and index EventsAir history; never migrate it into live tables.</strong> There is no <code>eventsAirId</code> column and none is added.</p>
+<p>Budgets attach only to EA-SYS Event records. EA-SYS holds the upcoming events from October 2026 onward; every earlier event lives in EventsAir. How long EventsAir stays in use is Medhat&rsquo;s decision and nothing in this module depends on a date. The decision of 2 Sep 2026 stands: <strong>archive and index EventsAir history; never migrate it into live tables.</strong> There is no <code>eventsAirId</code> column and none is added.</p>
 <ol>
 <li><strong>Historical events:</strong> a tier-1 export of the EventsAir data (events, registrations, financial summaries) into the disaster-recovery bucket, taken early so it does not depend on how long EventsAir access continues, plus a searchable index. No Event rows are created for them and no retroactive budgets exist. Event-code continuity is checked against that index when a budget is created: a new code that collides with a historical one is refused, so benchmarking by code stays possible without importing anything.</li>
-<li><strong>In-flight events:</strong> none originate in EventsAir any more; the transitional pull proposed in rev. 3.1 is dropped.</li>
+<li><strong>In-flight events:</strong> events before October 2026 run and finish in EventsAir and join the archive; nothing new originates there, so the transitional pull proposed in rev. 3.1 is dropped.</li>
 <li><strong>Steady state:</strong> EA-SYS is the only origin of events; the EventsAir contacts adapter is decommissioned when Medhat decides EventsAir is no longer needed.</li>
 </ol>
 <hr />
@@ -833,6 +833,11 @@ nav.toc li.sub a { font-size:12.5px; padding-top:3px; padding-bottom:3px; }
 <td>Acceptance criteria</td>
 <td>7 of 8 about POs and QuickBooks</td>
 <td>Reordered and extended: the budget criteria come first (§15)</td>
+</tr>
+<tr>
+<td>EventsAir scope (§13a)</td>
+<td>"EA-SYS has originated every event since June 2026"</td>
+<td>Corrected 9 Sep 2026: EA-SYS holds the upcoming events from October 2026 onward; earlier events live in EventsAir and are treated as history</td>
 </tr>
 <tr>
 <td>Open question</td>
