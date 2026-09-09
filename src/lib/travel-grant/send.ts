@@ -54,6 +54,8 @@ export interface SendTravelGrantArgs {
     homeCountries: readonly string[];
     /** The button text (readTravelGrantSettings(event.settings).ctaLabel); absent = default. */
     ctaLabel?: string | null;
+    /** The formatted application deadline for the block, or absent for none. */
+    deadlineText?: string | null;
   };
   speakerIds?: string[];
   pendingOnly?: boolean;
@@ -117,6 +119,7 @@ export async function sendTravelGrantInvitations(
         messageHtml: event.travelGrantMessageHtml,
         status: r.status,
         ctaLabel: event.ctaLabel ?? null,
+        deadlineText: event.deadlineText ?? null,
       });
       const vars: Record<string, string> = {
         speakerName: formatPersonName(r.title, r.firstName ?? "", r.lastName ?? ""),

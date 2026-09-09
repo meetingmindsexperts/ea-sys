@@ -1615,6 +1615,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             speakerCountry: ab.speakerCountry,
             messageHtml: event.travelGrantMessageHtml,
             settings: event.settings,
+            timezone: event.timezone,
             abstractId: ab.id,
           });
           vars.travelGrantBlock = tg.html;

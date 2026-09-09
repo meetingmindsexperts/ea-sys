@@ -30,6 +30,10 @@ interface LoadedGrant {
   status: "PENDING" | "CONSENTED" | "DECLINED";
   /** The organizer's button text (Settings -> Abstracts); absent on an older payload. */
   ctaLabel?: string;
+  /** Formatted application deadline, or null/absent for none (Sep 9, 2026). */
+  deadlineText?: string | null;
+  /** True once the deadline has passed for an unanswered link. */
+  closed?: boolean;
   signedName: string | null;
   submittedAt: string | null;
   recipientName: string;
@@ -218,8 +222,23 @@ export default function TravelGrantPage() {
             </div>
           )}
 
-          {!already && (
+          {!already && data.closed && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-medium">Applications closed on {data.deadlineText}.</p>
+              <p className="mt-1">
+                This link no longer accepts an answer. If you believe you should still be considered,
+                reply to the email you received and the organising team can help.
+              </p>
+            </div>
+          )}
+
+          {!already && !data.closed && (
             <>
+              {data.deadlineText && (
+                <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  Applications close on <strong>{data.deadlineText}</strong>.
+                </p>
+              )}
               <div
                 className="prose prose-sm max-w-none [&>*]:mb-4"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.termsHtml) }}

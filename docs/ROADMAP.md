@@ -4299,6 +4299,22 @@ exhaustive over a known key set. `Record<SlugUnion, V>` makes a missing key a
 compile error today, with the flag off, and is a per-site change rather than a
 project. Prefer it whenever the keys are known.
 
+### Communications abstract picker: review findings (Sep 9, 2026, owner: fix later)
+
+Adversarial review of `b6deb72a` (the abstract bulk email moving to Communications with a status filter and a pick-by-number list). Owner chose to ship Phase 3 first and take these on a later pass. Verified against source; none is a leak.
+
+| # | Sev | Finding | Fix |
+|---|---|---|---|
+| 1 | HIGH | The abstracts GET hides DRAFTs from staff by design, so the picker never holds one, yet **Submission Reminder mails exactly draft authors**: the dialog says "0 recipients", Send stays enabled, the server mails everyone with a draft. Custom has the same gap (drafts mailed, counted 0). | A server-side audience count for abstract types computed by the SAME resolver (`countBulkEmailRecipients` or the precheck returning the size), and no tick list for the reminder type. Do not widen the GET. |
+| 2 | MED | The Communications page fetches the newest 200 abstracts (`useAbstracts` with no `limit`); on a larger event the picker cannot find older numbers while the server mails all. | Fetch with `limit=500` and show a truncation notice when the page is full. |
+| 3 | MED | `abstractStatusAllowedForType("abstract-reminder", *)` allows all seven statuses, so "Reminder + Accepted" tells accepted authors to submit. The server always allowed it; this is the first surface that offers it. | Restrict the reminder to DRAFT (arguably plus REVISION_REQUESTED) in the shared predicate and `assertAbstractTypeStatus`; update the test that pins seven. |
+| 4 | MED | Send stays enabled at 0 recipients; the enqueue route does not resolve recipients, so the result is a green "queued" toast and a Sent-0 row. | Disable Send when the picker count is 0, AFTER #1 (else the reminder becomes unsendable). |
+| 5 | LOW | Server dedups per-author types on the raw email (`seen.has(a.speaker.email)`) while the client count lowercases; `Speaker @@unique([eventId, email])` is case-sensitive, so legacy mixed-case rows count 4 and send 5. | Lowercase the server's `seen` key. |
+| 6 | LOW | "N abstracts ticked" counts rows outside the current scope (tick 3 under Custom, switch to Decision with 1 decided: "3 ticked / 1 recipient"). | Label with the in-scope ticked count, or prune ticks when the type or status changes. |
+| 7 | LOW | A masked status silently returns when the type flips back (Custom + Submitted, then Decision, then Custom again re-applies Submitted while the Select showed "all"). | Reset `localAbstractStatus` in the email-type change handler when the new type disallows it. |
+| 8 | LOW | The card's "N recipients" is `uniqueSubmitters.size` (raw email set, no per-type scope) and disagrees with the dialog's count for every type. | Call it "authors", or compute via `countAbstractRecipients`. |
+| 9 | LOW | The Filter-recipients toggle has `aria-expanded` but no `aria-controls`; the checklist has no `role`/label tying it to the search input. | Add both. |
+
 ### Travel grant follow-ups (parked Sep 8, 2026)
 
 | Item | Note |

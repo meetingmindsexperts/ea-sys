@@ -17,6 +17,7 @@ const { mockDb, mockAuth, mockCtx, mockRender } = vi.hoisted(() => ({
     speaker: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
     abstract: { findFirst: vi.fn() },
+    travelGrant: { findFirst: vi.fn(), create: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockCtx: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/lib/email", () => ({
 }));
 
 import { POST } from "@/app/api/events/[eventId]/email-preview/route";
+import { getEventTemplate } from "@/lib/email";
 
 const params = { params: Promise.resolve({ eventId: "ev1" }) };
 const req = (body: unknown) =>
@@ -269,5 +271,57 @@ describe("email-preview with abstractId (Abstract Confirmation resend, Aug 4 202
     // The abstract's own author identity wins (applied after speaker vars).
     expect(vars.firstName).toBe("Amina");
     expect(vars.authorName).toBe("Dr. Amina Khan");
+  });
+});
+
+describe("travel-grant invitation preview renders the REAL block (Sep 9, 2026)", () => {
+  const TG_EVENT = {
+    id: "ev1", name: "Ev", slug: "medcon", timezone: "Asia/Dubai", ticketTypes: [], registrations: [],
+    travelGrantMessageHtml: "<p>We fly you in.</p>",
+    settings: { travelGrant: { enabled: true, homeCountries: ["AE"], ctaLabel: "Request travel support", deadline: "2099-09-30T19:59:00.000Z" } },
+  };
+  const tgTemplate = () =>
+    vi.mocked(getEventTemplate).mockResolvedValueOnce({
+      subject: "Travel grant",
+      htmlContent: "<p>Dear {{speakerName}},</p>{{travelGrantBlock}}",
+      textContent: "",
+      branding: { eventName: "Ev" },
+    } as never);
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue(TG_EVENT);
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: null, firstName: "Ana", lastName: "Silva", email: "ana@x.com" });
+    mockCtx.mockResolvedValue(null);
+  });
+
+  it("uses the target speaker's REAL link, the organizer's message, button text and deadline, and mints nothing", async () => {
+    tgTemplate();
+    mockDb.travelGrant.findFirst.mockResolvedValue({ token: "realtok", status: "PENDING" });
+    const res = await POST(req({ slug: "travel-grant-invitation", speakerId: "sp1" }), params);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { htmlContent: string };
+    expect(body.htmlContent).toContain("/e/medcon/travel-grant/realtok");
+    expect(body.htmlContent).toContain("We fly you in.");
+    expect(body.htmlContent).toContain("Request travel support");
+    expect(body.htmlContent).toContain("Applications close on");
+    expect(mockDb.travelGrant.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { speakerId: "sp1", eventId: "ev1" } }));
+    expect(mockDb.travelGrant.create).not.toHaveBeenCalled();
+  });
+
+  it("without a target speaker (bulk preview) it renders a representative link, and never looks a row up", async () => {
+    tgTemplate();
+    const res = await POST(req({ slug: "travel-grant-invitation" }), params);
+    const body = (await res.json()) as { htmlContent: string };
+    expect(body.htmlContent).toContain("/e/medcon/travel-grant/preview-sample-link");
+    expect(body.htmlContent).toContain("We fly you in.");
+    expect(mockDb.travelGrant.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("an author who already applied previews the acknowledgement, not a button", async () => {
+    tgTemplate();
+    mockDb.travelGrant.findFirst.mockResolvedValue({ token: "realtok", status: "CONSENTED" });
+    const body = (await (await POST(req({ slug: "travel-grant-invitation", speakerId: "sp1" }), params)).json()) as { htmlContent: string };
+    expect(body.htmlContent).toContain("has been received");
+    expect(body.htmlContent).not.toContain("realtok");
   });
 });

@@ -27,7 +27,11 @@ import {
   DEFAULT_TRAVEL_GRANT_TERMS_HTML,
   travelGrantSubmitSchema,
 } from "@/lib/travel-grant/constants";
-import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import {
+  formatTravelGrantDeadline,
+  isTravelGrantDeadlinePassed,
+  readTravelGrantSettings,
+} from "@/lib/travel-grant/settings";
 import { loadTravelGrantForSlug, resolveTravelGrantEventOrg } from "@/lib/travel-grant/public";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
@@ -79,12 +83,20 @@ export async function GET(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: INVALID }, { status: 404 });
       }
 
+      const grantSettings = readTravelGrantSettings(row.event.settings);
+      const deadlinePassed = isTravelGrantDeadlinePassed(grantSettings);
       return NextResponse.json({
         status: row.status,
         signedName: row.signedName,
         submittedAt: row.submittedAt,
         // The organizer's button text (Settings -> Abstracts), default when unset.
-        ctaLabel: readTravelGrantSettings(row.event.settings).ctaLabel,
+        ctaLabel: grantSettings.ctaLabel,
+        // The deadline (Sep 9, 2026): `closed` is what the page keys on; an
+        // author who already answered still sees their acknowledgement.
+        deadlineText: grantSettings.deadline
+          ? formatTravelGrantDeadline(grantSettings.deadline, row.event.timezone)
+          : null,
+        closed: deadlinePassed && row.status === "PENDING",
         recipientName: [row.speaker.firstName, row.speaker.lastName].filter(Boolean).join(" "),
         termsHtml: row.event.travelGrantTermsHtml?.trim() || DEFAULT_TRAVEL_GRANT_TERMS_HTML,
         event: {
@@ -163,6 +175,24 @@ export async function POST(req: Request, { params }: RouteParams) {
           "travel-grant-public:feature-disabled",
         );
         return NextResponse.json({ error: INVALID }, { status: 404 });
+      }
+
+      // Past the deadline no answer is recorded, whichever way it goes. 410,
+      // not 404: the link is real, the window is not. Checked BEFORE the claim
+      // so the row is untouched.
+      const grantSettings = readTravelGrantSettings(row.event.settings);
+      if (isTravelGrantDeadlinePassed(grantSettings)) {
+        apiLogger.warn(
+          { slug, eventId: row.eventId, stage: "submit-deadline", deadline: grantSettings.deadline?.toISOString() },
+          "travel-grant-public:deadline-passed",
+        );
+        return NextResponse.json(
+          {
+            error: `Applications closed on ${formatTravelGrantDeadline(grantSettings.deadline!, row.event.timezone)}.`,
+            code: "DEADLINE_PASSED",
+          },
+          { status: 410 },
+        );
       }
 
       const consenting = d.decision === "consent";

@@ -19,6 +19,9 @@ import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
 import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
+import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
+import { buildTravelGrantLink } from "@/lib/travel-grant/server";
+import { formatTravelGrantDeadline, readTravelGrantSettings } from "@/lib/travel-grant/settings";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -84,6 +87,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: true,
           timezone: true, supportEmail: true,
           organization: { select: { name: true } },
+          // The travel-grant invitation preview renders the REAL block (the
+          // organizer's message, button text and deadline), so it needs these.
+          slug: true, settings: true, travelGrantMessageHtml: true,
         },
       }),
       db.user.findUnique({
@@ -276,6 +282,34 @@ export async function POST(req: Request, { params }: RouteParams) {
           speaker: abstract.speaker,
         }),
       };
+    }
+
+    // Travel-grant invitation (Sep 9, 2026): the block is the email, so a
+    // preview that showed the canned sample would hide the one thing the
+    // organizer is checking. Rendered from the event's own copy, button text
+    // and deadline; the link is the target speaker's REAL one when they hold a
+    // grant row, else a representative placeholder. NOTHING is minted here:
+    // a preview must never create a token, so an author with no row keeps
+    // having none (the July 29 rule for per-recipient links).
+    if (slug === "travel-grant-invitation") {
+      const grantSettings = readTravelGrantSettings(eventRow.settings);
+      const grant = speakerId
+        ? await db.travelGrant.findFirst({
+            where: { speakerId, eventId },
+            select: { token: true, status: true },
+          })
+        : null;
+      const link = buildTravelGrantLink(eventRow.slug, grant?.token ?? "preview-sample-link");
+      const block = buildTravelGrantBlock({
+        link,
+        messageHtml: eventRow.travelGrantMessageHtml,
+        status: (grant?.status as TravelGrantBlockStatus | undefined) ?? "PENDING",
+        ctaLabel: grantSettings.ctaLabel,
+        deadlineText: grantSettings.deadline
+          ? formatTravelGrantDeadline(grantSettings.deadline, eventRow.timezone)
+          : null,
+      });
+      speakerVars = { ...speakerVars, travelGrantBlock: block.html, travelGrantBlockText: block.text };
     }
 
     // getEventTemplate loads DB template with fallback to default, plus event branding

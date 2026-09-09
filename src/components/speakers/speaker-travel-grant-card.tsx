@@ -82,6 +82,9 @@ export function SpeakerTravelGrantCard({
   const [enabled, setEnabled] = useState<boolean | null>(null);
   /** Display names of this event's local countries, from the same GET. */
   const [homeCountries, setHomeCountries] = useState<string[]>([]);
+  /** Deadline passed (Sep 9, 2026): the form refuses answers, so sends pause. */
+  const [deadlinePassed, setDeadlinePassed] = useState(false);
+  const [deadlineText, setDeadlineText] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   /** Distinct from `enabled === false`: a failure must not look like "switched off". */
@@ -108,6 +111,8 @@ export function SpeakerTravelGrantCard({
       setEnabled(Boolean(json.enabled));
       setEventSlug(json.eventSlug ?? "");
       setHomeCountries(Array.isArray(json.homeCountries) ? json.homeCountries : []);
+      setDeadlinePassed(json.deadlinePassed === true);
+      setDeadlineText(typeof json.deadlineText === "string" ? json.deadlineText : null);
       setRow(json.row ?? null);
     } catch (err) {
       // Without this the card silently VANISHES after a successful send, because
@@ -264,8 +269,20 @@ export function SpeakerTravelGrantCard({
           </p>
         )}
 
+        {deadlinePassed && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Applications closed on {deadlineText}. Sending is paused; extend the deadline under
+            Settings &rarr; Abstracts to send again. You can still set a status by hand.
+          </p>
+        )}
+
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={send} disabled={!eligible || !row.email || sending}>
+          <Button
+            size="sm"
+            onClick={send}
+            disabled={!eligible || !row.email || sending || deadlinePassed}
+            title={deadlinePassed ? "Applications closed; extend the deadline to send again" : undefined}
+          >
             {sending ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
             ) : (

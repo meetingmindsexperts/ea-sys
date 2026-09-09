@@ -9,7 +9,11 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { classifyResidency } from "@/lib/travel-grant/eligibility";
-import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import {
+  formatTravelGrantDeadline,
+  isTravelGrantDeadlinePassed,
+  readTravelGrantSettings,
+} from "@/lib/travel-grant/settings";
 import { buildTravelGrantBlock, type TravelGrantBlockStatus } from "@/lib/travel-grant/block";
 
 /**
@@ -35,8 +39,10 @@ export interface TravelGrantBlockInput {
   speakerCountry?: string | null;
   /** Organizer copy from Content -> Abstracts. */
   messageHtml?: string | null;
-  /** The event's `settings` JSON, for the master switch. */
+  /** The event's `settings` JSON, for the master switch and the deadline. */
   settings: unknown;
+  /** The event's timezone, to word the deadline in the block. Absent = the default zone. */
+  timezone?: string | null;
   /** For logs only. */
   abstractId?: string;
 }
@@ -63,6 +69,20 @@ export async function resolveTravelGrantBlock(
     // so a blob that switched the feature on without naming one returns here.
     const grantSettings = readTravelGrantSettings(input.settings);
     if (!grantSettings.enabled) return empty;
+
+    // Past the deadline no new offer goes out, whoever the author is. Checked
+    // before residency so a closed feature does not raise the D4 "decide by
+    // hand" warning for an unknown country nobody can act on any more.
+    if (isTravelGrantDeadlinePassed(grantSettings)) {
+      apiLogger.info({
+        msg: "travel-grant:deadline-passed-not-invited",
+        eventId,
+        abstractId,
+        speakerId,
+        deadline: grantSettings.deadline?.toISOString() ?? null,
+      });
+      return empty;
+    }
 
     const residency = classifyResidency(input.speakerCountry, grantSettings.homeCountries);
 
@@ -151,6 +171,9 @@ export async function resolveTravelGrantBlock(
       messageHtml: input.messageHtml,
       status: row.status as TravelGrantBlockStatus,
       ctaLabel: grantSettings.ctaLabel,
+      deadlineText: grantSettings.deadline
+        ? formatTravelGrantDeadline(grantSettings.deadline, input.timezone)
+        : null,
     });
   } catch (err) {
     // Failure-isolated by contract: the confirmation email still goes out.

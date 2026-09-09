@@ -193,7 +193,7 @@ export async function sendAbstractSubmissionConfirmation(
           // switch and the organizer's copy live on the event, and eligibility
           // reads exactly one field on the author (decision D6).
           speaker: { select: { country: true } },
-          event: { select: { settings: true, travelGrantMessageHtml: true } },
+          event: { select: { settings: true, travelGrantMessageHtml: true, timezone: true } },
         },
       })
       .catch(() => null);
@@ -224,6 +224,7 @@ export async function sendAbstractSubmissionConfirmation(
       speakerCountry: details?.speaker?.country ?? null,
       messageHtml: details?.event?.travelGrantMessageHtml ?? null,
       settings: details?.event?.settings,
+      timezone: details?.event?.timezone ?? null,
       abstractId,
     });
     vars.travelGrantBlock = travelGrant.html;

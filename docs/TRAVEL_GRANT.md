@@ -94,7 +94,7 @@ without one. The console listing is a safety net, not a daily workflow.
 ## Configuration
 
 `Event.settings.travelGrant = { enabled: boolean, homeCountries: string[],
-ctaLabel?: string }`. Settings JSON, no column, no migration. `ctaLabel` (Sep 8,
+ctaLabel?: string, deadline?: string }`. Settings JSON, no column, no migration. `ctaLabel` (Sep 8,
 2026) is the button text in the email block and on the consent form, default
 "Apply for Travel Grant", trimmed and capped at 60 characters; blank or
 unreadable falls back to the default so a cleared field never renders an
@@ -115,6 +115,46 @@ Content → Abstracts:
 - **`travelGrantTermsHtml`** renders on the consent form and is **snapshotted
   onto the row at consent**, so a later edit changes what future authors see and
   never rewrites what somebody signed.
+
+## Application deadline (Sep 9, 2026)
+
+`settings.travelGrant.deadline` is an ISO instant, edited under Settings →
+Abstracts → Travel Grant as an event-local `datetime-local` (the same
+`localDateTimeInTz` / `wallTimeInTzToIso` pair the abstract deadline uses, so a
+re-save never drifts). `readTravelGrantSettings().deadline` is a `Date` or null;
+an unreadable value reads as **no deadline**, because a corrupt value must never
+close applications on an event that never set one. `isTravelGrantDeadlinePassed`
+and `formatTravelGrantDeadline` (event timezone, one wording for every surface)
+live beside the reader.
+
+Owner decision: **the form and the sends both close.** Past the instant:
+
+- `resolveTravelGrantBlock` renders nothing and mints nothing (info log
+  `travel-grant:deadline-passed-not-invited`), so an abstract submitted after
+  the deadline carries no offer.
+- The public GET reports `closed: true` for an unanswered link (an answered one
+  still shows its acknowledgement) and the POST refuses with **410**
+  `DEADLINE_PASSED` before the conditional claim, so the row is untouched.
+- The console POST refuses with 400 `DEADLINE_PASSED`; the roster GET carries
+  `deadline`, `deadlinePassed` and `deadlineText`, and the console and the
+  speaker card pause their send buttons with the reason. The organizer status
+  override keeps working.
+- While a deadline is ahead, the block, the form and the console all say
+  "Applications close on <date>", from the one formatter.
+
+Extending the deadline in Settings reopens everything; there is no separate
+reopen action.
+
+## Sending from the console, with a preview (Sep 9, 2026)
+
+"Remind N pending" and the per-row send both open one dialog with an optional
+subject and personal note and a **Preview** button, the reimbursement console's
+pattern. The preview goes through the shared `/email-preview` route with slug
+`travel-grant-invitation`; that route now renders the **real** block (the
+event's message, button text and deadline) and, for a per-row preview, the
+author's real link when they hold a grant row. **It mints nothing**: an author
+with no row previews a representative link and keeps having no row, the July 29
+rule for per-recipient links.
 
 ## Organizer status override (Sep 8, 2026)
 

@@ -62,6 +62,12 @@ export function buildTravelGrantBlock(opts: {
    * plain text landing inside an anchor.
    */
   ctaLabel?: string | null;
+  /**
+   * The formatted application deadline (formatTravelGrantDeadline), or absent
+   * for none. Rendered as a line under the button so the author knows how
+   * long the offer stands. Escaped: it is a date string, but it lands in HTML.
+   */
+  deadlineText?: string | null;
 }): { html: string; text: string } {
   // Already answered yes: acknowledge, never ask again. Mirrors the green
   // already-accepted note on the agreement block.
@@ -82,17 +88,22 @@ export function buildTravelGrantBlock(opts: {
   const messageHtml = message
     ? `<div style="margin: 0 0 16px 0; color: #374151; font-size: 14px;">${message}</div>`
     : "";
+  const deadline = (opts.deadlineText ?? "").trim();
+  const deadlineHtml = deadline
+    ? `<p style="margin: 14px 0 0 0; color: #374151; font-size: 13px; text-align: center;">Applications close on ${escapeHtml(deadline)}.</p>`
+    : "";
 
   return {
     html: `<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
       ${messageHtml}<div style="text-align: center;">
         <a href="${opts.link}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">${escapeHtml(label)}</a>
       </div>
-      <p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p>
+      ${deadlineHtml}<p style="margin: ${deadline ? "6px" : "14px"} 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you.</p>
     </div>`,
     text: [
       stripHtmlToText(message),
       `${label} (link unique to you):\n${opts.link}`,
+      deadline ? `Applications close on ${deadline}.` : "",
     ]
       .filter(Boolean)
       .join("\n\n"),

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   readTravelGrantSettings,
   isTravelGrantEnabled,
+  isTravelGrantDeadlinePassed,
+  formatTravelGrantDeadline,
 } from "@/lib/travel-grant/settings";
 
 /**
@@ -29,6 +31,7 @@ describe("readTravelGrantSettings", () => {
       homeCountries: ["AE"],
       switchedOn: true,
       ctaLabel: "Apply for Travel Grant",
+      deadline: null,
     });
   });
 
@@ -151,5 +154,33 @@ describe("ctaLabel: the organizer's button text (Sep 8, 2026)", () => {
 
   it("keeps the organizer's text, trimmed", () => {
     expect(withLabel("  Request travel support  ")).toBe("Request travel support");
+  });
+});
+
+describe("deadline (Sep 9, 2026)", () => {
+  const on = (deadline: unknown) => ({ travelGrant: { enabled: true, homeCountries: ["AE"], deadline } });
+
+  it("reads an ISO instant, and reads anything unreadable as NO deadline (it must never close applications by accident)", () => {
+    expect(readTravelGrantSettings(on("2026-09-30T19:59:00.000Z")).deadline?.toISOString()).toBe("2026-09-30T19:59:00.000Z");
+    expect(readTravelGrantSettings(on(undefined)).deadline).toBeNull();
+    expect(readTravelGrantSettings(on("")).deadline).toBeNull();
+    expect(readTravelGrantSettings(on("not a date")).deadline).toBeNull();
+    expect(readTravelGrantSettings(on(1759262340000)).deadline).toBeNull();
+  });
+
+  it("has passed only once the instant is reached; no deadline never passes", () => {
+    const s = readTravelGrantSettings(on("2026-09-30T19:59:00.000Z"));
+    expect(isTravelGrantDeadlinePassed(s, new Date("2026-09-30T19:58:59.000Z"))).toBe(false);
+    expect(isTravelGrantDeadlinePassed(s, new Date("2026-09-30T19:59:00.000Z"))).toBe(true);
+    expect(isTravelGrantDeadlinePassed(readTravelGrantSettings(on(undefined)), new Date("2099-01-01"))).toBe(false);
+  });
+
+  it("words the deadline in the EVENT's timezone, not the server's", () => {
+    const text = formatTravelGrantDeadline(new Date("2026-09-30T19:59:00.000Z"), "Asia/Dubai");
+    // 19:59Z is 23:59 in Dubai; a UTC render would say 7:59 PM.
+    expect(text).toMatch(/Sep 30, 2026/);
+    expect(text).toMatch(/11:59\s?PM/);
+    expect(text).toMatch(/GMT\+4/);
+    expect(text).not.toMatch(/7:59/);
   });
 });

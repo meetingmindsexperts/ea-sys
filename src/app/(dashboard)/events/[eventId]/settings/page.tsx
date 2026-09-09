@@ -303,6 +303,9 @@ export default function EventSettingsPage() {
   const [travelGrantHomeCountries, setTravelGrantHomeCountries] = useState<string[]>([]);
   // The button text in the email block and on the consent form (Sep 8, 2026).
   const [travelGrantCtaLabel, setTravelGrantCtaLabel] = useState(DEFAULT_TRAVEL_GRANT_CTA_LABEL);
+  // Application deadline as an event-local wall-clock string ("" = none), the
+  // same shape as the abstract and proposal deadlines above.
+  const [travelGrantDeadline, setTravelGrantDeadline] = useState("");
 
   /**
    * Per-event abstract limits. Held as STRINGS so an organizer can clear a box
@@ -470,6 +473,7 @@ export default function EventSettingsPage() {
           setTravelGrantEnabled(tg.switchedOn);
           setTravelGrantHomeCountries(tg.homeCountries);
           setTravelGrantCtaLabel(tg.ctaLabel);
+          setTravelGrantDeadline(tg.deadline ? localDateTimeInTz(tg.deadline, tz) : "");
         }
 
         const lim = readAbstractLimits(settings);
@@ -788,6 +792,7 @@ export default function EventSettingsPage() {
               enabled: travelGrantEnabled,
               homeCountries: travelGrantHomeCountries,
               ctaLabel: travelGrantCtaLabel.trim() || DEFAULT_TRAVEL_GRANT_CTA_LABEL,
+              deadline: wallTimeInTzToIso(travelGrantDeadline, eventTimezone),
             },
         sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
       },
@@ -2342,6 +2347,27 @@ export default function EventSettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       The button in the confirmation email and on the author&rsquo;s form. Leave
                       blank for &ldquo;{DEFAULT_TRAVEL_GRANT_CTA_LABEL}&rdquo;.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="travel-grant-deadline">
+                      Application deadline{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (optional, event time, {tzLabel(new Date(), eventTimezone)})
+                      </span>
+                    </Label>
+                    <Input
+                      id="travel-grant-deadline"
+                      type="datetime-local"
+                      value={travelGrantDeadline}
+                      onChange={(e) => setTravelGrantDeadline(e.target.value)}
+                      className="w-72"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Shown in the email and on the author&rsquo;s form. After it passes, the form
+                      stops accepting answers, no new offers go out, and the console&rsquo;s send
+                      buttons pause until you extend it. Leave empty for no deadline.
                     </p>
                   </div>
 

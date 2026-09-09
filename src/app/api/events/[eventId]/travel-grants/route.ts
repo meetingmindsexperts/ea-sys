@@ -25,7 +25,11 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
-import { readTravelGrantSettings } from "@/lib/travel-grant/settings";
+import {
+  formatTravelGrantDeadline,
+  isTravelGrantDeadlinePassed,
+  readTravelGrantSettings,
+} from "@/lib/travel-grant/settings";
 import { countryNamesFor } from "@/lib/travel-grant/eligibility";
 import { buildTravelGrantRoster, getTravelGrantForSpeaker } from "@/lib/travel-grant/console";
 import { sendTravelGrantInvitations } from "@/lib/travel-grant/send";
@@ -58,7 +62,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, slug: true, organizationId: true, settings: true },
+      select: { id: true, slug: true, organizationId: true, settings: true, timezone: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "travel-grants:event-not-found");
@@ -76,6 +80,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       // configured", and both the classifier and the label need the same set.
       const grantSettings = readTravelGrantSettings(event.settings);
       const homeCountryNames = countryNamesFor(grantSettings.homeCountries);
+      // The deadline, three ways: the instant for a client that wants to
+      // compute, the verdict so the console can disable its sends, and the
+      // wording so every surface says the same date the email did.
+      const deadlineFields = {
+        deadline: grantSettings.deadline?.toISOString() ?? null,
+        deadlinePassed: isTravelGrantDeadlinePassed(grantSettings),
+        deadlineText: grantSettings.deadline
+          ? formatTravelGrantDeadline(grantSettings.deadline, event.timezone)
+          : null,
+      };
 
       const speakerId = url.searchParams.get("speakerId");
       if (speakerId) {
@@ -88,6 +102,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           enabled: grantSettings.enabled,
           homeCountries: homeCountryNames,
           eventSlug: event.slug,
+          ...deadlineFields,
           row,
         });
       }
@@ -145,6 +160,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         homeCountries: homeCountryNames,
         // The console builds each author's public link from this + their token.
         eventSlug: event.slug,
+        ...deadlineFields,
         rows: roster,
         counts: {
           consented: roster.filter((r) => r.grant?.status === "CONSENTED").length,
@@ -209,6 +225,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: true,
         settings: true,
         travelGrantMessageHtml: true,
+        timezone: true,
       },
     });
     if (!event) {
@@ -226,10 +243,34 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    // Owner decision (Sep 9, 2026): past the deadline the form refuses answers,
+    // so a send would deliver a dead link. Refused here, not only greyed out in
+    // the console, and reopened by extending the deadline under Settings.
+    const deadlineText = grantSettings.deadline
+      ? formatTravelGrantDeadline(grantSettings.deadline, event.timezone)
+      : null;
+    if (isTravelGrantDeadlinePassed(grantSettings)) {
+      apiLogger.warn(
+        { eventId, userId: session.user.id, deadline: grantSettings.deadline?.toISOString() },
+        "travel-grants:deadline-passed",
+      );
+      return NextResponse.json(
+        {
+          error: `Travel grant applications closed on ${deadlineText}. Extend the deadline under Settings → Abstracts to send again.`,
+          code: "DEADLINE_PASSED",
+        },
+        { status: 400 },
+      );
+    }
 
     return await runWithTenant(event.organizationId, async () => {
       const result = await sendTravelGrantInvitations({
-        event: { ...event, homeCountries: grantSettings.homeCountries, ctaLabel: grantSettings.ctaLabel },
+        event: {
+          ...event,
+          homeCountries: grantSettings.homeCountries,
+          ctaLabel: grantSettings.ctaLabel,
+          deadlineText,
+        },
         speakerIds: parsed.data.speakerIds,
         // D9: "remind everyone pending" resolves from the GRANT table, never
         // from the roster the console is rendering. The roster deliberately

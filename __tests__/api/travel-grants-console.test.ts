@@ -404,3 +404,42 @@ describe("resend semantics and the mint race", () => {
     );
   });
 });
+
+describe("application deadline (Sep 9, 2026)", () => {
+  const PAST = { ...EVENT, settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } } };
+  const FUTURE = { ...EVENT, settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2099-09-30T19:59:00.000Z" } } };
+
+  it("REFUSES every send once the deadline has passed, before touching a single recipient", async () => {
+    eventFindFirst.mockResolvedValue(PAST);
+    const res = await POST(req({ target: "pending" }), { params });
+    expect(res.status).toBe(400);
+    const j = await res.json();
+    expect(j.code).toBe("DEADLINE_PASSED");
+    expect(j.error).toMatch(/closed on .*2000/);
+    expect(grantFindMany).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "travel-grants:deadline-passed");
+  });
+
+  it("a future deadline does not block a send", async () => {
+    eventFindFirst.mockResolvedValue(FUTURE);
+    const res = await POST(req({ target: "pending" }), { params });
+    expect(res.status).toBe(200);
+    expect(grantFindMany).toHaveBeenCalled();
+  });
+
+  it("the roster carries the verdict and the wording, so the console can pause its buttons", async () => {
+    eventFindFirst.mockResolvedValue(PAST);
+    const res = await GET(req(), { params });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.deadlinePassed).toBe(true);
+    expect(j.deadline).toBe("2000-01-01T00:00:00.000Z");
+    expect(j.deadlineText).toMatch(/2000/);
+    eventFindFirst.mockResolvedValue(EVENT);
+    const none = await (await GET(req(), { params })).json();
+    expect(none.deadlinePassed).toBe(false);
+    expect(none.deadline).toBeNull();
+    expect(none.deadlineText).toBeNull();
+  });
+});

@@ -20,14 +20,28 @@ import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertCircle,
+  CalendarClock,
   Copy,
   Download,
+  Eye,
   Loader2,
   Plane,
   Send,
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
 import {
@@ -80,6 +94,10 @@ interface Payload {
    */
   homeCountries?: string[];
   eventSlug: string;
+  /** Application deadline (Sep 9, 2026): the instant, the verdict, the wording. */
+  deadline?: string | null;
+  deadlinePassed?: boolean;
+  deadlineText?: string | null;
   rows: Row[];
   counts: {
     consented: number;
@@ -99,6 +117,15 @@ export default function TravelGrantsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  // The send dialog (Sep 9, 2026): both "Remind N pending" and the per-row
+  // send go through it, so every send can be previewed and can carry a
+  // subject and a personal note. One dialog, one preview, one submit.
+  const [sendTarget, setSendTarget] = useState<{ kind: "pending" } | { kind: "row"; row: Row } | null>(null);
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const previewMutation = usePreviewEmailBySlug(eventId ?? "");
 
   const load = useCallback(async () => {
     if (!eventId) return;
@@ -123,8 +150,8 @@ export default function TravelGrantsPage() {
   }, [load]);
 
   const send = useCallback(
-    async (body: Record<string, unknown>, key: string) => {
-      if (!eventId) return;
+    async (body: Record<string, unknown>, key: string): Promise<boolean> => {
+      if (!eventId) return false;
       setBusy(key);
       try {
         const res = await fetch(`/api/events/${eventId}/travel-grants`, {
@@ -135,7 +162,7 @@ export default function TravelGrantsPage() {
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
           toast.error(json.error || "Couldn't send.");
-          return;
+          return false;
         }
         const bits = [`Sent ${json.sent}`];
         if (json.failed) bits.push(`${json.failed} failed`);
@@ -145,14 +172,57 @@ export default function TravelGrantsPage() {
         else if (json.failed) toast.warning(bits.join(" · "));
         else toast.success(bits.join(" · "));
         await load();
+        return true;
       } catch {
         toast.error("Couldn't send. Please try again.");
+        return false;
       } finally {
         setBusy(null);
       }
     },
     [eventId, load],
   );
+
+  const openSend = useCallback((target: { kind: "pending" } | { kind: "row"; row: Row }) => {
+    setSendSubject("");
+    setSendMessage("");
+    setSendTarget(target);
+  }, []);
+
+  const submitSend = useCallback(async () => {
+    if (!sendTarget) return;
+    const overrides = {
+      ...(sendSubject.trim() ? { subject: sendSubject.trim() } : {}),
+      ...(sendMessage.trim() ? { message: sendMessage.trim() } : {}),
+    };
+    const ok =
+      sendTarget.kind === "pending"
+        ? await send({ target: "pending", ...overrides }, "remind")
+        : await send({ speakerIds: [sendTarget.row.speakerId], ...overrides }, sendTarget.row.speakerId);
+    if (ok) setSendTarget(null);
+  }, [send, sendTarget, sendSubject, sendMessage]);
+
+  // Exactly what the send renders: the event's own template with the typed
+  // subject and note, the organizer's message, button text and deadline. A
+  // per-row preview greets THAT author with their real link; the reminder
+  // keeps a representative greeting (audience-level previews stay
+  // representative, July 29, 2026).
+  const handlePreview = useCallback(async () => {
+    if (!sendTarget) return;
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: "travel-grant-invitation",
+        speakerId: sendTarget.kind === "row" ? sendTarget.row.speakerId : undefined,
+        customSubject: sendSubject.trim() || undefined,
+        customMessage: sendMessage.trim() || undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error("travel-grants:preview-error", err);
+      toast.error(err instanceof Error ? err.message : "Couldn't build the preview.");
+    }
+  }, [previewMutation, sendTarget, sendSubject, sendMessage]);
 
   // Organizer override of the author's answer (Sep 8, 2026): reopen, or
   // record applied / declined on their behalf. The author's own form is locked
@@ -258,8 +328,9 @@ export default function TravelGrantsPage() {
             Export CSV
           </Button>
           <Button
-            onClick={() => void send({ target: "pending" }, "remind")}
-            disabled={busy !== null || data.counts.pending === 0}
+            onClick={() => openSend({ kind: "pending" })}
+            disabled={busy !== null || data.counts.pending === 0 || data.deadlinePassed === true}
+            title={data.deadlinePassed ? "Applications closed; extend the deadline to send again" : undefined}
           >
             {busy === "remind" ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -270,6 +341,24 @@ export default function TravelGrantsPage() {
           </Button>
         </div>
       </div>
+
+      {data.deadlinePassed && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Applications <strong>closed on {data.deadlineText}</strong>. Sending is paused and the
+            authors&rsquo; links no longer accept answers. Extend the deadline under{" "}
+            <strong>Settings &rarr; Abstracts</strong> to send again. You can still set a status by
+            hand from the row menu.
+          </p>
+        </div>
+      )}
+      {!data.deadlinePassed && data.deadlineText && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CalendarClock className="h-4 w-4" />
+          Applications close on {data.deadlineText}.
+        </p>
+      )}
 
       {!data.enabled && (
         <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -357,15 +446,22 @@ export default function TravelGrantsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={busy !== null || r.residency !== "overseas" || !r.email}
-                            title={
-                              r.residency !== "overseas"
-                                ? "Not eligible — correct the country on their profile first"
-                                : !r.email
-                                  ? "No email address on file"
-                                  : "Send their link"
+                            disabled={
+                              busy !== null ||
+                              r.residency !== "overseas" ||
+                              !r.email ||
+                              data.deadlinePassed === true
                             }
-                            onClick={() => void send({ speakerIds: [r.speakerId] }, r.speakerId)}
+                            title={
+                              data.deadlinePassed
+                                ? "Applications closed; extend the deadline to send again"
+                                : r.residency !== "overseas"
+                                  ? "Not eligible — correct the country on their profile first"
+                                  : !r.email
+                                    ? "No email address on file"
+                                    : "Send their link"
+                            }
+                            onClick={() => openSend({ kind: "row", row: r })}
                           >
                             {busy === r.speakerId ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -423,6 +519,92 @@ export default function TravelGrantsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={sendTarget !== null} onOpenChange={(open) => { if (!open) setSendTarget(null); }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {sendTarget?.kind === "row"
+                ? `Send the link to ${sendTarget.row.name}`
+                : `Remind ${data.counts.pending} pending author${data.counts.pending === 1 ? "" : "s"}`}
+            </DialogTitle>
+            <DialogDescription>
+              {sendTarget?.kind === "row" ? (
+                <>
+                  <strong>{sendTarget.row.email}</strong> receives their personal link, using the{" "}
+                  <em>Travel Grant Invitation</em> template with your message, button text and deadline
+                  from Settings and Content.
+                </>
+              ) : (
+                <>
+                  Everyone invited who has not answered yet receives their link again. Authors who
+                  already applied or declined, and anyone no longer eligible, are skipped.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="tg-send-subject">Subject (optional)</Label>
+              <Input
+                id="tg-send-subject"
+                value={sendSubject}
+                onChange={(e) => setSendSubject(e.target.value)}
+                placeholder="Leave blank to use the template's subject"
+                maxLength={300}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tg-send-message">Personal note (optional)</Label>
+              <Textarea
+                id="tg-send-message"
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                placeholder="A line or two above the button, e.g. why you are writing again."
+                rows={4}
+                maxLength={5000}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handlePreview()}
+              disabled={previewMutation.isPending || busy !== null}
+            >
+              {previewMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" />
+              )}
+              Preview
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => setSendTarget(null)} disabled={busy !== null}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void submitSend()} disabled={busy !== null}>
+                {busy !== null ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Send
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
+      )}
     </div>
   );
 }

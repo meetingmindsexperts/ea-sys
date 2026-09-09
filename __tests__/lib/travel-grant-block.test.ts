@@ -86,6 +86,15 @@ describe("buildTravelGrantBlock", () => {
     expect(b.html).not.toContain("<div style=\"margin: 0 0 16px 0;");
   });
 
+  it("names the application deadline under the button, in both parts, and only when there is one", () => {
+    const withDeadline = buildTravelGrantBlock({ link: "https://x/t", status: "PENDING", deadlineText: "September 30, 2026 at 11:59 PM (GMT+4)" });
+    expect(withDeadline.html).toContain("Applications close on September 30, 2026 at 11:59 PM (GMT+4).");
+    expect(withDeadline.text).toContain("Applications close on September 30, 2026 at 11:59 PM (GMT+4).");
+    const without = buildTravelGrantBlock({ link: "https://x/t", status: "PENDING" });
+    expect(without.html).not.toContain("Applications close");
+    expect(without.text).not.toContain("Applications close");
+  });
+
   it("renders the organizer's button text, escaped, and falls back to the default when blank", () => {
     const custom = buildTravelGrantBlock({ link: "https://x/t", status: "PENDING", ctaLabel: "Request <b>travel</b> support" });
     expect(custom.html).toContain("Request &lt;b&gt;travel&lt;/b&gt; support</a>");
@@ -176,6 +185,29 @@ describe("resolveTravelGrantBlock", () => {
     expect(info).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "travel-grant:block-for-decided-row", status: "DECLINED", speakerId: base.speakerId }),
     );
+  });
+
+  it("renders nothing and mints nothing once the deadline has passed, and says so at info", async () => {
+    const b = await resolveTravelGrantBlock({
+      ...base,
+      speakerCountry: "Oman",
+      settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } },
+    });
+    expect(b).toEqual({ html: "", text: "" });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(expect.objectContaining({ msg: "travel-grant:deadline-passed-not-invited", speakerId: base.speakerId }));
+  });
+
+  it("words a future deadline into the block, in the event's timezone", async () => {
+    const b = await resolveTravelGrantBlock({
+      ...base,
+      speakerCountry: "Oman",
+      timezone: "Asia/Dubai",
+      settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2099-09-30T19:59:00.000Z" } },
+    });
+    expect(b.html).toContain("Applications close on");
+    expect(b.html).toMatch(/11:59\s?PM/);
   });
 
   it("renders nothing and logs at ERROR when there is no slug to build a link from", async () => {

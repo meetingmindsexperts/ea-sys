@@ -262,3 +262,52 @@ describe("organizer controls (Sep 8, 2026)", () => {
     expect(updateMany.mock.calls[0][0].data.decidedBy).toBeNull();
   });
 });
+
+describe("application deadline (Sep 9, 2026)", () => {
+  const past = (row: typeof ROW) => ({
+    ...row,
+    event: { ...row.event, settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } } },
+  });
+  const future = (row: typeof ROW) => ({
+    ...row,
+    event: { ...row.event, settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2099-09-30T19:59:00.000Z" } } },
+  });
+
+  it("GET reports an unanswered link as closed once the deadline has passed, with the date", async () => {
+    loadRow.mockResolvedValue(past(ROW));
+    const j = await (await GET(req(), { params })).json();
+    expect(j.closed).toBe(true);
+    expect(j.deadlineText).toMatch(/2000/);
+  });
+
+  it("GET does NOT call an answered link closed: the author still sees their acknowledgement", async () => {
+    loadRow.mockResolvedValue(past({ ...ROW, status: "CONSENTED", signedName: "Ana Silva" } as unknown as typeof ROW));
+    const j = await (await GET(req(), { params })).json();
+    expect(j.closed).toBe(false);
+    expect(j.status).toBe("CONSENTED");
+  });
+
+  it("GET carries a future deadline as wording, not as closed", async () => {
+    loadRow.mockResolvedValue(future(ROW));
+    const j = await (await GET(req(), { params })).json();
+    expect(j.closed).toBe(false);
+    expect(j.deadlineText).toMatch(/2099/);
+  });
+
+  it("POST refuses with 410 after the deadline, BEFORE the claim, so the row is untouched", async () => {
+    loadRow.mockResolvedValue(past(ROW));
+    const res = await POST(req({ decision: "consent", confirmedNotUaeResident: true, signedName: "Ana Silva" }), { params });
+    expect(res.status).toBe(410);
+    const j = await res.json();
+    expect(j.code).toBe("DEADLINE_PASSED");
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ stage: "submit-deadline" }), "travel-grant-public:deadline-passed");
+  });
+
+  it("POST records an answer while the deadline is still ahead", async () => {
+    loadRow.mockResolvedValue(future(ROW));
+    const res = await POST(req({ decision: "decline" }), { params });
+    expect(res.status).toBe(200);
+    expect(updateMany).toHaveBeenCalled();
+  });
+});

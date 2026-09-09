@@ -33,6 +33,7 @@
  */
 
 import { resolveCountryCode } from "@/lib/travel-grant/eligibility";
+import { formatDateInTz, formatTimeInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
 import {
   DEFAULT_TRAVEL_GRANT_CTA_LABEL,
   TRAVEL_GRANT_CTA_LABEL_MAX,
@@ -76,6 +77,14 @@ export interface TravelGrantSettings {
    * default, so a cleared field can never render an empty button.
    */
   ctaLabel: string;
+  /**
+   * Application deadline (Sep 9, 2026), an instant, or null for none. Past it:
+   * no new offer is minted, the author's form refuses new answers, and the
+   * console's sends are refused, until the organizer extends it. Unreadable
+   * values read as "no deadline", because a corrupt value must not silently
+   * close applications on an event that never set one.
+   */
+  deadline: Date | null;
 }
 
 export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = {
@@ -83,7 +92,32 @@ export const TRAVEL_GRANT_SETTINGS_DEFAULT: TravelGrantSettings = {
   homeCountries: [],
   switchedOn: false,
   ctaLabel: DEFAULT_TRAVEL_GRANT_CTA_LABEL,
+  deadline: null,
 };
+
+function readDeadline(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** True once the deadline instant has passed. No deadline never passes. */
+export function isTravelGrantDeadlinePassed(
+  settings: Pick<TravelGrantSettings, "deadline">,
+  now: Date = new Date(),
+): boolean {
+  return settings.deadline != null && now.getTime() >= settings.deadline.getTime();
+}
+
+/**
+ * "Tuesday, September 30, 2026 at 11:59 PM (GMT+4)", in the EVENT's timezone,
+ * for the email block, the author's form and the console. One formatter so the
+ * three surfaces cannot disagree about when applications close.
+ */
+export function formatTravelGrantDeadline(deadline: Date, timezone: string | null | undefined): string {
+  const tz = resolveTimezone(timezone);
+  return `${formatDateInTz(deadline, tz)} at ${formatTimeInTz(deadline, tz)} (${tzLabel(deadline, tz)})`;
+}
 
 function readCtaLabel(value: unknown): string {
   if (typeof value !== "string") return DEFAULT_TRAVEL_GRANT_CTA_LABEL;
@@ -130,6 +164,7 @@ export function readTravelGrantSettings(settings: unknown): TravelGrantSettings 
     homeCountries,
     switchedOn,
     ctaLabel: readCtaLabel(blob.ctaLabel),
+    deadline: readDeadline(blob.deadline),
   };
 }
 
