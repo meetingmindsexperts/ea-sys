@@ -71,3 +71,70 @@ export function excludesCancelledByDefault(
 export function excludesGroupMembers(emailType: string | undefined): boolean {
   return emailType === "payment-reminder";
 }
+
+// ───────────────────────── Abstract email types ─────────────────────────
+// The status scope each abstract type applies, shared by the server's
+// recipient resolver AND the dialog's picker/count, for the same reason as the
+// registration rules above: the number the organiser reads must be the number
+// we mail. Type-only Prisma import, so this stays client-safe.
+
+import type { AbstractStatus } from "@prisma/client";
+
+/** Types that send one email per ABSTRACT (the rest go once per author). */
+export const PER_ABSTRACT_EMAIL_TYPES: ReadonlySet<string> = new Set([
+  "abstract-confirmation",
+  "abstract-decision",
+]);
+/** Statuses a decision email can describe (the template heading comes from the status). */
+export const ABSTRACT_DECISION_STATUSES = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] as const;
+/** Mirrors the single resend route's NOT_RESENDABLE set. */
+export const ABSTRACT_NOT_RESENDABLE_STATUSES = ["DRAFT", "WITHDRAWN"] as const;
+
+/**
+ * The status scope an abstract type applies when the organiser sets none:
+ * a confirmation resend skips drafts and withdrawals, a decision resend
+ * takes only decided abstracts, a reminder goes to authors still in DRAFT.
+ * An explicit status filter overrides it (validated by
+ * assertAbstractTypeStatus so it cannot contradict the type).
+ */
+export function defaultAbstractStatusFilter(
+  emailType: string,
+): AbstractStatus | { in: AbstractStatus[] } | { notIn: AbstractStatus[] } | undefined {
+  if (emailType === "abstract-confirmation") return { notIn: [...ABSTRACT_NOT_RESENDABLE_STATUSES] };
+  if (emailType === "abstract-decision") return { in: [...ABSTRACT_DECISION_STATUSES] };
+  if (emailType === "abstract-reminder") return "DRAFT";
+  return undefined;
+}
+
+/**
+ * Would the server accept this explicit status for this type? The dialog only
+ * OFFERS statuses this returns true for, and the server refuses the rest with
+ * INVALID_FILTER; one predicate so the two cannot disagree.
+ */
+export function abstractStatusAllowedForType(emailType: string, status: string): boolean {
+  if (emailType === "abstract-confirmation") {
+    return !(ABSTRACT_NOT_RESENDABLE_STATUSES as readonly string[]).includes(status);
+  }
+  if (emailType === "abstract-decision") {
+    return (ABSTRACT_DECISION_STATUSES as readonly string[]).includes(status);
+  }
+  return true;
+}
+
+/**
+ * Is an abstract with this status in the audience of this type, given the
+ * organiser's explicit status filter (or "all" / undefined for the type's
+ * default scope)? The client-side twin of the resolver's `where`.
+ */
+export function abstractInSendScope(
+  abstractStatus: string,
+  emailType: string,
+  explicitStatus: string | undefined,
+): boolean {
+  if (explicitStatus && explicitStatus !== "all") return abstractStatus === explicitStatus;
+  const scope = defaultAbstractStatusFilter(emailType);
+  if (!scope) return true;
+  if (typeof scope === "string") return abstractStatus === scope;
+  if ("in" in scope) return (scope.in as string[]).includes(abstractStatus);
+  return !(scope.notIn as string[]).includes(abstractStatus);
+}

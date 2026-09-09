@@ -43,6 +43,10 @@ import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
   excludesCancelledByDefault,
+  PER_ABSTRACT_EMAIL_TYPES,
+  ABSTRACT_DECISION_STATUSES,
+  ABSTRACT_NOT_RESENDABLE_STATUSES,
+  defaultAbstractStatusFilter,
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
@@ -385,27 +389,9 @@ const BULK_EMAIL_TEMPLATE_SLUGS: Partial<Record<BulkEmailType, string>> = {
 };
 
 /** Types that send one email per ABSTRACT rather than per submitter. */
-const PER_ABSTRACT_EMAIL_TYPES = new Set<string>(["abstract-confirmation", "abstract-decision"]);
-/** Statuses a decision email can describe (the template heading comes from the status). */
-export const ABSTRACT_DECISION_STATUSES = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"] as const;
-/** Mirrors the single resend route's NOT_RESENDABLE set. */
-export const ABSTRACT_NOT_RESENDABLE_STATUSES = ["DRAFT", "WITHDRAWN"] as const;
-
-/**
- * The status scope an abstract type applies when the organiser sets none:
- * a confirmation resend skips drafts and withdrawals, a decision resend
- * takes only decided abstracts, a reminder goes to authors still in DRAFT.
- * An explicit status filter overrides it (validated by
- * assertAbstractTypeStatus so it cannot contradict the type).
- */
-export function defaultAbstractStatusFilter(
-  emailType: string,
-): AbstractStatus | { in: AbstractStatus[] } | { notIn: AbstractStatus[] } | undefined {
-  if (emailType === "abstract-confirmation") return { notIn: [...ABSTRACT_NOT_RESENDABLE_STATUSES] };
-  if (emailType === "abstract-decision") return { in: [...ABSTRACT_DECISION_STATUSES] };
-  if (emailType === "abstract-reminder") return "DRAFT";
-  return undefined;
-}
+// The per-type status scope lives in bulk-email-audience.ts (client-safe) so
+// the dialog's picker and count apply the SAME rule the resolver below does.
+export { ABSTRACT_DECISION_STATUSES, ABSTRACT_NOT_RESENDABLE_STATUSES, defaultAbstractStatusFilter };
 
 /** An explicit abstract status that contradicts the type is a 400, never a silent widen. */
 export function assertAbstractTypeStatus(emailType: string, status: string | undefined): void {

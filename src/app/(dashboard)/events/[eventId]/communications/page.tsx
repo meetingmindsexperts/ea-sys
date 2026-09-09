@@ -61,6 +61,7 @@ import {
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
+import type { AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
@@ -90,7 +91,11 @@ interface SpeakerItem {
 }
 
 interface AbstractItem {
-  speaker?: { email?: string };
+  id: string;
+  serialId?: number | null;
+  title: string;
+  status: string;
+  speaker?: { email?: string; firstName?: string; lastName?: string };
 }
 
 interface ReviewerItem {
@@ -307,6 +312,16 @@ export default function CommunicationsPage() {
   const registrations = (registrationsQuery.data ?? []) as RegistrationItem[];
   const speakers = (speakersQuery.data ?? []) as SpeakerItem[];
   const abstracts = (abstractsQuery.data ?? []) as AbstractItem[];
+  // The dialog's abstract picker (status + tick by number / title / author
+  // email) works from the rows this page already holds; no second fetch.
+  const abstractOptions: AbstractPickerOption[] = abstracts.map((a) => ({
+    id: a.id,
+    serialId: a.serialId ?? null,
+    title: a.title,
+    status: a.status,
+    email: a.speaker?.email ?? "",
+    authorName: [a.speaker?.firstName, a.speaker?.lastName].filter(Boolean).join(" "),
+  }));
   const reviewerData = reviewersQuery.data as { reviewers?: ReviewerItem[] } | undefined;
   const reviewers = (reviewerData?.reviewers ?? []) as ReviewerItem[];
   // Distinct non-empty badge types present on this event's registrations —
@@ -916,7 +931,8 @@ export default function CommunicationsPage() {
               Abstract Submitters
             </CardTitle>
             <CardDescription>
-              Send acceptance, rejection, revision requests, or reminders to abstract submitters.
+              Resend confirmations or decisions, remind draft authors, or write your own email. Filter by
+              status and tick specific abstracts by number, title or author email inside the dialog.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1071,6 +1087,7 @@ export default function CommunicationsPage() {
         sessionRoleFilter={activeSessionRoleFilter}
         defaultEmailType={activeDefaultEmailType}
         recipientCountFor={recipientCountFor}
+        abstractOptions={abstractOptions}
       />
     </div>
   );
