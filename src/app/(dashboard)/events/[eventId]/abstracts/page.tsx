@@ -45,6 +45,7 @@ import {
   Link2,
   RefreshCw,
   Mail,
+  Download,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
@@ -142,6 +143,38 @@ export default function AbstractsPage() {
 
   // React Query hooks - data is cached and shared across navigations
   const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId);
+  const [exporting, setExporting] = useState(false);
+
+  // Fetch-then-save rather than a bare download link: a 403 or a lapsed session
+  // would otherwise save an error JSON as "abstracts.csv" (the quote.json
+  // lesson of April 2026), and the failure would be silent.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/abstracts?export=csv`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        console.error("abstracts:export-failed", res.status, json);
+        toast.error(json.error || (res.status === 403 ? "Only admins and organisers can export abstracts." : "Export failed."));
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `abstracts-${eventId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success("Abstracts exported");
+    } catch (err) {
+      console.error("abstracts:export-error", err);
+      toast.error("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
   // Cache read (same key as the theme picker) — the form needs to know whether
@@ -432,6 +465,14 @@ export default function AbstractsPage() {
                 <Mail className="mr-2 h-4 w-4" />
                 Email authors
               </Link>
+            </Button>
+          )}
+          {/* Export is staff-only (Sep 9, 2026): the server refuses every other
+              role, so the button is shown only where it will work. */}
+          {(isAdmin || isOrganizer) && abstracts.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
+              <Download className={`mr-2 h-4 w-4 ${exporting ? "animate-pulse" : ""}`} />
+              Export CSV
             </Button>
           )}
         {/* Submitter: full page form. Admin: dialog. Reviewer: no button. */}

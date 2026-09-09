@@ -61,7 +61,8 @@ import {
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import { ABSTRACT_PICKER_FETCH_LIMIT, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
+import { ABSTRACT_PICKER_FETCH_LIMIT, abstractStatusLabel, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
+import { AbstractPickerDialog, type AbstractSelection } from "@/components/abstracts/abstract-picker-dialog";
 import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
@@ -376,6 +377,13 @@ export default function CommunicationsPage() {
   const [pasteIds, setPasteIds] = useState("");
   const [matchResult, setMatchResult] = useState<{ matched: string[]; unmatched: string[] } | null>(null);
 
+  // Abstracts: the audience is chosen on the card BEFORE composing (Sep 9,
+  // 2026, owner: like the registration id lookup, not after Send). A status
+  // and, optionally, a fixed list of abstract ids; the send dialog counts the
+  // real audience on the server from these.
+  const [abstractPickerOpen, setAbstractPickerOpen] = useState(false);
+  const [abstractSelection, setAbstractSelection] = useState<AbstractSelection>({ ids: [], status: "all" });
+
   // Computed counts
   const paidRegistrations = registrations.filter(
     (r) => r.paymentStatus === "PAID" || r.paymentStatus === "COMPLIMENTARY"
@@ -503,6 +511,19 @@ export default function CommunicationsPage() {
       setActiveSessionRoleFilter(
         speakerRoleFilter !== "all" ? speakerRoleFilter : undefined
       );
+    } else if (audience === "abstracts") {
+      // Chosen on the card's Select abstracts picker. Registrations parity: a
+      // ticked list runs the dialog in "selected" mode over exactly those ids.
+      setActiveSelectionMode(abstractSelection.ids.length > 0 ? "selected" : "all");
+      setActiveRecipientIds(abstractSelection.ids);
+      setActiveStatusFilter(abstractSelection.status !== "all" ? abstractSelection.status : undefined);
+      setActivePaymentStatusFilter(undefined);
+      setActiveTicketTypeFilter(undefined);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
+      setActiveAgreementSignedFilter(undefined);
+      setActiveHasSessionFilter(undefined);
+      setActiveSessionRoleFilter(undefined);
     } else {
       setActiveStatusFilter(undefined);
       setActivePaymentStatusFilter(undefined);
@@ -934,8 +955,8 @@ export default function CommunicationsPage() {
               Abstract Submitters
             </CardTitle>
             <CardDescription>
-              Resend confirmations or decisions, remind draft authors, or write your own email. Filter by
-              status and tick specific abstracts by number, title or author email inside the dialog.
+              Resend confirmations or decisions, remind draft authors, or write your own email. Choose the
+              audience first: filter by status, paste numbers or emails, or tick abstracts, then compose.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -949,17 +970,48 @@ export default function CommunicationsPage() {
                 <p className="text-xs text-muted-foreground">Unique Submitters</p>
               </div>
             </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-sm font-medium">
-                {uniqueSubmitters.size} recipient{uniqueSubmitters.size !== 1 ? "s" : ""}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setAbstractPickerOpen(true)}
+              disabled={abstracts.length === 0}
+            >
+              <ListChecks className="mr-2 h-4 w-4" />
+              Select abstracts
+            </Button>
+
+            <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <span className="min-w-0 text-sm">
+                {abstractSelection.ids.length > 0 ? (
+                  <span className="font-medium">
+                    {abstractSelection.ids.length} abstract{abstractSelection.ids.length === 1 ? "" : "s"} selected
+                    {abstractSelection.status !== "all" && ` · ${abstractStatusLabel(abstractSelection.status)}`}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Everyone
+                    {abstractSelection.status !== "all" && ` with status ${abstractStatusLabel(abstractSelection.status)}`}
+                    {" "}— the exact count is worked out when you compose
+                  </span>
+                )}
+                {(abstractSelection.ids.length > 0 || abstractSelection.status !== "all") && (
+                  <button
+                    type="button"
+                    className="ml-2 text-xs underline underline-offset-2"
+                    onClick={() => setAbstractSelection({ ids: [], status: "all" })}
+                  >
+                    Clear
+                  </button>
+                )}
               </span>
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("abstracts")}
-                disabled={uniqueSubmitters.size === 0}
+                disabled={abstracts.length === 0}
               >
                 <Send className="mr-2 h-4 w-4" />
-                Send Email
+                {abstractSelection.ids.length > 0 ? `Email ${abstractSelection.ids.length}` : "Send Email"}
               </Button>
             </div>
           </CardContent>
@@ -1090,8 +1142,15 @@ export default function CommunicationsPage() {
         sessionRoleFilter={activeSessionRoleFilter}
         defaultEmailType={activeDefaultEmailType}
         recipientCountFor={recipientCountFor}
-        abstractOptions={abstractOptions}
-        abstractOptionsTruncated={abstracts.length >= ABSTRACT_PICKER_FETCH_LIMIT}
+      />
+
+      <AbstractPickerDialog
+        open={abstractPickerOpen}
+        onOpenChange={setAbstractPickerOpen}
+        options={abstractOptions}
+        truncated={abstracts.length >= ABSTRACT_PICKER_FETCH_LIMIT}
+        selection={abstractSelection}
+        onApply={setAbstractSelection}
       />
     </div>
   );

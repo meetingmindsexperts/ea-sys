@@ -17,6 +17,7 @@ import {
   abstractStatusOptionsFor,
   countAbstractRecipients,
   filterAbstractOptions,
+  matchPastedAbstractIdentifiers,
   resolveAbstractStatusFilter,
   type AbstractPickerOption,
 } from "@/lib/bulk-email-abstract-picker";
@@ -133,5 +134,35 @@ describe("countAbstractRecipients = emails the send produces", () => {
   });
   it("an empty selection means everyone in scope", () => {
     expect(countAbstractRecipients(ROWS, { emailType: "abstract-decision", status: "all", selectedIds: new Set() })).toBe(1);
+  });
+});
+
+describe("matchPastedAbstractIdentifiers (Select abstracts, Sep 9, 2026)", () => {
+  const options = [
+    row({ id: "abs-7", serialId: 7, email: "ana@x.com" }),
+    row({ id: "abs-12", serialId: 12, email: "ana@x.com" }),
+    row({ id: "abs-30", serialId: 30, email: "bo@y.org" }),
+    row({ id: "abs-none", serialId: null, email: "cy@z.net" }),
+  ];
+
+  it("matches a number in any spelling, the full id, and an email (every abstract of that author)", () => {
+    const r = matchPastedAbstractIdentifiers("A-007, a-12\n030\nabs-none\nBO@Y.ORG", options);
+    expect(r.matched.sort()).toEqual(["abs-12", "abs-30", "abs-7", "abs-none"].sort());
+    expect(r.unmatched).toEqual([]);
+  });
+
+  it("one email selects all of that author's abstracts, once each", () => {
+    const r = matchPastedAbstractIdentifiers("ana@x.com, ana@x.com, 7", options);
+    expect(r.matched.sort()).toEqual(["abs-12", "abs-7"]);
+  });
+
+  it("reports what it could not place rather than guessing", () => {
+    const r = matchPastedAbstractIdentifiers("A-999, nobody@x.com, 7x", options);
+    expect(r.matched).toEqual([]);
+    expect(r.unmatched).toEqual(["A-999", "nobody@x.com", "7x"]);
+  });
+
+  it("an empty paste matches nothing and reports nothing", () => {
+    expect(matchPastedAbstractIdentifiers("  \n , ", options)).toEqual({ matched: [], unmatched: [] });
   });
 });

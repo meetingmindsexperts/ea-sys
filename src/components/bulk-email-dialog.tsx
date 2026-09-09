@@ -45,17 +45,7 @@ import {
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
 } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
-import { formatAbstractSerial } from "@/lib/abstract-serial";
-import {
-  ABSTRACT_PICKER_FETCH_LIMIT,
-  abstractScopeLabel,
-  abstractStatusLabel,
-  abstractStatusOptionsFor,
-  countAbstractRecipients,
-  filterAbstractOptions,
-  resolveAbstractStatusFilter,
-  type AbstractPickerOption,
-} from "@/lib/bulk-email-abstract-picker";
+import { abstractScopeLabel, abstractStatusLabel, resolveAbstractStatusFilter } from "@/lib/bulk-email-abstract-picker";
 
 /** Prefix marking a Select value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
@@ -165,16 +155,6 @@ interface BulkEmailDialogProps {
    * to `recipientCount`. Not used in "selected" mode.
    */
   recipientCountFor?: (filters: BulkEmailEffectiveFilters) => number;
-  /**
-   * Abstracts recipients only (Sep 9, 2026): the event's abstracts, so the
-   * dialog can offer a status filter and a tick-by-number-or-email list, and
-   * count exactly what the server will mail. Omit to fall back to the plain
-   * "everyone" send. When present it also owns the recipient list: ticked
-   * rows are sent as `recipientIds` (abstract ids), overriding the props.
-   */
-  abstractOptions?: AbstractPickerOption[];
-  /** True when the host's fetch hit the list cap, so the picker is incomplete (review MED 2). */
-  abstractOptionsTruncated?: boolean;
 }
 
 const speakerEmailTypes: EmailTypeOption[] = [
@@ -321,8 +301,6 @@ export function BulkEmailDialog({
   sessionRoleFilter,
   defaultEmailType,
   recipientCountFor,
-  abstractOptions,
-  abstractOptionsTruncated,
 }: BulkEmailDialogProps) {
   const [emailType, setEmailType] = useState<string>(
     defaultEmailType ?? getDefaultEmailType(recipientType)
@@ -366,9 +344,10 @@ export function BulkEmailDialog({
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Abstracts picker (Sep 9, 2026): a status filter plus the ticked abstract
   // ids and the search box. "all" = the email type's own default scope.
+  // Abstracts: the status chosen on the Communications card's Select abstracts
+  // picker arrives as `statusFilter`; the dialog only resolves it against the
+  // email type (Sep 9, 2026: the audience is picked BEFORE composing).
   const [localAbstractStatus, setLocalAbstractStatus] = useState("all");
-  const [localAbstractIds, setLocalAbstractIds] = useState<Set<string>>(new Set());
-  const [abstractSearch, setAbstractSearch] = useState("");
   // Reset emailType + payment filter on the closed → open transition only
   // (so users who change a control mid-dialog don't lose it on a
   // re-render). Uses React's documented "store info from previous render"
@@ -387,9 +366,7 @@ export function BulkEmailDialog({
       setCertTemplateIds([]);
       setCoverSource("default");
       setScheduledAudience("matching");
-      setLocalAbstractStatus("all");
-      setLocalAbstractIds(new Set());
-      setAbstractSearch("");
+      setLocalAbstractStatus(recipientType === "abstracts" && statusFilter ? statusFilter : "all");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
@@ -493,40 +470,13 @@ export function BulkEmailDialog({
   // counter is provided. "selected" mode always shows the selected count.
   const isRegistrations = recipientType === "registrations";
   const isAbstracts = recipientType === "abstracts";
-  const hasAbstractPicker = isAbstracts && abstractOptions != null;
   // A status the current type cannot send resolves to "all" (the type's own
-  // scope) rather than reaching the server as an INVALID_FILTER.
+  // scope) rather than reaching the server as an INVALID_FILTER; the summary
+  // below says so when it happened, since the organiser chose it on the card.
   const abstractStatus = isAbstracts ? resolveAbstractStatusFilter(emailType, localAbstractStatus) : "all";
-  // A reminder has nothing to tick (drafts are never listed to staff), so any
-  // ticks left over from another type are ignored rather than silently
-  // narrowing a send whose list is hidden.
-  const abstractSelected =
-    hasAbstractPicker && emailType !== "abstract-reminder" && localAbstractIds.size > 0;
-  // Ticked abstracts behave exactly like a row selection made on a list page.
-  const effectiveSelectionMode: "selected" | "all" = abstractSelected ? "selected" : selectionMode;
-  const effectiveRecipientIds = abstractSelected ? Array.from(localAbstractIds) : recipientIds;
-  const visibleAbstracts = hasAbstractPicker
-    ? filterAbstractOptions(abstractOptions ?? [], { emailType, status: abstractStatus, search: abstractSearch })
-    : [];
-  const visibleTicked = visibleAbstracts.filter((o) => localAbstractIds.has(o.id)).length;
-  const toggleAbstract = (id: string, on: boolean) =>
-    setLocalAbstractIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  // Select-all works on the rows the search is SHOWING and never touches a
-  // selection the search is hiding, so tick, search, tick accumulates.
-  const toggleAllVisible = (on: boolean) =>
-    setLocalAbstractIds((prev) => {
-      const next = new Set(prev);
-      for (const o of visibleAbstracts) {
-        if (on) next.add(o.id);
-        else next.delete(o.id);
-      }
-      return next;
-    });
+  const abstractStatusDropped = isAbstracts && localAbstractStatus !== "all" && abstractStatus === "all";
+  const effectiveSelectionMode: "selected" | "all" = selectionMode;
+  const effectiveRecipientIds = recipientIds;
   // How many audience filters are currently set — shown in the collapsed
   // "Filter recipients" summary so active filters are visible without expanding.
   const activeFilterCount =
@@ -564,18 +514,13 @@ export function BulkEmailDialog({
       recipientType: "abstracts",
       emailType,
       status: abstractStatus,
-      recipientIds: abstractSelected && !resolvesToMatching ? Array.from(localAbstractIds) : undefined,
+      recipientIds: isAbstracts && selectionMode === "selected" && !resolvesToMatching ? recipientIds : undefined,
     },
-    open && hasAbstractPicker,
+    open && isAbstracts,
   );
-  const abstractServerCount = hasAbstractPicker ? (serverCountQuery.data?.count ?? null) : null;
-  const displayCount = hasAbstractPicker
-    ? (abstractServerCount ??
-      countAbstractRecipients(abstractOptions ?? [], {
-        emailType,
-        status: abstractStatus,
-        selectedIds: resolvesToMatching ? undefined : localAbstractIds,
-      }))
+  const abstractServerCount = isAbstracts ? (serverCountQuery.data?.count ?? null) : null;
+  const displayCount = isAbstracts
+    ? (abstractServerCount ?? recipientCount)
     : resolvesToMatching
       ? recipientCountFor
         ? recipientCountFor(effectiveFilters)
@@ -809,8 +754,6 @@ export function BulkEmailDialog({
     setScheduledAudience("matching");
     setCertTemplateIds([]);
     setLocalAbstractStatus("all");
-    setLocalAbstractIds(new Set());
-    setAbstractSearch("");
     setBccInput("");
     setBccSelf(true);
   };
@@ -1297,160 +1240,16 @@ export function BulkEmailDialog({
             </div>
           )}
 
-          {/* Abstracts: status filter + tick by number / title / author email
-              (Sep 9, 2026). Lives here, on the one bulk surface, since the
-              Abstracts page's own Email All was removed the same day. */}
-          {hasAbstractPicker && (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setFiltersOpen((o) => !o)}
-                className="flex w-full items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-left text-sm"
-                aria-expanded={filtersOpen}
-              >
-                <span className="flex items-center gap-2 font-semibold text-primary">
-                  <svg
-                    className={`h-3 w-3 transition-transform ${filtersOpen ? "rotate-90" : ""}`}
-                    viewBox="0 0 12 12"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M4.5 2.5l4 3.5-4 3.5z" />
-                  </svg>
-                  Filter recipients
-                </span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {abstractSelected
-                    ? `${localAbstractIds.size} abstract${localAbstractIds.size === 1 ? "" : "s"} ticked`
-                    : abstractStatus !== "all"
-                      ? `Status: ${abstractStatusLabel(abstractStatus)}`
-                      : "Everyone in scope"}
-                </span>
-              </button>
-
-              {filtersOpen && (
-                <div className="space-y-4 rounded-md border p-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="bulk-email-abstract-status">Abstract status</Label>
-                    <Select value={abstractStatus} onValueChange={setLocalAbstractStatus}>
-                      <SelectTrigger id="bulk-email-abstract-status" aria-label="Abstract status">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">{abstractScopeLabel(emailType)}</SelectItem>
-                        {abstractStatusOptionsFor(emailType).map((st) => (
-                          <SelectItem key={st} value={st}>
-                            {abstractStatusLabel(st)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Only statuses this email type can send are offered; the default is the type&apos;s own scope.
-                    </p>
-                  </div>
-
-                  {emailType === "abstract-reminder" && (
-                    <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                      A reminder goes to every author in scope. Drafts are never listed to staff, so there is
-                      nothing to tick here; the recipient count below comes from the server and does include
-                      them.
-                    </p>
-                  )}
-                  {emailType !== "abstract-reminder" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="bulk-email-abstract-search">Pick abstracts</Label>
-                    <Input
-                      id="bulk-email-abstract-search"
-                      placeholder="Search by number (A-007), title or author email"
-                      value={abstractSearch}
-                      onChange={(e) => setAbstractSearch(e.target.value)}
-                    />
-                    <div className="max-h-56 overflow-y-auto rounded-md border">
-                      {visibleAbstracts.length > 0 && (
-                        <label className="sticky top-0 flex cursor-pointer items-center gap-2 border-b bg-muted/60 px-2.5 py-2 text-xs font-medium">
-                          <Checkbox
-                            checked={
-                              visibleTicked === 0
-                                ? false
-                                : visibleTicked === visibleAbstracts.length
-                                  ? true
-                                  : "indeterminate"
-                            }
-                            onCheckedChange={(c) => toggleAllVisible(c === true)}
-                            aria-label="Select all matching abstracts"
-                          />
-                          <span>
-                            {abstractSearch.trim()
-                              ? `Select all matching (${visibleAbstracts.length})`
-                              : `Select all (${visibleAbstracts.length})`}
-                          </span>
-                        </label>
-                      )}
-                      {visibleAbstracts.map((o) => (
-                        <label
-                          key={o.id}
-                          className="flex cursor-pointer items-center gap-2.5 border-b px-2.5 py-1.5 text-sm last:border-b-0 hover:bg-muted/40"
-                        >
-                          <Checkbox
-                            checked={localAbstractIds.has(o.id)}
-                            onCheckedChange={(c) => toggleAbstract(o.id, c === true)}
-                            aria-label={`Select ${formatAbstractSerial(o.serialId)} ${o.title}`}
-                          />
-                          <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground">
-                            {formatAbstractSerial(o.serialId)}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">{o.title}</span>
-                          <span className="hidden max-w-[40%] truncate text-xs text-muted-foreground sm:block">
-                            {o.email || o.authorName}
-                          </span>
-                        </label>
-                      ))}
-                      {visibleAbstracts.length === 0 && (
-                        <p className="p-3 text-xs text-muted-foreground">No abstracts match.</p>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Tick abstracts to email only their authors; leave everything unticked to email everyone in
-                      scope.{" "}
-                      {abstractSelected && (
-                        <button
-                          type="button"
-                          className="underline underline-offset-2"
-                          onClick={() => setLocalAbstractIds(new Set())}
-                        >
-                          Clear selection
-                        </button>
-                      )}
-                    </p>
-                    {abstractOptionsTruncated && (
-                      <p className="text-xs text-amber-700">
-                        Showing the newest {ABSTRACT_PICKER_FETCH_LIMIT} abstracts; older ones cannot be
-                        ticked here. The recipient count still covers everyone in scope.
-                      </p>
-                    )}
-                    {(emailType === "custom" || isSavedTemplate) && abstractStatus === "all" && (
-                      <p className="text-xs text-muted-foreground">
-                        Authors whose only abstract is a draft are counted and emailed but not listed.
-                      </p>
-                    )}
-                  </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Recipient summary */}
           <div className="rounded-md border p-3 text-sm">
             <p className="font-medium">
               <span className="font-bold text-primary">{displayCount}</span>{" "}
               {displayCount === 1 ? "recipient" : "recipients"}
-              {hasAbstractPicker && abstractServerCount == null && !serverCountQuery.isError && (
+              {isAbstracts && abstractServerCount == null && !serverCountQuery.isError && (
                 <span className="ml-2 text-xs font-normal text-muted-foreground">(counting on the server…)</span>
               )}
             </p>
-            {hasAbstractPicker && serverCountQuery.isError && (
+            {isAbstracts && serverCountQuery.isError && (
               <p className="text-destructive">
                 Couldn&apos;t count recipients on the server, so Send is paused.{" "}
                 <button type="button" className="underline underline-offset-2" onClick={() => void serverCountQuery.refetch()}>
@@ -1464,9 +1263,21 @@ export function BulkEmailDialog({
             {isAbstracts && abstractStatus !== "all" && (
               <p className="text-muted-foreground">Filtered by status: {abstractStatusLabel(abstractStatus)}</p>
             )}
-            {abstractSelected && (
+            {isAbstracts && selectionMode === "selected" && (
               <p className="text-muted-foreground">
-                {localAbstractIds.size} abstract{localAbstractIds.size === 1 ? "" : "s"} ticked
+                {recipientIds.length} abstract{recipientIds.length === 1 ? "" : "s"} selected on the Communications page
+              </p>
+            )}
+            {abstractStatusDropped && (
+              <p className="text-amber-700">
+                Status &ldquo;{abstractStatusLabel(localAbstractStatus)}&rdquo; does not apply to this email type; sending to{" "}
+                {abstractScopeLabel(emailType).toLowerCase()}.
+              </p>
+            )}
+            {isAbstracts && emailType === "abstract-reminder" && selectionMode === "selected" && (
+              <p className="text-amber-700">
+                A reminder goes to draft authors, who cannot be selected. Clear the selection on the
+                Communications page to remind everyone.
               </p>
             )}
             {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
@@ -1590,7 +1401,7 @@ export function BulkEmailDialog({
                         }`}
                       >
                         <span className="font-medium">
-                          Only the {abstractSelected ? localAbstractIds.size : recipientCount} selected now (fixed list)
+                          Only the {recipientCount} selected now (fixed list)
                         </span>
                         <span className="block text-xs text-muted-foreground">
                           Sends to exactly these rows. New {label} won&apos;t be added.
@@ -1636,7 +1447,7 @@ export function BulkEmailDialog({
               (isCertificate && certTemplateIds.length === 0) ||
               // Review MED 4: never enqueue a send the server will resolve to
               // nobody, and never one whose audience could not be counted.
-              (hasAbstractPicker && (abstractServerCount == null || abstractServerCount === 0))
+              (isAbstracts && (abstractServerCount == null || abstractServerCount === 0))
             }
           >
             {bulkEmail.isPending || scheduleEmail.isPending ? (

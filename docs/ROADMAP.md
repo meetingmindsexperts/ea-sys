@@ -4305,6 +4305,8 @@ Adversarial review of `b6deb72a` (the abstract bulk email moving to Communicatio
 
 **Update (Sep 9, 2026, same day): #1 to #5 SHIPPED** (the server-side `audience-count` route on the resolver's own where, the 500-row fetch with a truncation notice, the reminder restricted to Draft / Revision requested, Send paused at zero or while uncounted, the lowercased dedup key). #6 to #9 remain.
 
+**Update (Sep 9, 2026, later): #6 to #9 SUPERSEDED.** The tick list moved out of the send dialog onto the Communications card ("Select abstracts", chosen before composing, owner request), so the in-dialog ticked-count (#6), the masked-status-returning (#7) and the aria wiring (#9) findings no longer have a surface; the card now shows the real selection or the chosen status instead of a raw author count (#8), and the dialog says when a chosen status does not apply to the email type. Nothing left open here.
+
 | # | Sev | Finding | Fix |
 |---|---|---|---|
 | 1 | HIGH | The abstracts GET hides DRAFTs from staff by design, so the picker never holds one, yet **Submission Reminder mails exactly draft authors**: the dialog says "0 recipients", Send stays enabled, the server mails everyone with a draft. Custom has the same gap (drafts mailed, counted 0). | A server-side audience count for abstract types computed by the SAME resolver (`countBulkEmailRecipients` or the precheck returning the size), and no tick list for the reminder type. Do not widen the GET. |

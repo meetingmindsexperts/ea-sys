@@ -122,3 +122,50 @@ export function countAbstractRecipients(
   if (PER_ABSTRACT_EMAIL_TYPES.has(args.emailType)) return inScope.length;
   return new Set(inScope.map((o) => o.email.trim().toLowerCase()).filter(Boolean)).size;
 }
+
+/**
+ * "Select by numbers or emails": resolve a pasted list against the rows the
+ * page holds (Sep 9, 2026; the registrations card's Select-by-IDs, for
+ * abstracts). One token per line or comma: an abstract number in any spelling
+ * (A-007, a-7, 007, 7), the full abstract id, or an author's email, which
+ * selects EVERY abstract that author submitted. Unrecognised tokens are
+ * reported, never guessed, so a typo'd number cannot silently pick the wrong
+ * author.
+ */
+export function matchPastedAbstractIdentifiers(
+  input: string,
+  options: readonly AbstractPickerOption[],
+): { matched: string[]; unmatched: string[] } {
+  const tokens = input
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const byId = new Map(options.map((o) => [o.id, o] as const));
+  const bySerial = new Map<number, AbstractPickerOption>();
+  const byEmail = new Map<string, AbstractPickerOption[]>();
+  for (const o of options) {
+    if (o.serialId != null) bySerial.set(o.serialId, o);
+    const key = o.email.trim().toLowerCase();
+    if (key) byEmail.set(key, [...(byEmail.get(key) ?? []), o]);
+  }
+  const matched = new Set<string>();
+  const unmatched: string[] = [];
+  for (const raw of tokens) {
+    if (byId.has(raw)) {
+      matched.add(raw);
+      continue;
+    }
+    const lower = raw.toLowerCase();
+    if (lower.includes("@")) {
+      const rows = byEmail.get(lower);
+      if (rows?.length) rows.forEach((r) => matched.add(r.id));
+      else unmatched.push(raw);
+      continue;
+    }
+    const m = /^(?:a-?)?0*(\d+)$/.exec(lower);
+    const row = m ? bySerial.get(Number(m[1])) : undefined;
+    if (row) matched.add(row.id);
+    else unmatched.push(raw);
+  }
+  return { matched: [...matched], unmatched };
+}

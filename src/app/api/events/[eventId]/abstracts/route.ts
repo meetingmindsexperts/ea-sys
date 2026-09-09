@@ -8,6 +8,11 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { denyReviewer } from "@/lib/auth-guards";
+import { recordExport } from "@/lib/audit-data-transfer";
+import { toCsvRow } from "@/lib/csv-escape";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
+import { formatPersonName } from "@/lib/utils";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
@@ -66,6 +71,106 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+const EXPORT_ROW_CAP = 5000;
+
+interface ExportRow {
+  id: string;
+  serialId: number | null;
+  title: string;
+  status: string;
+  presentationType: string | null;
+  specialty: string | null;
+  content: string;
+  coAuthors: unknown;
+  submittedAt: Date | null;
+  createdAt: Date;
+  speaker: {
+    title: string | null;
+    firstName: string;
+    lastName: string;
+    email: string;
+    organization: string | null;
+    country: string | null;
+  } | null;
+  theme: { name: string } | null;
+  subTheme: { name: string } | null;
+  track: { name: string } | null;
+  submissions: { overallScore: number | null }[];
+}
+
+/** "First Last (Organization, Country)" per co-author, joined with "; ". */
+function coAuthorsCell(raw: unknown): string {
+  return normalizeCoAuthors(raw)
+    .map((c) => {
+      const name = [c.firstName, c.lastName].filter(Boolean).join(" ");
+      const where = [c.organization, c.country].filter(Boolean).join(", ");
+      return where ? `${name} (${where})` : name;
+    })
+    .join("; ");
+}
+
+/**
+ * The CSV the Abstracts page's Export button downloads. Every cell goes
+ * through the shared escaper (formula prefixes neutralised, RFC 4180 quoting,
+ * so a multi-paragraph abstract body stays one cell), and the pull is audited
+ * with who, how many rows and which filters narrowed it.
+ */
+function exportAbstractsCsv(
+  req: Request,
+  args: {
+    abstracts: ExportRow[];
+    eventId: string;
+    organizationId: string;
+    userId: string;
+    role: string;
+    filters: Record<string, string>;
+  },
+): NextResponse {
+  const header = toCsvRow([
+    "Abstract #", "Title", "Status", "Presentation Type", "Theme", "Sub-theme", "Track",
+    "Author", "Email", "Organization", "Country", "Specialty", "Co-authors",
+    "Submitted At", "Reviews", "Mean Score", "Abstract",
+  ]);
+  const rows = args.abstracts.map((a) =>
+    toCsvRow([
+      formatAbstractSerial(a.serialId),
+      a.title,
+      a.status,
+      a.presentationType ?? "",
+      a.theme?.name ?? "",
+      a.subTheme?.name ?? "",
+      a.track?.name ?? "",
+      a.speaker ? formatPersonName(a.speaker.title, a.speaker.firstName, a.speaker.lastName) : "",
+      a.speaker?.email ?? "",
+      a.speaker?.organization ?? "",
+      a.speaker?.country ?? "",
+      a.specialty ?? "",
+      coAuthorsCell(a.coAuthors),
+      (a.submittedAt ?? a.createdAt).toISOString(),
+      a.submissions.length,
+      meanOverallScore(a.submissions.map((s) => s.overallScore)) ?? "",
+      a.content,
+    ]),
+  );
+  recordExport(req, {
+    entityType: "Abstract",
+    eventId: args.eventId,
+    organizationId: args.organizationId,
+    userId: args.userId,
+    role: args.role,
+    source: "rest",
+    rowCount: args.abstracts.length,
+    format: "csv",
+    filters: args.filters,
+  });
+  return new NextResponse([header, ...rows].join("\n"), {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="abstracts-${args.eventId}.csv"`,
+    },
+  });
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     // Parallelize params and auth for faster response
@@ -85,6 +190,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (mirrors the MCP list_abstracts cap). Default 200, max 500.
     const limitParam = Number(searchParams.get("limit"));
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 200;
+
+    // `?export=csv` (Sep 9, 2026, owner: "abstracts can be exported by admins
+    // and organizers only"). Export is a NARROWER boundary than read: the list
+    // serves reviewers, submitters and MEMBER, the file goes to org staff only.
+    // denyReviewer with no allow-list IS that set (SUPER_ADMIN / ADMIN /
+    // ORGANIZER). Checked before any query, so a refused export costs nothing.
+    const wantsCsv = searchParams.get("export") === "csv";
+    if (wantsCsv) {
+      const denied = denyReviewer(session, { route: "events/[eventId]/abstracts:GET" });
+      if (denied) {
+        apiLogger.warn({ eventId, userId: session.user.id, role: session.user.role }, "abstracts:export-refused");
+        return denied;
+      }
+    }
 
     // For SUBMITTER, restrict to their own abstracts via speaker.userId
     const submitterFilter = session.user.role === "SUBMITTER"
@@ -133,8 +252,25 @@ export async function GET(req: Request, { params }: RouteParams) {
         _count: { select: { reviewers: true } },
       },
       orderBy: { submittedAt: "desc" },
-      take: limit,
+      // The list cap bounds a JSON payload; an export is the whole call for
+      // papers, so it takes its own, larger ceiling.
+      take: wantsCsv ? EXPORT_ROW_CAP : limit,
     });
+
+    if (wantsCsv) {
+      return exportAbstractsCsv(req, {
+        abstracts,
+        eventId,
+        organizationId: event.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        filters: {
+          ...(status ? { status } : {}),
+          ...(trackId ? { trackId } : {}),
+          ...(speakerId ? { speakerId } : {}),
+        },
+      });
+    }
 
     const enriched = abstracts.map((a) => {
       const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
