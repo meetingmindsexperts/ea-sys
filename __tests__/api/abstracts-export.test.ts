@@ -66,7 +66,7 @@ const ROW = {
   coAuthors: [{ firstName: "Bo", lastName: "Li", jobTitle: "", organization: "Tawam", country: "United Arab Emirates" }],
   submittedAt: new Date("2026-09-01T10:00:00.000Z"),
   createdAt: new Date("2026-08-30T10:00:00.000Z"),
-  speaker: { title: "DR", firstName: "Ana", lastName: "Silva", email: "ana@x.com", organization: "Cairo University", country: "Egypt" },
+  speaker: { title: "DR", firstName: "Ana", lastName: "Silva", email: "ana@x.com", additionalEmail: "ana.alt@x.com", organization: "Cairo University", country: "Egypt" },
   theme: { name: "Heart failure" },
   subTheme: null,
   track: null,
@@ -122,8 +122,8 @@ describe("abstracts export: the file", () => {
     const nl = text.indexOf("\n");
     const header = text.slice(0, nl);
     const line = text.slice(nl + 1);
-    expect(header.startsWith("Abstract #,Title,Status,Presentation Type,Theme,Sub-theme,Track,Author,Email")).toBe(true);
-    expect(line).toMatch(/^A-007,"Outcomes, revisited",ACCEPTED,ORAL,Heart failure,,,Dr\.? Ana Silva,ana@x\.com,Cairo University,Egypt,Cardiology/);
+    expect(header.startsWith("Abstract #,Title,Status,Presentation Type,Theme,Sub-theme,Track,Author,Email,Additional Email")).toBe(true);
+    expect(line).toMatch(/^A-007,"Outcomes, revisited",ACCEPTED,ORAL,Heart failure,,,Dr\.? Ana Silva,ana@x\.com,ana\.alt@x\.com,Cairo University,Egypt,Cardiology/);
     expect(line).toContain("Bo Li (Tawam, United Arab Emirates)");
     expect(line).toContain("2026-09-01T10:00:00.000Z,2,75");
     // The body keeps its newline and its quotes inside ONE RFC 4180 cell.

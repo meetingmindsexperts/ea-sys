@@ -609,8 +609,10 @@ export async function updateSpeaker(
       ...(fields.role !== undefined && { role: fields.role || null }),
       ...(fields.firstName && { firstName: fields.firstName }),
       ...(fields.lastName && { lastName: fields.lastName }),
+      // Lowercased like the create path, so a mixed-case entry cannot dedupe
+      // differently from the primary address at send time.
       ...(fields.additionalEmail !== undefined && {
-        additionalEmail: fields.additionalEmail?.trim() || null,
+        additionalEmail: fields.additionalEmail?.trim().toLowerCase() || null,
       }),
       ...(fields.bio !== undefined && { bio: fields.bio || null }),
       ...(fields.organization !== undefined && { organization: fields.organization || null }),

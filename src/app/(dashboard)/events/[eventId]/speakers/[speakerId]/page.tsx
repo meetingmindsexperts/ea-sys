@@ -105,6 +105,7 @@ interface Speaker {
   /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
   role: string | null;
   email: string;
+  additionalEmail: string | null;
   firstName: string;
   lastName: string;
   bio: string | null;
@@ -191,6 +192,7 @@ export default function SpeakerDetailPage() {
     title: "",
     role: "",
     email: "",
+    additionalEmail: "",
     firstName: "",
     lastName: "",
     bio: "",
@@ -328,6 +330,7 @@ export default function SpeakerDetailPage() {
           title: data.title || "",
           role: data.role || "",
           email: data.email,
+          additionalEmail: data.additionalEmail || "",
           firstName: data.firstName,
           lastName: data.lastName,
           bio: data.bio || "",
@@ -387,6 +390,7 @@ export default function SpeakerDetailPage() {
       title: speaker.title || "",
       role: speaker.role || "",
       email: speaker.email,
+      additionalEmail: speaker.additionalEmail || "",
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       bio: speaker.bio || "",
@@ -826,6 +830,19 @@ export default function SpeakerDetailPage() {
                       <Label>Phone</Label>
                       <Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
                     </div>
+                    {/* Additional email (Sep 9, 2026): the sheet already had it, this
+                        page did not, so an organiser here could neither see nor set
+                        the second address every speaker email is copied to. */}
+                    <div className="space-y-2">
+                      <Label>Additional email</Label>
+                      <Input
+                        type="email"
+                        value={formData.additionalEmail}
+                        onChange={(e) => setFormData({ ...formData, additionalEmail: e.target.value })}
+                        placeholder="assistant@example.com"
+                      />
+                      <p className="text-xs text-muted-foreground">Copied (CC) on every email sent to this speaker.</p>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -900,6 +917,15 @@ export default function SpeakerDetailPage() {
                       <span className="text-sm">{speaker.phone}</span>
                     </div>
                   ) : <div />}
+                  {speaker.additionalEmail && (
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate">
+                        {speaker.additionalEmail}{" "}
+                        <span className="text-xs text-muted-foreground">(additional, copied on emails)</span>
+                      </span>
+                    </div>
+                  )}
                   {speaker.organization && (
                     <div className="flex items-center gap-3">
                       <Building className="h-4 w-4 text-muted-foreground shrink-0" />

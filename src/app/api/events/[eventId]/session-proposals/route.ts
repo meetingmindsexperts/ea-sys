@@ -64,6 +64,7 @@ const PROPOSAL_INCLUDE = {
       firstName: true,
       lastName: true,
       email: true,
+      additionalEmail: true,
       organization: true,
       country: true,
       // The proposer's attendee facet — lets the organizer sheet show whether
@@ -148,7 +149,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (wantsCsv) {
       // "Format" column removed (owner, Aug 4 2026 — proposals don't use one).
       const header = toCsvRow([
-        "Proposal #", "Title", "Proposer", "Email", "Organization", "Country",
+        "Proposal #", "Title", "Proposer", "Email", "Additional Email", "Organization", "Country",
         "Theme", "Duration (min)", "Status", "Submitted At",
       ]);
       const rows = proposals.map((p) =>
@@ -157,6 +158,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           p.title,
           formatPersonName(p.speaker.title, p.speaker.firstName, p.speaker.lastName),
           p.speaker.email,
+          p.speaker.additionalEmail ?? "",
           p.speaker.organization ?? "",
           p.speaker.country ?? "",
           p.theme?.name ?? "",

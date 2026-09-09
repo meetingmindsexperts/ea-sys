@@ -129,6 +129,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
     firstName: string;
     lastName: string;
     email: string;
+    additionalEmail?: string | null;
     presenterAgreementAcceptedAt?: string | null;
   } | null;
 
@@ -517,6 +518,11 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   <p className="text-xs text-muted-foreground">Speaker</p>
                   <p className="text-sm font-medium">{speaker.firstName} {speaker.lastName}</p>
                   <p className="text-xs text-muted-foreground">{speaker.email}</p>
+                  {speaker.additionalEmail && (
+                    <p className="text-xs text-muted-foreground">
+                      {speaker.additionalEmail} <span>(additional, copied on emails)</span>
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>

@@ -89,6 +89,7 @@ interface ExportRow {
     firstName: string;
     lastName: string;
     email: string;
+    additionalEmail: string | null;
     organization: string | null;
     country: string | null;
   } | null;
@@ -128,7 +129,7 @@ function exportAbstractsCsv(
 ): NextResponse {
   const header = toCsvRow([
     "Abstract #", "Title", "Status", "Presentation Type", "Theme", "Sub-theme", "Track",
-    "Author", "Email", "Organization", "Country", "Specialty", "Co-authors",
+    "Author", "Email", "Additional Email", "Organization", "Country", "Specialty", "Co-authors",
     "Submitted At", "Reviews", "Mean Score", "Abstract",
   ]);
   const rows = args.abstracts.map((a) =>
@@ -142,6 +143,7 @@ function exportAbstractsCsv(
       a.track?.name ?? "",
       a.speaker ? formatPersonName(a.speaker.title, a.speaker.firstName, a.speaker.lastName) : "",
       a.speaker?.email ?? "",
+      a.speaker?.additionalEmail ?? "",
       a.speaker?.organization ?? "",
       a.speaker?.country ?? "",
       a.specialty ?? "",

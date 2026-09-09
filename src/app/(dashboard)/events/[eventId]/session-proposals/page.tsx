@@ -90,6 +90,7 @@ interface ProposalRow {
     firstName: string;
     lastName: string;
     email: string;
+    additionalEmail?: string | null;
     organization: string | null;
     country: string | null;
     // Attendee facet — null until the organizer grants (or the person
@@ -481,6 +482,12 @@ export default function SessionProposalsPage() {
                       {formatPersonName(selected.speaker.title, selected.speaker.firstName, selected.speaker.lastName)}
                     </div>
                     <div className="text-muted-foreground">{selected.speaker.email}</div>
+                    {selected.speaker.additionalEmail && (
+                      <div className="text-muted-foreground">
+                        {selected.speaker.additionalEmail}{" "}
+                        <span className="text-xs">(additional, copied on emails)</span>
+                      </div>
+                    )}
                     {(selected.speaker.organization || selected.speaker.country) && (
                       <div className="text-muted-foreground">
                         {[selected.speaker.organization, selected.speaker.country].filter(Boolean).join(" · ")}

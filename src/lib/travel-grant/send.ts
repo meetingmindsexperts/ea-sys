@@ -139,7 +139,9 @@ export async function sendTravelGrantInvitations(
       );
       const res = await sendEmail({
         to: [{ email: r.email, name: `${r.firstName ?? ""} ${r.lastName ?? ""}`.trim() }],
-        cc: brandingCc(branding, [{ email: r.email }], []),
+        // The author's additional address rides along, as it does on the
+        // submission confirmation that carries this same link (Sep 9, 2026).
+        cc: brandingCc(branding, [{ email: r.email }], [r.additionalEmail]),
         ...rendered,
         from: brandingFrom(branding),
         emailType: "travel_grant_invitation",
@@ -182,6 +184,7 @@ interface Recipient {
   token: string;
   status: TravelGrantBlockStatus;
   email: string;
+  additionalEmail: string | null;
   title: string | null;
   firstName: string | null;
   lastName: string | null;
@@ -206,7 +209,7 @@ async function resolvePending(
       status: true,
       speakerId: true,
       speaker: {
-        select: { title: true, firstName: true, lastName: true, email: true, country: true },
+        select: { title: true, firstName: true, lastName: true, email: true, additionalEmail: true, country: true },
       },
     },
   });
@@ -251,6 +254,7 @@ async function resolvePending(
       token: r.token,
       status: r.status as TravelGrantBlockStatus,
       email: r.speaker!.email!,
+      additionalEmail: r.speaker!.additionalEmail ?? null,
       title: r.speaker!.title ?? null,
       firstName: r.speaker!.firstName ?? null,
       lastName: r.speaker!.lastName ?? null,
@@ -276,6 +280,7 @@ async function resolveNamed(
       firstName: true,
       lastName: true,
       email: true,
+      additionalEmail: true,
       country: true,
       travelGrant: { select: { id: true, token: true, status: true } },
     },
@@ -348,6 +353,7 @@ async function resolveNamed(
       token: grant.token,
       status: grant.status as TravelGrantBlockStatus,
       email: sp.email,
+      additionalEmail: sp.additionalEmail ?? null,
       title: sp.title ?? null,
       firstName: sp.firstName,
       lastName: sp.lastName,
