@@ -129,9 +129,13 @@ live beside the reader.
 
 Owner decision: **the form and the sends both close.** Past the instant:
 
-- `resolveTravelGrantBlock` renders nothing and mints nothing (info log
+- `resolveTravelGrantBlock` mints nothing and re-sends nothing (info log
   `travel-grant:deadline-passed-not-invited`), so an abstract submitted after
-  the deadline carries no offer.
+  the deadline carries no offer and a PENDING link is not put in front of its
+  author again. The one exception is not an offer: an author who already
+  answered keeps the same acknowledgement (CONSENTED) or silence (DECLINED)
+  their consent page shows past the deadline, with `invitedAt` untouched
+  (same-day follow-up after the local browser pass).
 - The public GET reports `closed: true` for an unanswered link (an answered one
   still shows its acknowledgement) and the POST refuses with **410**
   `DEADLINE_PASSED` before the conditional claim, so the row is untouched.
@@ -143,7 +147,9 @@ Owner decision: **the form and the sends both close.** Past the instant:
   "Applications close on <date>", from the one formatter.
 
 Extending the deadline in Settings reopens everything; there is no separate
-reopen action.
+reopen action. The organizer's "Reopen" on a row past the deadline sets the row
+back to PENDING but does NOT reopen the link (the page keeps saying closed until
+the deadline is extended), and the console toast says so.
 
 ## Sending from the console, with a preview (Sep 9, 2026)
 

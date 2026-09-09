@@ -242,9 +242,15 @@ export default function TravelGrantsPage() {
           toast.error(json.error || "Couldn't change the status.");
           return;
         }
+        // A reopen past the deadline does not reopen the LINK: the author's
+        // page keeps saying "Applications closed" until the deadline is
+        // extended, so the toast must not promise an answer that cannot arrive.
+        const reopenedText = data?.deadlinePassed
+          ? `Reopened for ${row.name}. Applications are closed, so their link stays closed until you extend the deadline under Settings → Abstracts.`
+          : `Reopened for ${row.name}: their link accepts a new answer.`;
         toast.success(
           status === "PENDING"
-            ? `Reopened for ${row.name}: their link accepts a new answer.`
+            ? reopenedText
             : `${row.name} recorded as ${GRANT_STATUS_LABEL[status].toLowerCase()} (set by you).`,
         );
         await load();
@@ -254,7 +260,7 @@ export default function TravelGrantsPage() {
         setBusy(null);
       }
     },
-    [eventId, load],
+    [eventId, load, data?.deadlinePassed],
   );
 
   const copyLink = useCallback(

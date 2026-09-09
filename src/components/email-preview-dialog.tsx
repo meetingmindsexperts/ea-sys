@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -56,6 +57,10 @@ export function EmailPreviewDialog({
               </Button>
             </div>
           </DialogTitle>
+          {/* Read by screen readers only; without it Radix warns on every open. */}
+          <DialogDescription className="sr-only">
+            The email as it will be sent, rendered at desktop or mobile width.
+          </DialogDescription>
         </DialogHeader>
 
         {/* Subject line */}

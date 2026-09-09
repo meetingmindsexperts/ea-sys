@@ -194,9 +194,51 @@ describe("resolveTravelGrantBlock", () => {
       settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } },
     });
     expect(b).toEqual({ html: "", text: "" });
-    expect(findUnique).not.toHaveBeenCalled();
+    // One read, to see whether this author already answered; never a mint.
+    expect(findUnique).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith(expect.objectContaining({ msg: "travel-grant:deadline-passed-not-invited", speakerId: base.speakerId }));
+  });
+
+  it("past the deadline, a PENDING row is neither re-sent nor re-stamped", async () => {
+    findUnique.mockResolvedValue({ token: "tok123", status: "PENDING" });
+    const b = await resolveTravelGrantBlock({
+      ...base,
+      speakerCountry: "Oman",
+      settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } },
+    });
+    expect(b).toEqual({ html: "", text: "" });
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(expect.objectContaining({ msg: "travel-grant:deadline-passed-not-invited" }));
+  });
+
+  it("past the deadline, a CONSENTED author still gets the acknowledgement the consent page shows them, with nothing re-stamped", async () => {
+    findUnique.mockResolvedValue({ token: "tok123", status: "CONSENTED" });
+    const b = await resolveTravelGrantBlock({
+      ...base,
+      speakerCountry: "Oman",
+      settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } },
+    });
+    expect(b.html).toContain("Your travel grant request has been received");
+    expect(b.html).not.toContain("Applications close on");
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "travel-grant:block-for-decided-row", status: "CONSENTED", deadlinePassed: true }),
+    );
+  });
+
+  it("past the deadline, a DECLINED author still gets silence", async () => {
+    findUnique.mockResolvedValue({ token: "tok123", status: "DECLINED" });
+    const b = await resolveTravelGrantBlock({
+      ...base,
+      speakerCountry: "Oman",
+      settings: { travelGrant: { enabled: true, homeCountries: ["AE"], deadline: "2000-01-01T00:00:00.000Z" } },
+    });
+    expect(b).toEqual({ html: "", text: "" });
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it("words a future deadline into the block, in the event's timezone", async () => {

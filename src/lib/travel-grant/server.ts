@@ -70,10 +70,35 @@ export async function resolveTravelGrantBlock(
     const grantSettings = readTravelGrantSettings(input.settings);
     if (!grantSettings.enabled) return empty;
 
-    // Past the deadline no new offer goes out, whoever the author is. Checked
-    // before residency so a closed feature does not raise the D4 "decide by
-    // hand" warning for an unknown country nobody can act on any more.
+    const inLane = <T>(fn: () => Promise<T>): Promise<T> =>
+      organizationId ? runWithTenant(organizationId, fn) : fn();
+
+    // Past the deadline no new offer goes out and no pending link is put in
+    // front of anyone again, whoever the author is. Checked before residency so
+    // a closed feature does not raise the D4 "decide by hand" warning for an
+    // unknown country nobody can act on any more.
+    //
+    // An author who already ANSWERED is the one exception, and it is not an
+    // offer: their consent page keeps showing the acknowledgement past the
+    // deadline (the public GET marks only a PENDING row closed), so the email
+    // says the same thing rather than falling silent the day the window shut.
+    // CONSENTED renders the acknowledgement, DECLINED renders nothing, and
+    // neither re-stamps invitedAt, because nothing was put in front of them.
     if (isTravelGrantDeadlinePassed(grantSettings)) {
+      const decided = await inLane(() =>
+        db.travelGrant.findUnique({ where: { speakerId }, select: { status: true } }),
+      );
+      if (decided && decided.status !== "PENDING") {
+        apiLogger.info({
+          msg: "travel-grant:block-for-decided-row",
+          eventId,
+          abstractId,
+          speakerId,
+          status: decided.status,
+          deadlinePassed: true,
+        });
+        return buildTravelGrantBlock({ link: "", status: decided.status as TravelGrantBlockStatus });
+      }
       apiLogger.info({
         msg: "travel-grant:deadline-passed-not-invited",
         eventId,
@@ -164,7 +189,7 @@ export async function resolveTravelGrantBlock(
       return created;
     };
 
-    const row = organizationId ? await runWithTenant(organizationId, run) : await run();
+    const row = await inLane(run);
 
     return buildTravelGrantBlock({
       link: buildTravelGrantLink(eventSlug, row.token),
