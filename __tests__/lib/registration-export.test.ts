@@ -16,6 +16,7 @@ import { describe, it, expect } from "vitest";
 import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
+  computeRegistrationRowMoney,
   type RegistrationExportRow,
 } from "@/lib/registration-export";
 
@@ -154,5 +155,36 @@ describe("buildRegistrationExportRow", () => {
     expect(r).toHaveLength(REGISTRATION_EXPORT_HEADERS.length);
     expect(col(r, "Tags")).toBe("");
     expect(col(r, "Checked In Date")).toBe("");
+  });
+});
+
+// ── The list's "Paid / Due" column reads the same helper ─────────────────
+describe("computeRegistrationRowMoney", () => {
+  it("returns exactly the numbers the CSV prints (100 + 5% VAT, 40 paid)", () => {
+    expect(computeRegistrationRowMoney(row(), ctx)).toEqual({
+      currency: "USD",
+      totalPaid: 40,
+      amountDue: 65,
+      discount: 0,
+    });
+    const r = buildRegistrationExportRow(row(), ctx);
+    expect(col(r, "Total Paid")).toBe("40.00");
+    expect(col(r, "Amount Due")).toBe("65.00");
+  });
+
+  it("owes nothing once CANCELLED or settled, but still reports what was collected", () => {
+    expect(computeRegistrationRowMoney(row({ status: "CANCELLED" }), ctx)).toMatchObject({
+      totalPaid: 40,
+      amountDue: 0,
+    });
+    expect(computeRegistrationRowMoney(row({ paymentStatus: "COMPLIMENTARY" }), ctx)).toMatchObject({
+      amountDue: 0,
+    });
+  });
+
+  it("is null, never 0.00, when finance fields were redacted", () => {
+    const redacted = row();
+    delete (redacted as Partial<RegistrationExportRow>).payments;
+    expect(computeRegistrationRowMoney(redacted, ctx)).toBeNull();
   });
 });

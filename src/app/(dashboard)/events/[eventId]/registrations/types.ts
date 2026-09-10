@@ -209,6 +209,11 @@ export interface Registration {
   // true while the collected money has no covering credit note. Absent for
   // non-finance roles (redacted) and on non-cancelled rows.
   needsCreditNote?: boolean;
+  // Server-computed on the LIST route: collected vs outstanding, through the
+  // same helper the CSV's Total Paid / Amount Due use. In FINANCIAL_KEYS, so
+  // absent for a role that cannot see money; null when the row's own inputs
+  // were redacted.
+  rowMoney?: { currency: string; totalPaid: number; amountDue: number; discount: number } | null;
   // Computed money breakdown from the detail GET. Absent for the MEMBER
   // role (redacted server-side) — UI must treat it as optional.
   financials?: {

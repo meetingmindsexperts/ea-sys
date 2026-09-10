@@ -89,6 +89,10 @@ const FINANCIAL_KEYS = new Set<string>([
   // list — derived from collected/credited money, so it travels with the
   // financial payload it summarizes.
   "needsCreditNote",
+  // Collected vs outstanding summary on the registrations list rows
+  // (computeRegistrationRowMoney in registration-export.ts). Named
+  // specifically, per the warning above.
+  "rowMoney",
   "taxRate",
   "taxLabel",
   "taxAmount",

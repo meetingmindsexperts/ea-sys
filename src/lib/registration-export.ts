@@ -131,6 +131,54 @@ export interface RegistrationExportContext {
   sponsorNameById?: Map<string, string>;
 }
 
+/**
+ * Collected vs outstanding for one registration. The CSV's "Total Paid" /
+ * "Amount Due" columns and the registrations list's "Paid / Due" column both
+ * come from here, so the table cannot disagree with the export.
+ */
+export interface RegistrationRowMoney {
+  currency: string;
+  totalPaid: number;
+  /** 0 once CANCELLED or on a settled payment status, else the balance due. */
+  amountDue: number;
+  discount: number;
+}
+
+/**
+ * Returns null when redaction removed the inputs: an absent `payments` means
+ * "this role cannot see money", not "nothing was paid" (see the redaction
+ * contract above). Callers render a blank, never 0.00, for null.
+ */
+export function computeRegistrationRowMoney(
+  r: RegistrationExportRow,
+  ctx: Pick<RegistrationExportContext, "taxRate" | "taxLabel">,
+): RegistrationRowMoney | null {
+  if (r.payments === undefined) return null;
+  const totalPaid = (r.payments ?? [])
+    .filter((p) => p.status === "PAID" || String(p.status).toLowerCase() === "succeeded")
+    .reduce((sum, p) => sum + Number(p.amount), 0);
+  const fin = computeRegistrationFinancials({
+    subtotal: readRegistrationBasePrice(r),
+    discount: r.discountAmount != null ? Number(r.discountAmount) : 0,
+    taxRate: ctx.taxRate,
+    taxLabel: ctx.taxLabel,
+    currency: r.pricingTier?.currency ?? r.ticketType?.currency ?? undefined,
+    totalPaid,
+  });
+  // A CANCELLED registration owes nothing (organizer decision, matching the
+  // detail-sheet display and the server-side financials override); a settled
+  // status (PAID/COMPLIMENTARY/INCLUSIVE/REFUNDED) owes nothing either.
+  const noPaymentDue =
+    r.status === "CANCELLED" ||
+    (NO_PAYMENT_DUE_STATUSES as readonly string[]).includes(r.paymentStatus);
+  return {
+    currency: fin.currency,
+    totalPaid,
+    amountDue: noPaymentDue ? 0 : fin.balanceDue,
+    discount: fin.discount,
+  };
+}
+
 /** Money columns render "" (not "0.00") when redaction removed the inputs. */
 function money(n: number | null): string {
   return n === null ? "" : n.toFixed(2);
@@ -147,36 +195,11 @@ export function buildRegistrationExportRow(
   r: RegistrationExportRow,
   ctx: RegistrationExportContext,
 ): string[] {
-  // `payments` is a financial field — absent for non-finance roles. Distinguish
-  // "redacted" (null → blank cell) from "genuinely nothing paid" (0.00).
-  const financeVisible = r.payments !== undefined;
-
-  const totalPaid = financeVisible
-    ? (r.payments ?? [])
-        .filter((p) => p.status === "PAID" || String(p.status).toLowerCase() === "succeeded")
-        .reduce((sum, p) => sum + Number(p.amount), 0)
-    : null;
-
-  let amountDue: number | null = null;
-  let discount: number | null = null;
-  if (financeVisible) {
-    const fin = computeRegistrationFinancials({
-      subtotal: readRegistrationBasePrice(r),
-      discount: r.discountAmount != null ? Number(r.discountAmount) : 0,
-      taxRate: ctx.taxRate,
-      taxLabel: ctx.taxLabel,
-      currency: r.pricingTier?.currency ?? r.ticketType?.currency ?? undefined,
-      totalPaid: totalPaid ?? 0,
-    });
-    discount = fin.discount;
-    // A CANCELLED registration owes nothing (organizer decision — matches the
-    // detail-sheet display + the server-side financials override); a settled
-    // status (PAID/COMPLIMENTARY/INCLUSIVE/REFUNDED) owes nothing either.
-    const noPaymentDue =
-      r.status === "CANCELLED" ||
-      (NO_PAYMENT_DUE_STATUSES as readonly string[]).includes(r.paymentStatus);
-    amountDue = noPaymentDue ? 0 : fin.balanceDue;
-  }
+  // Null when redaction removed the inputs; the cells below render "" then.
+  const rowMoney = computeRegistrationRowMoney(r, ctx);
+  const totalPaid = rowMoney ? rowMoney.totalPaid : null;
+  const amountDue = rowMoney ? rowMoney.amountDue : null;
+  const discount = rowMoney ? rowMoney.discount : null;
 
   return [
     r.id,

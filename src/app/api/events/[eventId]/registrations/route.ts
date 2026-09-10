@@ -26,6 +26,7 @@ import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
   type RegistrationExportRow,
+  computeRegistrationRowMoney,
 } from "@/lib/registration-export";
 import { recordExport, fingerprintSearchTerm } from "@/lib/audit-data-transfer";
 import {
@@ -538,7 +539,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       return { ...r, needsCreditNote: state.needsCreditNote };
     });
 
-    let payload = flagged;
+    // Collected vs outstanding per row, through the SAME helper the CSV's
+    // "Total Paid" / "Amount Due" columns use, so the table's "Paid / Due"
+    // column cannot disagree with the export. `rowMoney` is in FINANCIAL_KEYS,
+    // so redactFinancialFields strips it below for a role that cannot see money.
+    const moneyCtx = {
+      taxRate: event.taxRate != null ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel ?? null,
+    };
+    const withMoney = flagged.map((r) => ({ ...r, rowMoney: computeRegistrationRowMoney(r, moneyCtx) }));
+
+    let payload = withMoney;
     if (orgCtx.role !== null && !canViewFinance(orgCtx.role)) {
       payload = redactFinancialFields(payload);
     }

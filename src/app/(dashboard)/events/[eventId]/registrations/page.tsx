@@ -54,7 +54,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { formatDate, formatPersonName } from "@/lib/utils";
+import { formatCurrency, formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags, useSponsors } from "@/hooks/use-api";
 import { displayRegistrationType } from "@/lib/faculty-filter";
@@ -103,6 +103,35 @@ import { resolvePastedIds } from "./resolve-pasted-ids";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * Collected vs outstanding for one row, from the server-computed `rowMoney`
+ * (the same helper the CSV's "Total Paid" / "Amount Due" use, so the table and
+ * the export cannot disagree). Absent for a role that cannot see money.
+ */
+function RowMoney({ money }: { money: Registration["rowMoney"] }) {
+  const paid = !!money && money.totalPaid > 0;
+  const due = !!money && money.amountDue > 0;
+  if (!money || (!paid && !due)) {
+    return <span className="text-sm text-muted-foreground">-</span>;
+  }
+  return (
+    <div className="text-sm tabular-nums leading-tight">
+      {paid && (
+        <div className="text-emerald-700">
+          {formatCurrency(money.totalPaid, money.currency)}
+          <span className="ml-1 text-xs text-muted-foreground">paid</span>
+        </div>
+      )}
+      {due && (
+        <div className="text-amber-700">
+          {formatCurrency(money.amountDue, money.currency)}
+          <span className="ml-1 text-xs">due</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function RegistrationsPage() {
   const params = useParams();
@@ -163,6 +192,15 @@ export default function RegistrationsPage() {
   // and excludes ONSITE (the desk, who must see them). The two boundaries
   // genuinely disagree, which is why barcode visibility has its own predicate.
   const canSeeBarcodes = canViewEntryBarcode(roleName);
+  // "Paid / Due" column: the API attaches `rowMoney` only for roles that can
+  // see money (redactFinancialFields strips it otherwise), so the column is
+  // gated on the same predicate rather than on a per-row field check.
+  const canSeeMoney = canViewFinance(roleName);
+  // Payer column only when someone on this list actually has a third-party
+  // payer. It read "-" on nearly every row, and the width is better spent on
+  // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
+  // is finance-redacted, so a non-finance role never sees the column either.
+  const showPayerColumn = registrations.some((r) => !!r.billingAccount?.name);
   const { data: sponsorData } = useSponsors(eventId);
   const sponsors = sponsorData?.sponsors ?? [];
   // Gated on the SAME predicate the API gates the filter on, which returns 403
@@ -753,14 +791,15 @@ export default function RegistrationsPage() {
                   )}
                   <TableHead className="w-16">ID</TableHead>
                   <TableHead>Attendee</TableHead>
+                  <TableHead>Country</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Specialty</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Tier</TableHead>
-                  <TableHead>Payer</TableHead>
+                  {showPayerColumn && <TableHead>Payer</TableHead>}
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
+                  {canSeeMoney && <TableHead>Paid / Due</TableHead>}
                   <TableHead>Registered</TableHead>
                 </TableRow>
               </TableHeader>
@@ -797,13 +836,18 @@ export default function RegistrationsPage() {
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {formatAttendeeRole(registration.attendee.role, "-")}
+                        {registration.attendee.country || "-"}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {registration.attendee.specialty || "-"}
-                      </span>
+                      {/* Specialty sits under the role rather than in its own
+                          column, to make room for Country and Paid / Due. */}
+                      <div className="text-sm text-muted-foreground leading-tight">
+                        <div>{formatAttendeeRole(registration.attendee.role, "-")}</div>
+                        {registration.attendee.specialty && (
+                          <div className="text-xs">{registration.attendee.specialty}</div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {registration.attendee.tags && registration.attendee.tags.length > 0 ? (
@@ -850,33 +894,35 @@ export default function RegistrationsPage() {
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      {/* Third-party payer ("Charge to another account"). "—" =
-                          self-pay, or the field was finance-redacted server-side. */}
-                      {registration.billingAccount?.name ? (
-                        <button
-                          onClick={(e) => {
-                            // The row opens the registration sheet; without
-                            // this the payer drill-in opens BOTH at once.
-                            e.stopPropagation();
-                            setPayerDetail({
-                              id: registration.billingAccount!.id,
-                              name: registration.billingAccount!.name,
-                            });
-                          }}
-                          title="See everyone this payer covers at this event, and whether they've paid"
-                        >
-                          <Badge
-                            variant="outline"
-                            className="bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
+                    {showPayerColumn && (
+                      <TableCell>
+                        {/* Third-party payer ("Charge to another account"). "-" =
+                            self-pay, or the field was finance-redacted server-side. */}
+                        {registration.billingAccount?.name ? (
+                          <button
+                            onClick={(e) => {
+                              // The row opens the registration sheet; without
+                              // this the payer drill-in opens BOTH at once.
+                              e.stopPropagation();
+                              setPayerDetail({
+                                id: registration.billingAccount!.id,
+                                name: registration.billingAccount!.name,
+                              });
+                            }}
+                            title="See everyone this payer covers at this event, and whether they've paid"
                           >
-                            {registration.billingAccount.name}
-                          </Badge>
-                        </button>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
+                            >
+                              {registration.billingAccount.name}
+                            </Badge>
+                          </button>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Badge className={REGISTRATION_STATUS_COLORS[registration.status]} variant="outline">
                         {registration.status}
@@ -908,6 +954,11 @@ export default function RegistrationsPage() {
                         )}
                       </div>
                     </TableCell>
+                    {canSeeMoney && (
+                      <TableCell className="whitespace-nowrap">
+                        <RowMoney money={registration.rowMoney} />
+                      </TableCell>
+                    )}
                     <TableCell className="text-muted-foreground">
                       {formatDate(registration.createdAt)}
                     </TableCell>
