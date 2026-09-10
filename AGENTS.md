@@ -216,6 +216,45 @@ leaving one runnable check behind for non-trivial logic.
   A 40-line file that is half explanation is not over-built, it is the reason one person can still
   maintain this. Volume rules target code, never the reasoning.
 
+### 11. Normalize at input, escape at output, and know which one you are doing
+
+Two different jobs that look alike:
+
+- **Normalize at input when the DOMAIN has a canonical form.** Email is trimmed and lowercased at
+  every write, because `Krishna@x.com` and `krishna@x.com` are the same person by definition. The
+  canonical form is a fact about the domain, so the store should hold it. Doing this late is how the
+  same person ends up as two contacts.
+- **Escape at output when the FORMAT has constraints.** HTML, CSV and XML each forbid a different
+  set, so there is one escaper per format (`escapeHtml`, `escapeCsvCell`, `sanitizeXmlText`) applied
+  where the bytes are written, never at the door.
+
+**Do not collapse the second into the first.** A vertical tab (U+000B), which is what Word leaves
+behind when an author presses Shift+Enter before pasting into a form, is perfectly legal in Postgres,
+in JSON, in CSV and in HTML (the Abstracts list page renders such a title correctly today), and is
+**fatal in XML**. Stripping it at input would degrade the stored value for four consumers to satisfy
+one, and the next format we add forbids a different set.
+
+Two further reasons the guard belongs at the point of use:
+
+- **Only the renderer knows what the character should become.** That vertical tab means "line break":
+  a space in a heading, a new paragraph in a body. At input you would have to pick one blind and lose
+  the other permanently. `docx-export.ts` makes that call per context because it knows which it is
+  rendering.
+- **Input validation never protects the rows already written.** One such title had been sitting on
+  Middle East Heart Failure 2027 for months. It made the whole four-abstract Word export unopenable:
+  no error, no failing test, a valid-looking 12 KB file that Word simply declined. So the output
+  guard was needed regardless, at which point the input guard is optional rather than load-bearing.
+
+**The trap that makes this class expensive:** whether it fails loudly is a property of the library, not
+of your code. `docxtemplater` (the speaker-agreement merge) detects an illegal character and throws
+`invalid_xml_characters` naming the field. `docx` (the exports) writes the byte straight through. Same
+defect, one is a caught error and the other is a corrupt file nobody notices until an organiser cannot
+open it. **Assume the silent one** and sanitise where you serialise.
+
+There is a narrow, legitimate input-side version of this: the C0 controls other than tab, newline and
+carriage return carry no meaning in **any** of our contexts, so stripping those in the shared Zod
+schemas is pure gain. It is defence in depth, not a replacement, and it is recorded in ROADMAP.
+
 ---
 
 ## Roles and visibility

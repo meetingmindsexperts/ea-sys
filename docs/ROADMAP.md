@@ -345,7 +345,23 @@ before handing them to `docxtemplater`, at the single point where the merge map 
 Roughly one call plus a test asserting a vertical-tab-bearing session title still renders.
 Consider the same for any future writer that turns user text into XML: the rule is that a
 document generator must sanitise its inputs, because "the field is plain text" says nothing
-about which code points are in it.
+about which code points are in it. The rule itself is [AGENTS.md](../AGENTS.md) #11.
+
+**A second, narrower item the owner raised (Sep 10, 2026): strip meaningless control
+characters at INPUT too, as defence in depth.** The reasoning for keeping the escaper at the
+point of use is in AGENTS.md #11 and does not change: what is illegal depends on the output
+format, only the renderer knows what a break character should become, and input validation
+cannot help the rows already written. But there is a narrow set where the two do not conflict.
+The C0 controls other than tab, newline and carriage return (U+0000 to U+0008, U+000E to
+U+001F) carry no meaning in ANY of our contexts, so nothing is lost by refusing them at the
+door. U+000B and U+000C are deliberately NOT in that set: they mean a line break, so they
+should be normalised to `\n` rather than dropped, and the value is worth keeping.
+
+Where it would go: the shared Zod schemas, as a `z.preprocess` on the free-text fields, which
+covers all seven files that write an abstract plus the CSV importer at once rather than being
+repeated per door. The one thing to size first is how many existing rows carry such a
+character, since a backfill is a separate decision from the guard. Explicitly NOT a
+replacement for the output escapers, which stay load-bearing.
 
 
 ## Deferred review findings
