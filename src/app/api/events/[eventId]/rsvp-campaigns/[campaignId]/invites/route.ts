@@ -98,6 +98,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             location: true,
             description: true,
             rsvpDeadline: true,
+            capacity: true,
             sortOrder: true,
             isActive: true,
           },

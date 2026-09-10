@@ -50,6 +50,8 @@ export const rsvpItemInputSchema = z.object({
   location: z.string().trim().max(300).optional().or(z.literal("")),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   rsvpDeadline: z.string().datetime().nullable().optional(),
+  /** Seats (attendees + guests) before the option closes itself; null = unlimited. */
+  capacity: z.number().int().min(1).max(100000).nullable().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
   isActive: z.boolean().optional(),
 });
@@ -142,6 +144,8 @@ export interface RsvpItemLite {
   id: string;
   name: string;
   startsAt: Date;
+  /** Seat cap; absent or null = unlimited. */
+  capacity?: number | null;
 }
 export interface RsvpResponseLite {
   itemId: string;
@@ -158,6 +162,16 @@ export interface RsvpItemHeadcount {
   attendees: number; // invitees marked attending
   guests: number; // sum of their guest counts
   total: number; // attendees + guests
+  capacity: number | null; // the option's seat cap, null = unlimited
+  full: boolean; // total >= capacity (never true when unlimited)
+}
+
+/**
+ * "Full" is decided on SEATS, the same number the console's tile shows:
+ * attendees plus their guests. Unlimited is never full.
+ */
+export function itemIsFull(capacity: number | null | undefined, seatsUsed: number): boolean {
+  return capacity != null && seatsUsed >= capacity;
 }
 
 /**
@@ -169,7 +183,10 @@ export function computeItemHeadcounts(
   invites: RsvpInviteLite[],
 ): RsvpItemHeadcount[] {
   const byItem = new Map<string, RsvpItemHeadcount>(
-    items.map((i) => [i.id, { itemId: i.id, attendees: 0, guests: 0, total: 0 }]),
+    items.map((i) => [
+      i.id,
+      { itemId: i.id, attendees: 0, guests: 0, total: 0, capacity: i.capacity ?? null, full: false },
+    ]),
   );
   for (const invite of invites) {
     for (const r of invite.responses) {
@@ -181,6 +198,7 @@ export function computeItemHeadcounts(
       row.total += 1 + r.guestCount;
     }
   }
+  for (const row of byItem.values()) row.full = itemIsFull(row.capacity, row.total);
   return items.map((i) => byItem.get(i.id)!);
 }
 

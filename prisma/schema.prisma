@@ -3322,6 +3322,11 @@ model RsvpItem {
   location       String?
   description    String?   @db.Text
   rsvpDeadline   DateTime?
+  /// "Close automatically at N attending" (Sep 10, 2026): the number of SEATS
+  /// (attendees plus their guests) this option accepts. Null = unlimited. Once
+  /// reached, the public form refuses a NEW yes for the option (409 ITEM_FULL);
+  /// people already attending keep their seat and may still change to no.
+  capacity       Int?
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

@@ -251,12 +251,39 @@ Tests: `__tests__/lib/bulk-email-rsvp-link.test.ts` (skip-not-mint, email normal
 
 ## The console can send one of the organiser's own templates (Sep 10, 2026)
 
-The other direction of the same request: the console's send dialog (Email invitations / Remind pending) has an **Email template** picker. The default is the RSVP invitation (stored as "Dinner RSVP Invitation", a name the list shows verbatim); the other entries are the organiser's **own saved templates**, so joining instructions written as a saved template can carry the button. The POST takes `templateSlug`; the route accepts only a custom slug or the RSVP one (400 `TEMPLATE_NOT_ALLOWED` for any other system template, whose tokens this route does not build), refuses a saved template that is no longer active (400 `TEMPLATE_NOT_AVAILABLE`, never a silent swap), renders `{{subject}}` and `{{message}}` (the two slots a saved template is built on) beside `{{rsvpLink}}`, and logs and dedups under the slug it actually sent. The dialog refuses to send a saved template whose body lacks `{{rsvpLink}}`. Tests in `__tests__/api/rsvp-routes.test.ts`.
+The other direction of the same request: the console's send dialog (Email invitations / Remind pending) has an **Email template** picker. The default is the RSVP invitation (stored as "Dinner RSVP Invitation", a name the list shows verbatim); the other entries are the organiser's **own saved templates**, so joining instructions written as a saved template can carry the button. The POST takes `templateSlug`; the route accepts only a custom slug or the RSVP one (400 `TEMPLATE_NOT_ALLOWED` for any other system template, whose tokens this route does not build), refuses a saved template that is no longer active (400 `TEMPLATE_NOT_AVAILABLE`, never a silent swap), renders `{{subject}}` and `{{message}}` (the two slots a saved template is built on) beside `{{rsvpLink}}`, and logs and dedups under the slug it actually sent. The dialog refuses to send a saved template whose body lacks `{{rsvpLink}}`. The per-row **Send** button opens the same dialog in single mode (title names the person, sends `inviteId`), so template, subject and note apply to one invitee too; a single send is never skipped as a recent resend. Tests in `__tests__/api/rsvp-routes.test.ts`.
 
 ## Not built
 
-Per plan §9: **capacity / waitlists** (the one genuinely hard piece — a
-contended claim needs a conditional write and collides with the replace-all
-submit; additive later as a nullable `RsvpItem.capacity`), the hub link, an
-auto-reminder cron (still the July 2026 owner decision: manual "Remind pending"
-is enough), campaign cloning between events, and a decline *reason*.
+Per plan §9: **waitlists** (a capacity cap shipped Sep 10, 2026, see below; a
+waitlist did not), the hub link, an auto-reminder cron (still the July 2026
+owner decision: manual "Remind pending" is enough), campaign cloning between
+events, and a decline *reason*.
+
+## Close automatically at N attending (Sep 10, 2026)
+
+An organiser with 109 invitees and 35 seats asked for the RSVP to stop taking
+yeses by itself. `RsvpItem.capacity` (nullable, additive migration
+`20260910120000`; the physical table is still `RsvpDinner`) is the option's
+seat cap, entered on the console's option dialog as **Close automatically at
+(seats)**. Seats are attendees plus their guests, the number the console tile
+already shows.
+
+- **What full means**: the public form marks the option full and refuses a
+  NEW yes for it (`409 ITEM_FULL`, the whole submit rolls back so the previous
+  answer stands, the form reloads and says so). People already attending keep
+  their seat and can still change to no, which frees it. Raising or clearing
+  the cap reopens the option. Unlimited (null) is never full.
+- **Why it is safe under two people racing for the last seat**: the cap is
+  checked INSIDE the replace-all transaction, after the invite's own rows are
+  deleted (so a re-submit never counts against itself) and under a
+  `SELECT ... FOR UPDATE` on the option's row, items locked in id order. This
+  is the "contended claim needs a conditional write" piece the July review
+  parked; the row lock is what makes the count-then-insert atomic.
+- **Surfaces**: the console tile reads "N of 35 seats" with a "Full, closed to
+  new yeses" badge; the public form shows "N seats left" or "This option is
+  full"; the roster CSV is unchanged; MCP `list_rsvps` carries `capacity` and
+  `full` per item (output only).
+- Tests in `__tests__/api/rsvp-routes.test.ts` (refused at the cap, guests
+  count as seats, an attendee keeps their seat, a no never consults the cap,
+  unlimited never locks) and `__tests__/lib/rsvp.test.ts`.

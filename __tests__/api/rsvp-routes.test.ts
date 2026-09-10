@@ -245,7 +245,13 @@ describe("POST public rsvp — server-authoritative replace-all over open items 
     ]);
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: "inv1" }]), // FOR UPDATE row lock
-      rsvpResponse: { deleteMany: vi.fn().mockResolvedValue({}), createMany: vi.fn().mockResolvedValue({}) },
+      rsvpResponse: {
+        deleteMany: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn().mockResolvedValue({}),
+        // Seats held by OTHER invitees on a capped item (this invite's own
+        // rows were deleted first). Default: nobody.
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       rsvpInvite: { update: vi.fn().mockResolvedValue({}) },
     };
     mockDb.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
@@ -285,6 +291,76 @@ describe("POST public rsvp — server-authoritative replace-all over open items 
     expect(tx.rsvpInvite.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "RESPONDED", dietary: "veg" }) }),
     );
+  });
+
+  describe("seat cap: close automatically at N attending (Sep 10, 2026)", () => {
+    // Item B takes 3 seats; A is unlimited. wireInvite() leaves both open.
+    function wireCapped() {
+      const tx = wireInvite();
+      mockDb.rsvpItem.findMany.mockResolvedValue([
+        { id: "A", name: "Dinner", rsvpDeadline: null, startsAt: FUTURE, capacity: null },
+        { id: "B", name: "Workshop", rsvpDeadline: null, startsAt: FUTURE, capacity: 3 },
+      ]);
+      return tx;
+    }
+
+    it("a new yes that would exceed the cap is a 409 ITEM_FULL and the transaction rolls back", async () => {
+      const tx = wireCapped();
+      // Two other invitees hold 3 seats on B already (1 + 1 guest, and 1).
+      tx.rsvpResponse.findMany.mockResolvedValue([{ itemId: "B", guestCount: 1 }, { itemId: "B", guestCount: 0 }]);
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.code).toBe("ITEM_FULL");
+      expect(body.itemIds).toEqual(["B"]);
+      expect(body.error).toContain("Workshop");
+      // The throw happened INSIDE the transaction, after the lock and before
+      // any insert, so nothing was written and the invite was not stamped.
+      expect(tx.rsvpResponse.createMany).not.toHaveBeenCalled();
+      expect(tx.rsvpInvite.update).not.toHaveBeenCalled();
+      // Two row locks: the invite, then the capped item.
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it("guests count as seats: 2 held + 1 person with 1 guest = 4 > 3 is refused, 1 person alone fits", async () => {
+      const tx = wireCapped();
+      tx.rsvpResponse.findMany.mockResolvedValue([{ itemId: "B", guestCount: 1 }]); // 2 seats held
+      const refused = await submit({ items: [{ itemId: "B", attending: true, guestCount: 1 }] });
+      expect(refused.status).toBe(409);
+      const tx2 = wireCapped();
+      tx2.rsvpResponse.findMany.mockResolvedValue([{ itemId: "B", guestCount: 1 }]);
+      const ok = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect((await ok.json()).ok).toBe(true);
+      expect(tx2.rsvpResponse.createMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("an invitee already attending keeps their seat on a full option (their own rows are deleted before the count)", async () => {
+      const tx = wireCapped();
+      // Everyone ELSE holds 2 of the 3 seats; this invitee's own earlier yes
+      // is not in the count because the replace-all deleted it first.
+      tx.rsvpResponse.findMany.mockResolvedValue([{ itemId: "B", guestCount: 0 }, { itemId: "B", guestCount: 0 }]);
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpResponse.deleteMany).toHaveBeenCalledTimes(1);
+      expect(tx.rsvpResponse.createMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("changing to no on a full option never consults the cap", async () => {
+      const tx = wireCapped();
+      tx.rsvpResponse.findMany.mockResolvedValue([{ itemId: "B", guestCount: 2 }]);
+      const res = await submit({ items: [{ itemId: "B", attending: false, guestCount: 0 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpResponse.findMany).not.toHaveBeenCalled();
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1); // the invite lock only
+    });
+
+    it("an unlimited option is never counted or locked", async () => {
+      const tx = wireCapped();
+      const res = await submit({ items: [{ itemId: "A", attending: true, guestCount: 5 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpResponse.findMany).not.toHaveBeenCalled();
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("declining every item clears responses and creates none", async () => {
@@ -705,6 +781,28 @@ describe("POST invites/send — batch retry-safety + message tokens (R2 M6/M8/L1
     expect((await res.json()).code).toBe("TEMPLATE_NOT_ALLOWED");
     expect(mockGetEventTemplate).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("a single-invitee send can carry a saved template too (the per-row Send now opens the dialog)", async () => {
+    wireSend();
+    mockDb.rsvpInvite.findMany.mockResolvedValue([
+      { id: "i1", inviteeName: "Alice A", inviteeEmail: "a@x.com", token: "tokA" },
+    ]);
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Joining instructions",
+      htmlContent: '<p>{{message}}</p><a href="{{rsvpLink}}">Confirm</a>',
+      textContent: "{{message}} {{rsvpLink}}",
+      branding: {},
+    });
+    const res = await sendPost(
+      sendReq({ inviteId: "i1", templateSlug: "joining-instruction-delegate", message: "Just you" }),
+      { params: campaignParams },
+    );
+    expect((await res.json()).sent).toBe(1);
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("ev1", "joining-instruction-delegate");
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    // A single send is an intentional resend: the 10-minute skip is never consulted.
+    expect(mockDb.emailLog.findMany).not.toHaveBeenCalled();
   });
 
   it("no templateSlug keeps the RSVP invitation, byte for byte the old behaviour", async () => {

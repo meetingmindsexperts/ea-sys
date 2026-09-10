@@ -79,6 +79,8 @@ interface RsvpItem {
   location: string | null;
   description: string | null;
   rsvpDeadline: string | null;
+  /** Seat cap ("close automatically at N attending"); null = unlimited. */
+  capacity: number | null;
   sortOrder: number;
   isActive: boolean;
 }
@@ -97,6 +99,8 @@ interface Headcount {
   attendees: number;
   guests: number;
   total: number;
+  capacity: number | null;
+  full: boolean;
 }
 
 const emptyItem = {
@@ -105,6 +109,7 @@ const emptyItem = {
   location: "",
   description: "",
   rsvpDeadline: "",
+  capacity: "",
 };
 
 export default function RsvpCampaignConsole() {
@@ -227,12 +232,19 @@ export default function RsvpCampaignConsole() {
       location: d.location ?? "",
       description: d.description ?? "",
       rsvpDeadline: d.rsvpDeadline ? localDateTimeInTz(new Date(d.rsvpDeadline), itemTz) : "",
+      capacity: d.capacity != null ? String(d.capacity) : "",
     });
     setItemDialog(true);
   };
   const saveItem = async () => {
     if (!itemForm.name.trim() || !itemForm.startsAt) {
       toast.error("Name and date/time are required");
+      return;
+    }
+    const capacityRaw = itemForm.capacity.trim();
+    const capacity = capacityRaw ? Number(capacityRaw) : null;
+    if (capacity != null && (!Number.isInteger(capacity) || capacity < 1)) {
+      toast.error("Seats must be a whole number of 1 or more, or empty for unlimited");
       return;
     }
     setSavingItem(true);
@@ -250,6 +262,8 @@ export default function RsvpCampaignConsole() {
         location: itemForm.location.trim(),
         description: itemForm.description.trim(),
         rsvpDeadline: fromEventTzInput(itemForm.rsvpDeadline),
+        // Empty = unlimited (explicit null, so an edit can clear a cap).
+        capacity,
       };
       const res = await fetch(
         editingItem
@@ -354,31 +368,17 @@ export default function RsvpCampaignConsole() {
       },
     );
   };
-  const [sendingOneId, setSendingOneId] = useState<string | null>(null);
-  const sendOne = async (inv: RosterInvite) => {
-    setSendingOneId(inv.id);
-    try {
-      const res = await fetch(`${apiBase}/invites/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteId: inv.id }),
-      });
-      const json = await res.json();
-      if (!res.ok || json.sent === 0) {
-        console.error("rsvp-console:send-one-failed", res.status, json?.error);
-        toast.error(json.error || "Couldn't send the invitation");
-        return;
-      }
-      toast.success(`Invitation emailed to ${inv.inviteeName}`);
-      await loadRoster();
-    } catch (err) {
-      console.error("rsvp-console:send-one-error", err);
-      toast.error("Couldn't send the invitation");
-    } finally {
-      setSendingOneId(null);
-    }
+  // Per-row Send opens the SAME dialog in single mode (the reimbursement
+  // console's Sep 8 pattern), so the template, subject and note apply to one
+  // person too. It used to post straight away with the default invitation.
+  const [sendInvite, setSendInvite] = useState<RosterInvite | null>(null);
+  const openSendOne = (inv: RosterInvite) => {
+    setSendInvite(inv);
+    setSendTemplateSlug(RSVP_TEMPLATE_SLUG);
+    setSendDialog(true);
   };
   const openSend = (target: "all" | "pending") => {
+    setSendInvite(null);
     setSendTarget(target);
     setSendTemplateSlug(RSVP_TEMPLATE_SLUG);
     setSendDialog(true);
@@ -404,7 +404,9 @@ export default function RsvpCampaignConsole() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          target: sendTarget,
+          // Single mode sends to exactly one invitee (never skipped as a
+          // recent resend); bulk mode sends the batch.
+          ...(sendInvite ? { inviteId: sendInvite.id } : { target: sendTarget }),
           subject: sendSubject.trim() || undefined,
           message: sendMessage.trim() || undefined,
           templateSlug: sendTemplateSlug !== RSVP_TEMPLATE_SLUG ? sendTemplateSlug : undefined,
@@ -423,7 +425,11 @@ export default function RsvpCampaignConsole() {
         toast.error(`No emails sent — ${json.failed} failed${skippedNote}`);
         return;
       }
-      toast.success(`Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}${skippedNote}`);
+      toast.success(
+        sendInvite
+          ? `Invitation emailed to ${sendInvite.inviteeName}`
+          : `Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}${skippedNote}`,
+      );
       setSendDialog(false);
       await loadRoster();
     } catch (err) {
@@ -553,7 +559,15 @@ export default function RsvpCampaignConsole() {
                     <div className="mt-3 text-sm">
                       <span className="font-bold text-primary">{h?.attendees ?? 0}</span>{" "}
                       attending{h && h.guests > 0 ? ` (+${h.guests} guests)` : ""}
-                      <span className="text-muted-foreground"> · {h?.total ?? 0} total seats</span>
+                      <span className="text-muted-foreground">
+                        {" "}· {h?.total ?? 0}
+                        {d.capacity != null ? ` of ${d.capacity}` : " total"} seats
+                      </span>
+                      {h?.full && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          Full, closed to new yeses
+                        </span>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -643,10 +657,10 @@ export default function RsvpCampaignConsole() {
                           size="icon"
                           className="h-7 w-7"
                           title="Email this invitation"
-                          disabled={sendingOneId === inv.id}
-                          onClick={() => sendOne(inv)}
+                          disabled={sending && sendInvite?.id === inv.id}
+                          onClick={() => openSendOne(inv)}
                         >
-                          {sendingOneId === inv.id ? (
+                          {sending && sendInvite?.id === inv.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Send className="h-3.5 w-3.5" />
@@ -700,6 +714,23 @@ export default function RsvpCampaignConsole() {
                   onChange={(e) => setItemForm((f) => ({ ...f, rsvpDeadline: e.target.value }))}
                 />
               </div>
+            </div>
+            <div>
+              <Label>Close automatically at (seats)</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={itemForm.capacity}
+                onChange={(e) => setItemForm((f) => ({ ...f, capacity: e.target.value }))}
+                placeholder="Leave empty for unlimited"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Seats are attendees plus their guests. When the number is reached the form stops
+                taking new yeses for this option; people already attending keep their seat and can
+                still change their mind. Raise or clear it to reopen.
+              </p>
             </div>
             <div>
               <Label>Location</Label>
@@ -785,14 +816,20 @@ export default function RsvpCampaignConsole() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {sendTarget === "pending" ? "Remind pending invitees" : "Email RSVP invitations"}
+              {sendInvite
+                ? `Email ${sendInvite.inviteeName}`
+                : sendTarget === "pending"
+                  ? "Remind pending invitees"
+                  : "Email RSVP invitations"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              {sendTarget === "pending"
-                ? `Sends to the ${invites.filter((i) => i.status === "PENDING").length} invitee(s) who haven't responded yet.`
-                : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`}
+              {sendInvite
+                ? `Sends only to ${sendInvite.inviteeName} (${sendInvite.inviteeEmail}) with their personal RSVP link.`
+                : sendTarget === "pending"
+                  ? `Sends to the ${invites.filter((i) => i.status === "PENDING").length} invitee(s) who haven't responded yet.`
+                  : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`}
             </p>
             <div>
               <Label>Email template</Label>

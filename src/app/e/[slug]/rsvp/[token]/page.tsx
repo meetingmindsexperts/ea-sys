@@ -35,6 +35,11 @@ interface ItemRow {
   description: string | null;
   rsvpDeadline: string | null;
   closed: boolean;
+  /** Seat cap and what is left of it; null when the option is unlimited. */
+  capacity: number | null;
+  seatsLeft: number | null;
+  /** No seat left for a NEW yes. An invitee already attending keeps theirs. */
+  full: boolean;
   attending: boolean;
   guestCount: number;
 }
@@ -161,10 +166,12 @@ export default function RsvpPage() {
       const json = await res.json();
       if (!res.ok) {
         console.error("rsvp-form:submit-failed", res.status, json?.error);
-        if (json?.code === "STALE_FORM") {
-          // The items changed since this form was loaded — reload so the
-          // invitee answers against the current list (review R2 M3).
-          toast.error(json.error);
+        if (json?.code === "STALE_FORM" || json?.code === "ITEM_FULL") {
+          // The items changed since this form was loaded (review R2 M3), or
+          // the last seat went while it was open: reload so the invitee sees
+          // the current state. An ITEM_FULL rolls the whole submit back, so
+          // their previous answer is intact.
+          toast.error(json.error, { duration: 12000 });
           window.location.reload();
           return;
         }
@@ -307,7 +314,7 @@ export default function RsvpPage() {
                     key={d.id}
                     className={`rounded-lg border p-4 ${
                       d.attending ? "border-primary/40 bg-primary/5" : "border-slate-200"
-                    } ${d.closed ? "opacity-60" : ""}`}
+                    } ${d.closed || (d.full && !d.attending) ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-start gap-3">
                       {single ? (
@@ -315,7 +322,7 @@ export default function RsvpPage() {
                           type="radio"
                           name="rsvp-item"
                           checked={d.attending}
-                          disabled={d.closed || notAttending}
+                          disabled={d.closed || notAttending || (d.full && !d.attending)}
                           onChange={(e) => pickItem(d.id, e.target.checked, true)}
                           className="mt-1.5 h-4 w-4 accent-[var(--primary)]"
                           aria-label={d.name}
@@ -323,7 +330,7 @@ export default function RsvpPage() {
                       ) : (
                         <Checkbox
                           checked={d.attending}
-                          disabled={d.closed || notAttending}
+                          disabled={d.closed || notAttending || (d.full && !d.attending)}
                           onCheckedChange={(v) => pickItem(d.id, v === true, false)}
                           className="mt-1"
                         />
@@ -343,6 +350,14 @@ export default function RsvpPage() {
                         </div>
                         {d.description && <p className="text-sm text-slate-500 mt-1">{d.description}</p>}
                         {d.closed && <p className="text-xs text-amber-600 mt-1">RSVP closed for this one.</p>}
+                        {!d.closed && d.full && !d.attending && (
+                          <p className="text-xs text-amber-600 mt-1">This option is full.</p>
+                        )}
+                        {!d.closed && !d.full && d.seatsLeft != null && (
+                          <p className="text-xs text-slate-500 mt-1">
+                            {d.seatsLeft} {d.seatsLeft === 1 ? "seat" : "seats"} left
+                          </p>
+                        )}
                         {/* Guests only when this RSVP actually asks for them. */}
                         {data.campaign.allowGuests && d.attending && !d.closed && (
                           <div className="flex items-center gap-2 mt-3">

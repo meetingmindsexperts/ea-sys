@@ -30,6 +30,7 @@ const ITEM_SELECT = {
   location: true,
   description: true,
   rsvpDeadline: true,
+  capacity: true,
   sortOrder: true,
   isActive: true,
 } as const;
@@ -99,6 +100,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
           }),
           ...(d.sortOrder !== undefined && { sortOrder: d.sortOrder }),
           ...(d.isActive !== undefined && { isActive: d.isActive }),
+          // Null clears the cap (unlimited again); absent leaves it alone.
+          ...(d.capacity !== undefined && { capacity: d.capacity }),
         },
       });
       const updated = await db.rsvpItem.findFirst({ where: { id: itemId, campaignId } });

@@ -28,7 +28,38 @@ import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { rsvpSubmitSchema, violatesSelectionMode } from "@/lib/rsvp/rsvp";
+import { rsvpSubmitSchema, violatesSelectionMode, itemIsFull } from "@/lib/rsvp/rsvp";
+
+/**
+ * Thrown INSIDE the submit transaction when a new yes would exceed an
+ * option's seat cap, so the whole replace-all rolls back and the invitee's
+ * previous answer survives. Caught at the route boundary → 409 ITEM_FULL.
+ */
+class RsvpItemFullError extends Error {
+  constructor(
+    readonly itemId: string,
+    readonly itemName: string,
+    readonly capacity: number,
+    readonly seatsUsed: number,
+  ) {
+    super(`RSVP option ${itemId} is full`);
+  }
+}
+
+/** Seats held per item by everyone currently attending: attendees + guests. */
+async function seatsUsedByItem(
+  client: { rsvpResponse: { findMany: typeof db.rsvpResponse.findMany } },
+  itemIds: string[],
+): Promise<Map<string, number>> {
+  const used = new Map<string, number>(itemIds.map((id) => [id, 0]));
+  if (itemIds.length === 0) return used;
+  const rows = await client.rsvpResponse.findMany({
+    where: { itemId: { in: itemIds }, attending: true },
+    select: { itemId: true, guestCount: true },
+  });
+  for (const r of rows) used.set(r.itemId, (used.get(r.itemId) ?? 0) + 1 + r.guestCount);
+  return used;
+}
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
@@ -176,10 +207,15 @@ export async function GET(req: Request, { params }: RouteParams) {
           location: true,
           description: true,
           rsvpDeadline: true,
+          capacity: true,
         },
       });
       const now = Date.now();
       const selection = new Map(invite.responses.map((r) => [r.itemId, r]));
+      // Seat caps: tell the form which options are full so it can say so
+      // before the invitee picks one. Their OWN current yes still counts as a
+      // held seat, so an attending invitee sees a full option as selectable.
+      const seatsUsed = await seatsUsedByItem(db, items.filter((d) => d.capacity != null).map((d) => d.id));
 
       return NextResponse.json({
         event: invite.event,
@@ -198,6 +234,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           description: d.description,
           rsvpDeadline: d.rsvpDeadline,
           closed: !isItemOpen(d, now),
+          capacity: d.capacity,
+          seatsLeft: d.capacity == null ? null : Math.max(0, d.capacity - (seatsUsed.get(d.id) ?? 0)),
+          full: itemIsFull(d.capacity, seatsUsed.get(d.id) ?? 0),
           attending: selection.get(d.id)?.attending ?? false,
           guestCount: selection.get(d.id)?.guestCount ?? 0,
         })),
@@ -275,8 +314,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // after the gala).
       const openItems = await db.rsvpItem.findMany({
         where: { campaignId: invite.campaignId, isActive: true },
-        select: { id: true, rsvpDeadline: true, startsAt: true },
+        select: { id: true, name: true, rsvpDeadline: true, startsAt: true, capacity: true },
       });
+      const itemById = new Map(openItems.map((d) => [d.id, d]));
       const now = Date.now();
       const openIds = new Set(openItems.filter((d) => isItemOpen(d, now)).map((d) => d.id));
       const accepted = parsed.data.items.filter((d) => openIds.has(d.itemId));
@@ -372,6 +412,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // pooled backend session, so it must issue its own SET LOCAL app.current_org
       // — a plain $transaction inside the runWithTenant scope would run un-scoped
       // and fail-close under RLS. It reads the ALS store set by the wrap above.
+      try {
       await tenantTransaction(async (tx) => {
         // Serialize concurrent submits for THIS invite (double-click / retry /
         // two tabs / direct API): a row lock makes each replace-all run cleanly
@@ -383,6 +424,28 @@ export async function POST(req: Request, { params }: RouteParams) {
         await tx.rsvpResponse.deleteMany({
           where: { inviteId: invite.id, itemId: { in: [...openIds] } },
         });
+        // Seat caps ("close automatically at N attending", Sep 10 2026). For
+        // each option this submit says yes to, lock THAT option's row so two
+        // invitees cannot both take the last seat, then count the seats held
+        // by everyone else. This invite's own rows were deleted just above, so
+        // a re-submit of an existing yes never counts against itself, and a
+        // change to no frees the seat. Items are locked in id order so two
+        // submits naming the same options cannot deadlock. A cap that is hit
+        // throws, the transaction rolls back (the delete included), and the
+        // invitee's previous answer stands.
+        const capped = attendingRows
+          .filter((d) => itemById.get(d.itemId)?.capacity != null)
+          .sort((a, b) => a.itemId.localeCompare(b.itemId));
+        for (const d of capped) {
+          const item = itemById.get(d.itemId)!;
+          // "RsvpDinner" is the physical table behind RsvpItem (Aug 14 @@map).
+          await tx.$queryRaw`SELECT id FROM "RsvpDinner" WHERE id = ${d.itemId} FOR UPDATE`;
+          const used = (await seatsUsedByItem(tx, [d.itemId])).get(d.itemId) ?? 0;
+          const needed = 1 + guestFor(d.guestCount);
+          if (used + needed > item.capacity!) {
+            throw new RsvpItemFullError(d.itemId, item.name, item.capacity!, used);
+          }
+        }
         if (attendingRows.length > 0) {
           await tx.rsvpResponse.createMany({
             data: attendingRows.map((d) => ({
@@ -410,6 +473,31 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
         });
       });
+      } catch (err) {
+        if (err instanceof RsvpItemFullError) {
+          apiLogger.warn(
+            {
+              slug,
+              inviteId: invite.id,
+              campaignId: invite.campaignId,
+              itemId: err.itemId,
+              capacity: err.capacity,
+              seatsUsed: err.seatsUsed,
+              stage: "item-full",
+            },
+            "rsvp-public:item-full",
+          );
+          return NextResponse.json(
+            {
+              error: `"${err.itemName}" is now full. Your previous answer has been kept.`,
+              code: "ITEM_FULL",
+              itemIds: [err.itemId],
+            },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
 
       // R2 M10: the replace-all destroys the previous answer, and an RSVP
       // drives paid catering headcounts — record before→after with the IP, the

@@ -148,6 +148,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           rsvpDeadline: d.rsvpDeadline ? new Date(d.rsvpDeadline) : null,
           sortOrder: d.sortOrder ?? 0,
           isActive: d.isActive ?? true,
+          capacity: d.capacity ?? null,
         },
       });
 

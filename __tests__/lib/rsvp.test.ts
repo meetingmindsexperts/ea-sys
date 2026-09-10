@@ -52,15 +52,15 @@ describe("computeItemHeadcounts", () => {
 
   it("counts attendees + guests + total seats per item, ignoring non-attending", () => {
     const [d1, d2] = computeItemHeadcounts(items, invites);
-    expect(d1).toEqual({ itemId: "d1", attendees: 2, guests: 2, total: 4 });
-    expect(d2).toEqual({ itemId: "d2", attendees: 1, guests: 1, total: 2 });
+    expect(d1).toEqual({ itemId: "d1", attendees: 2, guests: 2, total: 4, capacity: null, full: false });
+    expect(d2).toEqual({ itemId: "d2", attendees: 1, guests: 1, total: 2, capacity: null, full: false });
   });
 
   it("returns a zeroed row for an item with no responses", () => {
     const rows = computeItemHeadcounts(items, [{ status: "PENDING", responses: [] }]);
     expect(rows).toEqual([
-      { itemId: "d1", attendees: 0, guests: 0, total: 0 },
-      { itemId: "d2", attendees: 0, guests: 0, total: 0 },
+      { itemId: "d1", attendees: 0, guests: 0, total: 0, capacity: null, full: false },
+      { itemId: "d2", attendees: 0, guests: 0, total: 0, capacity: null, full: false },
     ]);
   });
 
@@ -152,5 +152,39 @@ describe("rsvpCampaignCreateSchema", () => {
   it("rejects a firstItem with no start time", () => {
     const r = rsvpCampaignCreateSchema.safeParse({ name: "X", firstItem: { name: "Y" } });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("seat cap: computeItemHeadcounts.full + rsvpItemInputSchema.capacity (Sep 10, 2026)", () => {
+  it("an option is full on SEATS (attendees + guests), the number the tile shows", () => {
+    const items: RsvpItemLite[] = [{ id: "w", name: "Workshop", startsAt: new Date(), capacity: 4 }];
+    const invites: RsvpInviteLite[] = [
+      { status: "RESPONDED", responses: [{ itemId: "w", attending: true, guestCount: 2 }] },
+      { status: "RESPONDED", responses: [{ itemId: "w", attending: true, guestCount: 0 }] },
+    ];
+    const [h] = computeItemHeadcounts(items, invites);
+    expect(h).toEqual({ itemId: "w", attendees: 2, guests: 2, total: 4, capacity: 4, full: true });
+  });
+
+  it("one seat short of the cap is not full; unlimited is never full", () => {
+    const capped: RsvpItemLite[] = [{ id: "w", name: "W", startsAt: new Date(), capacity: 3 }];
+    const one: RsvpInviteLite[] = [{ status: "RESPONDED", responses: [{ itemId: "w", attending: true, guestCount: 1 }] }];
+    expect(computeItemHeadcounts(capped, one)[0].full).toBe(false);
+    const open: RsvpItemLite[] = [{ id: "w", name: "W", startsAt: new Date(), capacity: null }];
+    const many: RsvpInviteLite[] = Array.from({ length: 50 }, () => ({
+      status: "RESPONDED",
+      responses: [{ itemId: "w", attending: true, guestCount: 9 }],
+    }));
+    expect(computeItemHeadcounts(open, many)[0].full).toBe(false);
+  });
+
+  it("capacity must be a whole number of at least 1, or null to clear", () => {
+    const base = { name: "Gala", startsAt: new Date().toISOString() };
+    expect(rsvpItemInputSchema.safeParse({ ...base, capacity: 35 }).success).toBe(true);
+    expect(rsvpItemInputSchema.safeParse({ ...base, capacity: null }).success).toBe(true);
+    expect(rsvpItemInputSchema.safeParse({ ...base }).success).toBe(true);
+    expect(rsvpItemInputSchema.safeParse({ ...base, capacity: 0 }).success).toBe(false);
+    expect(rsvpItemInputSchema.safeParse({ ...base, capacity: 2.5 }).success).toBe(false);
+    expect(rsvpItemInputSchema.safeParse({ ...base, capacity: "35" }).success).toBe(false);
   });
 });

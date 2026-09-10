@@ -72,7 +72,7 @@ const listRsvps: ToolExecutor = async (input, ctx) => {
         db.rsvpItem.findMany({
           where: { campaignId: { in: campaignIds } },
           orderBy: [{ sortOrder: "asc" }, { startsAt: "asc" }],
-          select: { id: true, campaignId: true, name: true, startsAt: true, location: true },
+          select: { id: true, campaignId: true, name: true, startsAt: true, location: true, capacity: true },
         }),
         // Aggregate set — no take, no status filter.
         db.rsvpInvite.findMany({
@@ -130,12 +130,19 @@ const listRsvps: ToolExecutor = async (input, ctx) => {
             allowGuests: c.allowGuests,
             collectDietary: c.collectDietary,
             isActive: c.isActive,
-            items: cItems.map((i) => ({ name: i.name, startsAt: i.startsAt, location: i.location })),
+            items: cItems.map((i) => ({
+              name: i.name,
+              startsAt: i.startsAt,
+              location: i.location,
+              capacity: i.capacity,
+            })),
             headcountsByItem: computeItemHeadcounts(cItems, cInvites).map((h) => ({
               item: itemName.get(h.itemId) ?? h.itemId,
               attendees: h.attendees,
               guests: h.guests,
               totalSeats: h.total,
+              capacity: h.capacity,
+              full: h.full,
             })),
             summary: {
               // Over the WHOLE campaign, never the page.
