@@ -364,6 +364,41 @@ character, since a backfill is a separate decision from the guard. Explicitly NO
 replacement for the output escapers, which stay load-bearing.
 
 
+## The event-loop monitor misses microtask-driven stalls (found Sep 10, 2026): recorded, not fixed
+
+**How it surfaced.** Benchmarking the new Word export, two instruments were run over the
+same work in the same process. A plain `setInterval(5ms)` measured a **715ms gap** between
+consecutive fires, which is a blocked event loop by definition. `monitorEventLoopDelay`,
+watching the same 715ms, reported a **maximum of 5ms** and a p99 of 5ms. It did not see the
+stall at all.
+
+**Why this is bigger than the export.** [event-loop-monitor.ts](../src/lib/event-loop-monitor.ts)
+is built on `monitorEventLoopDelay`, and it is what produces the `event-loop:stall` warnings
+plus the `cpuMs` and `kind: busy|suspended` classification added on Sep 7, 2026. If the
+histogram cannot see this class of stall, the monitor is quieter than it looks, and the
+quietness is not evidence of health. Anything whose work yields through **promise
+microtasks** rather than macrotasks is potentially invisible to it, and that covers a lot:
+PDF and zip generation, large JSON serialisation, any `await`-heavy loop over a big array.
+
+**What was NOT established.** The mechanism. The measurement is reproducible and the
+conclusion (the histogram missed a real stall) is solid, but why it missed it was not chased
+down. The plausible reading is that a microtask chain starves the timers phase without ever
+producing the "this timer fired late" signal the histogram is built to detect, since the
+histogram's own sampler is itself a timer. That is a hypothesis, not a finding.
+
+**Suggested first step, before any code.** Reproduce it in isolation with three shapes of
+blocking work, a plain synchronous `while` loop, a macrotask chain, and a promise-microtask
+chain, and record which of them the histogram sees. That says whether the gap is narrow
+(microtasks only) or wide (anything that is not a straight synchronous block), and the answer
+decides whether the fix is an added instrument or a replaced one. A cheap candidate for the
+added instrument is the `setInterval` lag detector used in the benchmark: it caught every
+case the histogram missed and costs one timer.
+
+**Do not treat the Sep 7 stall work as wrong.** The `cpuMs` and `busy|suspended`
+classification it added is correct and still valuable for the stalls the histogram DOES see.
+This is a coverage gap underneath it, not an error in it.
+
+
 ## Deferred review findings
 
 ### Public-by-id routes and media lifecycle review (Sep 8, 2026): cheap fixes shipped, the token scheduled, one race recorded

@@ -66,7 +66,18 @@ Body paragraph two.
 
 ## 6. Risks and how they are covered
 
-- **Large export.** 5000 abstracts of 300 words is roughly 10 MB of XML before compression; `docx` builds in memory and this runs once per click behind a staff login. Acceptable; the cap is the CSV's cap.
+- **Large export: measured, not estimated (September 10, 2026, owner asked whether this blocks the event loop and needs a queue).** It does block, proportionally, and the cost is almost entirely the zip packing rather than building the content (constructing 50,000 paragraphs takes 54ms; `Packer.toBuffer` on them takes 805ms).
+
+  | abstracts | wall time | event loop blocked | RSS added | file |
+  |---|---|---|---|---|
+  | 12 (the largest real call for papers on prod) | 17ms | ~6ms | 7MB | 9KB |
+  | 100 | 25ms | 21ms | 15MB | 10KB |
+  | 1,000 | 142ms | 95ms | 162MB | 24KB |
+  | 5,000 (the cap) | 1,216ms | ~1,280ms | 304MB | 82KB |
+
+  **Decision: stays synchronous, cap stays at 5,000.** Production holds 15 abstracts and 26 session proposals in total, and the biggest single event has 12, so the real cost today is a 6ms blip on a staff-only click. Lowering the cap was considered and rejected: it would re-introduce the silent truncation this change removed, and the cap is meant to mean "everything".
+
+  **The threshold to act on is roughly 1,000 submissions on one event**, where the block reaches ~100ms and memory rather than time becomes the constraint. Past that the move needs no new mechanism: the worker tier already exists and certificate bulk issuance already has this exact shape, which is render in the background, store the artifact, email a link. Re-measure before building it; these numbers are from a development Mac and the box is a 2-vCPU `t3.large` that also serves the registration desk.
 - **Word compatibility.** The builder uses only paragraphs, runs, a heading style and a paragraph border. These are the oldest parts of the format. The Word check in step 8 is the proof.
 - **The two documents drifting.** Prevented by construction: one builder, two thin mappers.
 
