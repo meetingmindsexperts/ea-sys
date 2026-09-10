@@ -14,6 +14,20 @@ carries pre-existing failures and a bare failure count proves nothing.
 
 ---
 
+## DEP-003 — `docx` added, for the Word exports of abstracts and session proposals
+
+| | |
+|---|---|
+| **Date** | 2026-09-10 |
+| **Trigger** | Organiser request: export all abstracts into one Word document and all session proposals into another. The two CSV exports that shipped the day before answer a spreadsheet need; a review committee reads prose |
+| **What moved** | `docx` 9.7.1 added as a production dependency. Nothing else changed; `npm ls` shows its five transitives (`jszip` 3.10, `xml`, `xml-js`, `nanoid` 5, `hash.js`) with no duplicate majors against anything already installed |
+| **Why a dependency at all** | The alternative was hand-writing WordprocessingML through `pizzip`, which is already here for the speaker-agreement merge. About 150 lines, and every one of them is a chance to emit XML that Word opens with a repair prompt. `docx` is the standard pure-JS builder for exactly this, has no native code and makes no network calls |
+| **Exposure** | Server-only, and reachable from exactly two routes, both behind `denyReviewer` with no allow-list (SUPER_ADMIN / ADMIN / ORGANIZER). It reads no input beyond the rows those routes already load and writes to no disk. `npm audit` on the added tree: no new findings |
+| **Verification** | 11 CI gate scripts 0 · lint 0 · tsc 0 · vitest (46 new tests: builder, mappers, both routes) · `next build` clean. The builder tests unzip the produced package with `pizzip` and read `word/document.xml`, so what is asserted is what Word opens, not our own data structure. Both documents were then exported from the local prod copy and opened in Microsoft Word on the development Mac |
+| **Rollback** | Revert the commit (package.json + lockfile + the two routes) and redeploy, or the pinned image rollback in [ROLLBACK.md](ROLLBACK.md) |
+
+---
+
 ## DEP-002 — Auth.js criticals, patch-level sweep, dead Postmark package
 
 | | |

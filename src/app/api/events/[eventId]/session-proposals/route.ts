@@ -13,6 +13,8 @@ import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { formatPersonName } from "@/lib/utils";
 import { toCsvRow } from "@/lib/csv-escape";
 import { recordExport } from "@/lib/audit-data-transfer";
+import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
+import { exportSubtitle, proposalToDocxEntry } from "@/lib/submission-docx-export";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -28,6 +30,9 @@ import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 const proposalStatusSchema = z.nativeEnum(SessionProposalStatus);
 
 // Only PROGRAM session kinds are proposable (a coffee break isn't a proposal).
+/** Matches the abstracts export ceiling — an export is the whole call. */
+const EXPORT_ROW_CAP = 5000;
+
 const programFormatSchema = z
   .nativeEnum(SessionType)
   .refine((t) => SESSION_TYPE_KIND[t] === "program", {
@@ -96,7 +101,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const themeId = searchParams.get("themeId") || undefined;
-    const wantsCsv = searchParams.get("export") === "csv";
+    // Word joins CSV as a second output format on this one call (Sep 10, 2026,
+    // organiser request), so both share the staff-only boundary and the row cap.
+    const exportParam = searchParams.get("export");
+    const wantsCsv = exportParam === "csv";
+    const wantsDocx = exportParam === "docx";
+    const wantsExport = wantsCsv || wantsDocx;
 
     const isSubmitter = session.user.role === "SUBMITTER";
 
@@ -117,17 +127,22 @@ export async function GET(req: Request, { params }: RouteParams) {
       ...(isSubmitter ? { speaker: { userId: session.user.id } } : {}),
     };
 
-    if (wantsCsv) {
+    if (wantsExport) {
       // Export is a NARROWER boundary than read (house rule): org staff only.
       const denied = denyReviewer(session, { route: "events/[eventId]/session-proposals:GET" });
-      if (denied) return denied;
+      if (denied) {
+        apiLogger.warn(
+          { msg: "session-proposals:export-refused", eventId, userId: session.user.id, role: session.user.role, format: exportParam },
+        );
+        return denied;
+      }
     }
 
     // Resolve the event (+ resource org) FIRST, un-wrapped — Event is not yet a
     // swept table, and its org is the tenant lane for the SessionProposal read.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, organizationId: true },
+      select: { id: true, name: true, organizationId: true },
     });
 
     if (!event) {
@@ -142,9 +157,37 @@ export async function GET(req: Request, { params }: RouteParams) {
         where,
         include: PROPOSAL_INCLUDE,
         orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
-        take: 500,
+        // The list cap bounds a JSON payload; an export is the whole call for
+        // proposals, so it takes the larger ceiling the abstracts export uses.
+        // Before Sep 10, 2026 the CSV silently truncated at 500 as well.
+        take: wantsExport ? EXPORT_ROW_CAP : 500,
       }),
     );
+
+    if (wantsDocx) {
+      const buffer = await buildEntriesDocx({
+        title: `${event.name} — Session Proposals`,
+        subtitle: exportSubtitle(proposals.length, "session proposal", new Date()),
+        entries: proposals.map(proposalToDocxEntry),
+      });
+      recordExport(req, {
+        entityType: "SessionProposal",
+        eventId,
+        organizationId: event.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        source: "rest",
+        rowCount: proposals.length,
+        format: "docx",
+        filters: { ...(status ? { status } : {}), ...(themeId ? { themeId } : {}) },
+      });
+      return new NextResponse(new Uint8Array(buffer), {
+        headers: {
+          "Content-Type": DOCX_CONTENT_TYPE,
+          "Content-Disposition": `attachment; filename="session-proposals-${eventId}.docx"`,
+        },
+      });
+    }
 
     if (wantsCsv) {
       // "Format" column removed (owner, Aug 4 2026 — proposals don't use one).

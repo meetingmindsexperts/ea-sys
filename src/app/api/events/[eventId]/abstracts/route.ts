@@ -10,6 +10,8 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { recordExport } from "@/lib/audit-data-transfer";
+import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
+import { abstractToDocxEntry, exportSubtitle } from "@/lib/submission-docx-export";
 import { toCsvRow } from "@/lib/csv-escape";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatPersonName } from "@/lib/utils";
@@ -110,23 +112,56 @@ function coAuthorsCell(raw: unknown): string {
     .join("; ");
 }
 
+/** What both export formats are handed, so neither can be given a narrower set. */
+interface ExportArgs {
+  abstracts: ExportRow[];
+  eventId: string;
+  eventName: string;
+  organizationId: string;
+  userId: string;
+  role: string;
+  filters: Record<string, string>;
+}
+
+/**
+ * The Word document the Abstracts page's Export menu downloads (Sep 10, 2026,
+ * organiser request). Same population, same boundary and same audit row as the
+ * CSV — only the rendering differs, and that rendering is shared with the
+ * session-proposals export through buildEntriesDocx so the two documents keep
+ * one layout.
+ */
+async function exportAbstractsDocx(req: Request, args: ExportArgs): Promise<NextResponse> {
+  const buffer = await buildEntriesDocx({
+    title: `${args.eventName} — Abstracts`,
+    subtitle: exportSubtitle(args.abstracts.length, "abstract", new Date()),
+    entries: args.abstracts.map(abstractToDocxEntry),
+  });
+  recordExport(req, {
+    entityType: "Abstract",
+    eventId: args.eventId,
+    organizationId: args.organizationId,
+    userId: args.userId,
+    role: args.role,
+    source: "rest",
+    rowCount: args.abstracts.length,
+    format: "docx",
+    filters: args.filters,
+  });
+  return new NextResponse(new Uint8Array(buffer), {
+    headers: {
+      "Content-Type": DOCX_CONTENT_TYPE,
+      "Content-Disposition": `attachment; filename="abstracts-${args.eventId}.docx"`,
+    },
+  });
+}
+
 /**
  * The CSV the Abstracts page's Export button downloads. Every cell goes
  * through the shared escaper (formula prefixes neutralised, RFC 4180 quoting,
  * so a multi-paragraph abstract body stays one cell), and the pull is audited
  * with who, how many rows and which filters narrowed it.
  */
-function exportAbstractsCsv(
-  req: Request,
-  args: {
-    abstracts: ExportRow[];
-    eventId: string;
-    organizationId: string;
-    userId: string;
-    role: string;
-    filters: Record<string, string>;
-  },
-): NextResponse {
+function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
   const header = toCsvRow([
     "Abstract #", "Title", "Status", "Presentation Type", "Theme", "Sub-theme", "Track",
     "Author", "Email", "Additional Email", "Organization", "Country", "Specialty", "Co-authors",
@@ -198,11 +233,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     // serves reviewers, submitters and MEMBER, the file goes to org staff only.
     // denyReviewer with no allow-list IS that set (SUPER_ADMIN / ADMIN /
     // ORGANIZER). Checked before any query, so a refused export costs nothing.
-    const wantsCsv = searchParams.get("export") === "csv";
-    if (wantsCsv) {
+    // Word joins CSV on the SAME boundary and the same row cap (Sep 10, 2026,
+    // organiser request) — it is a second output format on one call, so the two
+    // files can never disagree about who may pull them or which rows they hold.
+    const exportParam = searchParams.get("export");
+    const wantsCsv = exportParam === "csv";
+    const wantsDocx = exportParam === "docx";
+    const wantsExport = wantsCsv || wantsDocx;
+    if (wantsExport) {
       const denied = denyReviewer(session, { route: "events/[eventId]/abstracts:GET" });
       if (denied) {
-        apiLogger.warn({ eventId, userId: session.user.id, role: session.user.role }, "abstracts:export-refused");
+        apiLogger.warn(
+          { eventId, userId: session.user.id, role: session.user.role, format: exportParam },
+          "abstracts:export-refused",
+        );
         return denied;
       }
     }
@@ -225,7 +269,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // is the RESOURCE org even for an org-null submitter/reviewer caller.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, organizationId: true },
+      select: { id: true, name: true, organizationId: true },
     });
 
     if (!event) {
@@ -256,13 +300,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       orderBy: { submittedAt: "desc" },
       // The list cap bounds a JSON payload; an export is the whole call for
       // papers, so it takes its own, larger ceiling.
-      take: wantsCsv ? EXPORT_ROW_CAP : limit,
+      take: wantsExport ? EXPORT_ROW_CAP : limit,
     });
 
-    if (wantsCsv) {
-      return exportAbstractsCsv(req, {
+    if (wantsExport) {
+      const exportArgs = {
         abstracts,
         eventId,
+        eventName: event.name,
         organizationId: event.organizationId,
         userId: session.user.id,
         role: session.user.role,
@@ -271,7 +316,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(trackId ? { trackId } : {}),
           ...(speakerId ? { speakerId } : {}),
         },
-      });
+      };
+      return wantsDocx ? exportAbstractsDocx(req, exportArgs) : exportAbstractsCsv(req, exportArgs);
     }
 
     const enriched = abstracts.map((a) => {

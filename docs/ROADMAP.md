@@ -315,6 +315,39 @@ event, never a pointer into the source event's registrations. Cost: one call and
 one test.
 
 
+## A Word-pasted character can block a speaker's agreement document (found Sep 10, 2026): recorded, not fixed
+
+**How it surfaced.** Building the Word exports of abstracts and session proposals, the
+verification step found an abstract title on Middle East Heart Failure 2027 carrying a
+**vertical tab (U+000B)**, left behind by a Shift+Enter in Word before the author pasted
+into the submission form. XML 1.0 forbids that character. The export builder now strips it
+(`sanitizeXmlText` in [docx-export.ts](../src/lib/docx-export.ts)), so that path is closed.
+
+**The same input reaches a second document.** `generateSpeakerAgreementDocx` in
+[speaker-agreement.ts](../src/lib/speaker-agreement.ts) mail-merges speaker names, session
+titles and track names into an organiser-uploaded .docx through `docxtemplater`, and those
+values come from the same free-text fields.
+
+**Severity is lower than the export bug, and the reason is worth keeping.** Probed directly:
+`docxtemplater` **detects** the character and throws `RenderingError` with
+`id: "invalid_xml_characters"` naming the field and the offending value. `docx`, the library
+the export uses, has no such check and writes the byte through, which is exactly why the
+export failed silently while this one fails loudly. So the consequence here is a **failed
+agreement generation**, per-recipient in the bulk path and a 400 on the single send, not a
+corrupt document handed to faculty.
+
+**Still a real gap.** A speaker whose name or session title carries such a character can
+never receive their agreement, and the operator sees a generation failure with no hint that
+the cause is one invisible byte in a title they can fix.
+
+**The fix, when picked up.** Run the merge values through the exported `sanitizeXmlText`
+before handing them to `docxtemplater`, at the single point where the merge map is built.
+Roughly one call plus a test asserting a vertical-tab-bearing session title still renders.
+Consider the same for any future writer that turns user text into XML: the rule is that a
+document generator must sanitise its inputs, because "the field is plain text" says nothing
+about which code points are in it.
+
+
 ## Deferred review findings
 
 ### Public-by-id routes and media lifecycle review (Sep 8, 2026): cheap fixes shipped, the token scheduled, one race recorded

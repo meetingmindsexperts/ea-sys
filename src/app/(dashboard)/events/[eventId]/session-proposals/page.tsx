@@ -31,6 +31,13 @@ import { formatPersonName } from "@/lib/utils";
 import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { SESSION_TYPE_LABELS } from "@/lib/session-enums";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { downloadExport } from "@/lib/export-download";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -133,7 +140,24 @@ export default function SessionProposalsPage() {
   const [selected, setSelected] = useState<ProposalRow | null>(null);
   const [themesOpen, setThemesOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [grantOpen, setGrantOpen] = useState(false);
+
+  // Fetch-then-save, not a bare download link: before Sep 10, 2026 this was an
+  // anchor, so a 403 or a lapsed session saved the error page under the .csv
+  // name with no toast (the quote.json class).
+  const runExport = async (format: "csv" | "docx") => {
+    setExporting(true);
+    const result = await downloadExport({
+      url: `/api/events/${eventId}/session-proposals?export=${format}`,
+      filename: `session-proposals-${eventId}.${format}`,
+      logKey: "session-proposals:export-failed",
+      forbiddenMessage: "Only admins and organisers can export session proposals.",
+    });
+    setExporting(false);
+    if (result.ok) toast.success("Session proposals exported");
+    else toast.error(result.error);
+  };
   const [revoking, setRevoking] = useState(false);
   const queryClient = useQueryClient();
 
@@ -319,11 +343,21 @@ export default function SessionProposalsPage() {
               <Button variant="outline" size="sm" onClick={() => setThemesOpen(true)}>
                 <Tags className="h-4 w-4 mr-1" /> Themes
               </Button>
-              <Button variant="outline" size="sm" asChild>
-                <a href={`/api/events/${eventId}/session-proposals?export=csv`}>
-                  <Download className="h-4 w-4 mr-1" /> Export CSV
-                </a>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={exporting}>
+                    <Download className={`h-4 w-4 mr-1 ${exporting ? "animate-pulse" : ""}`} /> Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => void runExport("csv")}>
+                    Spreadsheet (.csv)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void runExport("docx")}>
+                    Word document (.docx)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           {(isSubmitter || canManage) && (
