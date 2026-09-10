@@ -61,6 +61,7 @@ import {
 import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review";
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
+import { normalizeRsvpEmail } from "@/lib/rsvp/rsvp";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -251,6 +252,16 @@ export interface BulkEmailFilters {
    * sends reconstruct it from the persisted filters JSON alone.
    */
   bccSelf?: boolean;
+  /**
+   * Registrations and speakers recipients only: the RSVP campaign whose
+   * personal link renders as {{rsvpLink}} for each recipient (organizer
+   * request, Sep 10 2026: the link used to be reachable only from the RSVP
+   * console's own send). Rides inside `filters` for the schedule-compat
+   * reason above. A recipient with no invite on that campaign is SKIPPED and
+   * counted, never emailed a blank link and never auto-invited: the console's
+   * guest list stays the only place a roster grows.
+   */
+  rsvpCampaignId?: string;
 }
 
 export interface BulkEmailInput {
@@ -310,6 +321,12 @@ export interface BulkEmailInput {
 }
 
 export interface BulkEmailResult {
+  /**
+   * Why `skippedCount` recipients were left out, in the words the worker's
+   * admin notification prints ("no matching certificate tag", "not on the
+   * RSVP guest list"). Absent when nothing was skipped.
+   */
+  skippedReason?: string;
   total: number;
   successCount: number;
   failureCount: number;
@@ -589,6 +606,7 @@ export const bulkEmailSchema = z.object({
       certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
       bcc: z.array(z.string().email()).max(10).optional(),
       bccSelf: z.boolean().optional(),
+      rsvpCampaignId: z.string().min(1).max(100).optional(),
     })
     .optional(),
 }).superRefine((data, ctx) => {
@@ -801,6 +819,8 @@ export interface BulkEmailViability {
   event: BulkEmailViabilityEvent;
   certTemplates: LoadedCertTemplate[] | null;
   agreementMode: ReturnType<typeof pickAgreementAttachmentMode> | null;
+  /** The RSVP whose personal links render as {{rsvpLink}}, when one was chosen. */
+  rsvpCampaign: { id: string; name: string } | null;
 }
 
 /**
@@ -978,7 +998,49 @@ export async function precheckBulkEmailViability(
     }
   }
 
-  return { event, certTemplates, agreementMode };
+  // {{rsvpLink}} in a general send (Sep 10, 2026): the campaign must be this
+  // event's and still open, and the audience must be people who can hold an
+  // invite (registrations or speakers). Checked here so the enqueue route
+  // refuses synchronously, and again at fire time as the backstop.
+  let rsvpCampaign: BulkEmailViability["rsvpCampaign"] = null;
+  if (filters?.rsvpCampaignId) {
+    if (recipientType !== "registrations" && recipientType !== "speakers") {
+      apiLogger.warn({
+        msg: "bulk-email:rsvp-link-wrong-audience",
+        eventId,
+        recipientType,
+        rsvpCampaignId: filters.rsvpCampaignId,
+      });
+      throw new BulkEmailError(
+        "An RSVP link can only be sent to registrations or speakers",
+        400,
+        INVALID_FILTER_CODE,
+      );
+    }
+    const campaign = await db.rsvpCampaign.findFirst({
+      where: { id: filters.rsvpCampaignId, eventId },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (!campaign) {
+      apiLogger.warn({
+        msg: "bulk-email:rsvp-campaign-not-found",
+        eventId,
+        rsvpCampaignId: filters.rsvpCampaignId,
+      });
+      throw new BulkEmailError("That RSVP does not exist on this event", 400, INVALID_FILTER_CODE);
+    }
+    if (!campaign.isActive) {
+      apiLogger.warn({ msg: "bulk-email:rsvp-campaign-inactive", eventId, rsvpCampaignId: campaign.id });
+      throw new BulkEmailError(
+        `The RSVP "${campaign.name}" is closed. Reopen it before sending its link.`,
+        400,
+        INVALID_FILTER_CODE,
+      );
+    }
+    rsvpCampaign = { id: campaign.id, name: campaign.name };
+  }
+
+  return { event, certTemplates, agreementMode, rsvpCampaign };
 }
 
 /**
@@ -1063,7 +1125,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // schedule routes (review M2) so a misconfigured send is rejected there
   // synchronously; this call is the fire-time backstop and also loads the
   // event + cert templates + agreement mode for the send below.
-  const { event, certTemplates, agreementMode } = await precheckBulkEmailViability(input);
+  const { event, certTemplates, agreementMode, rsvpCampaign } = await precheckBulkEmailViability(input);
   // The picked files, read from storage ONCE per send (references in, bytes
   // out); the precheck above already refused a missing or foreign one.
   const attachmentBytesResult = await resolveStoredAttachments(attachments, eventId);
@@ -1591,6 +1653,19 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // reported bug, July 16 2026).
   const isSpeakerContextNeeded = recipientType === "speakers";
 
+  // {{rsvpLink}}: one read of the chosen campaign's guest list, keyed on the
+  // normalised email (the invite's own unique key), so each recipient costs a
+  // Map lookup and not a query. Nothing is minted here: a recipient without an
+  // invite is dropped from the send below and reported as skipped.
+  const rsvpTokenByEmail = new Map<string, string>();
+  if (rsvpCampaign) {
+    const invites = await db.rsvpInvite.findMany({
+      where: { campaignId: rsvpCampaign.id, eventId },
+      select: { inviteeEmail: true, token: true },
+    });
+    for (const inv of invites) rsvpTokenByEmail.set(normalizeRsvpEmail(inv.inviteeEmail), inv.token);
+  }
+
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
       firstName: recipient.firstName,
@@ -1803,6 +1878,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
     }
 
+    if (rsvpCampaign) {
+      // The send loop has already dropped recipients with no invite, so the
+      // lookup cannot miss here; the fallback keeps the type honest.
+      const token = rsvpTokenByEmail.get(normalizeRsvpEmail(recipient.email));
+      vars.rsvpLink = token ? `${appUrl}/e/${event.slug}/rsvp/${token}` : "";
+      vars.rsvpName = rsvpCampaign.name;
+    }
+
     if (webinarEnrichment) {
       vars.joinUrl = webinarEnrichment.joinUrl;
       vars.passcode = webinarEnrichment.passcode;
@@ -1859,6 +1942,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // Reviewer-notes block (abstract-decision): our markup, dynamic text
       // escaped inside buildAbstractDecisionVars.
       "reviewNotes",
+      // A URL we built from a base64url token; raw, as the RSVP console renders it.
+      "rsvpLink",
     ]);
 
     // Resolve tokens the organizer typed INTO the message itself —
@@ -1923,9 +2008,35 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   );
   if (input.filters?.bccSelf && organizerEmail) bccSet.add(organizerEmail.trim().toLowerCase());
 
-  const toSend = alreadyEmailed.size
+  let toSend = alreadyEmailed.size
     ? recipients.filter((r) => !alreadyEmailed.has(r.id))
     : recipients;
+  // {{rsvpLink}} sends go only to people on the chosen RSVP's guest list. The
+  // rest are skipped and counted (never a blank link, never an auto-invite);
+  // the organiser adds them on the RSVP console if they were meant to be in.
+  let skippedCount = 0;
+  let skippedReason: string | undefined;
+  if (rsvpCampaign) {
+    const withInvite = toSend.filter((r) => rsvpTokenByEmail.has(normalizeRsvpEmail(r.email)));
+    skippedCount = toSend.length - withInvite.length;
+    if (skippedCount > 0) {
+      skippedReason = `not on the RSVP guest list for "${rsvpCampaign.name}"`;
+      apiLogger.warn({
+        msg: "bulk-email:rsvp-link-recipients-skipped",
+        eventId,
+        emailType,
+        recipientType,
+        rsvpCampaignId: rsvpCampaign.id,
+        skipped: skippedCount,
+        sending: withInvite.length,
+        skippedRecipientIds: toSend
+          .filter((r) => !rsvpTokenByEmail.has(normalizeRsvpEmail(r.email)))
+          .map((r) => r.id)
+          .slice(0, 50),
+      });
+    }
+    toSend = withInvite;
+  }
   if (alreadyEmailed.size) {
     apiLogger.info({
       msg: "bulk-email:resume-skip",
@@ -2140,6 +2251,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     total: toSend.length,
     successCount,
     failureCount,
+    ...(skippedCount > 0 ? { skippedCount, skippedReason } : {}),
     ...(aborted ? { aborted } : {}),
     errors,
   };

@@ -202,3 +202,27 @@ describe("assertValidBulkEmailFilters — reject, don't widen", () => {
     expect(() => assertValidBulkEmailFilters("reviewers", { status: "whatever" })).not.toThrow();
   });
 });
+
+describe("bulkEmailSchema: filters.rsvpCampaignId (Sep 10, 2026)", () => {
+  it("accepts an RSVP campaign id on a custom send to registrations", () => {
+    const r = bulkEmailSchema.safeParse({
+      recipientType: "registrations",
+      emailType: "custom",
+      customSubject: "Joining instructions",
+      customMessage: "Please confirm: {{rsvpLink}}",
+      filters: { rsvpCampaignId: "camp-1" },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects an empty campaign id rather than treating it as 'no link'", () => {
+    const r = bulkEmailSchema.safeParse({
+      recipientType: "registrations",
+      emailType: "custom",
+      customSubject: "s",
+      customMessage: "m",
+      filters: { rsvpCampaignId: "" },
+    });
+    expect(r.success).toBe(false);
+  });
+});

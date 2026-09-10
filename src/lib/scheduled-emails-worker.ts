@@ -277,7 +277,9 @@ async function processRow(
       type: "REGISTRATION",
       title: "Scheduled Email Sent",
       message: `Email sent to ${result.successCount} recipients${
-        result.skippedCount ? ` (${result.skippedCount} skipped — no matching certificate tag)` : ""
+        result.skippedCount
+          ? ` (${result.skippedCount} skipped, ${result.skippedReason ?? "no matching certificate tag"})`
+          : ""
       }`,
       link: `/events/${row.eventId}/communications`,
     }).catch((err) =>

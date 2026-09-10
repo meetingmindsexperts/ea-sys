@@ -238,6 +238,17 @@ M8, M9, M10 (the public submit writes an AuditLog row with IP). **Every one of
 those behaviors is preserved by this generalization and still pinned by test.**
 Remaining LOWs in [ROADMAP.md](ROADMAP.md) §"Dinner RSVP — backlog".
 
+## The RSVP link inside any bulk email (Sep 10, 2026)
+
+An organiser asked for `{{rsvpLink}}` in a general email sent from the Communications page, for example joining instructions that carry the "confirm your seat" button. Before this the link existed only in the console's own send.
+
+- **How**: the bulk-email dialog (registrations or speakers audiences) has an **RSVP link** picker listing the event's open RSVPs. Picking one carries `filters.rsvpCampaignId`, which rides inside `filters` so a scheduled send reconstructs it from the persisted `ScheduledEmail.filters` JSON, the same reason `surveyExpiryDays` does. `{{rsvpLink}}` then resolves per recipient in a custom message, a saved template, or any built-in type; `{{rsvpName}}` carries the RSVP's name.
+- **Who gets it**: only people on that RSVP's guest list. The send reads the campaign's invites once and matches on the normalised email (the invite's own unique key). A recipient with no invite is **skipped and counted** (`skippedCount`, `skippedReason` on the result, the worker's notification and the audit row). Nothing is minted and nobody is auto-invited: the console's guest list stays the only place a roster grows, so a bulk send to all registrations cannot put 400 people on a 40-seat dinner. Add people on the console (Import, now with Select all) first.
+- **Refused up front** (400 `INVALID_FILTER`, at the enqueue route and again at fire time): a campaign that is not this event's, a closed campaign, or an audience that cannot hold an invite (reviewers, abstracts).
+- **Security**: unchanged. The link is an impersonation credential, which is why the roster and the campaign list are staff-only; bulk email sits behind the same guard and sends each link only to that person's own address.
+
+Tests: `__tests__/lib/bulk-email-rsvp-link.test.ts` (skip-not-mint, email normalisation, all-skipped, no-campaign), the precheck suite (event-bound lookup, closed campaign, wrong audience) and the schema suite.
+
 ## Not built
 
 Per plan §9: **capacity / waitlists** (the one genuinely hard piece — a

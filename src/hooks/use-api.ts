@@ -114,6 +114,7 @@ export const queryKeys = {
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
   eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
+  rsvpCampaigns: (eventId: string) => ["events", eventId, "rsvp-campaigns"] as const,
   dtcmPool: (eventId: string) => ["events", eventId, "dtcm-pool"] as const,
   issuedCertificates: (
     eventId: string,
@@ -325,6 +326,29 @@ export function useEventTags(eventId: string, enabled = true) {
   return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
     queryKey: queryKeys.eventTags(eventId),
     queryFn: () => fetchApi(`/api/events/${eventId}/tags`),
+    enabled: !!eventId && enabled,
+  });
+}
+
+/** One RSVP on the event, as the campaign list returns it (staff-only route). */
+export interface RsvpCampaignSummary {
+  id: string;
+  name: string;
+  isActive: boolean;
+  itemCount: number;
+  inviteCount: number;
+  respondedCount: number;
+}
+
+/**
+ * The event's RSVPs, for the bulk-email dialog's "RSVP link" picker
+ * (Sep 10, 2026). The list route is denyReviewer-guarded (it exposes audience
+ * sizes), which is the same population that can open the bulk-email dialog.
+ */
+export function useRsvpCampaigns(eventId: string, enabled = true) {
+  return useQuery<{ campaigns: RsvpCampaignSummary[] }>({
+    queryKey: queryKeys.rsvpCampaigns(eventId),
+    queryFn: () => fetchApi(`/api/events/${eventId}/rsvp-campaigns`),
     enabled: !!eventId && enabled,
   });
 }

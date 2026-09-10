@@ -151,8 +151,35 @@ export function ImportInviteesDialog({
       return next;
     });
 
+  // "Select all" acts on the LIST AS FILTERED and only on people not already
+  // invited, so a search narrows what it picks and it never touches a
+  // selection the search is hiding: tick, search, tick again accumulates, the
+  // way per-row ticks do (the reimbursement picker's rule, Sep 8 2026). Before
+  // this the dialog was one tick per person: 109 clicks to invite an event.
+  const addable = useMemo(
+    () => filtered.filter((p) => !existingEmails.has(p.email.toLowerCase())),
+    [filtered, existingEmails],
+  );
+  const addableSelectedCount = useMemo(
+    () => addable.filter((p) => selected.has(p.key)).length,
+    [addable, selected],
+  );
+  const allAddableSelected = addable.length > 0 && addableSelectedCount === addable.length;
+  const toggleSelectAll = (checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const p of addable) {
+        if (checked) next.add(p.key);
+        else next.delete(p.key);
+      }
+      return next;
+    });
+
   const doImport = async () => {
-    const all = [...regs, ...speakers];
+    // Submitters are their own tab, so they must be in the pool the ticks are
+    // resolved against; without them a ticked submitter was silently dropped
+    // from the import (found while adding select-all, Sep 10 2026).
+    const all = [...regs, ...speakers, ...submitters];
     const picked = all.filter((p) => selected.has(p.key));
     if (picked.length === 0) {
       toast.error("Select at least one person");
@@ -238,7 +265,27 @@ export function ImportInviteesDialog({
           ) : filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No people found.</div>
           ) : (
-            filtered.map((p) => {
+            <>
+              {addable.length > 0 && (
+                <label className="flex items-center gap-3 px-3 py-2 cursor-pointer bg-muted/30 hover:bg-muted/50">
+                  <Checkbox
+                    checked={
+                      allAddableSelected ? true : addableSelectedCount > 0 ? "indeterminate" : false
+                    }
+                    // Radix reports a click on an indeterminate box as `true`,
+                    // so "some picked" → "all picked", then → none.
+                    onCheckedChange={(v) => toggleSelectAll(v === true)}
+                    aria-label="Select all listed people"
+                  />
+                  <span className="flex-1 text-sm font-medium">
+                    Select all{search.trim() ? " matching" : ""} ({addable.length})
+                  </span>
+                  {selected.size > 0 && (
+                    <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+                  )}
+                </label>
+              )}
+              {filtered.map((p) => {
               const invited = existingEmails.has(p.email.toLowerCase());
               return (
                 <label
@@ -259,7 +306,8 @@ export function ImportInviteesDialog({
                   {invited && <span className="ml-auto text-xs text-muted-foreground">Already invited</span>}
                 </label>
               );
-            })
+              })}
+            </>
           )}
         </div>
 

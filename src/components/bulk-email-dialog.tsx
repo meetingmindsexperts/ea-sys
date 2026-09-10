@@ -35,6 +35,7 @@ import {
   useTickets,
   useEventTags,
   useBulkEmailAudienceCount,
+  useRsvpCampaigns,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -348,6 +349,11 @@ export function BulkEmailDialog({
   // picker arrives as `statusFilter`; the dialog only resolves it against the
   // email type (Sep 9, 2026: the audience is picked BEFORE composing).
   const [localAbstractStatus, setLocalAbstractStatus] = useState("all");
+  // RSVP link (Sep 10, 2026): the RSVP whose personal links render as
+  // {{rsvpLink}}. "none" = no link. Declared BEFORE the open-transition block
+  // below, which resets it, because a const setter cannot be called before
+  // its declaration.
+  const [rsvpCampaignId, setRsvpCampaignId] = useState<string>("none");
   // Reset emailType + payment filter on the closed → open transition only
   // (so users who change a control mid-dialog don't lose it on a
   // re-render). Uses React's documented "store info from previous render"
@@ -367,6 +373,7 @@ export function BulkEmailDialog({
       setCoverSource("default");
       setScheduledAudience("matching");
       setLocalAbstractStatus(recipientType === "abstracts" && statusFilter ? statusFilter : "all");
+      setRsvpCampaignId("none");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
@@ -393,6 +400,13 @@ export function BulkEmailDialog({
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // RSVPs for the {{rsvpLink}} picker. Only registrations and speakers can
+  // hold an invite (the server refuses the filter for other audiences), and
+  // only OPEN RSVPs are offered: the server refuses a closed one too.
+  const rsvpEligible = recipientType === "registrations" || recipientType === "speakers";
+  const rsvpCampaignsQuery = useRsvpCampaigns(eventId, open && rsvpEligible);
+  const rsvpCampaigns = (rsvpCampaignsQuery.data?.campaigns ?? []).filter((c) => c.isActive);
+  const selectedRsvp = rsvpCampaigns.find((c) => c.id === rsvpCampaignId) ?? null;
   // Registrations-only filter option sources. Always CALLED (hooks must be
   // unconditional) but only FETCHED while the dialog is open, matching the
   // certificate-templates query below.
@@ -715,6 +729,9 @@ export function BulkEmailDialog({
         // the triggering organizer at SEND time.
         ...(parsedBcc.length > 0 ? { bcc: parsedBcc } : {}),
         ...(bccSelf ? { bccSelf: true } : {}),
+        // RSVP link: the campaign id rides in filters so a scheduled send
+        // reconstructs it from the persisted ScheduledEmail.filters JSON.
+        ...(rsvpEligible && selectedRsvp ? { rsvpCampaignId: selectedRsvp.id } : {}),
       },
     };
 
@@ -1000,12 +1017,62 @@ export function BulkEmailDialog({
                     Tokens work here: <code className="bg-muted px-1 rounded">{"{{organizerSignature}}"}</code>{" "}
                     inserts your profile email signature; <code className="bg-muted px-1 rounded">{"{{firstName}}"}</code>{" "}
                     personalizes per recipient.
+                    {selectedRsvp && (
+                      <>
+                        {" "}
+                        <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> inserts their personal RSVP
+                        link.
+                      </>
+                    )}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground text-right shrink-0 ml-auto">
                   {customMessage.length}/10000
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* RSVP link (Sep 10, 2026): each recipient's personal link as
+              {{rsvpLink}}. Only people on that RSVP's guest list are sent to;
+              the rest are skipped and counted, never auto-invited. */}
+          {rsvpEligible && rsvpCampaigns.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-email-rsvp">RSVP link</Label>
+              <Select value={rsvpCampaignId} onValueChange={setRsvpCampaignId}>
+                <SelectTrigger id="bulk-email-rsvp" aria-label="RSVP link">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No RSVP link</SelectItem>
+                  {rsvpCampaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.inviteCount} invited)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedRsvp ? (
+                <p className="text-xs text-muted-foreground">
+                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>{" "}
+                  becomes each recipient&apos;s personal link for &ldquo;{selectedRsvp.name}&rdquo;. Only the {selectedRsvp.inviteCount} people on
+                  its guest list are emailed; anyone else in this audience is skipped and counted. Add people on the
+                  RSVP console first.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Pick an RSVP to use <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> in this email.
+                </p>
+              )}
+              {selectedRsvp &&
+                isCustom &&
+                !customMessage.includes("{{rsvpLink}}") &&
+                !customSubject.includes("{{rsvpLink}}") && (
+                  <p className="text-xs text-amber-700">
+                    The message does not contain <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>{" "}
+                    yet, so no link will appear in it.
+                  </p>
+                )}
             </div>
           )}
 
@@ -1310,6 +1377,11 @@ export function BulkEmailDialog({
             )}
             {recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by session role: {formatSessionRole(sessionRoleFilter)}</p>
+            )}
+            {selectedRsvp && (
+              <p className="text-muted-foreground">
+                RSVP link: {selectedRsvp.name}. Only its guest list is emailed; others are skipped.
+              </p>
             )}
             {isCertificate && certTemplateIds.length > 0 && (
               <p className="text-muted-foreground">

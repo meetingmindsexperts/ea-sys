@@ -1548,6 +1548,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "message", description: "Custom message body (tokens typed inside it resolve too)" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — also works typed inside the message" },
     { key: "honorarium", description: "Speaker sends only: the honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
+    { key: "rsvpLink", description: "Bulk sends only: the recipient's personal RSVP link for the RSVP chosen in the send dialog (also works typed inside the message); people not on that RSVP's guest list are skipped, and {{rsvpName}} carries the RSVP's name" },
     { key: "ctaText", description: "Call-to-action button text" },
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],

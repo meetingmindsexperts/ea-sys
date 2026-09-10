@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockLoadCertTemplate, mockPickAgreementMode } = vi.hoisted(() => ({
-  mockDb: { event: { findFirst: vi.fn() } },
+  mockDb: { event: { findFirst: vi.fn() }, rsvpCampaign: { findFirst: vi.fn() } },
   mockLoadCertTemplate: vi.fn(),
   mockPickAgreementMode: vi.fn(),
 }));
@@ -144,6 +144,73 @@ describe("precheckBulkEmailViability — unsupported email types (review A2, Jul
       emailType: "reminder",
     });
     expect(res.event.id).toBe("evt-1");
+  });
+});
+
+describe("precheckBulkEmailViability: {{rsvpLink}} campaign (Sep 10, 2026)", () => {
+  it("returns the campaign when it belongs to the event and is open", async () => {
+    mockDb.rsvpCampaign.findFirst.mockResolvedValue({ id: "camp-1", name: "Gala", isActive: true });
+    const res = await precheckBulkEmailViability({
+      eventId: "evt-1",
+      recipientType: "registrations",
+      emailType: "custom",
+      customSubject: "s",
+      customMessage: "m {{rsvpLink}}",
+      filters: { rsvpCampaignId: "camp-1" },
+    });
+    expect(res.rsvpCampaign).toEqual({ id: "camp-1", name: "Gala" });
+    // The lookup is EVENT-BOUND: a campaign id from another event misses.
+    expect(mockDb.rsvpCampaign.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "camp-1", eventId: "evt-1" } }),
+    );
+  });
+
+  it("returns null when no campaign was chosen and never queries", async () => {
+    const res = await precheckBulkEmailViability({
+      eventId: "evt-1",
+      recipientType: "registrations",
+      emailType: "reminder",
+    });
+    expect(res.rsvpCampaign).toBeNull();
+    expect(mockDb.rsvpCampaign.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("a campaign that is not this event's is a 400 INVALID_FILTER", async () => {
+    mockDb.rsvpCampaign.findFirst.mockResolvedValue(null);
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "registrations",
+        emailType: "reminder",
+        filters: { rsvpCampaignId: "camp-other" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+  });
+
+  it("a closed campaign is refused so nobody is mailed a link to a shut form", async () => {
+    mockDb.rsvpCampaign.findFirst.mockResolvedValue({ id: "camp-1", name: "Gala", isActive: false });
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "speakers",
+        emailType: "invitation",
+        filters: { rsvpCampaignId: "camp-1" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER", message: expect.stringContaining("closed") });
+  });
+
+  it("only registrations and speakers can carry an RSVP link; reviewers are refused before any query", async () => {
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "reviewers",
+        emailType: "custom",
+        customSubject: "s",
+        customMessage: "m",
+        filters: { rsvpCampaignId: "camp-1" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    expect(mockDb.rsvpCampaign.findFirst).not.toHaveBeenCalled();
   });
 });
 
