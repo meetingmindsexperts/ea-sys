@@ -43,7 +43,15 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/rsvp/import-invitees-dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
-import { usePreviewEmailBySlug, useEvent } from "@/hooks/use-api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { usePreviewEmailBySlug, useEvent, useEmailTemplates } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import {
   resolveTimezone,
   localDateTimeInTz,
@@ -51,6 +59,9 @@ import {
   tzLabel,
 } from "@/lib/event-time";
 import { toast } from "sonner";
+
+/** The system template the console sends by default; a KEY, not a label (see the send route). */
+const RSVP_TEMPLATE_SLUG = "dinner-rsvp-invitation";
 
 interface RsvpCampaign {
   id: string;
@@ -134,6 +145,26 @@ export default function RsvpCampaignConsole() {
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
   const [sending, setSending] = useState(false);
+  // Which email carries the links (Sep 10, 2026): the RSVP invitation, or one
+  // of the organiser's own saved templates (joining instructions with the
+  // button inside, say). Other system templates are not offered; the send
+  // route refuses them because it does not build their tokens.
+  const [sendTemplateSlug, setSendTemplateSlug] = useState<string>(RSVP_TEMPLATE_SLUG);
+  const templatesQuery = useEmailTemplates(eventId, sendDialog);
+  const customTemplates = (
+    (templatesQuery.data?.templates ?? []) as Array<{
+      slug: string;
+      name: string;
+      isActive?: boolean;
+      htmlContent?: string;
+    }>
+  ).filter((t) => t.isActive !== false && isCustomTemplateSlug(t.slug));
+  const selectedCustomTemplate = customTemplates.find((t) => t.slug === sendTemplateSlug) ?? null;
+  // An RSVP send whose email carries no link is an embarrassing send (the L15
+  // rule for an empty RSVP), so a saved template without the token cannot go.
+  const selectedTemplateLacksLink = Boolean(
+    selectedCustomTemplate && !(selectedCustomTemplate.htmlContent ?? "").includes("{{rsvpLink}}"),
+  );
 
   const [campaign, setCampaign] = useState<RsvpCampaign | null>(null);
   const previewMutation = usePreviewEmailBySlug(eventId);
@@ -349,12 +380,13 @@ export default function RsvpCampaignConsole() {
   };
   const openSend = (target: "all" | "pending") => {
     setSendTarget(target);
+    setSendTemplateSlug(RSVP_TEMPLATE_SLUG);
     setSendDialog(true);
   };
   const openPreview = async () => {
     try {
       const result = await previewMutation.mutateAsync({
-        slug: "dinner-rsvp-invitation",
+        slug: sendTemplateSlug,
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
@@ -375,6 +407,7 @@ export default function RsvpCampaignConsole() {
           target: sendTarget,
           subject: sendSubject.trim() || undefined,
           message: sendMessage.trim() || undefined,
+          templateSlug: sendTemplateSlug !== RSVP_TEMPLATE_SLUG ? sendTemplateSlug : undefined,
         }),
       });
       const json = await res.json();
@@ -762,6 +795,29 @@ export default function RsvpCampaignConsole() {
                 : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`}
             </p>
             <div>
+              <Label>Email template</Label>
+              <Select value={sendTemplateSlug} onValueChange={setSendTemplateSlug}>
+                <SelectTrigger aria-label="Email template">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={RSVP_TEMPLATE_SLUG}>Dinner RSVP Invitation (system template)</SelectItem>
+                  {customTemplates.map((t) => (
+                    <SelectItem key={t.slug} value={t.slug}>
+                      {t.name} (your saved template)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedTemplateLacksLink && (
+                <p className="text-xs text-amber-700 mt-1">
+                  This template does not contain{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>, so invitees would get
+                  no link. Add the token to it under Communications → Email Templates first.
+                </p>
+              )}
+            </div>
+            <div>
               <Label>Subject (optional)</Label>
               <Input
                 value={sendSubject}
@@ -779,8 +835,20 @@ export default function RsvpCampaignConsole() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Uses the <strong>Dinner RSVP Invitation</strong> email template (edit its wording
-              &amp; branding under Communications → Email Templates). Click Preview to see it.
+              {selectedCustomTemplate ? (
+                <>
+                  Uses your <strong>{selectedCustomTemplate.name}</strong>{" "}
+                  template: the message above lands in its <code className="bg-muted px-1 rounded">{"{{message}}"}</code> slot and
+                  every recipient gets their own{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>.
+                </>
+              ) : (
+                <>
+                  Uses the <strong>Dinner RSVP Invitation</strong>{" "}
+                  email template (edit its wording &amp; branding under Communications → Email Templates).
+                </>
+              )}{" "}
+              Click Preview to see it.
             </p>
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
@@ -789,7 +857,7 @@ export default function RsvpCampaignConsole() {
             </Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setSendDialog(false)}>Cancel</Button>
-              <Button onClick={sendInvitations} disabled={sending}>
+              <Button onClick={sendInvitations} disabled={sending || selectedTemplateLacksLink}>
                 {sending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (

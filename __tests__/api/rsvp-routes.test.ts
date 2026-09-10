@@ -656,4 +656,63 @@ describe("POST invites/send — batch retry-safety + message tokens (R2 M6/M8/L1
     expect(where.campaignId).toBe("c1");
     expect(where.eventId).toBeUndefined();
   });
+
+  // Sep 10, 2026: the console can send one of the organiser's OWN saved
+  // templates instead of the RSVP invitation (joining instructions with the
+  // button inside). Same per-recipient link, same retry-safety.
+  it("a saved custom template carries the invitation: loaded by its slug, logged under it", async () => {
+    wireSend();
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Joining instructions",
+      htmlContent: '<p>{{message}}</p><a href="{{rsvpLink}}">Confirm</a>',
+      textContent: "{{message}} {{rsvpLink}}",
+      branding: {},
+    });
+    const res = await sendPost(
+      sendReq({ target: "all", templateSlug: "joining-instruction-delegate", message: "See you Friday" }),
+      { params: campaignParams },
+    );
+    expect((await res.json()).sent).toBe(2);
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("ev1", "joining-instruction-delegate");
+    const varsA = mockRenderAndWrap.mock.calls[0][1] as Record<string, string>;
+    // The template's {{message}} slot carries the typed note; the link is per recipient.
+    expect(varsA.message).toBe("See you Friday");
+    expect(varsA.rsvpLink).toMatch(/\/e\/gala\/rsvp\/tokA$/);
+    const logSlug = (mockSendEmail.mock.calls[0][0] as { logContext: { templateSlug: string } }).logContext
+      .templateSlug;
+    expect(logSlug).toBe("joining-instruction-delegate");
+    // The 10-minute retry-safety read looks for the slug it WRITES.
+    expect(mockDb.emailLog.findMany.mock.calls[0][0].where.templateSlug).toBe("joining-instruction-delegate");
+  });
+
+  it("a saved template that is no longer active is refused, never swapped for another email", async () => {
+    wireSend();
+    mockGetEventTemplate.mockResolvedValue(null);
+    const res = await sendPost(sendReq({ target: "all", templateSlug: "joining-instruction-delegate" }), {
+      params: campaignParams,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TEMPLATE_NOT_AVAILABLE");
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("another system template is refused before any work: this route does not build its tokens", async () => {
+    wireSend();
+    const res = await sendPost(sendReq({ target: "all", templateSlug: "payment-confirmation" }), {
+      params: campaignParams,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TEMPLATE_NOT_ALLOWED");
+    expect(mockGetEventTemplate).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("no templateSlug keeps the RSVP invitation, byte for byte the old behaviour", async () => {
+    wireSend();
+    await sendPost(sendReq({ target: "all" }), { params: campaignParams });
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("ev1", "dinner-rsvp-invitation");
+    const logSlug = (mockSendEmail.mock.calls[0][0] as { logContext: { templateSlug: string } }).logContext
+      .templateSlug;
+    expect(logSlug).toBe("dinner-rsvp-invitation");
+  });
 });

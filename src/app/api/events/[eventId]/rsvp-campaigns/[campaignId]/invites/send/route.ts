@@ -22,6 +22,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse, apiErrorResponse } from "@/lib/api-errors";
 import { loadRsvpEvent, loadRsvpCampaign } from "@/lib/rsvp/server";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import {
   brandingCc,
   brandingFrom,
@@ -51,6 +52,11 @@ const sendSchema = z
     inviteId: z.string().max(100).optional(),
     subject: z.string().trim().max(200).optional(),
     message: z.string().max(10000).optional(),
+    // A saved custom template to send instead of the RSVP invitation (organiser
+    // request, Sep 10 2026). Only the organiser's OWN templates (or the RSVP
+    // system one) are accepted: another system template renders tokens this
+    // route does not build. Absent = the RSVP invitation, as before.
+    templateSlug: z.string().trim().min(1).max(100).optional(),
   })
   .refine((v) => v.inviteId || v.target, {
     message: "Provide either an inviteId (single) or a target (all/pending).",
@@ -108,6 +114,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     // EmailLog resume-read (swept as of Domain #18, Aug 3 2026 — under
     // platform RLS a lane-less dedup read would fail-close to [] and re-mail
     // the whole batch) all run here.
+    const templateSlug = parsed.data.templateSlug ?? RSVP_INVITATION_SLUG;
+    if (templateSlug !== RSVP_INVITATION_SLUG && !isCustomTemplateSlug(templateSlug)) {
+      return apiErrorResponse(
+        400,
+        "Only your own saved templates or the RSVP invitation can be sent from here.",
+        { route, eventId, campaignId, userId: session.user.id, templateSlug },
+        { code: "TEMPLATE_NOT_ALLOWED" },
+      );
+    }
+
     return await runWithTenant(event.organizationId, async () => {
       const campaign = await loadRsvpCampaign(campaignId, eventId);
       if (!campaign) {
@@ -125,8 +141,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
         }),
         // Loads the per-event override if the organizer customised it, else the
-        // system default — both carry the resolved event branding.
-        getEventTemplate(eventId, RSVP_INVITATION_SLUG),
+        // system default — both carry the resolved event branding. A custom
+        // slug resolves only while that template is active (no default).
+        getEventTemplate(eventId, templateSlug),
         db.user.findUnique({
           where: { id: session.user.id },
           select: { firstName: true, lastName: true, emailSignature: true },
@@ -140,6 +157,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           "rsvp-send:no-recipients",
         );
         return NextResponse.json({ sent: 0, failed: 0, message: "No matching invitees." });
+      }
+      if (!tpl && templateSlug !== RSVP_INVITATION_SLUG) {
+        // The organiser deactivated or deleted the saved template since picking
+        // it. Refuse rather than fall back to a different email (bulk parity).
+        return apiErrorResponse(
+          400,
+          "That saved template is no longer active. Pick another or use the RSVP invitation.",
+          { route, eventId, campaignId, userId: session.user.id, templateSlug },
+          { code: "TEMPLATE_NOT_AVAILABLE" },
+        );
       }
       if (!tpl) {
         apiLogger.error({ eventId, campaignId }, "rsvp-send:template-missing");
@@ -168,7 +195,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const recentLogs = await db.emailLog.findMany({
           where: {
             eventId,
-            templateSlug: RSVP_INVITATION_SLUG,
+            templateSlug,
             status: "SENT",
             entityId: { in: invites.map((i) => i.id) },
             createdAt: { gt: new Date(Date.now() - 10 * 60_000) },
@@ -211,7 +238,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       // them and Preview renders them exactly as the send will.
       const itemWord = itemCount === 1 ? "session" : "sessions";
       const dinnerWord = itemCount === 1 ? "dinner" : "dinners";
-      const rawHtmlKeys = new Set(["personalMessage", "rsvpLink", "organizerSignature"]);
+      // `message` joins the raw set because it is pre-rendered FINAL HTML by
+      // renderMessageValue below (the bulk pipeline's A1 contract), so a saved
+      // template built on the {{subject}} / {{message}} slots renders here too.
+      const rawHtmlKeys = new Set(["personalMessage", "rsvpLink", "organizerSignature", "message"]);
 
       let sent = 0;
       let failed = 0;
@@ -233,6 +263,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             personalMessage,
             organizerName,
             organizerSignature,
+            // The two slots a saved custom template is built on.
+            subject,
+            message: personalMessage,
           };
           // R2 M8: tokens the organizer typed INTO the message box
           // ({{firstName}}, {{organizerSignature}}, …) resolve per recipient
@@ -243,6 +276,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             isHtml: true,
             rawHtmlKeys,
           });
+          // {{message}} keeps the dashboard's escaped-literal contract.
+          vars.message = renderMessageValue(personalMessage, vars, { rawHtmlKeys });
           const rendered = renderAndWrap(
             { subject, htmlContent: tpl.htmlContent, textContent: tpl.textContent },
             vars,
@@ -261,7 +296,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               eventId,
               entityType: "OTHER",
               entityId: inv.id,
-              templateSlug: RSVP_INVITATION_SLUG,
+              templateSlug,
               triggeredByUserId: session.user.id,
             },
           });

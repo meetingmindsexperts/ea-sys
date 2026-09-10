@@ -249,6 +249,10 @@ An organiser asked for `{{rsvpLink}}` in a general email sent from the Communica
 
 Tests: `__tests__/lib/bulk-email-rsvp-link.test.ts` (skip-not-mint, email normalisation, all-skipped, no-campaign), the precheck suite (event-bound lookup, closed campaign, wrong audience) and the schema suite.
 
+## The console can send one of the organiser's own templates (Sep 10, 2026)
+
+The other direction of the same request: the console's send dialog (Email invitations / Remind pending) has an **Email template** picker. The default is the RSVP invitation (stored as "Dinner RSVP Invitation", a name the list shows verbatim); the other entries are the organiser's **own saved templates**, so joining instructions written as a saved template can carry the button. The POST takes `templateSlug`; the route accepts only a custom slug or the RSVP one (400 `TEMPLATE_NOT_ALLOWED` for any other system template, whose tokens this route does not build), refuses a saved template that is no longer active (400 `TEMPLATE_NOT_AVAILABLE`, never a silent swap), renders `{{subject}}` and `{{message}}` (the two slots a saved template is built on) beside `{{rsvpLink}}`, and logs and dedups under the slug it actually sent. The dialog refuses to send a saved template whose body lacks `{{rsvpLink}}`. Tests in `__tests__/api/rsvp-routes.test.ts`.
+
 ## Not built
 
 Per plan §9: **capacity / waitlists** (the one genuinely hard piece — a
