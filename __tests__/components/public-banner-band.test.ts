@@ -11,7 +11,7 @@ import {
 
 /**
  * Every public page shows the branding banner through ONE band: natural
- * aspect, capped at 1400px, centred. By August 2026 the pages had drifted to
+ * aspect, capped at 1200px, centred. By August 2026 the pages had drifted to
  * four different widths (1400 / 1120 / 1024 / uncapped) because each one
  * wrapped `<EventBanner>` by hand. The owner's rule (Sep 10, 2026) is one
  * width everywhere, so the wrapper moved into `EventBannerBand` and the sweep
@@ -35,10 +35,10 @@ describe("EventBannerBand", () => {
   const render = (props: Parameters<typeof EventBannerBand>[0]) =>
     renderToStaticMarkup(createElement(EventBannerBand, props));
 
-  it("caps the banner at 1400px and centres it", () => {
-    expect(PUBLIC_BANNER_MAX_WIDTH_CLASS).toBe("max-w-[1400px]");
+  it("caps the banner at 1200px and centres it", () => {
+    expect(PUBLIC_BANNER_MAX_WIDTH_CLASS).toBe("max-w-[1200px]");
     const html = render({ banner: "/uploads/banner.png", name: "Test 2026" });
-    expect(html).toContain('class="max-w-[1400px] mx-auto"');
+    expect(html).toContain('class="max-w-[1200px] mx-auto"');
     expect(html).toContain('class="block w-full h-auto"');
     expect(html).toContain('src="/uploads/banner.png"');
     expect(html).toContain('alt="Test 2026"');
@@ -108,9 +108,9 @@ describe("every public page renders the banner through the band", () => {
 
   it("declares the width once, in the band file", () => {
     const band = stripComments(readFileSync(join(root, BAND_FILE), "utf8"));
-    expect(band.match(/max-w-\[1400px\]/g)?.length).toBe(1);
+    expect(band.match(/max-w-\[1200px\]/g)?.length).toBe(1);
     const elsewhere = files
-      .filter((p) => /max-w-\[1400px\]/.test(stripComments(readFileSync(p, "utf8"))))
+      .filter((p) => /max-w-\[1200px\]/.test(stripComments(readFileSync(p, "utf8"))))
       .map((p) => relative(root, p));
     expect(elsewhere).toEqual([]);
   });

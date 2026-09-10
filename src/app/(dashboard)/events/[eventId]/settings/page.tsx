@@ -2440,7 +2440,7 @@ export default function EventSettingsPage() {
                 onChange={(url) =>
                   setBrandingSettings({ ...brandingSettings, bannerImage: url })
                 }
-                hint="Shown atop your public event pages at 576px and above. Recommended ~1400×300px. Uploads also appear in this event's Media library."
+                hint="Shown atop your public event pages at 576px and above. Recommended ~1200×300px (the same size as the email header, so one artwork serves both). Uploads also appear in this event's Media library."
                 previewClassName="w-full h-48 object-contain"
               />
 

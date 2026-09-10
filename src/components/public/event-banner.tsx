@@ -47,17 +47,21 @@ export function EventBanner({ banner, bannerMobile, name, className, priority }:
 
 /**
  * The banner strip at the top of every public page: the branding banner at its
- * natural aspect, capped at 1400px and centred, on a white band that runs the
+ * natural aspect, capped at 1200px and centred, on a white band that runs the
  * full page width. The cap lives HERE and nowhere else. By August 2026 four
  * different widths had accumulated across the public pages (1400 / 1120 / 1024
- * / uncapped), and on September 10, 2026 the owner set one rule: 1400px,
- * centred, on every public page that shows the branding header. A page that
+ * / uncapped), and on September 10, 2026 the owner set one rule: 1200px,
+ * centred, on every public page that shows the branding header. 1400 shipped
+ * first that afternoon and was narrowed the same day: on a 1440px laptop it
+ * left 20px gutters and overhung the 1024px content column by 188px a side,
+ * so it read as almost full-bleed; 1200 frames the banner over the column and
+ * matches the 1200x300 email header, so one artwork serves both. A page that
  * inlines its own `<EventBanner>` wrapper fails the drift test.
  *
  * Renders nothing when the event has no banner at all, so a caller that wants
  * a fallback (the thin gradient stripe) keeps its own conditional.
  */
-export const PUBLIC_BANNER_MAX_WIDTH_CLASS = "max-w-[1400px]";
+export const PUBLIC_BANNER_MAX_WIDTH_CLASS = "max-w-[1200px]";
 
 type EventBannerBandProps = {
   banner: string | null | undefined;

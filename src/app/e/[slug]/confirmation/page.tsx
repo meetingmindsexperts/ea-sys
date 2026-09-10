@@ -294,7 +294,7 @@ function ConfirmationContent() {
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {branding?.bannerImage || branding?.bannerImageMobile ? (
         /* The banner is full-bleed chrome, not page content, so it follows
-           the shared band (1400px, centred) rather than the 4xl content
+           the shared band (1200px, centred) rather than the 4xl content
            column below. The banner graphic carries its own branding, so no
            dark overlay or event-name bar over it. */
         <EventBannerBand

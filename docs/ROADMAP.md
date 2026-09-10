@@ -859,7 +859,7 @@ complete-registration), `max-w-[1120px]` (4, the register family),
 `max-w-5xl` (2, agenda and group register), and unset (4: my-group, rsvp,
 session, and confirmation until it was fixed).
 
-**Swept Sep 10, 2026 (owner: 1400px, centred, everywhere).** The frame is now
+**Swept Sep 10, 2026 (owner: 1200px, centred, everywhere; 1400 shipped first and was narrowed the same afternoon).** The frame is now
 `EventBannerBand` in `src/components/public/event-banner.tsx`, the only place
 the width lives; all 20 render sites go through it, and
 `__tests__/components/public-banner-band.test.ts` fails on any page that

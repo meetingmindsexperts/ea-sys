@@ -451,7 +451,7 @@ export default function ReimbursementFormPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 pb-16 [color-scheme:light]">
-      {/* The shared banner band (1400px, centred, natural aspect), so a wide
+      {/* The shared banner band (1200px, centred, natural aspect), so a wide
           banner never stretches edge-to-edge on large screens. */}
       <div className="bg-white border-b border-slate-200">
         <EventBannerBand
