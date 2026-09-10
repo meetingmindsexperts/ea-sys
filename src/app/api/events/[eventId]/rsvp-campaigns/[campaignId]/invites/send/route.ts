@@ -141,7 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
         }),
         // Loads the per-event override if the organizer customised it, else the
-        // system default — both carry the resolved event branding. A custom
+        // system default, both carrying the resolved event branding. A custom
         // slug resolves only while that template is active (no default).
         getEventTemplate(eventId, templateSlug),
         db.user.findUnique({
