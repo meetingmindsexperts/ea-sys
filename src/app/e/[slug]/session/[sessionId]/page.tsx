@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
@@ -512,22 +512,12 @@ export default function PublicSessionPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Event banner / header */}
       <div className="bg-white border-b">
-        {(event?.bannerImage || event?.bannerImageMobile) && (
-          // Mobile: natural aspect (block w-full h-auto) so the portrait mobile
-          // banner shows in full — the old fixed h-32 cover band cropped it to
-          // a thin center slice (organizer-reported, Aug 4 2026). Desktop keeps
-          // the h-48 cover hero band.
-          <div className="w-full relative overflow-hidden md:h-48">
-            {/* Art-directed: serves the mobile banner below 576px. */}
-            <EventBanner
-              banner={event.bannerImage}
-              bannerMobile={event.bannerImageMobile}
-              name={event.name}
-              className="block w-full h-auto md:absolute md:inset-0 md:h-full md:w-full md:object-cover"
-              priority
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent hidden md:block" />
-          </div>
+        {event && (
+          <EventBannerBand
+            banner={event.bannerImage}
+            bannerMobile={event.bannerImageMobile}
+            name={event.name}
+          />
         )}
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center gap-3">

@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -348,8 +348,8 @@ function GroupRegisterContent() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto rounded-xl mb-6" priority />
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900">{event.name}</h1>
           <div className="mt-2 flex flex-wrap gap-4 text-sm text-slate-600">

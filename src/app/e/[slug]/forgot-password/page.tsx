@@ -27,7 +27,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -170,11 +170,7 @@ export default function EventForgotPasswordPage() {
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
       {/* Banner — same pattern as /e/[slug]/login */}
       {event.bannerImage || event.bannerImageMobile ? (
-        <div className="relative w-full bg-white">
-          <div className="max-w-[1400px] mx-auto">
-            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
-          </div>
-        </div>
+        <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       ) : (
         <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />

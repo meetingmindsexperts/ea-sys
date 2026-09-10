@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useParams } from "next/navigation";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import {
   CheckCircle2,
   Clock,
@@ -293,28 +293,15 @@ function ConfirmationContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {branding?.bannerImage || branding?.bannerImageMobile ? (
-        <div className="w-full bg-white">
-          {/* max-w-[1400px], matching the sign-in / my-registration / password
-              pages. This used to be max-w-4xl (896px) with rounded corners, so
-              a wide banner was squeezed to two-thirds width and read as a boxy
-              card next to the same banner on sign-in (organizer-reported, Aug
-              10 2026). The banner is full-bleed chrome, not page content, so it
-              follows the page frame rather than the 4xl content column below.
-
-              Wide hero: the banner graphic carries its own branding, so no dark
-              overlay or event-name bar over it. Art-directed via EventBanner,
-              which serves the mobile banner below 576px at natural aspect — a
-              fixed-height band letterboxed the portrait mobile one (Aug 4). */}
-          <div className="max-w-[1400px] mx-auto">
-            <EventBanner
-              banner={branding.bannerImage}
-              bannerMobile={branding.bannerImageMobile}
-              name={branding.name || "Event banner"}
-              className="block w-full h-auto"
-              priority
-            />
-          </div>
-        </div>
+        /* The banner is full-bleed chrome, not page content, so it follows
+           the shared band (1400px, centred) rather than the 4xl content
+           column below. The banner graphic carries its own branding, so no
+           dark overlay or event-name bar over it. */
+        <EventBannerBand
+          banner={branding.bannerImage}
+          bannerMobile={branding.bannerImageMobile}
+          name={branding.name || "Event banner"}
+        />
       ) : (
         /* No banner — thin gradient accent line */
         <div className="h-1 bg-gradient-primary" />

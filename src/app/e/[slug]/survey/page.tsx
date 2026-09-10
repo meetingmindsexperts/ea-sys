@@ -37,7 +37,7 @@ import {
 import { toast } from "sonner";
 import type { SurveyConfig, SurveyQuestion } from "@/lib/survey/schema";
 import { getTitleLabel } from "@/lib/utils";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 // ── Loaded payload types ───────────────────────────────────────────────
@@ -490,20 +490,7 @@ function PublicHeader({
   return (
     <>
       {event.bannerImage ? (
-        <div className="relative w-full bg-white">
-          <div className="mx-auto max-w-[1400px]">
-            {/* Full-width, whole image (no object-contain letterbox / height
-                cap that was shrinking the banner so it didn't fill the width). */}
-            {/* Art-directed: serves the mobile banner below 576px. */}
-            <EventBanner
-              banner={event.bannerImage}
-              bannerMobile={event.bannerImageMobile}
-              name={event.name}
-              className="block h-auto w-full"
-              priority
-            />
-          </div>
-        </div>
+        <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       ) : (
         <div className="border-b border-slate-100 bg-white">
           <div className="h-1 bg-gradient-primary" />

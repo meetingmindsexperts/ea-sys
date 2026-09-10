@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
 
@@ -222,11 +222,10 @@ export default function RsvpPage() {
   if (done) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <EventBanner
+        <EventBannerBand
           banner={data.event.bannerImage}
           bannerMobile={data.event.bannerImageMobile}
           name={data.event.name}
-          className="block w-full h-auto"
         />
         <div className="max-w-2xl mx-auto px-4 py-12 text-center">
           <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
@@ -264,11 +263,10 @@ export default function RsvpPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <EventBanner
+      <EventBannerBand
         banner={data.event.bannerImage}
         bannerMobile={data.event.bannerImageMobile}
         name={data.event.name}
-        className="block w-full h-auto"
       />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

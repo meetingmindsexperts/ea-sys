@@ -1,6 +1,6 @@
 "use client";
 
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -667,16 +667,7 @@ function CategoryRegistrationContent() {
     <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {event.bannerImage ? (
-        <div className="relative w-full bg-white">
-          {/* Auto height: a plain <img> sizes itself from the image's own
-              dimensions — no height prop, no fixed box, no crop, no distortion.
-              (next/image REQUIRES width+height props; that's where the
-              hardcoded height came from.) Adapts to any banner shape — upload a
-              ~1200x200 image and it auto-renders a ~190px band, no code change. */}
-          <div className="max-w-[1120px] mx-auto">
-            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
-          </div>
-        </div>
+        <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       ) : (
         <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />

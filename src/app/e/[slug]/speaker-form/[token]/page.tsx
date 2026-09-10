@@ -15,7 +15,7 @@ import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { Camera, Check, FileText, Loader2, Upload, UserRound } from "lucide-react";
 import {
   MAX_PROFILE_BIO_LENGTH,
@@ -225,15 +225,11 @@ export default function SpeakerProfileFormPage() {
   return (
     <div className="min-h-screen bg-slate-100 pb-16 [color-scheme:light]">
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-[1120px] mx-auto">
-          <EventBanner
-            banner={data.event.bannerImage}
-            bannerMobile={data.event.bannerImageMobile}
-            name={data.event.name}
-            className="block w-full h-auto"
-            priority
-          />
-        </div>
+        <EventBannerBand
+          banner={data.event.bannerImage}
+          bannerMobile={data.event.bannerImageMobile}
+          name={data.event.name}
+        />
         <div className="h-1 bg-gradient-primary" />
       </div>
       <div className="max-w-3xl mx-auto px-4">

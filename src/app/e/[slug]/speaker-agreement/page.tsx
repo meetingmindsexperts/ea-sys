@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { sanitizeHtml } from "@/lib/sanitize";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { toast } from "sonner";
 
 interface AgreementData {
@@ -127,18 +127,11 @@ function SpeakerAgreementContent() {
     <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {data.event.bannerImage || data.event.bannerImageMobile ? (
-        <div className="relative w-full bg-white">
-          <div className="max-w-[1400px] mx-auto">
-            {/* Art-directed: serves the mobile banner below 576px. */}
-            <EventBanner
-              banner={data.event.bannerImage}
-              bannerMobile={data.event.bannerImageMobile}
-              name={data.event.name}
-              className="block w-full h-auto"
-              priority
-            />
-          </div>
-        </div>
+        <EventBannerBand
+          banner={data.event.bannerImage}
+          bannerMobile={data.event.bannerImageMobile}
+          name={data.event.name}
+        />
       ) : (
         <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />

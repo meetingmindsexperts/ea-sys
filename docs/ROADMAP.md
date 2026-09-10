@@ -850,7 +850,7 @@ re-checked. The settings page is the one entry on the
 [check-datetime-local.sh](../scripts/check-datetime-local.sh) allow-list, and
 that entry disappears when this is done.
 
-### Public banner container widths have drifted (Aug 10, 2026)
+### Public banner container widths have drifted (Aug 10, 2026; RESOLVED Sep 10, 2026)
 
 Found while fixing the confirmation page's squeezed banner. **Four different
 widths across the 19 public pages**: `max-w-[1400px]` (9 pages: sign-in,
@@ -859,10 +859,11 @@ complete-registration), `max-w-[1120px]` (4, the register family),
 `max-w-5xl` (2, agenda and group register), and unset (4: my-group, rsvp,
 session, and confirmation until it was fixed).
 
-Not swept: fixing one reported page is not the moment to restyle eighteen
-others. Worth one deliberate pass to pick a convention, ideally by extracting
-the banner *frame* (not just the `<img>`) into a shared component so the width
-is decided once.
+**Swept Sep 10, 2026 (owner: 1400px, centred, everywhere).** The frame is now
+`EventBannerBand` in `src/components/public/event-banner.tsx`, the only place
+the width lives; all 20 render sites go through it, and
+`__tests__/components/public-banner-band.test.ts` fails on any page that
+inlines its own wrapper or declares the width elsewhere.
 
 ### Saved email templates drift behind the built-in defaults (Aug 10, 2026, owner: "add to backlog")
 

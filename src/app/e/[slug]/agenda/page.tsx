@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import {
   formatEventDateRange,
   formatTimeInTz,
@@ -285,19 +285,12 @@ export default function PublicAgendaPage() {
     <div className="min-h-screen flex flex-col bg-slate-50 print:bg-white">
       {/* ── Event branding banner (same art-directed image as the other
              public pages; hidden in print to save ink) ──────────────────── */}
-      {eventData.bannerImage && (
-        <div className="relative w-full bg-white print:hidden">
-          <div className="max-w-5xl mx-auto">
-            <EventBanner
-              banner={eventData.bannerImage}
-              bannerMobile={eventData.bannerImageMobile}
-              name={eventData.name}
-              className="block w-full h-auto"
-              priority
-            />
-          </div>
-        </div>
-      )}
+      <EventBannerBand
+        banner={eventData.bannerImage}
+        bannerMobile={eventData.bannerImageMobile}
+        name={eventData.name}
+        className="print:hidden"
+      />
 
       {/* ── Header — light strip (the dark hero band was dropped on organizer
              request; the banner above carries the branding). Doubles as the

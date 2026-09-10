@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName, formatCurrency } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import {
@@ -218,12 +218,10 @@ export default function MyGroupPage() {
   return (
     <TooltipProvider delayDuration={200}>
     <div className="min-h-screen bg-slate-50">
-      <EventBanner
+      <EventBannerBand
         banner={group.event.bannerImage}
         bannerMobile={group.event.bannerImageMobile}
         name={group.event.name}
-        className="w-full max-h-[240px] object-cover"
-        priority
       />
 
       <div className="mx-auto w-full max-w-5xl px-4 py-8">

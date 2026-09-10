@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { signOut, useSession } from "next-auth/react";
@@ -344,11 +344,7 @@ export default function EventMyRegistrationPage() {
 
       {/* Banner */}
       {event?.bannerImage || event?.bannerImageMobile ? (
-        <div className="relative w-full bg-white">
-          <div className="max-w-[1400px] mx-auto">
-            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
-          </div>
-        </div>
+        <EventBannerBand banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} />
       ) : (
         <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />

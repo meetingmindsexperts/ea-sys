@@ -36,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
   CLAIM_ITEMS,
@@ -451,19 +451,14 @@ export default function ReimbursementFormPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 pb-16 [color-scheme:light]">
-      {/* Same constrained banner band as the other public pages (register):
-          natural aspect, capped width — a wide banner never stretches
-          edge-to-edge on large screens. */}
+      {/* The shared banner band (1400px, centred, natural aspect), so a wide
+          banner never stretches edge-to-edge on large screens. */}
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-[1120px] mx-auto">
-          <EventBanner
-            banner={data.event.bannerImage}
-            bannerMobile={data.event.bannerImageMobile}
-            name={data.event.name}
-            className="block w-full h-auto"
-            priority
-          />
-        </div>
+        <EventBannerBand
+          banner={data.event.bannerImage}
+          bannerMobile={data.event.bannerImageMobile}
+          name={data.event.name}
+        />
         <div className="h-1 bg-gradient-primary" />
       </div>
       <div className="max-w-4xl mx-auto px-4">

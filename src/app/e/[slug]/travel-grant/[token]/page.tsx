@@ -23,7 +23,7 @@ import { DEFAULT_TRAVEL_GRANT_CTA_LABEL } from "@/lib/travel-grant/constants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { EventBanner } from "@/components/public/event-banner";
+import { EventBannerBand } from "@/components/public/event-banner";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 interface LoadedGrant {
@@ -160,12 +160,10 @@ export default function TravelGrantPage() {
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <EventBanner
+      <EventBannerBand
         banner={data.event.bannerImage}
         bannerMobile={data.event.bannerImageMobile}
         name={data.event.name}
-        className="w-full"
-        priority
       />
 
       <div className="mx-auto max-w-[1120px] px-4 py-8">
