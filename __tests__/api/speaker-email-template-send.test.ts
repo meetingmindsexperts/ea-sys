@@ -194,7 +194,10 @@ describe("speaker single-send: saved template with {{rsvpLink}}", () => {
     const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, string>;
     expect(vars.rsvpLink).toMatch(/\/e\/ev-slug\/rsvp\/tk$/);
     expect(vars.rsvpName).toBe("Faculty dinner");
-    expect((vi.mocked(renderAndWrap).mock.calls[0][3] as Set<string>).has("rsvpLink")).toBe(true);
+    expect(vars.rsvpButton).toContain("/e/ev-slug/rsvp/tk");
+    const rawKeys = vi.mocked(renderAndWrap).mock.calls[0][3] as Set<string>;
+    expect(rawKeys.has("rsvpLink")).toBe(true);
+    expect(rawKeys.has("rsvpButton")).toBe(true);
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);
   });
 

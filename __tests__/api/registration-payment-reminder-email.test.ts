@@ -176,8 +176,10 @@ describe("saved template with {{rsvpLink}} (single send)", () => {
     expect(where.OR).toEqual([{ inviteeEmail: { equals: "a@b.com", mode: "insensitive" } }, { registrationId: "reg1" }]);
     expect(capturedVars().rsvpLink).toMatch(/\/e\/my-event\/rsvp\/tok1$/);
     expect(capturedVars().rsvpName).toBe("Attendance");
+    expect(capturedVars().rsvpButton).toContain("/e/my-event/rsvp/tok1");
     const rawKeys = renderAndWrapSpy.mock.calls[0][3] as Set<string>;
     expect(rawKeys.has("rsvpLink")).toBe(true);
+    expect(rawKeys.has("rsvpButton")).toBe(true);
     expect(sendEmailSpy).toHaveBeenCalledTimes(1);
   });
 

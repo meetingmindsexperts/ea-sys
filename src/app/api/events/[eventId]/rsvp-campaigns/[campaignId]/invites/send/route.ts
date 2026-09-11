@@ -22,6 +22,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse, apiErrorResponse } from "@/lib/api-errors";
 import { loadRsvpEvent, loadRsvpCampaign } from "@/lib/rsvp/server";
+import { buildRsvpButton } from "@/lib/rsvp/button";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import {
   brandingCc,
@@ -241,7 +242,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // `message` joins the raw set because it is pre-rendered FINAL HTML by
       // renderMessageValue below (the bulk pipeline's A1 contract), so a saved
       // template built on the {{subject}} / {{message}} slots renders here too.
-      const rawHtmlKeys = new Set(["personalMessage", "rsvpLink", "organizerSignature", "message"]);
+      const rawHtmlKeys = new Set(["personalMessage", "rsvpLink", "rsvpButton", "organizerSignature", "message"]);
 
       let sent = 0;
       let failed = 0;
@@ -260,6 +261,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             dinnerWord,
             itemWord,
             rsvpLink,
+            rsvpButton: buildRsvpButton({ rsvpLink, rsvpName: campaign.name }).html,
             personalMessage,
             organizerName,
             organizerSignature,

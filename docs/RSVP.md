@@ -268,14 +268,27 @@ no RSVP resolution (the bulk dialog has a picker, the console mails an invite).
 Found on OOPVF2026 the day before the forum: three joining-instruction emails
 went out with `{{rsvpLink}}` in the body. Both routes now call
 `resolveRsvpLinkForPerson()` in `src/lib/rsvp/personal-link.ts` when the
-template (or a typed custom message) carries the exact token: the person's own
-invite on the event is looked up by normalised email plus their registration
-or speaker id; exactly one OPEN RSVP resolves to `{{rsvpLink}}` and
-`{{rsvpName}}`. Anything else is a **400 before sending**, with a message the
+template (or a typed custom message) carries either exact token: the person's
+own invite on the event is looked up by normalised email plus their
+registration or speaker id; exactly one OPEN RSVP resolves to `{{rsvpLink}}`,
+`{{rsvpButton}}` and `{{rsvpName}}`. Anything else is a **400 before sending**, with a message the
 organiser can act on: `RSVP_NO_INVITE` (add them on the console),
 `RSVP_CLOSED` (reopen it), `RSVP_AMBIGUOUS` (more than one open RSVP, so send
 from Communications where the picker chooses). Nothing is minted on this path,
 the bulk rule. A template test-send still renders a sample link.
+
+## `{{rsvpButton}}`: the link as a button (Sep 11, 2026)
+
+The bare `{{rsvpLink}}` is a URL the organiser has to wrap in their own
+markup, and the editor's link tool will not take a token as an href, so what
+shipped in practice was a raw URL pasted into a sentence. `{{rsvpButton}}`
+renders the same personal link as a ready-made "RSVP now" button with a
+personal-link note under it, built once in `src/lib/rsvp/button.ts` (link and
+name escaped, so it joins the raw-HTML key set like `{{paymentBlock}}`) and
+set wherever `{{rsvpLink}}` is: the bulk pipeline, the console send, both
+per-person sends, and the template preview. `templateUsesRsvpToken()` in the
+same file is the one predicate the two editors use to warn when a message or
+saved template carries neither token.
 
 ## Close automatically at N attending (Sep 10, 2026)
 

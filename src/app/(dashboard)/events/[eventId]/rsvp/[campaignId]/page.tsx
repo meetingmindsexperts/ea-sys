@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/select";
 import { usePreviewEmailBySlug, useEvent, useEmailTemplates } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { templateUsesRsvpToken } from "@/lib/rsvp/button";
 import {
   resolveTimezone,
   localDateTimeInTz,
@@ -168,7 +169,7 @@ export default function RsvpCampaignConsole() {
   // An RSVP send whose email carries no link is an embarrassing send (the L15
   // rule for an empty RSVP), so a saved template without the token cannot go.
   const selectedTemplateLacksLink = Boolean(
-    selectedCustomTemplate && !(selectedCustomTemplate.htmlContent ?? "").includes("{{rsvpLink}}"),
+    selectedCustomTemplate && !templateUsesRsvpToken(selectedCustomTemplate.htmlContent),
   );
 
   const [campaign, setCampaign] = useState<RsvpCampaign | null>(null);
@@ -854,9 +855,10 @@ export default function RsvpCampaignConsole() {
               </Select>
               {selectedTemplateLacksLink && (
                 <p className="text-xs text-amber-700 mt-1">
-                  This template does not contain{" "}
+                  This template contains neither{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code> nor{" "}
                   <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>, so invitees would get
-                  no link. Add the token to it under Communications → Email Templates first.
+                  no link. Add one of them to it under Communications → Email Templates first.
                 </p>
               )}
             </div>
@@ -883,6 +885,7 @@ export default function RsvpCampaignConsole() {
                   Uses your <strong>{selectedCustomTemplate.name}</strong>{" "}
                   template: the message above lands in its <code className="bg-muted px-1 rounded">{"{{message}}"}</code> slot and
                   every recipient gets their own{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code> or{" "}
                   <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>.
                 </>
               ) : (

@@ -26,6 +26,9 @@ describe("templateUsesRsvpLink", () => {
     expect(templateUsesRsvpLink(null, undefined, "Subject", "text {{rsvpLink}}")).toBe(true);
     expect(templateUsesRsvpLink("Subject {{rsvpLink}}", "")).toBe(true);
   });
+  it("matches {{rsvpButton}} too, since both resolve from the same invite", () => {
+    expect(templateUsesRsvpLink("<p>{{rsvpButton}}</p>")).toBe(true);
+  });
   it("does not match a spaced, url-encoded or different token (renderTemplate would not either)", () => {
     expect(templateUsesRsvpLink("{{ rsvpLink }}")).toBe(false);
     expect(templateUsesRsvpLink("%7B%7BrsvpLink%7D%7D")).toBe(false);
@@ -55,7 +58,9 @@ describe("resolveRsvpLinkForPerson", () => {
   it("resolves the personal link when the person holds exactly one open invite", async () => {
     findMany.mockResolvedValue([inv("tok1", "c1", "Attendance")]);
     const out = await resolveRsvpLinkForPerson({ eventId: "ev1", eventSlug: "OOPVF2026", email: "a@b.c" });
-    expect(out).toEqual({ ok: true, rsvpLink: "https://events.example.com/e/OOPVF2026/rsvp/tok1", rsvpName: "Attendance", campaignId: "c1" });
+    expect(out).toMatchObject({ ok: true, rsvpLink: "https://events.example.com/e/OOPVF2026/rsvp/tok1", rsvpName: "Attendance", campaignId: "c1" });
+    // The button is built from the same link, so the two can never disagree.
+    if (out.ok) expect(out.rsvpButton).toContain('href="https://events.example.com/e/OOPVF2026/rsvp/tok1"');
   });
 
   it("counts one invite per campaign even when the email arm and the id arm return the same row", async () => {

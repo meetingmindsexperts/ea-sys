@@ -62,6 +62,7 @@ import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review"
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 import { normalizeRsvpEmail } from "@/lib/rsvp/rsvp";
+import { buildRsvpButton } from "@/lib/rsvp/button";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -1884,6 +1885,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       const token = rsvpTokenByEmail.get(normalizeRsvpEmail(recipient.email));
       vars.rsvpLink = token ? `${appUrl}/e/${event.slug}/rsvp/${token}` : "";
       vars.rsvpName = rsvpCampaign.name;
+      vars.rsvpButton = buildRsvpButton({ rsvpLink: vars.rsvpLink, rsvpName: rsvpCampaign.name }).html;
     }
 
     if (webinarEnrichment) {
@@ -1944,6 +1946,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       "reviewNotes",
       // A URL we built from a base64url token; raw, as the RSVP console renders it.
       "rsvpLink",
+      // Our own escaped button markup around that URL (src/lib/rsvp/button.ts).
+      "rsvpButton",
     ]);
 
     // Resolve tokens the organizer typed INTO the message itself —

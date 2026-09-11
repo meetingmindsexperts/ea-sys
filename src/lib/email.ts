@@ -4,6 +4,7 @@
 // weight in the audit); its block below is reference only and would need
 // `npm install postmark` to revive. Brevo/SendGrid packages are still installed.
 // import {
+import { buildRsvpButton } from "@/lib/rsvp/button";
 //   TransactionalEmailsApi,
 //   TransactionalEmailsApiApiKeys,
 //   SendSmtpEmail,
@@ -985,6 +986,9 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Built in stripe webhook + sendRegistrationConfirmation +
   // /api/events/[id]/registrations/[id]/email payment-reminder branch.
   "paymentBlock",
+  // The personal RSVP link as a button: our own markup, link and name
+  // escaped inside the builder (src/lib/rsvp/button.ts).
+  "rsvpButton",
   // Stripe webhook only.
   "receiptBlock",
   "taxBlock",
@@ -1548,7 +1552,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "message", description: "Custom message body (tokens typed inside it resolve too)" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — also works typed inside the message" },
     { key: "honorarium", description: "Speaker sends only: the honorarium / speaker fee agreed by the organiser, e.g. USD 1,500.00 (0.00 when none is set); {{honorariumAmount}} and {{honorariumCurrency}} carry the parts" },
-    { key: "rsvpLink", description: "Bulk sends only: the recipient's personal RSVP link for the RSVP chosen in the send dialog (also works typed inside the message); people not on that RSVP's guest list are skipped, and {{rsvpName}} carries the RSVP's name" },
+    { key: "rsvpLink", description: "The recipient's personal RSVP link: in a bulk send, for the RSVP chosen in the send dialog (people not on its guest list are skipped); in a per-person send, the one open RSVP that person is invited to. Also works typed inside the message; {{rsvpName}} carries the RSVP's name" },
+    { key: "rsvpButton", description: "The same personal RSVP link rendered as a ready-made \"RSVP now\" button with a personal-link note under it; drop it in wherever you would put the link" },
     { key: "ctaText", description: "Call-to-action button text" },
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],
@@ -1604,6 +1609,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "itemWord", description: "\"session\" or \"sessions\" — a neutral word for RSVPs that are not dinners" },
     { key: "dinnerWord", description: "\"dinner\" or \"dinners\" — LEGACY, reads wrong on a workshop RSVP; prefer {{rsvpName}}" },
     { key: "rsvpLink", description: "The invitee's personalized RSVP link (unique per recipient)" },
+    { key: "rsvpButton", description: "That link as a ready-made \"RSVP now\" button with a personal-link note under it" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
@@ -3265,6 +3271,7 @@ export function getSamplePreviewVariables(
     surveyLink: "#",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
+    rsvpButton: buildRsvpButton({ rsvpLink: "#", rsvpName: "Gala Dinner" }).html,
     rsvpName: "Gala Dinner",
     itemWord: "sessions",
     dinnerWord: "dinners",

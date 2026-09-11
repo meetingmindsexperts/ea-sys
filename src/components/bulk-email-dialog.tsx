@@ -1,5 +1,7 @@
 "use client";
 
+import { templateUsesRsvpToken } from "@/lib/rsvp/button";
+
 import { useState } from "react";
 import {
   Dialog,
@@ -1020,8 +1022,8 @@ export function BulkEmailDialog({
                     {selectedRsvp && (
                       <>
                         {" "}
-                        <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> inserts their personal RSVP
-                        link.
+                        <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code> inserts their personal RSVP
+                        link as a button, <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> as a bare link.
                       </>
                     )}
                   </p>
@@ -1054,25 +1056,24 @@ export function BulkEmailDialog({
               </Select>
               {selectedRsvp ? (
                 <p className="text-xs text-muted-foreground">
-                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code> (a button) or{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> (a bare link){" "}
                   becomes each recipient&apos;s personal link for &ldquo;{selectedRsvp.name}&rdquo;. Only the {selectedRsvp.inviteCount} people on
                   its guest list are emailed; anyone else in this audience is skipped and counted. Add people on the
                   RSVP console first.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Pick an RSVP to use <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> in this email.
+                  Pick an RSVP to use <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code> or{" "}
+                  <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> in this email.
                 </p>
               )}
-              {selectedRsvp &&
-                isCustom &&
-                !customMessage.includes("{{rsvpLink}}") &&
-                !customSubject.includes("{{rsvpLink}}") && (
-                  <p className="text-xs text-amber-700">
-                    The message does not contain <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code>{" "}
-                    yet, so no link will appear in it.
-                  </p>
-                )}
+              {selectedRsvp && isCustom && !templateUsesRsvpToken(customMessage, customSubject) && (
+                <p className="text-xs text-amber-700">
+                  The message contains neither <code className="bg-muted px-1 rounded">{"{{rsvpButton}}"}</code>{" "}
+                  nor <code className="bg-muted px-1 rounded">{"{{rsvpLink}}"}</code> yet, so no link will appear in it.
+                </p>
+              )}
             </div>
           )}
 

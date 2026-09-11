@@ -13,16 +13,13 @@
  * blank link and never an auto-invite. That is the bulk pipeline's rule too.
  */
 import { db } from "@/lib/db";
+import { buildRsvpButton, templateUsesRsvpToken } from "@/lib/rsvp/button";
 
-const RSVP_LINK_TOKEN = /\{\{rsvpLink\}\}/;
-
-/** True when any part carries the token exactly as renderTemplate matches it. */
-export function templateUsesRsvpLink(...parts: Array<string | null | undefined>): boolean {
-  return parts.some((p) => typeof p === "string" && RSVP_LINK_TOKEN.test(p));
-}
+/** True when any part carries {{rsvpLink}} or {{rsvpButton}} (both resolve here). */
+export const templateUsesRsvpLink = templateUsesRsvpToken;
 
 export type RsvpLinkResolution =
-  | { ok: true; rsvpLink: string; rsvpName: string; campaignId: string }
+  | { ok: true; rsvpLink: string; rsvpName: string; rsvpButton: string; campaignId: string }
   | {
       ok: false;
       code: "NO_INVITE" | "CLOSED" | "AMBIGUOUS";
@@ -69,10 +66,12 @@ export async function resolveRsvpLinkForPerson(input: ResolveRsvpLinkInput): Pro
 
   if (open.length === 1) {
     const inv = open[0];
+    const rsvpLink = `${publicAppUrl()}/e/${input.eventSlug}/rsvp/${inv.token}`;
     return {
       ok: true,
-      rsvpLink: `${publicAppUrl()}/e/${input.eventSlug}/rsvp/${inv.token}`,
+      rsvpLink,
       rsvpName: inv.campaign.name,
+      rsvpButton: buildRsvpButton({ rsvpLink, rsvpName: inv.campaign.name }).html,
       campaignId: inv.campaign.id,
     };
   }

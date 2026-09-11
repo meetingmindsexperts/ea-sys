@@ -161,6 +161,8 @@ describe("executeBulkEmail: {{rsvpLink}} from filters.rsvpCampaignId", () => {
     expect(varsFor("jane@x.com")).toMatchObject({
       rsvpLink: expect.stringMatching(/\/e\/oopvf\/rsvp\/tok-jane$/),
       rsvpName: "Forum RSVP",
+      // {{rsvpButton}}: the same link as a button, built from the resolved var.
+      rsvpButton: expect.stringContaining("/e/oopvf/rsvp/tok-jane"),
     });
     // Bob is not: skipped, never sent a blank link, never invited.
     expect(res).toMatchObject({ total: 1, successCount: 1, failureCount: 0, skippedCount: 1 });
@@ -204,5 +206,6 @@ describe("executeBulkEmail: {{rsvpLink}} from filters.rsvpCampaignId", () => {
     await executeBulkEmail({ ...BASE_INPUT, filters: { rsvpCampaignId: "camp-1" } });
     const rawKeys = mockRenderAndWrap.mock.calls[0][3] as Set<string>;
     expect(rawKeys.has("rsvpLink")).toBe(true);
+    expect(rawKeys.has("rsvpButton")).toBe(true);
   });
 });

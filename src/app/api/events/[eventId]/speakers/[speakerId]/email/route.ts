@@ -287,6 +287,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       vars.rsvpLink = rsvp.rsvpLink;
       vars.rsvpName = rsvp.rsvpName;
+      vars.rsvpButton = rsvp.rsvpButton;
     }
 
     // {{agreementBlock}} — the invitation (or any speaker template) can carry
@@ -336,8 +337,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       "organizerSignature",
       "personalMessage",
       "message",
-      // A URL we built (see the {{rsvpLink}} block above), raw like bulk.
+      // A URL we built and our own escaped button markup (see the
+      // {{rsvpLink}} block above), raw like bulk.
       "rsvpLink",
+      "rsvpButton",
     ]);
     if (customMessage) {
       vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });

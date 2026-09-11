@@ -377,6 +377,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       vars.rsvpLink = rsvp.rsvpLink;
       vars.rsvpName = rsvp.rsvpName;
+      vars.rsvpButton = rsvp.rsvpButton;
     }
 
     // Entry-barcode token: render this registration's barcode where the
@@ -409,8 +410,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // pre-rendered FINAL HTML by renderMessageValue (literal text escaped
     // there; tokens the organizer typed into the message — e.g.
     // {{organizerSignature}} — resolve instead of staying literal).
-    // rsvpLink is a URL we built, rendered raw like the bulk pipeline does.
-    const rawHtmlKeys = new Set(["organizerSignature", "message", "rsvpLink"]);
+    // rsvpLink is a URL we built and rsvpButton our own escaped markup, both
+    // rendered raw like the bulk pipeline does.
+    const rawHtmlKeys = new Set(["organizerSignature", "message", "rsvpLink", "rsvpButton"]);
     if (typeof vars.message === "string" && vars.message) {
       vars.message = renderMessageValue(vars.message, vars, { rawHtmlKeys });
     }
