@@ -166,6 +166,10 @@ export async function POST(req: Request, { params }: RouteParams) {
               location: first.location || null,
               description: first.description || null,
               rsvpDeadline: first.rsvpDeadline ? new Date(first.rsvpDeadline) : null,
+              // The seat cap the create form carries since Sep 11, 2026. The
+              // schema accepted it before that and this create dropped it, so a
+              // cap typed at creation was silently unlimited.
+              capacity: first.capacity ?? null,
               sortOrder: first.sortOrder ?? 0,
               isActive: first.isActive ?? true,
             },
@@ -189,6 +193,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               allowGuests: campaign.allowGuests,
               collectDietary: campaign.collectDietary,
               withFirstItem: Boolean(first),
+              firstItemCapacity: first?.capacity ?? null,
             },
           },
         })

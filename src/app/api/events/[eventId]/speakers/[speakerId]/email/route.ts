@@ -25,6 +25,7 @@ import {
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
+import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
 const sendEmailSchema = z.object({
@@ -262,6 +263,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Email template not found" }, { status: 500 });
     }
 
+    // {{rsvpLink}} for ONE person (Sep 11, 2026): resolved from the invite this
+    // speaker holds on the event; a template that carries the token and a
+    // speaker with no usable invite is refused, never sent with the literal
+    // token (same rule as the registration single send and the bulk pipeline).
+    if (templateUsesRsvpLink(tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage)) {
+      const rsvp = await resolveRsvpLinkForPerson({
+        eventId,
+        eventSlug: event.slug,
+        email: speaker.email,
+        speakerId: speaker.id,
+      });
+      if (!rsvp.ok) {
+        apiLogger.warn({
+          msg: "events/speakers/email:rsvp-link-unresolved",
+          eventId,
+          speakerId,
+          templateSlug: effectiveSlug,
+          code: rsvp.code,
+          campaigns: rsvp.campaignNames,
+        });
+        return NextResponse.json({ error: rsvp.message, code: `RSVP_${rsvp.code}` }, { status: 400 });
+      }
+      vars.rsvpLink = rsvp.rsvpLink;
+      vars.rsvpName = rsvp.rsvpName;
+    }
+
     // {{agreementBlock}} — the invitation (or any speaker template) can carry
     // a one-liner + "Review & Agree" CTA. The link is minted ON DEMAND, only
     // when the template actually uses an agreement token and the speaker
@@ -309,6 +336,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       "organizerSignature",
       "personalMessage",
       "message",
+      // A URL we built (see the {{rsvpLink}} block above), raw like bulk.
+      "rsvpLink",
     ]);
     if (customMessage) {
       vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });

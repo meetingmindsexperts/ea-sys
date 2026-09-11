@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockAuth, sendEmailSpy, getEventTemplateSpy, getDefaultTemplateSpy } = vi.hoisted(
   () => ({
     mockDb: {
+    // The {{rsvpLink}} resolver reads invites (Sep 11, 2026); empty by default.
+    rsvpInvite: { findMany: vi.fn().mockResolvedValue([]) },
       event: { findFirst: vi.fn() },
       speaker: { findFirst: vi.fn() },
       user: { findUnique: vi.fn() },
@@ -86,6 +88,7 @@ vi.mock("@/lib/email-attachments", () => ({
 vi.mock("@/lib/email-attachment-limits", () => ({ MAX_MANUAL_ATTACHMENTS: 3 }));
 
 import { POST } from "@/app/api/events/[eventId]/speakers/[speakerId]/email/route";
+import { renderAndWrap } from "@/lib/email";
 
 const routeParams = { params: Promise.resolve({ eventId: "ev1", speakerId: "sp1" }) };
 
@@ -176,5 +179,37 @@ describe("speaker single-send — saved template type", () => {
     expect(res.status).toBe(200);
     expect(getEventTemplateSpy).toHaveBeenCalledWith("ev1", "speaker-invitation");
     expect(sendEmailSpy.mock.calls[0][0].logContext.templateSlug).toBe("speaker-invitation");
+  });
+});
+
+// ── {{rsvpLink}} in a per-speaker send (Sep 11, 2026) ─────────────────────
+describe("speaker single-send: saved template with {{rsvpLink}}", () => {
+  it("resolves the speaker's own link through the speakerId arm and renders it raw", async () => {
+    getEventTemplateSpy.mockResolvedValue({ subject: "Join", htmlContent: "<p>{{rsvpLink}}</p>", textContent: "{{rsvpLink}}" });
+    mockDb.rsvpInvite.findMany.mockResolvedValueOnce([{ token: "tk", campaign: { id: "c1", name: "Faculty dinner", isActive: true } }]);
+    const res = await POST(makeReq({ type: "template", templateSlug: "joining" }), routeParams);
+    expect(res.status).toBe(200);
+    const where = mockDb.rsvpInvite.findMany.mock.calls[0][0].where;
+    expect(where.OR).toEqual([{ inviteeEmail: { equals: "spk@x.com", mode: "insensitive" } }, { speakerId: "sp1" }]);
+    const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, string>;
+    expect(vars.rsvpLink).toMatch(/\/e\/ev-slug\/rsvp\/tk$/);
+    expect(vars.rsvpName).toBe("Faculty dinner");
+    expect((vi.mocked(renderAndWrap).mock.calls[0][3] as Set<string>).has("rsvpLink")).toBe(true);
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses 400 RSVP_AMBIGUOUS naming both open RSVPs, and sends nothing", async () => {
+    getEventTemplateSpy.mockResolvedValue({ subject: "Join", htmlContent: "<p>{{rsvpLink}}</p>", textContent: "" });
+    mockDb.rsvpInvite.findMany.mockResolvedValueOnce([
+      { token: "a", campaign: { id: "c1", name: "Dinner", isActive: true } },
+      { token: "b", campaign: { id: "c2", name: "Workshop", isActive: true } },
+    ]);
+    const res = await POST(makeReq({ type: "template", templateSlug: "joining" }), routeParams);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("RSVP_AMBIGUOUS");
+    expect(body.error).toContain('"Dinner"');
+    expect(body.error).toContain('"Workshop"');
+    expect(sendEmailSpy).not.toHaveBeenCalled();
   });
 });

@@ -64,6 +64,11 @@ const emptyForm = {
   // The first option, submitted in the same request (§2a).
   startsAt: "",
   location: "",
+  // Seat limit of the first option ("close automatically at N"); "" = unlimited.
+  // On the create form since Sep 11, 2026: an organiser who needed a 35-seat
+  // cap created the RSVP here, found no field, and the option's Edit button
+  // was an unlabelled icon, so the cap never got set.
+  capacity: "",
   // Options, behind a disclosure. Defaults reproduce the historical dinner
   // behavior so an organizer who only runs dinners never sees any of this.
   selectionMode: "MULTI" as "SINGLE" | "MULTI",
@@ -126,6 +131,12 @@ export default function RsvpCampaignsPage() {
       toast.error("Set a date and time");
       return;
     }
+    const capacityRaw = form.capacity.trim();
+    const capacity = capacityRaw ? Number(capacityRaw) : null;
+    if (capacity != null && (!Number.isInteger(capacity) || capacity < 1)) {
+      toast.error("Seats must be a whole number of 1 or more, or empty for unlimited");
+      return;
+    }
     setSaving(true);
     try {
       const startsAt = wallTimeInTzToDate(form.startsAt, tz);
@@ -143,6 +154,7 @@ export default function RsvpCampaignsPage() {
             name: form.name.trim(),
             startsAt: startsAt.toISOString(),
             location: form.location.trim(),
+            capacity,
           },
         }),
       });
@@ -308,6 +320,24 @@ export default function RsvpCampaignsPage() {
                   className="mt-1"
                 />
               </div>
+            </div>
+            <div>
+              <Label htmlFor="rsvp-capacity">Close automatically at (seats)</Label>
+              <Input
+                id="rsvp-capacity"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={form.capacity}
+                onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+                placeholder="Leave empty for unlimited"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Seats are attendees plus their guests. When the number is reached the form stops taking
+                new yeses; people already attending keep their seat. Change it later by editing the option.
+              </p>
             </div>
             <div>
               <Label htmlFor="rsvp-desc">Note for invitees (optional)</Label>

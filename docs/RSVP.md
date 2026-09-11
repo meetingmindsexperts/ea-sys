@@ -260,7 +260,32 @@ waitlist did not), the hub link, an auto-reminder cron (still the July 2026
 owner decision: manual "Remind pending" is enough), campaign cloning between
 events, and a decline *reason*.
 
+## The link in a per-person send (Sep 11, 2026)
+
+The registration detail sheet's and the speaker page's "Send Email" with a
+saved template used to render `{{rsvpLink}}` literally: those two routes had
+no RSVP resolution (the bulk dialog has a picker, the console mails an invite).
+Found on OOPVF2026 the day before the forum: three joining-instruction emails
+went out with `{{rsvpLink}}` in the body. Both routes now call
+`resolveRsvpLinkForPerson()` in `src/lib/rsvp/personal-link.ts` when the
+template (or a typed custom message) carries the exact token: the person's own
+invite on the event is looked up by normalised email plus their registration
+or speaker id; exactly one OPEN RSVP resolves to `{{rsvpLink}}` and
+`{{rsvpName}}`. Anything else is a **400 before sending**, with a message the
+organiser can act on: `RSVP_NO_INVITE` (add them on the console),
+`RSVP_CLOSED` (reopen it), `RSVP_AMBIGUOUS` (more than one open RSVP, so send
+from Communications where the picker chooses). Nothing is minted on this path,
+the bulk rule. A template test-send still renders a sample link.
+
 ## Close automatically at N attending (Sep 10, 2026)
+
+**Sep 11, 2026:** the seat limit is also on the **New RSVP** form (it carried
+only the option's name, date and venue, so the cap could only be set by editing
+the option afterwards, whose button was an unlabelled clock icon; it is now a
+labelled **Edit**). The campaign POST's first-item create had accepted
+`firstItem.capacity` in its schema and dropped it on write, so a cap typed at
+creation was silently unlimited; fixed and pinned.
+
 
 An organiser with 109 invitees and 35 seats asked for the RSVP to stop taking
 yeses by itself. `RsvpItem.capacity` (nullable, additive migration

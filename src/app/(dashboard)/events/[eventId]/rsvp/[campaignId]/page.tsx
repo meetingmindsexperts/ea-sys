@@ -24,7 +24,7 @@ import {
   Loader2,
   CalendarDays,
   Check,
-  Clock,
+  Pencil,
   Send,
   BellRing,
   Users,
@@ -498,7 +498,7 @@ export default function RsvpCampaignConsole() {
       <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
         <div className="font-semibold text-primary mb-1">How this RSVP works</div>
         <ol className="list-decimal ml-5 space-y-1 text-slate-600">
-          <li><strong>Add each option</strong> below (name, date/time, venue, and an optional RSVP deadline). One option is fine.</li>
+          <li><strong>Add each option</strong> below (name, date/time, venue, an optional RSVP deadline, and a seat limit if it should close itself). One option is fine; <strong>Edit</strong> on an option changes any of it later.</li>
           <li><strong>Add or import invitees</strong> — type them in, or import from Registrations/Speakers.</li>
           <li>
             <strong>Send them their link.</strong> Click <strong>Email invitations</strong> to email everyone
@@ -548,8 +548,14 @@ export default function RsvpCampaignConsole() {
                         {d.location && <div className="text-xs text-muted-foreground mt-0.5">{d.location}</div>}
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditItem(d)}>
-                          <Clock className="h-3.5 w-3.5" />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => openEditItem(d)}
+                          aria-label={`Edit ${d.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => deleteItem(d)}>
                           <Trash2 className="h-3.5 w-3.5" />

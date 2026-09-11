@@ -8,6 +8,7 @@ import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
+import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -351,6 +352,33 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // {{rsvpLink}} for ONE person (Sep 11, 2026): the bulk pipeline takes the
+    // RSVP from the dialog's picker; this send has no picker, so the link is
+    // the invite this registrant already holds. A template that carries the
+    // token and a person with no usable invite is a refusal, never a literal
+    // "{{rsvpLink}}" in a delivered email (the OOPVF2026 report).
+    if (templateUsesRsvpLink(tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage)) {
+      const rsvp = await resolveRsvpLinkForPerson({
+        eventId,
+        eventSlug: event.slug || event.id,
+        email: registration.attendee.email,
+        registrationId: registration.id,
+      });
+      if (!rsvp.ok) {
+        apiLogger.warn({
+          msg: "events/registrations/email:rsvp-link-unresolved",
+          eventId,
+          registrationId,
+          slug,
+          code: rsvp.code,
+          campaigns: rsvp.campaignNames,
+        });
+        return NextResponse.json({ error: rsvp.message, code: `RSVP_${rsvp.code}` }, { status: 400 });
+      }
+      vars.rsvpLink = rsvp.rsvpLink;
+      vars.rsvpName = rsvp.rsvpName;
+    }
+
     // Entry-barcode token: render this registration's barcode where the
     // template carries {{entryBarcode}} (organizer opt-in). In-person only;
     // render failure is non-fatal (log + send without it).
@@ -381,7 +409,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // pre-rendered FINAL HTML by renderMessageValue (literal text escaped
     // there; tokens the organizer typed into the message — e.g.
     // {{organizerSignature}} — resolve instead of staying literal).
-    const rawHtmlKeys = new Set(["organizerSignature", "message"]);
+    // rsvpLink is a URL we built, rendered raw like the bulk pipeline does.
+    const rawHtmlKeys = new Set(["organizerSignature", "message", "rsvpLink"]);
     if (typeof vars.message === "string" && vars.message) {
       vars.message = renderMessageValue(vars.message, vars, { rawHtmlKeys });
     }

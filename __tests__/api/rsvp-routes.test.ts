@@ -82,6 +82,7 @@ import {
 } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/route";
 import { POST as publicSubmit } from "@/app/api/public/events/[slug]/rsvp/[token]/route";
 import { POST as itemsPost } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/items/route";
+import { POST as campaignsPost } from "@/app/api/events/[eventId]/rsvp-campaigns/route";
 import { POST as sendPost } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/send/route";
 
 const FUTURE = new Date(Date.now() + 7 * 24 * 3600_000);
@@ -812,5 +813,40 @@ describe("POST invites/send — batch retry-safety + message tokens (R2 M6/M8/L1
     const logSlug = (mockSendEmail.mock.calls[0][0] as { logContext: { templateSlug: string } }).logContext
       .templateSlug;
     expect(logSlug).toBe("dinner-rsvp-invitation");
+  });
+});
+
+// ── New RSVP form: the first option's seat cap must survive the create ────
+// The schema accepted firstItem.capacity since Sep 10 and the create dropped it,
+// so a cap typed at creation was silently unlimited (OOPVF2026, Sep 11).
+describe("POST rsvp-campaigns: firstItem.capacity is stored and audited", () => {
+  const eventParams = Promise.resolve({ eventId: "ev1" });
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+    mockDb.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mockDb));
+    mockDb.rsvpCampaign.create.mockResolvedValue({
+      id: "c-new", name: "Attendance", selectionMode: "SINGLE", allowGuests: false, collectDietary: false,
+    });
+    mockDb.rsvpItem.create.mockResolvedValue({ id: "i-new" });
+  });
+
+  const create = (firstItem: Record<string, unknown>) =>
+    campaignsPost(
+      { headers: new Headers(), json: async () => ({ name: "Attendance", selectionMode: "SINGLE", firstItem }) } as unknown as Request,
+      { params: eventParams },
+    );
+
+  it("writes the cap on the first item and records it on the audit row", async () => {
+    const res = await create({ name: "Attendance", startsAt: FUTURE.toISOString(), capacity: 35 });
+    expect(res.status).toBe(201);
+    expect(mockDb.rsvpItem.create.mock.calls[0][0].data).toMatchObject({ campaignId: "c-new", eventId: "ev1", capacity: 35 });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ withFirstItem: true, firstItemCapacity: 35 });
+  });
+
+  it("an omitted cap is stored as unlimited (null), never 0", async () => {
+    const res = await create({ name: "Attendance", startsAt: FUTURE.toISOString() });
+    expect(res.status).toBe(201);
+    expect(mockDb.rsvpItem.create.mock.calls[0][0].data.capacity).toBeNull();
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.firstItemCapacity).toBeNull();
   });
 });

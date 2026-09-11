@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth, renderAndWrapSpy, sendEmailSpy } = vi.hoisted(() => ({
   mockDb: {
+    // The {{rsvpLink}} resolver reads invites (Sep 11, 2026); empty by default.
+    rsvpInvite: { findMany: vi.fn().mockResolvedValue([]) },
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
     // The route loads the sender's profile signature for {{organizerSignature}}.
@@ -58,6 +60,8 @@ vi.mock("@/lib/email-change", () => ({ normalizeEmail: vi.fn(), repointOrgContac
 // denyReviewer, utils, registration-financials are REAL (pure).
 
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/email/route";
+import { getEventTemplate } from "@/lib/email";
+import { apiLogger } from "@/lib/logger";
 
 const params = Promise.resolve({ eventId: "ev1", registrationId: "reg1" });
 const req = () => new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ type: "payment-reminder" }) });
@@ -139,5 +143,68 @@ describe("payment-reminder email — amount due", () => {
 
     await POST(req(), { params });
     expect(capturedVars().amount).toBe("USD 150.00");
+  });
+});
+
+// ── {{rsvpLink}} in a per-person send (Sep 11, 2026) ──────────────────────
+// The organiser-reported gap: a saved template carrying the token was sent from
+// the registration detail sheet and went out with the literal "{{rsvpLink}}",
+// because this route had no RSVP resolution. Now it resolves from the invite
+// the registrant holds, and refuses rather than sending the literal token.
+describe("saved template with {{rsvpLink}} (single send)", () => {
+  const rsvpTemplate = {
+    slug: "joining-instruction-delegate",
+    subject: "Joining Instructions",
+    htmlContent: "<p>Room: Studio 1 {{rsvpLink}}</p>",
+    textContent: "Room: Studio 1 {{rsvpLink}}",
+  };
+  const send = (body: Record<string, unknown>) =>
+    POST(new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body) }), { params });
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue(event());
+    mockDb.registration.findFirst.mockResolvedValue(tierRegistration());
+  });
+
+  it("resolves the registrant's own link (email + registrationId lookup, event-bound) and renders it raw", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce(rsvpTemplate as never);
+    mockDb.rsvpInvite.findMany.mockResolvedValueOnce([{ token: "tok1", campaign: { id: "c1", name: "Attendance", isActive: true } }]);
+    const res = await send({ templateSlug: "joining-instruction-delegate" });
+    expect(res.status).toBe(200);
+    const where = mockDb.rsvpInvite.findMany.mock.calls[0][0].where;
+    expect(where.eventId).toBe("ev1");
+    expect(where.OR).toEqual([{ inviteeEmail: { equals: "a@b.com", mode: "insensitive" } }, { registrationId: "reg1" }]);
+    expect(capturedVars().rsvpLink).toMatch(/\/e\/my-event\/rsvp\/tok1$/);
+    expect(capturedVars().rsvpName).toBe("Attendance");
+    const rawKeys = renderAndWrapSpy.mock.calls[0][3] as Set<string>;
+    expect(rawKeys.has("rsvpLink")).toBe(true);
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses with 400 RSVP_NO_INVITE, logs, and sends nothing when the registrant is on no guest list", async () => {
+    vi.mocked(getEventTemplate).mockResolvedValueOnce(rsvpTemplate as never);
+    mockDb.rsvpInvite.findMany.mockResolvedValueOnce([]);
+    const res = await send({ templateSlug: "joining-instruction-delegate" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("RSVP_NO_INVITE");
+    expect(body.error).toContain("{{rsvpLink}}");
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+    expect(vi.mocked(apiLogger.warn)).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "events/registrations/email:rsvp-link-unresolved", code: "NO_INVITE" }),
+    );
+  });
+
+  it("also resolves the token typed into a custom message, and never reads invites for a template without it", async () => {
+    // Custom message carrying the token: resolved, so renderMessageValue has the var.
+    mockDb.rsvpInvite.findMany.mockResolvedValueOnce([{ token: "tok2", campaign: { id: "c1", name: "Attendance", isActive: true } }]);
+    let res = await send({ type: "custom", customSubject: "Hi", customMessage: "Confirm here: {{rsvpLink}}" });
+    expect(res.status).toBe(200);
+    expect(capturedVars().rsvpLink).toMatch(/\/rsvp\/tok2$/);
+    // A plain reminder: no token anywhere, no invite query at all.
+    mockDb.rsvpInvite.findMany.mockClear();
+    res = await send({ type: "reminder" });
+    expect(res.status).toBe(200);
+    expect(mockDb.rsvpInvite.findMany).not.toHaveBeenCalled();
   });
 });
