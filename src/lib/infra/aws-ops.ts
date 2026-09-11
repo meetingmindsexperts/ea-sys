@@ -23,10 +23,12 @@ import {
   type MetricDataQuery,
 } from "@aws-sdk/client-cloudwatch";
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   S3Client,
   ListObjectsV2Command,
   ListObjectVersionsCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   GetBucketVersioningCommand,
   GetBucketEncryptionCommand,
@@ -1250,6 +1252,109 @@ export async function fetchDrHeartbeat(key: string): Promise<Date | null> {
     apiLogger.warn({ err, key }, "infra:dr-heartbeat-failed");
     return null;
   }
+}
+
+// ── DR backups browser (/admin/backups, Sep 11 2026) ──────────────────
+/**
+ * The three Singapore streams an operator may want to SEE without the AWS
+ * console: `db/` (the hourly pg_dump, downloadable), `uploads/` (the hourly
+ * mirror of the uploads bucket, list only: per-file recovery is the runbook's
+ * job) and `env/` (the daily .env snapshot, list only: it holds every secret,
+ * so it never leaves through a web page). Owner scope (Sep 11, 2026): the last
+ * three days only, never the whole 30-day retention.
+ */
+export const DR_BACKUP_PREFIXES = { db: "db/", uploads: "uploads/", env: "env/" } as const;
+export type DrBackupKind = keyof typeof DR_BACKUP_PREFIXES;
+/** The window the backups page shows: 72 hourly dumps, 3 env snapshots, and whatever the mirror wrote. */
+export const DR_BACKUPS_WINDOW_HOURS = 72;
+
+export interface DrBackupObject {
+  key: string;
+  sizeBytes: number;
+  /** ISO instant the object was written. */
+  lastModified: string;
+}
+export interface DrBackupListing {
+  status: SourceStatus;
+  error?: string;
+  bucket: string;
+  prefix: string;
+  windowHours: number;
+  /** Objects written inside the window, newest first. */
+  objects: DrBackupObject[];
+  /** Everything under the prefix, so the page can say "72 of 750". */
+  totalObjects: number;
+  /** True when the bounded listing hit its page cap, so the counts are floors. */
+  truncated: boolean;
+}
+
+export function isDrBackupKind(v: unknown): v is DrBackupKind {
+  return v === "db" || v === "uploads" || v === "env";
+}
+
+/**
+ * A downloadable key is exactly what scripts/dr-pg-dump.sh writes:
+ * db/{YYYY}/{MM}/{DD-HH}-mumbai.dump. Anything else (an env snapshot, a
+ * heartbeat, a traversal attempt, an arbitrary object name) is refused BEFORE
+ * it reaches the presigner, so the download route can never be turned into a
+ * general "sign me any object in the bucket" endpoint.
+ */
+const DR_DUMP_KEY_RE = /^db\/\d{4}\/\d{2}\/[0-9A-Za-z_-]+\.dump$/;
+export function isDrDumpKey(key: string): boolean {
+  return DR_DUMP_KEY_RE.test(key);
+}
+
+/**
+ * Objects written under a stream's prefix in the last DR_BACKUPS_WINDOW_HOURS,
+ * newest first, plus the prefix's total so the page can say how much it is
+ * not showing. Exported for the route and its tests; `now` is injectable for
+ * the tests only.
+ */
+export async function listDrBackups(kind: DrBackupKind, now: number = Date.now()): Promise<DrBackupListing> {
+  const prefix = DR_BACKUP_PREFIXES[kind];
+  const windowHours = DR_BACKUPS_WINDOW_HOURS;
+  const base = { bucket: DR_BUCKET, prefix, windowHours };
+  try {
+    const listed = await listObjectsBounded(getS3(), DR_BUCKET, prefix);
+    const all = listed.objects.filter(
+      (o): o is ListedObject & { Key: string } => typeof o.Key === "string" && o.Key !== prefix,
+    );
+    const since = now - windowHours * 3600_000;
+    const objects = all
+      .filter((o) => o.LastModified !== undefined && o.LastModified.getTime() >= since)
+      .map((o) => ({
+        key: o.Key,
+        sizeBytes: o.Size ?? 0,
+        lastModified: (o.LastModified as Date).toISOString(),
+      }))
+      .sort((a, b) => (a.lastModified < b.lastModified ? 1 : a.lastModified > b.lastModified ? -1 : 0));
+    return { status: "ok", ...base, objects, totalObjects: all.length, truncated: listed.truncated };
+  } catch (err) {
+    apiLogger.warn({ err, prefix }, "infra:dr-backups-list-failed");
+    return { status: "error", error: friendlyAwsError(err), ...base, objects: [], totalObjects: 0, truncated: false };
+  }
+}
+
+/** How long a minted download link stays valid. Enough to click, not to share. */
+export const DR_DOWNLOAD_LINK_SECONDS = 300;
+
+/**
+ * A presigned S3 GET for one dump: the bytes go straight from S3 to the
+ * operator's browser and never pass through the box. The key guard is
+ * repeated here so a future caller cannot skip it.
+ */
+export async function presignDrBackupDownload(key: string): Promise<string> {
+  if (!isDrDumpKey(key)) throw new Error("Refusing to presign a key that is not a database dump");
+  const filename = key.slice(key.lastIndexOf("/") + 1);
+  return getSignedUrl(
+    getS3(),
+    new GetObjectCommand({
+      Bucket: DR_BUCKET,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: DR_DOWNLOAD_LINK_SECONDS },
+  );
 }
 
 // ── Uploads storage ────────────────────────────────────────────────

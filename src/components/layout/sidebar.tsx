@@ -43,6 +43,7 @@ import {
   Handshake,
   Lightbulb,
   CalendarClock,
+  DatabaseBackup,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -96,6 +97,9 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // rows by id, so the operator reading them is the one who needs an id
   // resolved. It reads across every tenant, hence superAdminOnly like Logs.
   { name: "ID Lookup", href: "/admin/lookup", icon: ScanSearch, superAdminOnly: true },
+  // A database dump is the whole production database: superAdminOnly, and the
+  // API re-checks the platform-operator boundary.
+  { name: "Backups", href: "/admin/backups", icon: DatabaseBackup, superAdminOnly: true },
   { name: "Help Queries", href: "/admin/help-queries", icon: MessageCircleQuestion, superAdminOnly: true },
   // adminOnly, NOT superAdminOnly: the /activity page itself has always allowed
   // ADMIN, so a SUPER_ADMIN-only link left org admins reaching it by URL alone.

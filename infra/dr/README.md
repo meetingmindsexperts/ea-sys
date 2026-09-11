@@ -14,6 +14,18 @@ RTO target: **~10 minutes** from `terraform apply` to serving traffic.
 | `variables.tf` | `region`, `instance_type`, `git_ref`, `github_repo`, `dr_bucket_name`, `dr_kms_key_arn`. |
 | `outputs.tf` | `public_ip`, `instance_id`, `ssm_session_command`. |
 
+## Browsing the backups from the app (Sep 11, 2026)
+
+`/admin/backups` (SUPER_ADMIN only) shows the last three days of this bucket:
+a freshness strip for the three streams (the DR card's rows), then the `db/`
+dumps with a five-minute presigned download link (every download is an EXPORT
+audit row, entityType `DatabaseBackup`, on the Activity page), the files the
+`uploads/` mirror wrote in that window, and the `env/` snapshots. Uploads and
+env are listed but never downloadable from the page (per-file recovery is the
+runbook, and the env snapshots hold every secret), and there is no restore
+action anywhere in the app: a restore is the runbook below, run by a person on
+a scratch database.
+
 ## One-time setup (before first `terraform apply`)
 
 You only need to do this once. Steps mirror §6a of the hardening plan.

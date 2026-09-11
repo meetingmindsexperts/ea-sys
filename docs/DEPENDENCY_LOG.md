@@ -14,6 +14,20 @@ carries pre-existing failures and a bare failure count proves nothing.
 
 ---
 
+## DEP-004: `@aws-sdk/s3-request-presigner` added, for the backups page's download links
+
+| | |
+|---|---|
+| **Date** | 2026-09-11 |
+| **Trigger** | Owner request: a simple UI to see the S3 backups without the AWS console (`/admin/backups`). Downloading a database dump needs a presigned S3 link, so the bytes go straight from S3 to the operator's browser and never pass through the box |
+| **What moved** | `@aws-sdk/s3-request-presigner` added at exactly 3.1086.0, the version of the `@aws-sdk/client-s3` already installed, so the two share every transitive and no second SDK core lands. Nothing else changed |
+| **Why a dependency at all** | Signing an S3 GET by hand is the SigV4 canonical-request dance, which is ~100 lines that break silently when a header is normalised differently. The presigner is the SDK's own implementation of it, from the same publisher and release train as the client we already use |
+| **Exposure** | Server-only, reachable from exactly one route, `POST /api/admin/backups`, behind `denyNonOperator` (SUPER_ADMIN on master) with a 10/hour limit, and only for keys matching the pg_dump shape under `db/`. Every link minted writes an EXPORT audit row. `npm audit`: the presigner appears in no advisory chain. The audit total moved from 41 (DEP-002) to 43, and the difference is NOT this package: a **critical** advisory on `next` 16.2.11 was published in the meantime (unauthenticated RCE on Windows-hosted servers; fixed in 16.3.4). Production runs Linux containers, so that vector does not apply as written, but it moves the Next 16.3 decision below from "when convenient" to "next" |
+| **Verification** | 11 CI gate scripts 0 · lint 0 · tsc 0 · vitest (17 new tests: the 72h window, key guard, presign shape, route boundary + audit + rate limit) · `next build` clean · the page opened on the production standalone against the local copy |
+| **Rollback** | Revert the commit (package.json + lockfile + the route, page and aws-ops section) and redeploy, or the pinned image rollback in [ROLLBACK.md](ROLLBACK.md) |
+
+---
+
 ## DEP-003 — `docx` added, for the Word exports of abstracts and session proposals
 
 | | |
@@ -82,7 +96,10 @@ were pre-existing and stayed in ROADMAP.
 
 ---
 
-## Decisions waiting on the owner (state as of 2026-09-07)
+## Decisions waiting on the owner (state as of 2026-09-11)
+
+**2026-09-11:** `npm audit` now reports a CRITICAL on `next` 16.2.11 (unauthenticated remote code execution on Windows-hosted servers, fixed in 16.3.4; production is Linux, so the published vector does not apply, but a critical on the framework is not something to sit on). The Next 16.3 upgrade below is therefore the first item, and it also clears the `postcss` and `sharp` highs. Same method as DEP-001: standalone on a spare port, e2e diff against the baseline.
+
 
 | Item | Why it is a decision, not a command |
 |---|---|
