@@ -97,8 +97,8 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // rows by id, so the operator reading them is the one who needs an id
   // resolved. It reads across every tenant, hence superAdminOnly like Logs.
   { name: "ID Lookup", href: "/admin/lookup", icon: ScanSearch, superAdminOnly: true },
-  // A database dump is the whole production database: superAdminOnly, and the
-  // API re-checks the platform-operator boundary.
+  // The DR bucket holds every uploaded file, private documents included:
+  // superAdminOnly, and the API re-checks the platform-operator boundary.
   { name: "Backups", href: "/admin/backups", icon: DatabaseBackup, superAdminOnly: true },
   { name: "Help Queries", href: "/admin/help-queries", icon: MessageCircleQuestion, superAdminOnly: true },
   // adminOnly, NOT superAdminOnly: the /activity page itself has always allowed

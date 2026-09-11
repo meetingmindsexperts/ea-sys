@@ -1,9 +1,10 @@
 /**
  * /api/admin/backups: operator-only listing of the DR bucket and a presigned
- * download of ONE database dump. Pins the boundary (401 / 403 for an ADMIN
- * who is not the platform operator), the key guard (only db/ dumps, refused
- * before any AWS call), the audit row every download writes, and the rate
- * limit on downloads.
+ * download of ONE finished mirror archive. Pins the boundary (401 / 403 for an
+ * ADMIN who is not the platform operator), the key guard (only
+ * mirror-archives/*.zip; a database dump is refused, by owner decision, before
+ * any AWS call), the audit row every download writes, and the rate limit on
+ * downloads. The GET never lists db/: dumps are not shown on the page.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -68,7 +69,7 @@ beforeEach(() => {
   mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mockList.mockImplementation(async (kind: string) => listingFor(`${kind}/`));
   mockHealth.mockResolvedValue(HEALTH);
-  mockPresign.mockResolvedValue("https://signed.example/dump");
+  mockPresign.mockResolvedValue("https://signed.example/archive");
 });
 
 describe("GET /api/admin/backups", () => {
@@ -83,20 +84,19 @@ describe("GET /api/admin/backups", () => {
     expect(mockList).not.toHaveBeenCalled();
   });
 
-  it("returns the three streams' last 72h plus their freshness for a SUPER_ADMIN, in one call", async () => {
+  it("returns the uploads + env streams' last 72h plus all three streams' freshness for a SUPER_ADMIN, in one call, and never lists db/", async () => {
     mockAuth.mockResolvedValue(SUPER);
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(mockList).toHaveBeenCalledWith("db");
     expect(mockList).toHaveBeenCalledWith("uploads");
     expect(mockList).toHaveBeenCalledWith("env");
+    expect(mockList).not.toHaveBeenCalledWith("db");
     expect(mockHealth).toHaveBeenCalledTimes(1);
     const body = await res.json();
     expect(body).toEqual({
       bucket: "ea-sys-dr-singapore",
       windowHours: 72,
       health: HEALTH,
-      db: listingFor("db/"),
       uploads: listingFor("uploads/"),
       env: listingFor("env/"),
     });
@@ -112,20 +112,29 @@ describe("GET /api/admin/backups", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.uploads.status).toBe("error");
-    expect(body.db.status).toBe("ok");
+    expect(body.env.status).toBe("ok");
   });
 });
 
 describe("POST /api/admin/backups (download link)", () => {
   it("403 for an ADMIN, before any key check", async () => {
     mockAuth.mockResolvedValue(ADMIN);
-    expect((await POST(postReq({ key: "db/2026/09/10-05-mumbai.dump" }))).status).toBe(403);
+    expect((await POST(postReq({ key: "mirror-archives/2026-09-11-req1.zip" }))).status).toBe(403);
     expect(mockPresign).not.toHaveBeenCalled();
   });
 
-  it("refuses anything that is not a dump or a mirror archive, before any AWS call and with no audit row", async () => {
+  it("refuses anything that is not a mirror archive, a database dump included, before any AWS call and with no audit row", async () => {
     mockAuth.mockResolvedValue(SUPER);
-    for (const key of ["env/2026-09-10.env", "db/../env/x", "mirror-archives/../db/x.dump", "uploads/media/x.jpg", "", 42, undefined]) {
+    for (const key of [
+      "db/2026/09/10-05-mumbai.dump",
+      "env/2026-09-10.env",
+      "db/../env/x",
+      "mirror-archives/../db/x.dump",
+      "uploads/media/x.jpg",
+      "",
+      42,
+      undefined,
+    ]) {
       const res = await POST(postReq({ key }));
       expect(res.status, String(key)).toBe(400);
       expect((await res.json()).code).toBe("INVALID_KEY");
@@ -135,42 +144,31 @@ describe("POST /api/admin/backups (download link)", () => {
     expect(logs.warn).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1" }), "admin-backups:download-refused");
   });
 
-  it("presigns a dump and records the export under the operator's name", async () => {
-    mockAuth.mockResolvedValue(SUPER);
-    const res = await POST(postReq({ key: "db/2026/09/10-05-mumbai.dump" }));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://signed.example/dump", key: "db/2026/09/10-05-mumbai.dump", expiresInSeconds: 300 });
-    expect(mockPresign).toHaveBeenCalledWith("db/2026/09/10-05-mumbai.dump");
-    expect(mockRecordExport).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        entityType: "DatabaseBackup",
-        organizationId: "org1",
-        userId: "u1",
-        role: "SUPER_ADMIN",
-        format: "pg_dump",
-        rowCount: 1,
-        filters: { key: "db/2026/09/10-05-mumbai.dump" },
-      }),
-    );
-    expect(logs.info).toHaveBeenCalledWith(expect.objectContaining({ key: "db/2026/09/10-05-mumbai.dump" }), "admin-backups:download-presigned");
-  });
-
-  it("presigns a finished mirror archive and records it as a MirrorArchive zip export", async () => {
+  it("presigns a finished mirror archive and records the export under the operator's name", async () => {
     mockAuth.mockResolvedValue(SUPER);
     const res = await POST(postReq({ key: "mirror-archives/2026-09-11-req1.zip" }));
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ url: "https://signed.example/archive", key: "mirror-archives/2026-09-11-req1.zip", expiresInSeconds: 300 });
     expect(mockPresign).toHaveBeenCalledWith("mirror-archives/2026-09-11-req1.zip");
     expect(mockRecordExport).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ entityType: "MirrorArchive", format: "zip", filters: { key: "mirror-archives/2026-09-11-req1.zip" } }),
+      expect.objectContaining({
+        entityType: "MirrorArchive",
+        organizationId: "org1",
+        userId: "u1",
+        role: "SUPER_ADMIN",
+        format: "zip",
+        rowCount: 1,
+        filters: { key: "mirror-archives/2026-09-11-req1.zip" },
+      }),
     );
+    expect(logs.info).toHaveBeenCalledWith(expect.objectContaining({ key: "mirror-archives/2026-09-11-req1.zip" }), "admin-backups:download-presigned");
   });
 
   it("429 when the download budget is spent, with no link minted", async () => {
     mockAuth.mockResolvedValue(SUPER);
     mockRateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 120 });
-    const res = await POST(postReq({ key: "db/2026/09/10-05-mumbai.dump" }));
+    const res = await POST(postReq({ key: "mirror-archives/2026-09-11-req1.zip" }));
     expect(res.status).toBe(429);
     expect(mockPresign).not.toHaveBeenCalled();
   });
@@ -178,9 +176,9 @@ describe("POST /api/admin/backups (download link)", () => {
   it("502 when the presigner fails, logged at error", async () => {
     mockAuth.mockResolvedValue(SUPER);
     mockPresign.mockRejectedValue(new Error("boom"));
-    const res = await POST(postReq({ key: "db/2026/09/10-05-mumbai.dump" }));
+    const res = await POST(postReq({ key: "mirror-archives/2026-09-11-req1.zip" }));
     expect(res.status).toBe(502);
-    expect(logs.error).toHaveBeenCalledWith(expect.objectContaining({ key: "db/2026/09/10-05-mumbai.dump" }), "admin-backups:presign-failed");
+    expect(logs.error).toHaveBeenCalledWith(expect.objectContaining({ key: "mirror-archives/2026-09-11-req1.zip" }), "admin-backups:presign-failed");
     expect(mockRecordExport).not.toHaveBeenCalled();
   });
 });

@@ -17,17 +17,22 @@ RTO target: **~10 minutes** from `terraform apply` to serving traffic.
 ## Browsing the backups from the app (Sep 11, 2026)
 
 `/admin/backups` (SUPER_ADMIN only) shows the last three days of this bucket:
-a freshness strip for the three streams (the DR card's rows), then the `db/`
-dumps with a five-minute presigned download link (every download is an EXPORT
-audit row, entityType `DatabaseBackup`, on the Activity page), the files the
-`uploads/` mirror wrote in that window, and the `env/` snapshots. Uploads and
-env are listed but never downloadable from the page (per-file recovery is the
-runbook, and the env snapshots hold every secret), and there is no restore
-action anywhere in the app: a restore is the runbook below, run by a person on
-a scratch database. **Build archive** on that page asks the `mirror-archive`
-worker job to zip the whole `uploads/` mirror into `mirror-archives/` (a few
-minutes, ~165 MB in Sep 2026); the finished zip is downloadable from the page
-for seven days, audited like a dump, then deleted by the same job.
+a freshness strip for the three streams (the DR card's rows, so the hourly
+`db/` dump's age is visible here), the files the `uploads/` mirror wrote in
+that window (collapsed by default), and the `env/` snapshots. Uploads and env
+are listed but never downloadable from the page (per-file recovery is the
+runbook, and the env snapshots hold every secret). **Database dumps are not
+listed or downloadable from the page** (they were, for one day on Sep 11,
+2026; removed by owner decision: a dump is a PG17 custom archive that needs a
+restore to read, and a restore is the runbook below, run by a person on a
+scratch database, never a button). To read a dump, download it with
+`aws s3 cp` and restore it into the local prod-copy container
+(`scripts/db-restore-into-local.sh`, see docs/LOCAL_DEV_DATABASE.md). **Build
+archive** on that page asks the `mirror-archive` worker job to zip the whole
+`uploads/` mirror into `mirror-archives/` (a few minutes, ~165 MB in Sep 2026);
+the finished zip is the ONE thing the page can presign (five minutes, an
+EXPORT audit row with entityType `MirrorArchive` on the Activity page), kept
+for seven days, then deleted by the same job.
 
 ## One-time setup (before first `terraform apply`)
 

@@ -1,19 +1,18 @@
 /**
- * /api/admin/backups: the Singapore DR bucket's last three days (dumps,
- * uploads mirror, env snapshots) plus the three streams' freshness, and a
- * short-lived download link for ONE database dump.
+ * /api/admin/backups: the Singapore DR bucket's last three days (uploads
+ * mirror, env snapshots) plus the three streams' freshness, and a short-lived
+ * download link for ONE finished mirror archive.
  *
- * Operator-only (denyNonOperator): a dump IS the production database, so this
- * is the most sensitive download in the product. The link is a presigned S3
- * GET (5 minutes), so the bytes never pass through the box, and every link
- * minted writes an EXPORT audit row (entityType DatabaseBackup) naming who,
- * when, which file and from where. A finished mirror archive (the zip the
- * `mirror-archive` worker builds on request, mirror-archives/*.zip) is
- * downloadable the same way. Individual uploads and env/ are listed but never
+ * Operator-only (denyNonOperator): the mirror holds every uploaded file on the
+ * platform, private documents included. The link is a presigned S3 GET (5
+ * minutes), so the bytes never pass through the box, and every link minted
+ * writes an EXPORT audit row (entityType MirrorArchive) naming who, when,
+ * which file and from where. Individual uploads and env/ are listed but never
  * presigned: per-file recovery is the runbook's job, and the env snapshots
- * hold every secret. There is deliberately no restore action here; a
- * restore stays a runbook run by a person on a scratch database
- * (infra/dr/README.md, "Restore the database").
+ * hold every secret. Database dumps are neither listed nor downloadable here
+ * (owner decision, Sep 11 2026: a dump needs a restore to read, and a restore
+ * is a runbook run by a person on a scratch database, infra/dr/README.md
+ * "Restore the database"); their freshness still shows through fetchDr().
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
@@ -26,8 +25,7 @@ import {
   DR_BACKUPS_WINDOW_HOURS,
   DR_DOWNLOAD_LINK_SECONDS,
   fetchDr,
-  isDrDownloadableKey,
-  isDrDumpKey,
+  isMirrorArchiveKey,
   listDrBackups,
   presignDrBackupDownload,
 } from "@/lib/infra/aws-ops";
@@ -53,24 +51,18 @@ export async function GET() {
   // One round trip for the whole page. A failed stream is reported inside its
   // own block (status "error" + message), the shape the infra card uses, and
   // each reader has already logged its failure; the others still render.
-  const [health, db, uploads, env] = await Promise.all([
-    fetchDr(),
-    listDrBackups("db"),
-    listDrBackups("uploads"),
-    listDrBackups("env"),
-  ]);
+  const [health, uploads, env] = await Promise.all([fetchDr(), listDrBackups("uploads"), listDrBackups("env")]);
   apiLogger.info(
     {
       userId: session.user.id,
       windowHours: DR_BACKUPS_WINDOW_HOURS,
-      db: { status: db.status, count: db.objects.length, total: db.totalObjects },
       uploads: { status: uploads.status, count: uploads.objects.length, total: uploads.totalObjects },
       env: { status: env.status, count: env.objects.length, total: env.totalObjects },
       healthStatus: health.status,
     },
     "admin-backups:listed",
   );
-  return NextResponse.json({ bucket: db.bucket, windowHours: DR_BACKUPS_WINDOW_HOURS, health, db, uploads, env });
+  return NextResponse.json({ bucket: uploads.bucket, windowHours: DR_BACKUPS_WINDOW_HOURS, health, uploads, env });
 }
 
 export async function POST(req: NextRequest) {
@@ -90,17 +82,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
   }
   const key = typeof (body as { key?: unknown })?.key === "string" ? (body as { key: string }).key : "";
-  if (!isDrDownloadableKey(key)) {
-    // Refused by shape, before any AWS call: only a pg_dump under db/ or a
-    // worker-built zip under mirror-archives/ can leave through this door.
-    // Log the attempted key (bounded) so a probe is visible in /logs.
+  if (!isMirrorArchiveKey(key)) {
+    // Refused by shape, before any AWS call: only a worker-built zip under
+    // mirror-archives/ can leave through this door. A dump key is refused
+    // here too. Log the attempted key (bounded) so a probe is visible in /logs.
     apiLogger.warn({ userId: session.user.id, role: session.user.role, key: key.slice(0, 200) }, "admin-backups:download-refused");
     return NextResponse.json(
-      { error: "Only database dumps and mirror archives can be downloaded from here", code: "INVALID_KEY" },
+      { error: "Only a finished mirror archive can be downloaded from here", code: "INVALID_KEY" },
       { status: 400 },
     );
   }
-  const isDump = isDrDumpKey(key);
 
   const rl = checkRateLimit({
     key: `admin-backups:download:${session.user.id}`,
@@ -113,20 +104,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const url = await presignDrBackupDownload(key);
-    // The durable record. A dump is the whole database leaving the building,
-    // so it rides the same EXPORT audit the registration and contact exports
-    // use, and shows on the Activity page like them.
+    // The durable record. The archive is every uploaded file leaving the
+    // building, so it rides the same EXPORT audit the registration and contact
+    // exports use, and shows on the Activity page like them.
     recordExport(req, {
-      entityType: isDump ? "DatabaseBackup" : "MirrorArchive",
+      entityType: "MirrorArchive",
       organizationId: session.user.organizationId ?? null,
       userId: session.user.id,
       role: session.user.role,
       source: "rest",
-      format: isDump ? "pg_dump" : "zip",
+      format: "zip",
       rowCount: 1,
       filters: { key },
     });
-    apiLogger.info({ userId: session.user.id, role: session.user.role, key, kind: isDump ? "dump" : "mirror-archive" }, "admin-backups:download-presigned");
+    apiLogger.info({ userId: session.user.id, role: session.user.role, key }, "admin-backups:download-presigned");
     return NextResponse.json({ url, key, expiresInSeconds: DR_DOWNLOAD_LINK_SECONDS });
   } catch (err) {
     apiLogger.error({ err, userId: session.user.id, key }, "admin-backups:presign-failed");

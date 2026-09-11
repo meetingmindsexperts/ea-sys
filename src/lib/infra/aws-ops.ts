@@ -1256,16 +1256,20 @@ export async function fetchDrHeartbeat(key: string): Promise<Date | null> {
 
 // ── DR backups browser (/admin/backups, Sep 11 2026) ──────────────────
 /**
- * The three Singapore streams an operator may want to SEE without the AWS
- * console: `db/` (the hourly pg_dump, downloadable), `uploads/` (the hourly
- * mirror of the uploads bucket, list only: per-file recovery is the runbook's
- * job) and `env/` (the daily .env snapshot, list only: it holds every secret,
- * so it never leaves through a web page). Owner scope (Sep 11, 2026): the last
- * three days only, never the whole 30-day retention.
+ * The Singapore streams an operator may want to SEE without the AWS console:
+ * `uploads/` (the hourly mirror of the uploads bucket, list only: per-file
+ * recovery is the runbook's job) and `env/` (the daily .env snapshot, list
+ * only: it holds every secret, so it never leaves through a web page). `db/`
+ * (the hourly pg_dump) stays a listable kind for the lister, but the page no
+ * longer shows or downloads dumps (owner decision, Sep 11, 2026: a dump is a
+ * PG17 archive that needs a restore to read, and a restore is the runbook on
+ * a scratch database anyway); its freshness still shows through fetchDr().
+ * Owner scope (Sep 11, 2026): the last three days only, never the whole
+ * 30-day retention.
  */
 export const DR_BACKUP_PREFIXES = { db: "db/", uploads: "uploads/", env: "env/" } as const;
 export type DrBackupKind = keyof typeof DR_BACKUP_PREFIXES;
-/** The window the backups page shows: 72 hourly dumps, 3 env snapshots, and whatever the mirror wrote. */
+/** The window the backups page shows: 3 env snapshots and whatever the mirror wrote. */
 export const DR_BACKUPS_WINDOW_HOURS = 72;
 
 export interface DrBackupObject {
@@ -1314,24 +1318,17 @@ export async function listDrPrefix(prefix: string): Promise<{ objects: { key: st
 }
 
 /**
- * The two shapes a download link may be minted for: a dump exactly as
- * scripts/dr-pg-dump.sh writes it (db/{YYYY}/{MM}/{DD-HH}-mumbai.dump), or a
- * mirror archive exactly as the worker writes it (mirror-archives/*.zip).
- * Anything else (an env snapshot, a heartbeat, a traversal attempt, an
- * arbitrary object name) is refused BEFORE it reaches the presigner, so the
- * download route can never be turned into a general "sign me any object in
- * the bucket" endpoint.
+ * The ONE shape a download link may be minted for: a mirror archive exactly
+ * as the worker writes it (mirror-archives/*.zip). Anything else (a database
+ * dump, an env snapshot, a heartbeat, a traversal attempt, an arbitrary object
+ * name) is refused BEFORE it reaches the presigner, so the download route can
+ * never be turned into a general "sign me any object in the bucket" endpoint.
+ * Dumps were downloadable here for one day (Sep 11, 2026) and then removed by
+ * owner decision; a dump leaves the bucket only through the runbook.
  */
-const DR_DUMP_KEY_RE = /^db\/\d{4}\/\d{2}\/[0-9A-Za-z_-]+\.dump$/;
 const MIRROR_ARCHIVE_KEY_RE = /^mirror-archives\/[0-9A-Za-z_-]+\.zip$/;
-export function isDrDumpKey(key: string): boolean {
-  return DR_DUMP_KEY_RE.test(key);
-}
 export function isMirrorArchiveKey(key: string): boolean {
   return MIRROR_ARCHIVE_KEY_RE.test(key);
-}
-export function isDrDownloadableKey(key: string): boolean {
-  return isDrDumpKey(key) || isMirrorArchiveKey(key);
 }
 
 /**
@@ -1369,12 +1366,12 @@ export async function listDrBackups(kind: DrBackupKind, now: number = Date.now()
 export const DR_DOWNLOAD_LINK_SECONDS = 300;
 
 /**
- * A presigned S3 GET for one dump: the bytes go straight from S3 to the
- * operator's browser and never pass through the box. The key guard is
+ * A presigned S3 GET for one mirror archive: the bytes go straight from S3 to
+ * the operator's browser and never pass through the box. The key guard is
  * repeated here so a future caller cannot skip it.
  */
 export async function presignDrBackupDownload(key: string): Promise<string> {
-  if (!isDrDownloadableKey(key)) throw new Error("Refusing to presign a key that is not a downloadable backup");
+  if (!isMirrorArchiveKey(key)) throw new Error("Refusing to presign a key that is not a downloadable backup");
   const filename = key.slice(key.lastIndexOf("/") + 1);
   return getSignedUrl(
     getS3(),

@@ -5,8 +5,9 @@
  *    prefix's total alongside, the prefix placeholder dropped, and a capped
  *    listing reported rather than hidden;
  *  - a failed listing degrades to status "error" + a warn log, never a throw;
- *  - ONLY a pg_dump key under db/ is downloadable, and the presigner is never
- *    reached for anything else (the route checks too; this is the backstop);
+ *  - ONLY a worker-built mirror archive is downloadable (a dump is not, by
+ *    owner decision), and the presigner is never reached for anything else
+ *    (the route checks too; this is the backstop);
  *  - the presigned GET is an attachment with a 5-minute life.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -48,8 +49,6 @@ import {
   DR_BACKUPS_WINDOW_HOURS,
   DR_DOWNLOAD_LINK_SECONDS,
   isDrBackupKind,
-  isDrDownloadableKey,
-  isDrDumpKey,
   isMirrorArchiveKey,
   listDrBackups,
   presignDrBackupDownload,
@@ -115,7 +114,7 @@ describe("listDrBackups", () => {
   });
 });
 
-describe("isDrBackupKind / isDrDumpKey", () => {
+describe("isDrBackupKind / isMirrorArchiveKey", () => {
   it("accepts only db, uploads and env", () => {
     expect(isDrBackupKind("db")).toBe(true);
     expect(isDrBackupKind("uploads")).toBe(true);
@@ -124,51 +123,45 @@ describe("isDrBackupKind / isDrDumpKey", () => {
     expect(isDrBackupKind(undefined)).toBe(false);
   });
 
-  it("accepts exactly the dump shape scripts/dr-pg-dump.sh writes", () => {
-    expect(isDrDumpKey("db/2026/09/10-05-mumbai.dump")).toBe(true);
-  });
-
-  it("accepts a worker-built mirror archive as downloadable, and nothing else under that prefix", () => {
+  it("accepts exactly the archive shape the mirror-archive worker writes", () => {
     expect(isMirrorArchiveKey("mirror-archives/2026-09-11-cmxyz.zip")).toBe(true);
-    expect(isDrDownloadableKey("mirror-archives/2026-09-11-cmxyz.zip")).toBe(true);
-    expect(isDrDownloadableKey("db/2026/09/10-05-mumbai.dump")).toBe(true);
-    for (const key of ["mirror-archives/../db/x.dump", "mirror-archives/x.tar.gz", "mirror-archives/", "uploads/media/x.jpg"]) {
-      expect(isDrDownloadableKey(key), key).toBe(false);
-    }
   });
 
-  it("refuses everything else, including env files, heartbeats and traversal", () => {
+  it("refuses everything else: a database dump, env files, heartbeats, traversal, other names under the prefix", () => {
     for (const key of [
+      "db/2026/09/10-05-mumbai.dump",
       "env/2026-09-10.env",
       "heartbeats/uploads-mirror",
-      "db/../env/2026-09-10.env",
-      "db/2026/09/10-05-mumbai.dump.bak",
-      "db/2026/09/10-05-mumbai.dump?x=1",
+      "mirror-archives/../db/x.dump",
+      "mirror-archives/x.tar.gz",
+      "mirror-archives/",
+      "mirror-archives/2026-09-11-cmxyz.zip?x=1",
       "uploads/media/2026/09/x.jpg",
       "",
     ]) {
-      expect(isDrDumpKey(key), key).toBe(false);
+      expect(isMirrorArchiveKey(key), key).toBe(false);
     }
   });
 });
 
 describe("presignDrBackupDownload", () => {
   it("signs a 5-minute attachment GET on the DR bucket", async () => {
-    signMock.mockResolvedValue("https://signed.example/dump");
-    const url = await presignDrBackupDownload("db/2026/09/10-05-mumbai.dump");
-    expect(url).toBe("https://signed.example/dump");
+    signMock.mockResolvedValue("https://signed.example/archive");
+    const url = await presignDrBackupDownload("mirror-archives/2026-09-11-cmxyz.zip");
+    expect(url).toBe("https://signed.example/archive");
     const [, cmd, opts] = signMock.mock.calls[0];
     expect(cmd.input).toEqual({
       Bucket: "ea-sys-dr-singapore",
-      Key: "db/2026/09/10-05-mumbai.dump",
-      ResponseContentDisposition: 'attachment; filename="10-05-mumbai.dump"',
+      Key: "mirror-archives/2026-09-11-cmxyz.zip",
+      ResponseContentDisposition: 'attachment; filename="2026-09-11-cmxyz.zip"',
     });
     expect(opts).toEqual({ expiresIn: DR_DOWNLOAD_LINK_SECONDS });
     expect(DR_DOWNLOAD_LINK_SECONDS).toBe(300);
   });
 
-  it("never reaches the presigner for a key that is not downloadable", async () => {
+  it("never reaches the presigner for a key that is not downloadable, a database dump included", async () => {
     await expect(presignDrBackupDownload("env/2026-09-10.env")).rejects.toThrow(/not a downloadable backup/);
+    await expect(presignDrBackupDownload("db/2026/09/10-05-mumbai.dump")).rejects.toThrow(/not a downloadable backup/);
     expect(signMock).not.toHaveBeenCalled();
   });
 });

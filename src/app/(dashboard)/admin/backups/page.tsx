@@ -30,9 +30,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Archive, DatabaseBackup, Download, Loader2, Lock, RefreshCw, ShieldAlert, BookOpen } from "lucide-react";
+import { Archive, ChevronDown, DatabaseBackup, Download, Loader2, Lock, RefreshCw, ShieldAlert, BookOpen } from "lucide-react";
 import { toast } from "sonner";
-import { formatFileSize } from "@/lib/utils";
+import { cn, formatFileSize } from "@/lib/utils";
 
 interface BackupObject {
   key: string;
@@ -63,7 +63,6 @@ interface Snapshot {
   bucket: string;
   windowHours: number;
   health: { status: string; error?: string; rows: HealthRow[] };
-  db: Listing;
   uploads: Listing;
   env: Listing;
 }
@@ -84,8 +83,8 @@ interface ArchivesResponse {
   active: ArchiveRow | null;
   ttlDays: number;
 }
-/** What the confirm dialog is about to mint a link for. */
-type PendingDownload = { obj: BackupObject; kind: "dump" | "archive" };
+/** The finished mirror archive the confirm dialog is about to mint a link for. */
+type PendingDownload = { obj: BackupObject };
 
 function takenLabel(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", {
@@ -240,8 +239,8 @@ export default function BackupsPage() {
         <Lock className="h-8 w-8 mx-auto text-amber-700 mb-3" />
         <h2 className="font-semibold text-amber-900">Super admin only</h2>
         <p className="text-sm text-amber-800 mt-2">
-          A database dump is the whole production database, so the backups page is
-          restricted to super admins.
+          The disaster-recovery bucket holds every uploaded file on the platform, private
+          documents included, so the backups page is restricted to super admins.
         </p>
       </div>
     );
@@ -259,9 +258,10 @@ export default function BackupsPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             The last {days} days in the Singapore disaster-recovery bucket
-            {snap?.bucket ? ` (${snap.bucket})` : ""}: hourly database dumps, the hourly uploads
-            mirror, and the daily env snapshots. Older objects stay in the bucket (dumps for 30
-            days) and are reachable through the runbook.
+            {snap?.bucket ? ` (${snap.bucket})` : ""}: the hourly uploads mirror and the daily env
+            snapshots, with the freshness of all three streams above them. The hourly database
+            dumps are not downloadable from here: a dump needs a restore to read, and that is the
+            runbook on a scratch database.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -281,9 +281,10 @@ export default function BackupsPage() {
       <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-900 flex gap-3">
         <ShieldAlert className="h-5 w-5 shrink-0 text-amber-700 mt-0.5" />
         <div>
-          A dump is the entire production database. Every download is recorded in the audit trail
-          with who, when and which file, and the link expires after five minutes. There is no restore
-          here on purpose: restoring is a runbook step on a scratch database, never a button.
+          A mirror archive is every uploaded file on the platform, private documents included.
+          Every download is recorded in the audit trail with who, when and which file, and the link
+          expires after five minutes. There is no restore here on purpose: restoring is a runbook
+          step on a scratch database, never a button.
         </div>
       </div>
 
@@ -293,23 +294,12 @@ export default function BackupsPage() {
 
       {snap && <HealthStrip health={snap.health} />}
 
-      <section className="rounded-lg border bg-card">
-        <SectionHeader title="Database dumps" listing={snap?.db ?? null} />
-        <ListingTable
-          listing={snap?.db ?? null}
-          loading={loading}
-          emptyText={`No dumps in the last ${days} days. The hourly cron may have stopped; check Infra / Ops.`}
-          action={(obj) => (
-            <Button size="sm" variant="outline" onClick={() => setPending({ obj, kind: "dump" })} disabled={minting}>
-              <Download className="h-4 w-4 mr-1.5" />
-              Download
-            </Button>
-          )}
-        />
-      </section>
-
-      <section className="rounded-lg border bg-card">
-        <SectionHeader title="Uploads mirror" listing={snap?.uploads ?? null} badge="list only" />
+      {/* Collapsed by default (owner request): the window holds up to a few
+          hundred rows, and the count in the header says what is inside. */}
+      <details className="group rounded-lg border bg-card">
+        <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+          <SectionHeader title="Uploads mirror" listing={snap?.uploads ?? null} badge="list only" collapsible />
+        </summary>
         <p className="px-4 pt-3 text-xs text-muted-foreground">
           Files the hourly mirror wrote to Singapore in the last {days} days: photos, banners,
           certificates and private documents as they were uploaded or changed. Recovering one is a
@@ -321,7 +311,7 @@ export default function BackupsPage() {
           emptyText={`Nothing was uploaded or changed in the last ${days} days, so the mirror had nothing new to write. Its freshness is in the strip above.`}
           showPath
         />
-      </section>
+      </details>
 
       <section className="rounded-lg border bg-card">
         <div className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-3">
@@ -337,7 +327,7 @@ export default function BackupsPage() {
         <p className="px-4 pt-3 text-xs text-muted-foreground">
           One zip of the whole uploads mirror (every file, not just the last {days} days), built by
           the worker and kept for {archives?.ttlDays ?? 7} days. A build takes a few minutes; the
-          Download appears here when it is done, and each download is recorded like a dump.
+          Download appears here when it is done, and each download is recorded in the audit trail.
         </p>
         {archivesError && <div className="px-4 pt-3 text-sm text-red-800">{archivesError}</div>}
         <ArchivesTable
@@ -346,7 +336,6 @@ export default function BackupsPage() {
             row.key &&
             setPending({
               obj: { key: row.key, sizeBytes: row.sizeBytes ?? 0, lastModified: row.finishedAt ?? row.createdAt },
-              kind: "archive",
             })
           }
           disabled={minting}
@@ -365,18 +354,13 @@ export default function BackupsPage() {
       <AlertDialog open={pending !== null} onOpenChange={(open) => !open && !minting && setPending(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pending?.kind === "archive" ? "Download the mirror archive?" : "Download this database dump?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Download the mirror archive?</AlertDialogTitle>
             <AlertDialogDescription>
               {pending
-                ? `${fileName(pending.obj.key)} (${formatFileSize(pending.obj.sizeBytes)}, ${pending.kind === "archive" ? "built" : "taken"} ${takenLabel(pending.obj.lastModified)} GST). `
+                ? `${fileName(pending.obj.key)} (${formatFileSize(pending.obj.sizeBytes)}, built ${takenLabel(pending.obj.lastModified)} GST). `
                 : ""}
-              {pending?.kind === "archive"
-                ? "It contains every uploaded file on the platform, private documents included."
-                : "It contains every registration, payment and person on the platform."}{" "}
-              The download is recorded in the audit trail under your name, and the link expires in five
-              minutes.
+              It contains every uploaded file on the platform, private documents included. The download
+              is recorded in the audit trail under your name, and the link expires in five minutes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -512,10 +496,24 @@ function HealthStrip({ health }: { health: Snapshot["health"] }) {
   );
 }
 
-function SectionHeader({ title, listing, badge }: { title: string; listing: Listing | null; badge?: string }) {
+function SectionHeader({
+  title,
+  listing,
+  badge,
+  collapsible,
+}: {
+  title: string;
+  listing: Listing | null;
+  badge?: string;
+  /** Rendered inside a <details> summary: chevron, and the divider only while open. */
+  collapsible?: boolean;
+}) {
   return (
-    <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+    <div className={cn("px-4 py-3 flex items-center justify-between gap-3", collapsible ? "group-open:border-b" : "border-b")}>
       <div className="flex items-center gap-2">
+        {collapsible && (
+          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+        )}
         <h2 className="font-semibold">{title}</h2>
         {badge && (
           <Badge variant="outline" className="text-xs">
