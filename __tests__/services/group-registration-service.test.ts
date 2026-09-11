@@ -72,6 +72,7 @@ vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailMock,
   brandingFrom: (b: { emailFromAddress?: string | null; emailFromName?: string | null }) =>
     b.emailFromAddress ? { email: b.emailFromAddress, name: b.emailFromName || undefined } : undefined,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({
     slug: "group-registration-confirmation",

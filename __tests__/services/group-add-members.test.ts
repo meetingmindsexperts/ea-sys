@@ -65,6 +65,7 @@ vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifyMock }));
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn().mockResolvedValue({ success: true }),
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue(null),
   renderAndWrap: vi.fn().mockReturnValue({ html: "", text: "" }),

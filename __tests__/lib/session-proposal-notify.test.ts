@@ -23,6 +23,7 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockResolvedV
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
   getEventTemplate: vi.fn().mockResolvedValue(null),
+  loadActiveEventTemplateRow: vi.fn(),
   getDefaultTemplate: vi.fn().mockReturnValue({
     subject: "Session Proposal Received - {{eventName}}",
     htmlContent: '<a href="{{managementLink}}">View Your Proposal</a>',

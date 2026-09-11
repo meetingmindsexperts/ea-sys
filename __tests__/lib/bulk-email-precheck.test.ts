@@ -24,6 +24,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn(),
   getEventTemplate: vi.fn(),
+  loadActiveEventTemplateRow: vi.fn(),
   getDefaultTemplate: vi.fn(),
   renderMessageValue: vi.fn((m: string) => m),
   renderAndWrap: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/certificates/bundle", () => ({
 vi.mock("@/lib/certificates/bulk-issue", () => ({ executeCertificateBulkSend: vi.fn() }));
 
 import { precheckBulkEmailViability, BulkEmailError } from "@/lib/bulk-email";
+import { loadActiveEventTemplateRow } from "@/lib/email";
 
 const EVENT = {
   id: "evt-1",
@@ -339,5 +341,38 @@ describe("precheckBulkEmailViability", () => {
         emailType: "survey-invitation",
       }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+// ── An RSVP token with no RSVP chosen is refused at enqueue (Sep 11, 2026) ──
+describe("precheckBulkEmailViability: {{rsvpButton}} / {{rsvpLink}} without an RSVP chosen", () => {
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", organizationId: "org-1", name: "Ev", slug: "ev" });
+  });
+
+  it("a saved template carrying the token, no campaign: 400 INVALID_FILTER naming the picker", async () => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "Join", htmlContent: "<p>{{<span>rsvpButton</span>}}</p>", textContent: "" } as never);
+    await expect(
+      precheckBulkEmailViability({ eventId: "evt-1", recipientType: "registrations", emailType: "template", filters: { templateSlug: "joining" } }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+  });
+
+  it("a custom message carrying the token, no campaign: refused too", async () => {
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1", recipientType: "registrations", emailType: "custom",
+        customSubject: "Seat", customMessage: "Confirm here: {{rsvpLink}}",
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+  });
+
+  it("the same template with an RSVP chosen passes", async () => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "Join", htmlContent: "<p>{{rsvpButton}}</p>", textContent: "" } as never);
+    mockDb.rsvpCampaign.findFirst.mockResolvedValue({ id: "camp-1", name: "Attendance", isActive: true });
+    const res = await precheckBulkEmailViability({
+      eventId: "evt-1", recipientType: "registrations", emailType: "template",
+      filters: { templateSlug: "joining", rsvpCampaignId: "camp-1" },
+    });
+    expect(res.rsvpCampaign).toEqual({ id: "camp-1", name: "Attendance" });
   });
 });

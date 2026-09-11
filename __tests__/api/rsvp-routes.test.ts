@@ -69,6 +69,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return {
     ...actual,
     sendEmail: (...a: unknown[]) => mockSendEmail(...a),
+    loadActiveEventTemplateRow: vi.fn(),
     getEventTemplate: (...a: unknown[]) => mockGetEventTemplate(...a),
     renderAndWrap: (...a: unknown[]) => mockRenderAndWrap(...a),
     brandingFrom: () => ({ email: "from@x.com", name: "From" }),

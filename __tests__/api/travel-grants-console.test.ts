@@ -58,6 +58,7 @@ vi.mock("@/lib/security", () => ({
 }));
 vi.mock("@/lib/email", () => ({
   sendEmail,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({
     slug: "travel-grant-invitation",

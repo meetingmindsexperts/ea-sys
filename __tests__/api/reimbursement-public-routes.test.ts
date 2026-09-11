@@ -55,6 +55,7 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
 vi.mock("@/lib/email", () => ({
   sendEmail: mockSendEmail,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: mockGetEventTemplate,
   renderAndWrap: () => ({ subject: "s", htmlContent: "h", textContent: "t" }),
   brandingFrom: () => ({ email: "from@x.com", name: "From" }),

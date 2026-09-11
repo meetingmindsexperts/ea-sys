@@ -28,6 +28,7 @@ vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: string, fn: () => u
 vi.mock("@/lib/email", () => ({
   sendEmail,
   getEventTemplate: vi.fn().mockResolvedValue(null),
+  loadActiveEventTemplateRow: vi.fn(),
   getDefaultTemplate: () => ({ subject: "Travel grant", htmlContent: "<p>{{travelGrantBlock}}</p>", textContent: "{{travelGrantBlockText}}" }),
   renderAndWrap: (tpl: { subject: string }) => ({ subject: tpl.subject, htmlContent: "<p>x</p>", textContent: "x" }),
   brandingFrom: () => ({ email: "events@example.org", name: "Events" }),

@@ -50,6 +50,7 @@ vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn().mockResolvedValue(
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn().mockResolvedValue(undefined),
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({ subject: "s", html: "h", text: "t" }),
   renderAndWrap: vi.fn().mockReturnValue({ subject: "s", html: "h", text: "t" }),

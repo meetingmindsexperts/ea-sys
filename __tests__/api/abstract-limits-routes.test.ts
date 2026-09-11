@@ -64,6 +64,7 @@ vi.mock("@/lib/abstract-notifications", () => ({
 }));
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn(),
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn(),
   getDefaultTemplate: vi.fn(),
   renderAndWrap: vi.fn(),

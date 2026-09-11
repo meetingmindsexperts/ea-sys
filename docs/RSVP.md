@@ -288,7 +288,13 @@ name escaped, so it joins the raw-HTML key set like `{{paymentBlock}}`) and
 set wherever `{{rsvpLink}}` is: the bulk pipeline, the console send, both
 per-person sends, and the template preview. `templateUsesRsvpToken()` in the
 same file is the one predicate the two editors use to warn when a message or
-saved template carries neither token.
+saved template carries neither token. **Same day, the invariant behind all of
+this:** the editor had turned a token into `{{<span>rsvpButton</span>}}`, which
+no renderer matched, so the send went out literal on every path. Tokens are now
+normalised at render and on save (`src/lib/template-tokens.ts`), and
+`sendEmail` refuses any email that still carries a `{{token}}` after rendering
+(AGENTS.md rule 12); the bulk pipeline aborts on the first such refusal and the
+precheck refuses an RSVP token with no RSVP chosen.
 
 ## Close automatically at N attending (Sep 10, 2026)
 

@@ -16,6 +16,9 @@ const { mockAuth, mockDb, mockCheckRateLimit } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     scheduledEmail: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
+    // The enqueue precheck reads the saved template to refuse an RSVP token
+    // with no RSVP chosen (Sep 11, 2026); null = no saved copy.
+    emailTemplate: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockCheckRateLimit: vi.fn(
@@ -90,6 +93,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "u1", organizationId: "org_1", role: "ADMIN" } });
   mockCheckRateLimit.mockReturnValue({ allowed: true });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev_1" });
+  mockDb.emailTemplate.findUnique.mockResolvedValue(null);
   mockDb.scheduledEmail.create.mockResolvedValue({ id: "se_new", status: "PENDING" });
   // Default: no dedup candidate (C3 guard finds nothing).
   mockDb.scheduledEmail.findMany.mockResolvedValue([]);

@@ -32,6 +32,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
     // entries below still override the ones this suite controls.
     ...actual,
     sendEmail: (args: unknown) => mockSendEmail(args),
+    loadActiveEventTemplateRow: vi.fn(),
     getEventTemplate: vi.fn().mockResolvedValue(null),
     getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
     renderAndWrap: (...args: unknown[]) => mockRenderAndWrap(...args),

@@ -54,6 +54,7 @@ vi.mock("@/lib/speaker-profile/server", () => ({
 }));
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn(async () => ({
     subject: "Your photo & documents — {{eventName}}",
     htmlContent: "<p>{{speakerName}} {{profileFormLink}}</p>",

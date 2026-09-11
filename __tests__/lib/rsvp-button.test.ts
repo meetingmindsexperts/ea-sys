@@ -29,12 +29,14 @@ describe("buildRsvpButton", () => {
 });
 
 describe("templateUsesRsvpToken", () => {
-  it("matches either exact token in any part", () => {
+  it("matches either exact token in any part, and an editor-mangled one", () => {
     expect(templateUsesRsvpToken("<p>{{rsvpButton}}</p>")).toBe(true);
     expect(templateUsesRsvpToken(null, undefined, "x {{rsvpLink}}")).toBe(true);
+    expect(templateUsesRsvpToken("<p>{{<span>rsvpButton</span>}}</p>")).toBe(true);
   });
-  it("does not match spaced, url-encoded or other tokens", () => {
-    expect(templateUsesRsvpToken("{{ rsvpButton }}", "%7B%7BrsvpLink%7D%7D", "{{rsvpName}}")).toBe(false);
+  it("matches a spaced token (the renderer repairs it) but not a url-encoded or other token", () => {
+    expect(templateUsesRsvpToken("{{ rsvpButton }}")).toBe(true);
+    expect(templateUsesRsvpToken("%7B%7BrsvpLink%7D%7D", "{{rsvpName}}")).toBe(false);
     expect(templateUsesRsvpToken()).toBe(false);
   });
 });

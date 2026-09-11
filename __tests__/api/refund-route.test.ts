@@ -51,6 +51,7 @@ vi.mock("@/lib/stripe", () => ({
 }));
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({ subject: "s", html: "h", text: "t" }),
   renderAndWrap: vi.fn().mockReturnValue({ subject: "s", html: "h", text: "t" }),

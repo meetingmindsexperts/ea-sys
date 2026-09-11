@@ -12,12 +12,13 @@
  */
 
 import { escapeHtml } from "@/lib/html";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 
 const RSVP_TOKEN_RE = /\{\{rsvp(?:Link|Button)\}\}/;
 
 /** True when any part carries {{rsvpLink}} or {{rsvpButton}} exactly as renderTemplate matches them. */
 export function templateUsesRsvpToken(...parts: Array<string | null | undefined>): boolean {
-  return parts.some((p) => typeof p === "string" && RSVP_TOKEN_RE.test(p));
+  return parts.some((p) => typeof p === "string" && RSVP_TOKEN_RE.test(normalizeTemplateTokens(p)));
 }
 
 /**

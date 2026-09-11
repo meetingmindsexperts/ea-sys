@@ -20,6 +20,7 @@ const { sendEmailSpy, renderSpy } = vi.hoisted(() => ({
 
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({
     slug: "tpl",

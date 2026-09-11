@@ -41,6 +41,7 @@ vi.mock("@/lib/email-preview-data", () => ({
 vi.mock("@/lib/certificates/bundle", () => ({ buildCertCoverEmailPreview: vi.fn() }));
 vi.mock("@/lib/speaker-agreement", () => ({ buildSpeakerEmailContext: (...a: unknown[]) => mockCtx(...a) }));
 vi.mock("@/lib/email", () => ({
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn(async () => ({
     subject: "Invitation — {{eventName}}",
     htmlContent: "<p>Dear {{speakerName}},</p>{{presentationDetails}}",

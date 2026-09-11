@@ -44,6 +44,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return {
     ...actual,
   sendEmail: (args: unknown) => mockSendEmail(args),
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: (...args: unknown[]) => mockGetEventTemplate(...args),
   getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
   renderMessageValue: vi.fn((m: string) => m),

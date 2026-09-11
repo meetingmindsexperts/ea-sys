@@ -58,6 +58,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return {
     ...actual,
   sendEmail: sendEmailSpy,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: getEventTemplateSpy,
   getDefaultTemplate: getDefaultTemplateSpy,
   renderAndWrap: vi.fn().mockReturnValue({ subject: "Rendered Subject", html: "<p>h</p>", text: "t" }),

@@ -86,6 +86,7 @@ vi.mock("@/lib/email", () => ({
   // unmocked import. Render returns the template body verbatim with
   // {{firstName}} / {{eventName}} substituted — close enough to
   // exercise the per-recipient send call shape.
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({
     slug: "survey-thankyou",

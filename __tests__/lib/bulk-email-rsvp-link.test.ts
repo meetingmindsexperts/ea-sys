@@ -46,6 +46,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return {
     ...actual,
     sendEmail: (...args: unknown[]) => mockSendEmail(...args),
+    loadActiveEventTemplateRow: vi.fn(),
     getEventTemplate: (...args: unknown[]) => mockGetEventTemplate(...args),
     getDefaultTemplate: (...args: unknown[]) => mockGetDefaultTemplate(...args),
     renderMessageValue: vi.fn((m: string) => m),
@@ -199,6 +200,19 @@ describe("executeBulkEmail: {{rsvpLink}} from filters.rsvpCampaignId", () => {
     expect(varsFor("jane@x.com")?.rsvpLink).toBeUndefined();
     expect(res.skippedCount).toBeUndefined();
     expect(res.skippedReason).toBeUndefined();
+  });
+
+  it("aborts the whole send with UNRESOLVED_TOKENS when sendEmail refuses a rendered email that still carries a token", async () => {
+    mockDb.rsvpInvite.findMany.mockResolvedValue([
+      { inviteeEmail: "jane@x.com", token: "tok-jane" },
+      { inviteeEmail: "bob@x.com", token: "tok-bob" },
+    ]);
+    mockSendEmail.mockResolvedValue({ success: false, error: "Email not sent: it still contains {{sessiondetails}} after rendering.", code: "UNRESOLVED_TOKENS" });
+    await expect(executeBulkEmail({ ...BASE_INPUT, filters: { rsvpCampaignId: "camp-1" } })).rejects.toMatchObject({
+      status: 400,
+      code: "UNRESOLVED_TOKENS",
+      message: expect.stringContaining("{{sessiondetails}}"),
+    });
   });
 
   it("the link renders raw (a URL we built), so the renderer is told not to escape it", async () => {

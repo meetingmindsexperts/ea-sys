@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
@@ -90,9 +91,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const template = await db.emailTemplate.update({
       where: { id: templateId },
       data: {
-        ...(subject !== undefined && { subject }),
-        ...(htmlContent !== undefined && { htmlContent }),
-        ...(textContent !== undefined && { textContent }),
+        // Editor-mangled tokens ({{<span>x</span>}}) are collapsed on save so
+        // the stored template, the editors' token checks and the renderer all
+        // see {{x}} (Sep 11, 2026; src/lib/template-tokens.ts).
+        ...(subject !== undefined && { subject: normalizeTemplateTokens(subject) }),
+        ...(htmlContent !== undefined && { htmlContent: normalizeTemplateTokens(htmlContent) }),
+        ...(textContent !== undefined && { textContent: normalizeTemplateTokens(textContent) }),
         ...(isActive !== undefined && { isActive }),
         ...(name !== undefined && { name }),
       },

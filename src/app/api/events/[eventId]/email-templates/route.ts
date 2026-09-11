@@ -7,6 +7,7 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
 import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -142,7 +143,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const template = await db.emailTemplate.create({
-      data: { eventId, slug, name, subject, htmlContent, textContent },
+      data: {
+        eventId,
+        slug,
+        name,
+        subject: normalizeTemplateTokens(subject),
+        htmlContent: normalizeTemplateTokens(htmlContent),
+        textContent: textContent ? normalizeTemplateTokens(textContent) : textContent,
+      },
     });
 
     return NextResponse.json(template, { status: 201 });

@@ -72,6 +72,7 @@ vi.mock("@/lib/email", () => ({
   // Editable "document-delivery" system template (the real default's shape);
   // renderAndWrap substitutes tokens like the real renderer so the tests can
   // assert the rendered subject/body without pulling in the whole email module.
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue({
     subject: "{{documentType}} {{documentNumber}} — {{eventName}}",
     htmlContent: "<p>Dear {{firstName}}, your {{documentTypeLower}} is attached.</p>",

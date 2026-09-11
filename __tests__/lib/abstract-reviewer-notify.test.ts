@@ -9,6 +9,7 @@ const { sendEmailSpy } = vi.hoisted(() => ({ sendEmailSpy: vi.fn().mockResolvedV
 
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
+  loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: vi.fn().mockResolvedValue(null),
   getDefaultTemplate: vi.fn().mockReturnValue({ slug: "reviewer-assignment", subject: "s", htmlContent: "h", textContent: "t" }),
   renderAndWrap: vi.fn().mockImplementation((_tpl: unknown, vars: { role: string; abstractTitle: string }) => ({

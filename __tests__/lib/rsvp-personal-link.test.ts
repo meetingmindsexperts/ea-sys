@@ -29,8 +29,11 @@ describe("templateUsesRsvpLink", () => {
   it("matches {{rsvpButton}} too, since both resolve from the same invite", () => {
     expect(templateUsesRsvpLink("<p>{{rsvpButton}}</p>")).toBe(true);
   });
-  it("does not match a spaced, url-encoded or different token (renderTemplate would not either)", () => {
-    expect(templateUsesRsvpLink("{{ rsvpLink }}")).toBe(false);
+  it("matches a spaced or span-wrapped token, since the renderer repairs those before substituting (Sep 11, 2026)", () => {
+    expect(templateUsesRsvpLink("{{ rsvpLink }}")).toBe(true);
+    expect(templateUsesRsvpLink("{{<span>rsvpLink</span>}}")).toBe(true);
+  });
+  it("does not match a url-encoded or different token (renderTemplate would not either)", () => {
     expect(templateUsesRsvpLink("%7B%7BrsvpLink%7D%7D")).toBe(false);
     expect(templateUsesRsvpLink("{{rsvpName}}", "{{surveyLink}}")).toBe(false);
     expect(templateUsesRsvpLink()).toBe(false);

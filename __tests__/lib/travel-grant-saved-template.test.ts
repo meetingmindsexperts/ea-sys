@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { renderAndWrap, getEventTemplate, sendEmail, abstractFindUnique, tgFindUnique, tgCreate } =
   vi.hoisted(() => ({
     renderAndWrap: vi.fn().mockReturnValue({ subject: "s", html: "h", text: "t" }),
+    loadActiveEventTemplateRow: vi.fn(),
     getEventTemplate: vi.fn(),
     sendEmail: vi.fn().mockResolvedValue({ success: true }),
     abstractFindUnique: vi.fn(),

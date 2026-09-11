@@ -20,6 +20,7 @@ vi.mock("@/lib/registration-financials", () => ({
 vi.mock("@/lib/email", () => ({
   sendEmail: mockSendEmail,
   getEventTemplate: vi.fn().mockResolvedValue(null),
+  loadActiveEventTemplateRow: vi.fn(),
   getDefaultTemplate: vi.fn().mockReturnValue({ textContent: "text {{amount}}" }),
   renderAndWrap: vi.fn().mockReturnValue({ subject: "Payment received", htmlContent: "<p>{{receiptBlock}}</p>", textContent: "text" }),
   renderTemplatePlain: vi.fn().mockReturnValue("plain"),

@@ -4,17 +4,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { hashVerificationToken } from "./security";
-import {
-  sendEmail,
-  getEventTemplate,
-  getDefaultTemplate,
-  renderAndWrap,
-  renderMessageValue,
-  brandingFrom,
-  brandingCc,
-  type EmailBranding,
-  eventLocationVars,
-} from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow } from "./email";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -62,7 +52,8 @@ import { consolidateReviewNotes, meanOverallScore } from "@/lib/abstract-review"
 import { resolveTravelGrantBlock } from "@/lib/travel-grant/server";
 import { templateUsesTravelGrantBlock } from "@/lib/travel-grant/block";
 import { normalizeRsvpEmail } from "@/lib/rsvp/rsvp";
-import { buildRsvpButton } from "@/lib/rsvp/button";
+import { buildRsvpButton, templateUsesRsvpToken } from "@/lib/rsvp/button";
+import { UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -1039,6 +1030,25 @@ export async function precheckBulkEmailViability(
       );
     }
     rsvpCampaign = { id: campaign.id, name: campaign.name };
+  }
+
+  // {{rsvpButton}} / {{rsvpLink}} in the email but no RSVP chosen (Sep 11,
+  // 2026): the token can only resolve against a chosen RSVP's guest list, so
+  // this is refused at enqueue rather than sent with the literal token. Runs
+  // at fire time too, since executeBulkEmail calls this precheck.
+  if (!rsvpCampaign && emailType !== "certificate") {
+    const slug = emailType === "template" ? filters?.templateSlug : BULK_EMAIL_TEMPLATE_SLUGS[emailType];
+    const tpl = slug
+      ? (await loadActiveEventTemplateRow(eventId, slug)) || (emailType === "template" ? null : getDefaultTemplate(slug))
+      : null;
+    if (templateUsesRsvpToken(tpl?.subject, tpl?.htmlContent, tpl?.textContent, customSubject, customMessage)) {
+      apiLogger.warn({ msg: "bulk-email:rsvp-token-without-campaign", eventId, emailType, recipientType, templateSlug: slug });
+      throw new BulkEmailError(
+        'This email uses {{rsvpButton}} or {{rsvpLink}}, but no RSVP was chosen. Pick one under "RSVP link" in the send dialog so each recipient gets their own link.',
+        400,
+        INVALID_FILTER_CODE,
+      );
+    }
   }
 
   return { event, certTemplates, agreementMode, rsvpCampaign };
@@ -2220,6 +2230,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // caller's idempotency store (review H1) so a crash after this point resumes
     // past them.
     const batchEmailedKeys: string[] = [];
+    let unresolvedTokenError: string | null = null;
     for (const r of batchResults) {
       if (r.status === "fulfilled") {
         const { recipient, result: emailResult } = r.value;
@@ -2229,6 +2240,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         } else {
           failureCount++;
           errors.push({ email: recipient.email, error: emailResult.error || "Unknown error" });
+          // sendEmail refused a rendered email that still carried a {{token}}
+          // (Sep 11, 2026). That is the whole send's problem, not one
+          // recipient's: abort after this batch instead of failing N times.
+          if (emailResult.code === UNRESOLVED_TOKENS_CODE) unresolvedTokenError = emailResult.error ?? "Unresolved template tokens";
         }
       } else {
         // Should not normally happen — the inner try/catch returns a fulfilled
@@ -2246,6 +2261,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       await onBatchEmailed(batchEmailedKeys).catch((err) =>
         apiLogger.warn({ err, msg: "bulk-email:record-emailed-failed", eventId, count: batchEmailedKeys.length }),
       );
+    }
+    if (unresolvedTokenError) {
+      apiLogger.error({
+        msg: "bulk-email:unresolved-tokens-abort",
+        eventId,
+        emailType,
+        recipientType,
+        sent: successCount,
+        failed: failureCount,
+        remaining: Math.max(0, toSend.length - (i + BATCH_SIZE)),
+      });
+      throw new BulkEmailError(unresolvedTokenError, 400, UNRESOLVED_TOKENS_CODE);
     }
   }
 

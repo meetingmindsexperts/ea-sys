@@ -16,6 +16,7 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     emailTemplate: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -109,5 +110,27 @@ describe("email-templates/[templateId] tenant isolation", () => {
     const res = await PATCH(new Request("http://t", { method: "PATCH" }), { params });
     expect(res.status).toBe(404);
     expect(mockDb.emailTemplate.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── Editor-mangled tokens are repaired on save (Sep 11, 2026) ─────────────
+describe("email-templates/[templateId] PUT normalises tokens on save", () => {
+  it("{{<span>rsvpButton</span>}} and {{ firstName }} are stored as {{rsvpButton}} / {{firstName}}", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev-OTHER-ORG" });
+    mockDb.emailTemplate.findFirst.mockResolvedValue({ id: "tpl-1", eventId: "ev-OTHER-ORG", slug: "joining" });
+    mockDb.emailTemplate.update.mockResolvedValue({ id: "tpl-1" });
+    const res = await PUT(
+      new Request("http://t", {
+        method: "PUT",
+        body: JSON.stringify({ subject: "Hi {{ firstName }}", htmlContent: "<p>{{<span>rsvpButton</span>}}</p>", textContent: "{{rsvp<b>Link</b>}}" }),
+      }),
+      { params },
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.emailTemplate.update.mock.calls[0][0].data).toMatchObject({
+      subject: "Hi {{firstName}}",
+      htmlContent: "<p>{{rsvpButton}}</p>",
+      textContent: "{{rsvpLink}}",
+    });
   });
 });

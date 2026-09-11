@@ -257,6 +257,18 @@ schemas is pure gain. It is defence in depth, not a replacement, and it is recor
 
 ---
 
+### 12. No email leaves with an unresolved token
+`sendEmail` refuses any message whose rendered subject or body still carries a `{{token}}`: it logs the
+token names at `error`, writes a FAILED EmailLog row, and returns `code: "UNRESOLVED_TOKENS"`; the bulk
+pipeline aborts the whole send on the first such result. Before this, a token one path provided and
+another did not, a typo, or an editor-mangled `{{<span>x</span>}}` went out as literal text on whichever
+path forgot it and reported success everywhere; it happened four or five times in one summer, each time
+"single works but bulk does not" or the reverse. Tokens are normalised at render and on template save
+(`src/lib/template-tokens.ts`) so inline markup inside the braces cannot break them.
+
+**Consequence for you:** a new variable must be set on every path that can render the template, or the
+send fails loudly on the path that forgot. That failure is the guard working. Fix the path; never the guard.
+
 ## Roles and visibility
 
 Eight roles: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` — org-bound;

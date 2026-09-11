@@ -5,6 +5,7 @@
 // `npm install postmark` to revive. Brevo/SendGrid packages are still installed.
 // import {
 import { buildRsvpButton } from "@/lib/rsvp/button";
+import { findUnresolvedTokens, normalizeTemplateTokens, UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
 //   TransactionalEmailsApi,
 //   TransactionalEmailsApiApiKeys,
 //   SendSmtpEmail,
@@ -114,6 +115,8 @@ export type SendEmailResult = {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** Machine-readable reason for a refusal, e.g. UNRESOLVED_TOKENS. */
+  code?: string;
 };
 
 /**
@@ -699,6 +702,61 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
   // without any per-caller wiring. Names only; the bytes never reach the log.
   const attachmentNames = params.attachments?.map((a) => a.name) ?? [];
 
+  // ONE invariant for every sender (Sep 11, 2026): an email whose rendered
+  // subject or body still carries a {{token}} is not sent. Before this, a
+  // token one path provided and another did not, a typo, or an editor-mangled
+  // {{<span>x</span>}} went out as literal text on whichever path forgot it,
+  // and reported success everywhere; it happened four or five times over the
+  // summer, each time "single works but bulk does not" or the reverse. The
+  // refusal names the tokens, logs at error (the owner wants the page), and
+  // writes a FAILED row so Email History shows it. Operator mail about the
+  // platform itself (noEntityContext: admin alerts, the digest) is exempt:
+  // it is our own markup and it quotes log lines, including this one.
+  if (!params.noEntityContext) {
+    const unresolved = findUnresolvedTokens(params.subject, params.htmlContent);
+    if (unresolved.length > 0) {
+      const list = unresolved.map((t) => `{{${t}}}`).join(", ");
+      const error =
+        `Email not sent: it still contains ${list} after rendering. ` +
+        "Fix the token in the template (Communications → Email Templates) or in the message, then send again.";
+      apiLogger.error({
+        msg: "email:unresolved-tokens",
+        to: toEmails,
+        subject: params.subject,
+        tokens: unresolved,
+        emailType: params.emailType,
+        templateSlug: params.logContext?.templateSlug,
+        eventId: params.logContext?.eventId,
+        entityType: params.logContext?.entityType,
+        entityId: params.logContext?.entityId,
+      });
+      void logEmail({
+        to: primaryTo,
+        cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+        subject: params.subject,
+        provider: providerName,
+        status: "FAILED",
+        errorMessage: `unresolved_tokens: ${list}`,
+        htmlBody: params.htmlContent,
+        attachmentNames,
+        context: params.logContext,
+      });
+      return { success: false, error, code: UNRESOLVED_TOKENS_CODE };
+    }
+    // The text part is rarely read and never edited by organisers; a leftover
+    // there is worth a line, not a refusal.
+    const textLeftovers = findUnresolvedTokens(params.textContent);
+    if (textLeftovers.length > 0) {
+      apiLogger.warn({
+        msg: "email:unresolved-tokens-in-text-part",
+        subject: params.subject,
+        tokens: textLeftovers,
+        templateSlug: params.logContext?.templateSlug,
+        eventId: params.logContext?.eventId,
+      });
+    }
+  }
+
   // Surface any sendEmail caller that FORGOT to pass logContext. The row
   // still gets written (as entityType=OTHER) but won't link to a detail
   // sheet. This log line lets us find the caller during audits instead of
@@ -1038,7 +1096,10 @@ export function renderTemplate(
   variables: Record<string, string | number | undefined>,
   rawHtmlKeys?: Set<string>
 ): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+  // Editor-mangled tokens ({{<span>x</span>}}, {{x<strong>Y</strong>}}) are
+  // collapsed first, so inline markup inside the braces can never turn a
+  // token into literal text (Sep 11, 2026; src/lib/template-tokens.ts).
+  return normalizeTemplateTokens(template).replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = variables[key];
     if (value === undefined) return `{{${key}}}`;
     if (DEFAULT_RAW_HTML_KEYS.has(key) || rawHtmlKeys?.has(key)) return String(value);
@@ -1053,7 +1114,7 @@ export function renderTemplatePlain(
   template: string,
   variables: Record<string, string | number | undefined>
 ): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+  return normalizeTemplateTokens(template).replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = variables[key];
     if (value === undefined) return `{{${key}}}`;
     return String(value);
@@ -3506,6 +3567,30 @@ function buildGlobalEventVars(event: {
   };
 }
 
+/**
+ * The event's saved copy of a template, or null when there is none or it is
+ * deactivated. Content only: no branding, no event read. The bulk-email
+ * precheck uses it to ask "does this email carry a token" without paying for
+ * the branding query (Sep 11, 2026); getEventTemplate builds on it.
+ */
+export async function loadActiveEventTemplateRow(
+  eventId: string,
+  slug: string
+): Promise<{ subject: string; htmlContent: string; textContent: string } | null> {
+  // Lazy import to avoid circular dependency (db → logger → email)
+  const { db } = await import("./db");
+  const row = await db.emailTemplate.findUnique({
+    where: { eventId_slug: { eventId, slug } },
+    select: { subject: true, htmlContent: true, textContent: true, isActive: true },
+  });
+  if (!row) return null;
+  if (!row.isActive) {
+    apiLogger.info({ msg: "Email template is disabled, falling back to default", eventId, slug });
+    return null;
+  }
+  return { subject: row.subject, htmlContent: row.htmlContent, textContent: row.textContent || "" };
+}
+
 export async function getEventTemplate(
   eventId: string,
   slug: string
@@ -3514,10 +3599,7 @@ export async function getEventTemplate(
   const { db } = await import("./db");
 
   const [dbTemplate, event] = await Promise.all([
-    db.emailTemplate.findUnique({
-      where: { eventId_slug: { eventId, slug } },
-      select: { subject: true, htmlContent: true, textContent: true, isActive: true },
-    }),
+    loadActiveEventTemplateRow(eventId, slug),
     db.event.findFirst({
       where: { id: eventId },
       select: {
@@ -3550,17 +3632,8 @@ export async function getEventTemplate(
     eventName: event?.name,
   };
 
-  if (dbTemplate && !dbTemplate.isActive) {
-    apiLogger.info({ msg: "Email template is disabled, falling back to default", eventId, slug });
-  }
-
-  if (dbTemplate?.isActive) {
-    return {
-      subject: dbTemplate.subject,
-      htmlContent: dbTemplate.htmlContent,
-      textContent: dbTemplate.textContent || "",
-      branding,
-    };
+  if (dbTemplate) {
+    return { ...dbTemplate, branding };
   }
 
   // Fallback to default template

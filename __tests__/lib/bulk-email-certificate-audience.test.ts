@@ -34,6 +34,7 @@ vi.mock("@/lib/email", async (importOriginal) => {
     ...actual,
   sendEmail: vi.fn(),
   getEventTemplate: vi.fn(),
+  loadActiveEventTemplateRow: vi.fn(),
   getDefaultTemplate: vi.fn(),
   renderMessageValue: vi.fn((m: string) => m),
   renderAndWrap: vi.fn(),
