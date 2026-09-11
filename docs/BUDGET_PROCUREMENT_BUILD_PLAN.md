@@ -108,6 +108,57 @@ From spec §14, the items that gate Phase 1 rather than Phase 3:
 5. **Load baseline** (§1.5).
 6. **ProcurementExpress export**: one real CSV export of open POs and the last two years of closed ones, so Phase 4's importer is written against the real column set (the Freshsales lesson: a declared format, never a guessed one).
 
+### 3.1 Phase 0 record (Friday 11 September 2026)
+
+Owner decision the same day: Phase 0 today, Phase 1 starts Monday 14 September. The load baseline runs Sunday 13 September (no events; Friday and Saturday carry the Pan Hematology Summit and the Oman Oncology Pharmacy Value Forum, and the written rule is off-hours). It gates the Phase 2 comparison, not the Phase 1 code, so Monday is unaffected.
+
+| # | Item | State | Who | Detail |
+|---|---|---|---|---|
+| 1 | QuickBooks bill practice (Q16) | OPEN | Medhat / finance | Are bills entered from the PO today, carrying the event Class? If yes, read-back works from day one of the pilot. If no, the operating rule starts with the pilot and Phase 4 carries a training step. Needed before Phase 3, not before Monday |
+| 2 | FX source (Q15) | OPEN | finance | Default in the spec: Central Bank of the UAE daily rates, unless finance needs intraday. Decides whether `FxRateProvider` reads a published page or a paid feed. Needed before Phase 2 |
+| 3 | QuickBooks Online sandbox company | OPEN | owner | Create one in the Intuit developer account for the app. Without it Phase 3 tests against production accounting. Needed before Phase 2 ends |
+| 4 | `Event.code` uniqueness | DONE | measured, read-only on production | See below |
+| 5 | Load baseline (§1.5) | SCHEDULED, Sunday 13 Sep | Claude, owner present | See below |
+| 6 | ProcurementExpress export | OPEN | Medhat / finance | One CSV of open POs plus the last two years of closed ones. Needed before Phase 4; the earlier the better, since the subscription ends |
+
+**Item 4, `Event.code` on production (39 events, one organisation):** 20 events have a null code, 19 have one, all 19 are distinct and all match `^[A-Z0-9-]+$`, and no event has an empty string. Running `deriveEventCode()` (the helper `POST /api/events` and MCP `create_event` already use) over the 20 null names produces 20 codes with **zero collisions** against the existing 19 and among themselves, so the Phase 1 migration is a plain backfill followed by the unique index; no collision handling is needed on real data. What it produces, for the record:
+
+| Derived | Event |
+|---|---|
+| `MEHFC2026` | Middle East Heart Failure Conference 2026 |
+| `EMM1J2026` | EGHS Monthly Meeting - 19th Jan 2026 |
+| `5GHEF2026W` | 5th GCC Hematology Expert Forum 2026 - Wave 1 |
+| `EMM2F2026` | EGHS Monthly Meeting - 2nd Feb 2026 |
+| `2OGSC2026` | 2nd Oman Gastroenterology Society Conference 2026 |
+| `9BSCUC2026` | 9th Big Sky Cardiology Update Conference 2026 |
+| `1ICOCH2026` | 1st International Conference of Classical Hematology 2026 |
+| `OASIS2026` | Oncology Advances & Scientific International Summit 2026 |
+| `1EHC2026` | 14th Emirates Haematology Conference 2026 |
+| `WT` | Webinar Test |
+| `1HFF2026` | 1st Heart Failure Forum 2026 |
+| `CADIF2026` | Cold Agglutinin Disease in Focus 2026 |
+| `HPHFS2026` | Haya Public Health Foresight Summit 2026 |
+| `I2026` | IOHNC 2026 |
+| `6IOHNC2026` | 6th International Oncology & Hematology Nursing Conference 2026 |
+| `E2026` | EIGHC 2026 |
+| `8OSOHC2026` | 8th Omani Society of Hematology Conference 2026 |
+| `1IBC2026` | 1st International Burn Conference 2026 |
+| `DDM2026` | DH Departmental Meeting 2026 |
+| `1BSCUC2027` | 10th Big Sky Cardiology Update Conference 2027 |
+
+Two things the numbers show that the plan did not: **ordinals are truncated to their first digit** (`14th` and `10th` both derive to `1`, so `1EHC2026` and `1BSCUC2027`), and **a name that is already an acronym derives to a near-empty code** (`IOHNC 2026` to `I2026`, `EIGHC 2026` to `E2026`, `Webinar Test` to `WT`). Neither collides today, but a code becomes the accounting Class label and the budget's `eventCode`, so both are worth a decision on Monday: either improve `deriveEventCode` for ordinals and acronym names before the backfill, or backfill as-is and let organisers rename (the code stays editable until a numbered document, budget or commitment references it, which is the spec's own rule). The 20 are mostly DRAFT events; the one PUBLISHED row is the 10th Big Sky 2027.
+
+**Item 5, the baseline command and what to record (Sunday):**
+
+```bash
+k6 run -e BASE_URL=https://events.meetingmindsgroup.com -e EVENT_SLUG=BHS2026 \
+  -e PEAK_VUS=15 -e RAMP=30s -e HOLD=2m loadtest/k6/read-burst.js
+```
+
+Why those numbers: from one machine every request shares one client IP, and nginx caps a single IP at 100 requests/s (`limit_req` burst 200, `limit_conn` 100). Each virtual user makes two requests per iteration with up to 0.5 s of think time, about 6 requests/s, so 15 users sit just under the nginx limit and the run measures the box, not the limiter. The `check-email` half still trips the app's own 200/hour per-IP limit within seconds, which is expected and documented in LOAD_TESTING.md; the number that matters is the `public-event-detail` GET, the heaviest read on the register page. The machine's egress IP (94.202.108.26) is in fail2ban's `ignoreip`, so the 429s cannot ban it. Record, into this section: `http_req_duration` p95 and p99 for the `public-event-detail` tag, `rate_limited_429`, `http_req_failed`, the CloudWatch 1-minute CPU maximum during the run, `CPUCreditBalance` before and after, and `/api/health` `eventLoop.p99Ms` and `worstMaxMs` read during the hold. Repeat with the identical command at the end of Phase 2 and Phase 4.
+
+**A real-traffic data point taken today instead**, Friday 11 September, the Pan Hematology Summit's first day (22 registrations, badge scanning in the morning): CPU averaged 4 to 7% with 5-minute maxima of 5 to 12%, `CPUCreditBalance` pinned at 864, `/api/health` event loop p99 11 ms at noon. The one spike, 84.8% at 11:28 GST, is the `974c0c25` blue-green deploy landing (the "40 to 78% during a deploy" line in §1.1 is now 85% once), not the event. This is the shape the baseline should confirm under synthetic load: a box that is idle on an event day.
+
 ---
 
 ## 4. Module boundary and the primitives that live in core
