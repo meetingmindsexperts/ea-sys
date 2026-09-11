@@ -1292,16 +1292,46 @@ export function isDrBackupKind(v: unknown): v is DrBackupKind {
   return v === "db" || v === "uploads" || v === "env";
 }
 
+/** The DR bucket's S3 client and name, for the mirror-archive worker. */
+export function getDrS3(): S3Client {
+  return getS3();
+}
+export const DR_BUCKET_NAME = DR_BUCKET;
+/** The uploads mirror lives under this prefix in the DR bucket. */
+export const DR_MIRROR_PREFIX = "uploads/";
+/** Where the mirror-archive worker writes its zips. */
+export const MIRROR_ARCHIVE_PREFIX = "mirror-archives/";
+
+/** Every object under a prefix (bounded), for the archive builder. */
+export async function listDrPrefix(prefix: string): Promise<{ objects: { key: string; sizeBytes: number }[]; truncated: boolean }> {
+  const listed = await listObjectsBounded(getS3(), DR_BUCKET, prefix);
+  return {
+    objects: listed.objects
+      .filter((o): o is ListedObject & { Key: string } => typeof o.Key === "string" && o.Key !== prefix)
+      .map((o) => ({ key: o.Key, sizeBytes: o.Size ?? 0 })),
+    truncated: listed.truncated,
+  };
+}
+
 /**
- * A downloadable key is exactly what scripts/dr-pg-dump.sh writes:
- * db/{YYYY}/{MM}/{DD-HH}-mumbai.dump. Anything else (an env snapshot, a
- * heartbeat, a traversal attempt, an arbitrary object name) is refused BEFORE
- * it reaches the presigner, so the download route can never be turned into a
- * general "sign me any object in the bucket" endpoint.
+ * The two shapes a download link may be minted for: a dump exactly as
+ * scripts/dr-pg-dump.sh writes it (db/{YYYY}/{MM}/{DD-HH}-mumbai.dump), or a
+ * mirror archive exactly as the worker writes it (mirror-archives/*.zip).
+ * Anything else (an env snapshot, a heartbeat, a traversal attempt, an
+ * arbitrary object name) is refused BEFORE it reaches the presigner, so the
+ * download route can never be turned into a general "sign me any object in
+ * the bucket" endpoint.
  */
 const DR_DUMP_KEY_RE = /^db\/\d{4}\/\d{2}\/[0-9A-Za-z_-]+\.dump$/;
+const MIRROR_ARCHIVE_KEY_RE = /^mirror-archives\/[0-9A-Za-z_-]+\.zip$/;
 export function isDrDumpKey(key: string): boolean {
   return DR_DUMP_KEY_RE.test(key);
+}
+export function isMirrorArchiveKey(key: string): boolean {
+  return MIRROR_ARCHIVE_KEY_RE.test(key);
+}
+export function isDrDownloadableKey(key: string): boolean {
+  return isDrDumpKey(key) || isMirrorArchiveKey(key);
 }
 
 /**
@@ -1344,7 +1374,7 @@ export const DR_DOWNLOAD_LINK_SECONDS = 300;
  * repeated here so a future caller cannot skip it.
  */
 export async function presignDrBackupDownload(key: string): Promise<string> {
-  if (!isDrDumpKey(key)) throw new Error("Refusing to presign a key that is not a database dump");
+  if (!isDrDownloadableKey(key)) throw new Error("Refusing to presign a key that is not a downloadable backup");
   const filename = key.slice(key.lastIndexOf("/") + 1);
   return getSignedUrl(
     getS3(),

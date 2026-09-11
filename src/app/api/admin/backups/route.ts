@@ -7,7 +7,9 @@
  * is the most sensitive download in the product. The link is a presigned S3
  * GET (5 minutes), so the bytes never pass through the box, and every link
  * minted writes an EXPORT audit row (entityType DatabaseBackup) naming who,
- * when, which file and from where. uploads/ and env/ are listed but never
+ * when, which file and from where. A finished mirror archive (the zip the
+ * `mirror-archive` worker builds on request, mirror-archives/*.zip) is
+ * downloadable the same way. Individual uploads and env/ are listed but never
  * presigned: per-file recovery is the runbook's job, and the env snapshots
  * hold every secret. There is deliberately no restore action here; a
  * restore stays a runbook run by a person on a scratch database
@@ -24,6 +26,7 @@ import {
   DR_BACKUPS_WINDOW_HOURS,
   DR_DOWNLOAD_LINK_SECONDS,
   fetchDr,
+  isDrDownloadableKey,
   isDrDumpKey,
   listDrBackups,
   presignDrBackupDownload,
@@ -87,16 +90,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
   }
   const key = typeof (body as { key?: unknown })?.key === "string" ? (body as { key: string }).key : "";
-  if (!isDrDumpKey(key)) {
-    // Refused by shape, before any AWS call: only a pg_dump under db/ can
-    // leave through this door. Log the attempted key (bounded) so a probe is
-    // visible in /logs.
+  if (!isDrDownloadableKey(key)) {
+    // Refused by shape, before any AWS call: only a pg_dump under db/ or a
+    // worker-built zip under mirror-archives/ can leave through this door.
+    // Log the attempted key (bounded) so a probe is visible in /logs.
     apiLogger.warn({ userId: session.user.id, role: session.user.role, key: key.slice(0, 200) }, "admin-backups:download-refused");
     return NextResponse.json(
-      { error: "Only database dumps under db/ can be downloaded from here", code: "INVALID_KEY" },
+      { error: "Only database dumps and mirror archives can be downloaded from here", code: "INVALID_KEY" },
       { status: 400 },
     );
   }
+  const isDump = isDrDumpKey(key);
 
   const rl = checkRateLimit({
     key: `admin-backups:download:${session.user.id}`,
@@ -113,16 +117,16 @@ export async function POST(req: NextRequest) {
     // so it rides the same EXPORT audit the registration and contact exports
     // use, and shows on the Activity page like them.
     recordExport(req, {
-      entityType: "DatabaseBackup",
+      entityType: isDump ? "DatabaseBackup" : "MirrorArchive",
       organizationId: session.user.organizationId ?? null,
       userId: session.user.id,
       role: session.user.role,
       source: "rest",
-      format: "pg_dump",
+      format: isDump ? "pg_dump" : "zip",
       rowCount: 1,
       filters: { key },
     });
-    apiLogger.info({ userId: session.user.id, role: session.user.role, key }, "admin-backups:download-presigned");
+    apiLogger.info({ userId: session.user.id, role: session.user.role, key, kind: isDump ? "dump" : "mirror-archive" }, "admin-backups:download-presigned");
     return NextResponse.json({ url, key, expiresInSeconds: DR_DOWNLOAD_LINK_SECONDS });
   } catch (err) {
     apiLogger.error({ err, userId: session.user.id, key }, "admin-backups:presign-failed");

@@ -48,7 +48,9 @@ import {
   DR_BACKUPS_WINDOW_HOURS,
   DR_DOWNLOAD_LINK_SECONDS,
   isDrBackupKind,
+  isDrDownloadableKey,
   isDrDumpKey,
+  isMirrorArchiveKey,
   listDrBackups,
   presignDrBackupDownload,
 } from "@/lib/infra/aws-ops";
@@ -126,6 +128,15 @@ describe("isDrBackupKind / isDrDumpKey", () => {
     expect(isDrDumpKey("db/2026/09/10-05-mumbai.dump")).toBe(true);
   });
 
+  it("accepts a worker-built mirror archive as downloadable, and nothing else under that prefix", () => {
+    expect(isMirrorArchiveKey("mirror-archives/2026-09-11-cmxyz.zip")).toBe(true);
+    expect(isDrDownloadableKey("mirror-archives/2026-09-11-cmxyz.zip")).toBe(true);
+    expect(isDrDownloadableKey("db/2026/09/10-05-mumbai.dump")).toBe(true);
+    for (const key of ["mirror-archives/../db/x.dump", "mirror-archives/x.tar.gz", "mirror-archives/", "uploads/media/x.jpg"]) {
+      expect(isDrDownloadableKey(key), key).toBe(false);
+    }
+  });
+
   it("refuses everything else, including env files, heartbeats and traversal", () => {
     for (const key of [
       "env/2026-09-10.env",
@@ -156,8 +167,8 @@ describe("presignDrBackupDownload", () => {
     expect(DR_DOWNLOAD_LINK_SECONDS).toBe(300);
   });
 
-  it("never reaches the presigner for a key that is not a dump", async () => {
-    await expect(presignDrBackupDownload("env/2026-09-10.env")).rejects.toThrow(/not a database dump/);
+  it("never reaches the presigner for a key that is not downloadable", async () => {
+    await expect(presignDrBackupDownload("env/2026-09-10.env")).rejects.toThrow(/not a downloadable backup/);
     expect(signMock).not.toHaveBeenCalled();
   });
 });

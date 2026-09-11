@@ -92,6 +92,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "@zoom/meetingsdk": "6.0.0",
+    "archiver": "8.0.0",
     "bcryptjs": "^3.0.3",
     "bwip-js": "^4.8.0",
     "class-variance-authority": "^0.7.1",
@@ -137,6 +138,7 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
+    "@types/archiver": "8.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/mailparser": "^3.4.6",

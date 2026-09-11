@@ -24,7 +24,10 @@ audit row, entityType `DatabaseBackup`, on the Activity page), the files the
 env are listed but never downloadable from the page (per-file recovery is the
 runbook, and the env snapshots hold every secret), and there is no restore
 action anywhere in the app: a restore is the runbook below, run by a person on
-a scratch database.
+a scratch database. **Build archive** on that page asks the `mirror-archive`
+worker job to zip the whole `uploads/` mirror into `mirror-archives/` (a few
+minutes, ~165 MB in Sep 2026); the finished zip is downloadable from the page
+for seven days, audited like a dump, then deleted by the same job.
 
 ## One-time setup (before first `terraform apply`)
 

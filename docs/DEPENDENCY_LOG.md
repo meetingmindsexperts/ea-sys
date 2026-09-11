@@ -14,6 +14,20 @@ carries pre-existing failures and a bare failure count proves nothing.
 
 ---
 
+## DEP-005: `archiver` added, for the on-demand zip of the uploads mirror
+
+| | |
+|---|---|
+| **Date** | 2026-09-11 |
+| **Trigger** | Owner request: "download all S3 mirror backups". The chosen shape is an on-demand archive built by the worker, so the operator gets one zip of the whole Singapore uploads mirror rather than 600 presigned links |
+| **What moved** | `archiver` 8.0.0 (production) and `@types/archiver` 8.0.0 (dev), both pinned exact. `jszip` was already here but holds every entry in memory; the mirror is 165 MB today and will grow, so the builder streams entries through `archiver` into a temp file and uploads that with a known length. `jszip` is used only by the test that unzips the produced archive to check its entries |
+| **Why a dependency at all** | The zip container format is not in Node's standard library, and hand-writing central directories is how you produce archives that open on one platform and not another. `archiver` is the maintained streaming implementation with no native code and no network use |
+| **Exposure** | Runs only in the worker container, only when an operator has pressed "Build archive" (a row in `MirrorArchive`), reading the DR bucket the box's role already reads and writing one object under `mirror-archives/`. It never sees request input. `npm audit`: no advisory names `archiver` or its tree |
+| **Verification** | 11 CI gate scripts 0 · lint 0 · tsc 0 · vitest (the builder test runs the real archiver on fake S3 streams and unzips the result with jszip, asserting every mirrored path is inside) · `next build` clean. The first real build runs on production after deploy, from the page, and is reported by the worker's `mirror-archive:build-done` line with file count, bytes and duration |
+| **Rollback** | Revert the commit and redeploy (the `MirrorArchive` table is additive and can stay), or the pinned image rollback in [ROLLBACK.md](ROLLBACK.md) |
+
+---
+
 ## DEP-004: `@aws-sdk/s3-request-presigner` added, for the backups page's download links
 
 | | |

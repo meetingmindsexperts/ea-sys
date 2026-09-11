@@ -4972,3 +4972,47 @@ model AttendanceRule {
   @@index([organizationId, startDate])
   @@index([employeeId])
 }
+
+// ==================== DR MIRROR ARCHIVE (/admin/backups) ====================
+
+enum MirrorArchiveStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  EXPIRED
+}
+
+/// One request to zip the whole Singapore uploads mirror into the DR bucket
+/// (Sep 11, 2026, owner request: "download all S3 mirror backups"). The row
+/// is the queue: /api/admin/backups/mirror-archive creates it PENDING, the
+/// `mirror-archive` worker job (every three minutes) claims it RUNNING, builds the zip, uploads it
+/// under mirror-archives/ and marks it DONE with the key; the page then mints
+/// a presigned link for it. DONE archives are deleted and marked EXPIRED
+/// after 7 days so the bucket does not accumulate a full copy per request.
+///
+/// OPERATOR-GLOBAL, deliberately no organizationId: the mirror is the whole
+/// silo's uploads, and only the platform operator may request or download an
+/// archive (the route is denyNonOperator-gated). Same class as JobRun and
+/// SystemLog. The requester is a scalar snapshot (no FK), the LoginEvent
+/// convention, so the row outlives the account.
+model MirrorArchive {
+  id               String              @id @default(cuid())
+  status           MirrorArchiveStatus @default(PENDING)
+  /// The mirrored prefix that was zipped. Always "uploads/" today.
+  prefix           String              @default("uploads/")
+  requestedById    String?
+  requestedByEmail String?
+  /// S3 key of the finished zip under mirror-archives/. Null until DONE.
+  key              String?
+  fileCount        Int?
+  /// Bytes of the zip. Int caps at ~2 GB; the mirror is 165 MB (Sep 2026).
+  sizeBytes        Int?
+  error            String?             @db.Text
+  createdAt        DateTime            @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}

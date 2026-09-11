@@ -123,9 +123,9 @@ describe("POST /api/admin/backups (download link)", () => {
     expect(mockPresign).not.toHaveBeenCalled();
   });
 
-  it("refuses anything that is not a dump under db/, before any AWS call and with no audit row", async () => {
+  it("refuses anything that is not a dump or a mirror archive, before any AWS call and with no audit row", async () => {
     mockAuth.mockResolvedValue(SUPER);
-    for (const key of ["env/2026-09-10.env", "db/../env/x", "", 42, undefined]) {
+    for (const key of ["env/2026-09-10.env", "db/../env/x", "mirror-archives/../db/x.dump", "uploads/media/x.jpg", "", 42, undefined]) {
       const res = await POST(postReq({ key }));
       expect(res.status, String(key)).toBe(400);
       expect((await res.json()).code).toBe("INVALID_KEY");
@@ -154,6 +154,17 @@ describe("POST /api/admin/backups (download link)", () => {
       }),
     );
     expect(logs.info).toHaveBeenCalledWith(expect.objectContaining({ key: "db/2026/09/10-05-mumbai.dump" }), "admin-backups:download-presigned");
+  });
+
+  it("presigns a finished mirror archive and records it as a MirrorArchive zip export", async () => {
+    mockAuth.mockResolvedValue(SUPER);
+    const res = await POST(postReq({ key: "mirror-archives/2026-09-11-req1.zip" }));
+    expect(res.status).toBe(200);
+    expect(mockPresign).toHaveBeenCalledWith("mirror-archives/2026-09-11-req1.zip");
+    expect(mockRecordExport).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ entityType: "MirrorArchive", format: "zip", filters: { key: "mirror-archives/2026-09-11-req1.zip" } }),
+    );
   });
 
   it("429 when the download budget is spent, with no link minted", async () => {
