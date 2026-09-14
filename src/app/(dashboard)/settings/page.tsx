@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRuntimeFlags } from "@/components/runtime-flags";
+import { ProcurementGrantsDialog, hasAnyGrant } from "@/components/settings/procurement-grants-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -59,6 +60,7 @@ import {
   UserX,
   UserCheck,
   LogOut,
+  Wallet,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -121,6 +123,11 @@ interface User {
   deactivatedAt?: string | null;
   /** Explicit per-person HR grant. Not implied by any role except SUPER_ADMIN. */
   hrAccess?: boolean;
+  /** The four Budget & Procurement grants (spec §4), SUPER_ADMIN-set. */
+  procurementRequest?: boolean;
+  procurementApproveCeilingAed?: number | null;
+  procurementApproveUnlimited?: boolean;
+  procurementSettle?: boolean;
   createdAt: string;
 }
 
@@ -163,7 +170,8 @@ const dateFormats = [
 ];
 
 export default function SettingsPage() {
-  const { hrEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled } = useRuntimeFlags();
+  const [grantUser, setGrantUser] = useState<User | null>(null);
   const { data: session, update: updateSession } = useSession();
   const qc = useQueryClient();
   const [organization, setOrganization] = useState<Organization | null>(null);
@@ -1087,6 +1095,9 @@ export default function SettingsPage() {
                     </DialogContent>
                   </Dialog>
                 )}
+                {procurementEnabled && (
+                  <ProcurementGrantsDialog user={grantUser} onClose={() => setGrantUser(null)} onSaved={fetchUsers} />
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -1182,6 +1193,19 @@ export default function SettingsPage() {
                                 <CalendarClock
                                   className={`h-4 w-4 ${user.hrAccess ? "text-teal-600" : "text-muted-foreground"}`}
                                 />
+                              </Button>
+                            )}
+                            {/* Procurement grants sit beside the HR grant for
+                                the same reason: a super admin decides who may
+                                approve money, per person, never by title. */}
+                            {isSuperAdmin && procurementEnabled && user.role !== "SUPER_ADMIN" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={hasAnyGrant(user) ? "Procurement grants (some set)" : "Procurement grants: request, approve up to a ceiling, settle"}
+                                onClick={() => setGrantUser(user)}
+                              >
+                                <Wallet className={`h-4 w-4 ${hasAnyGrant(user) ? "text-amber-600" : "text-muted-foreground"}`} />
                               </Button>
                             )}
                             {user.id !== session?.user?.id && (

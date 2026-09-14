@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/use-api";
+import { apiFetch } from "@/lib/api-fetch";
+import { useRuntimeFlags } from "@/components/runtime-flags";
 import { useParams, useRouter } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
@@ -221,8 +223,17 @@ import {
 
 export default function EventSettingsPage() {
   const params = useParams();
+  const { procurementEnabled } = useRuntimeFlags();
   const router = useRouter();
   const eventId = params.eventId as string;
+  // A budget is keyed on the event code, so the code is locked while one
+  // references it (the PUT refuses with EVENT_CODE_REFERENCED); the field says
+  // so up front instead of failing on Save. Read only when the module is on.
+  const { data: codeReferenced = false } = useQuery({
+    queryKey: ["procurement", "budgets", eventId, "all"],
+    queryFn: () => apiFetch<{ budgets: { id: string }[] }>(`/api/procurement/budgets?eventId=${eventId}`).then((r) => r.budgets.length > 0),
+    enabled: procurementEnabled && !!eventId,
+  });
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1126,9 +1137,12 @@ export default function EventSettingsPage() {
                     setGeneralFormData({ ...generalFormData, code: e.target.value.toUpperCase() })
                   }
                   maxLength={20}
+                  disabled={codeReferenced}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Used as prefix for invoice/receipt/quote numbers (e.g., HFC2026-INV-001)
+                  {codeReferenced
+                    ? "A budget references this code, so it cannot change. Discard the budget first if the code is wrong."
+                    : "Used as prefix for invoice/receipt/quote numbers (e.g., HFC2026-INV-001)"}
                 </p>
               </div>
 

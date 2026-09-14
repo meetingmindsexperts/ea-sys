@@ -41,6 +41,7 @@ const QUERY_FETCH_LAYERS = [
   "src/hooks/use-api.ts",
   "src/crm/hooks/use-crm-api.ts",
   "src/hr/hooks/use-hr-api.ts",
+  "src/procurement/hooks/use-procurement-api.ts",
   "src/app/(dashboard)/invoices/invoices-client.tsx",
 ] as const;
 

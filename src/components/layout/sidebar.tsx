@@ -43,12 +43,14 @@ import {
   Handshake,
   Lightbulb,
   CalendarClock,
+  Wallet,
   DatabaseBackup,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewCrm } from "@/crm/lib/crm-roles";
 import { canViewHr } from "@/lib/hr-visibility";
+import { canViewProcurement } from "@/lib/procurement-visibility";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
@@ -74,7 +76,7 @@ import {
 // entry (see crmOnlyNavigation below).
 const CRM_IN_SIDEBAR = true;
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; hrOnly?: boolean; external?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; hrOnly?: boolean; procurementOnly?: boolean; external?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
@@ -89,6 +91,9 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // would show an ADMIN on the platform instance a link that 404s, because the
   // module is master-silo only.
   { name: "HR",        href: "/hr",        icon: CalendarClock, hrOnly: true },
+  // Budget & Procurement: the deployment flag AND the same predicate the API
+  // guard asks (org staff read; a grant alone also reads), never a role list.
+  { name: "Budgets",   href: "/procurement", icon: Wallet, procurementOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
@@ -237,12 +242,13 @@ export function Sidebar() {
   const canCrm        = canViewCrm(session?.user?.role);
   // Read at request time on the server and handed down, because a NEXT_PUBLIC_
   // constant is baked at build and master and the platform share one image.
-  const { hrEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled } = useRuntimeFlags();
   // Asks the SAME predicate the API guard asks, rather than a hand-written copy
   // of the role list. The copy is how a nav entry ends up disagreeing with the
   // server about who is allowed in, which is precisely what happened here: this
   // line said ADMIN and the rule no longer does.
   const canHr         = hrEnabled && canViewHr(session?.user);
+  const canProcurement = procurementEnabled && canViewProcurement(session?.user);
   const isHrUser      = session?.user?.role === "HR_USER";
 
   // Fetch all orgs for SUPER_ADMIN switcher
@@ -322,6 +328,7 @@ export function Sidebar() {
           if (item.financeOnly && !canFinance) return false;
           if (item.crmOnly && (!canCrm || !CRM_IN_SIDEBAR)) return false;
           if (item.hrOnly && !canHr) return false;
+          if (item.procurementOnly && !canProcurement) return false;
           return true;
         });
 
