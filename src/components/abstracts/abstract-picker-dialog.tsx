@@ -179,7 +179,9 @@ export function AbstractPickerDialog({
               }}
               placeholder={"A-007\n12\nauthor@example.com"}
               rows={3}
-              className="font-mono text-sm"
+              // field-sizing-content grows with every pasted line; cap it so a long
+              // column scrolls inside the box instead of pushing the list away.
+              className="max-h-40 overflow-y-auto font-mono text-sm"
             />
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">

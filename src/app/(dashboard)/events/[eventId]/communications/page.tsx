@@ -1063,7 +1063,7 @@ export default function CommunicationsPage() {
       {/* Bulk Email Dialog */}
       {/* Select by IDs — paste a list, email exactly those registrations */}
       <Dialog open={selectByIdsOpen} onOpenChange={(o) => { setSelectByIdsOpen(o); if (!o) setMatchResult(null); }}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ListChecks className="h-5 w-5" />
@@ -1083,7 +1083,10 @@ export default function CommunicationsPage() {
                 onChange={(e) => { setPasteIds(e.target.value); setMatchResult(null); }}
                 placeholder={"002\n005\njane@example.com"}
                 rows={7}
-                className="font-mono text-sm"
+                // The shared Textarea grows with its content (field-sizing-content),
+                // so rows alone is not a ceiling: a pasted column of 35+ ids pushed
+                // the Match / Email buttons off the screen. Cap it and scroll inside.
+                className="max-h-60 overflow-y-auto font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
