@@ -64,6 +64,7 @@ import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bu
 import { ABSTRACT_PICKER_FETCH_LIMIT, abstractStatusLabel, type AbstractPickerOption } from "@/lib/bulk-email-abstract-picker";
 import { AbstractPickerDialog, type AbstractSelection } from "@/components/abstracts/abstract-picker-dialog";
 import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
+import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -385,9 +386,10 @@ export default function CommunicationsPage() {
   const [abstractSelection, setAbstractSelection] = useState<AbstractSelection>({ ids: [], status: "all" });
 
   // Computed counts
-  const paidRegistrations = registrations.filter(
-    (r) => r.paymentStatus === "PAID" || r.paymentStatus === "COMPLIMENTARY"
-  );
+  // Paid = money collected only; complimentary and sponsor-paid are named
+  // on the tile, not counted in it (organiser report on OOPVF2026).
+  const paymentSummary = summarizePaymentStatuses(registrations);
+  const paidNote = paidCardNote(paymentSummary);
   const unpaidRegistrations = registrations.filter(
     (r) => r.paymentStatus === "UNPAID"
   );
@@ -692,8 +694,8 @@ export default function CommunicationsPage() {
                 <CreditCard className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{paidRegistrations.length}</p>
-                <p className="text-xs text-muted-foreground">Paid</p>
+                <p className="text-2xl font-bold">{paymentSummary.paid}</p>
+                <p className="text-xs text-muted-foreground">{paidNote ? `Paid · ${paidNote}` : "Paid"}</p>
               </div>
             </div>
           </CardContent>

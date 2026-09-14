@@ -92,6 +92,7 @@ import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
 import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
 /**
  * Radix `SelectItem` rejects value="" (it reserves the empty string for the
@@ -391,8 +392,12 @@ export default function RegistrationsPage() {
     confirmed: registrations.filter((r) => r.status === "CONFIRMED").length,
     pending: registrations.filter((r) => r.status === "PENDING").length,
     checkedIn: registrations.filter((r) => r.status === "CHECKED_IN").length,
-    paid: registrations.filter((r) => r.paymentStatus === "PAID" || r.paymentStatus === "COMPLIMENTARY").length,
+    // Paid = money collected only. Complimentary and sponsor-paid rows are
+    // named under the number, never counted in it (organiser report on
+    // OOPVF2026: 123 complimentary delegates read as "Paid 123").
+    ...summarizePaymentStatuses(registrations),
   };
+  const paidNote = paidCardNote(stats);
 
   // Selection helpers
   const allOnPageSelected = paginatedRegistrations.length > 0 && paginatedRegistrations.every((r) => selectedIds.has(r.id));
@@ -663,6 +668,9 @@ export default function RegistrationsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">{stats.paid}</div>
+            {paidNote && (
+              <p className="mt-1 text-xs text-muted-foreground">{paidNote}</p>
+            )}
           </CardContent>
         </Card>
       </div>
