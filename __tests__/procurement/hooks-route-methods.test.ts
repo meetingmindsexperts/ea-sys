@@ -1,6 +1,6 @@
 /**
- * Every `send(url, method)` in the module's hooks must name a method the
- * matching route file actually exports. Found the hard way on Sep 14, 2026:
+ * Every `send(url, method)` and every `get(url)` in the module's hooks must
+ * name a method the matching route file actually exports. Found the hard way on Sep 14, 2026:
  * the line-edit hook sent PUT to a route that exports PATCH, a 405 no unit
  * test could see because the hooks and the routes are tested apart.
  */
@@ -18,12 +18,17 @@ function sendCalls(): { url: string; method: string }[] {
   for (const m of HOOKS.matchAll(plain)) calls.push({ url: m[1], method: m[2] });
   const ternary = /send<[^>]*>\(\s*\w+\s*\?\s*`([^`]+)`\s*:\s*`([^`]+)`\s*,\s*\w+\s*\?\s*"(GET|POST|PATCH|PUT|DELETE)"\s*:\s*"(GET|POST|PATCH|PUT|DELETE)"/g;
   for (const m of HOOKS.matchAll(ternary)) calls.push({ url: m[1], method: m[3] }, { url: m[2], method: m[4] });
+  const reads = /get<[^>]*>\(\s*[`"]([^`"]+)[`"]/g;
+  for (const m of HOOKS.matchAll(reads)) calls.push({ url: m[1], method: "GET" });
   return calls;
 }
 
 /** `/api/procurement/budgets/${budgetId}/lines/${lineId}` -> src/app/api/procurement/budgets/[budgetId]/lines/[lineId]/route.ts */
 function routeFileFor(url: string): string {
-  const segments = url.replace(/\?.*$/, "").split("/").filter(Boolean).map((s) => s.replace(/^\$\{(\w+)\}$/, "[$1]"));
+  // A query string, and a nested template a read builds its query with
+  // (`/budgets${q ? `?${q}` : ""}` captures up to the inner backtick), are
+  // not path segments.
+  const segments = url.replace(/\?.*$/, "").replace(/\$\{[^}]*$/, "").split("/").filter(Boolean).map((s) => s.replace(/^\$\{(\w+)\}$/, "[$1]"));
   return path.join(ROOT, "src/app", ...segments, "route.ts");
 }
 

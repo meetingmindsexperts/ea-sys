@@ -39,6 +39,7 @@ import {
   type BudgetRow,
 } from "@/procurement/hooks/use-procurement-api";
 import { BRAND_LABEL, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
+import { BudgetActivityCard } from "@/procurement/components/budget-activity-card";
 import { BudgetLinesTable, lineCategories, type LinesMode } from "./budget-lines-table";
 import { DecideDialog, HeaderDialog, ReallocateDialog, ReasonDialog, SubmitDialog } from "./budget-dialogs";
 import { Button } from "@/components/ui/button";
@@ -178,6 +179,7 @@ export default function BudgetEditorPage() {
             <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Signed off</span><div>{fmtWhen(b.signedOffAt)}</div></div>
             {b.notes && <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Notes</span><div className="whitespace-pre-line">{b.notes}</div></div>}
           </div>
+          <BudgetActivityCard budgetId={b.id} />
         </div>
 
         <aside className="space-y-2 lg:sticky lg:top-4 lg:self-start">

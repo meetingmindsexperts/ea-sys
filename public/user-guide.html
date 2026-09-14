@@ -2878,6 +2878,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <ul>
         <li><b>New budget</b> on the Budgets page starts from a <b>template</b>: one blank line per category. Pick the event, the reporting currency, the contingency percent and the expected attendance.</li>
         <li>On the budget page, click the <b>pencil</b> on a line to set its description, quantity, unit cost and tax rate. Planned is quantity times unit cost, before VAT. <b>Add a line</b> adds one under any category; the bin icon removes one.</li>
+        <li>The <b>Catalogue item</b> box on the line form picks a product from the MME products list (203 cost items, each with its accounting SKU): it fills the description and the category, and both stay editable. The SKU then shows beside the line and travels with it for the accounting mapping. Admins keep the list under <b>Products</b> on the Budgets page: add an item, rename it, move it to another category, or archive it so it leaves the picker without touching the lines that used it.</li>
         <li>A line can be in a <b>different currency</b> from the budget (a USD hotel on an AED budget). Give it the exchange rate and the planned figure is converted at that rate.</li>
         <li>The <b>category chips</b> above the table show where you stand: green has a line, amber has nothing yet, grey is marked <b>not applicable</b>. Click a chip to mark a category not applicable when your event simply has no such cost. Every category must be one or the other before you can submit.</li>
         <li><b>Edit details</b> changes the contingency percent, the expected attendance, the brand and the notes. The reporting currency is fixed once the budget has lines.</li>
@@ -2937,7 +2938,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       supplier bill), an <b>admin</b> can <b>Reopen</b> it with a reason, fix the figures, and close it
       again. The variance notes are kept, so a second close does not ask for them twice.</p>
 
-      <h3>In one table</h3>
+      <h3>The activity log</h3>
+<p>At the bottom of every budget page sits <strong>Activity</strong>: who did what and when, in plain words, newest first. It records the budget being created, each line added, edited or removed, the submission and who it was routed to, the approval or rejection with its note, every move between lines and whether it stayed within the owner's ten percent or was approved, a freeze and its unfreeze with the reason, the close-out with the actual total and the attendance, the sign-off, a reopening with its reason, and a withdrawal or discard. Nothing in it is typed by hand: the system writes each entry at the moment the action happens, so when two people remember an approval differently, this is the record to read. The card shows the latest two hundred entries.</p>
+<h3>In one table</h3>
       <table>
         <thead><tr><th>Word</th><th>Meaning</th><th>Who</th></tr></thead>
         <tbody>

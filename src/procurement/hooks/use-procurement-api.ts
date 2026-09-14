@@ -12,6 +12,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { BudgetActivityItem } from "@/procurement/lib/budget-activity";
 import { ApiError, apiFetch } from "@/lib/api-fetch";
 
 export type BudgetStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "FROZEN" | "CLOSED" | "ARCHIVED";
@@ -29,6 +30,8 @@ export const BUDGET_STATUS_LABEL: Record<BudgetStatus, string> = {
 export interface BudgetLineRow {
   id: string;
   lineKey: string;
+  productId: string | null;
+  product: { id: string; sku: string; name: string } | null;
   categoryId: string;
   category: { id: string; code: string; name: string; depth: number };
   description: string;
@@ -120,6 +123,16 @@ export interface ApprovalRequestRow {
   steps: ApprovalStepRow[];
 }
 
+export interface BudgetProductRow {
+  id: string;
+  sku: string;
+  name: string;
+  categoryId: string;
+  isActive: boolean;
+  sortOrder: number;
+  category: { id: string; code: string; name: string };
+}
+
 export interface BudgetCategoryRow {
   id: string;
   code: string;
@@ -165,8 +178,11 @@ export async function send<T>(url: string, method: string, body?: unknown, fallb
 export const procurementKeys = {
   budgets: (eventId?: string, status?: string) => ["procurement", "budgets", eventId ?? "all", status ?? "all"] as const,
   budget: (budgetId: string) => ["procurement", "budget", budgetId] as const,
+  /** Under the budget key on purpose: every budget mutation's invalidation refreshes the log too. */
+  budgetActivity: (budgetId: string) => ["procurement", "budget", budgetId, "activity"] as const,
   approvals: (scope: "inbox" | "mine") => ["procurement", "approvals", scope] as const,
   categories: () => ["procurement", "categories"] as const,
+  products: () => ["procurement", "products"] as const,
   templates: () => ["procurement", "templates"] as const,
 };
 
@@ -186,6 +202,39 @@ export function useBudget(budgetId: string | null) {
     queryKey: procurementKeys.budget(budgetId ?? "none"),
     queryFn: () => get<{ budget: BudgetRow }>(`/api/procurement/budgets/${budgetId}`).then((r) => r.budget),
     enabled: !!budgetId,
+  });
+}
+
+export function useBudgetActivity(budgetId: string | null) {
+  return useQuery({
+    queryKey: procurementKeys.budgetActivity(budgetId ?? "none"),
+    queryFn: () => get<{ items: BudgetActivityItem[]; truncated: boolean }>(`/api/procurement/budgets/${budgetId}/activity`),
+    enabled: !!budgetId,
+  });
+}
+
+export function useBudgetProducts() {
+  return useQuery({
+    queryKey: procurementKeys.products(),
+    queryFn: () => get<{ products: BudgetProductRow[] }>("/api/procurement/products").then((r) => r.products),
+  });
+}
+
+export function useCreateBudgetProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { sku: string; name: string; categoryId: string }) =>
+      send<{ product: BudgetProductRow }>("/api/procurement/products", "POST", input, "Couldn't create the product").then((r) => r.product),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: procurementKeys.products() }),
+  });
+}
+
+export function useUpdateBudgetProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productId, ...input }: { productId: string; name?: string; categoryId?: string; isActive?: boolean }) =>
+      send<{ product: BudgetProductRow }>(`/api/procurement/products/${productId}`, "PATCH", input, "Couldn't save the product").then((r) => r.product),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: procurementKeys.products() }),
   });
 }
 
