@@ -13,23 +13,25 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useEvents } from "@/hooks/use-api";
 import { canAuthorBudgets } from "@/lib/procurement-visibility";
+import Link from "next/link";
 import {
   BUDGET_STATUS_LABEL,
   BUDGET_STATUS_ORDER,
+  useApprovals,
   useBudgets,
   useBudgetTemplates,
   useCreateBudget,
   type BudgetRow,
   type BudgetStatus,
 } from "@/procurement/hooks/use-procurement-api";
-import { Badge } from "@/components/ui/badge";
+import { ErrorState, LoadingState, StatusBadge, money2 } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Plus, TriangleAlert, Wallet } from "lucide-react";
+import { Inbox, Loader2, Plus, TriangleAlert, Wallet } from "lucide-react";
 
 const CURRENCIES = ["AED", "USD", "EUR", "GBP", "SAR"] as const;
 const BRANDS: { value: string; label: string }[] = [
@@ -37,27 +39,6 @@ const BRANDS: { value: string; label: string }[] = [
   { value: "MEDCOM", label: "MedCom" },
   { value: "MEDULIVE", label: "MedULive" },
 ];
-
-const STATUS_CLASS: Record<BudgetStatus, string> = {
-  DRAFT: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
-  UNDER_REVIEW: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
-  APPROVED: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
-  ACTIVE: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
-  FROZEN: "bg-cyan-100 text-cyan-900 dark:bg-cyan-900 dark:text-cyan-100",
-  CLOSED: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
-  ARCHIVED: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-};
-
-export function StatusBadge({ status }: { status: BudgetStatus }) {
-  return <Badge className={STATUS_CLASS[status]} variant="secondary">{BUDGET_STATUS_LABEL[status]}</Badge>;
-}
-
-/** 4-dp stored strings shown at 2 dp with thousands separators; the total is the only place display rounding happens (spec §7). */
-export function money2(v: string | null | undefined): string {
-  if (v === null || v === undefined || v === "") return "–";
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "–";
-}
 
 const EMPTY_FORM = { eventId: "", templateId: "", reportingCurrency: "AED", contingencyPercent: "10", expectedAttendance: "", brand: "" };
 
@@ -69,6 +50,7 @@ export default function ProcurementBudgetsPage() {
   const { data: budgets = [], isLoading, isError, error } = useBudgets(statusFilter === "all" ? {} : { status: statusFilter });
   const { data: events = [] } = useEvents();
   const { data: templates = [] } = useBudgetTemplates();
+  const { data: inbox = [] } = useApprovals("inbox");
   const create = useCreateBudget();
 
   const [creating, setCreating] = useState(false);
@@ -130,23 +112,8 @@ export default function ProcurementBudgetsPage() {
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="mt-20 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        Loading budgets…
-      </div>
-    );
-  }
-  if (isError) {
-    return (
-      <div className="mx-auto mt-20 max-w-md rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
-        <TriangleAlert className="mx-auto mb-3 h-8 w-8 text-amber-700" />
-        <h2 className="font-semibold text-amber-900">Couldn&apos;t load the budgets</h2>
-        <p className="mt-2 text-sm text-amber-800">{(error as Error)?.message ?? "The module may not be switched on for this deployment."}</p>
-      </div>
-    );
-  }
+  if (isLoading) return <LoadingState label="Loading budgets…" />;
+  if (isError) return <ErrorState title="Couldn't load the budgets" message={(error as Error)?.message ?? "The module may not be switched on for this deployment."} />;
 
   return (
     <div className="space-y-5">
@@ -161,6 +128,13 @@ export default function ProcurementBudgetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/procurement/approvals">
+              <Inbox className="h-4 w-4" />
+              Approvals
+              {inbox.length > 0 && <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">{inbox.length}</span>}
+            </Link>
+          </Button>
           {canAuthor && (
             <Button onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" />

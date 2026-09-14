@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { BookOpen, ExternalLink, HelpCircle, Send, Trash2 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useRuntimeFlags } from "@/components/runtime-flags";
 import { cn } from "@/lib/utils";
 import { useHelpChat, type ChatMessage } from "./use-help-chat";
 
@@ -101,13 +102,18 @@ const STARTERS_BY_ROLE: Record<string, string[]> = {
   ],
 };
 
-function startersFor(role: string | null | undefined): string[] {
-  if (role && STARTERS_BY_ROLE[role]) return STARTERS_BY_ROLE[role];
-  return STARTERS_BY_ROLE.ADMIN;
+/** Budgets & Procurement is a flagged module: its starter appears only where the module is on and the role can read it. */
+const PROCUREMENT_STARTER = "What is a budget close-out, and what does freeze mean?";
+const PROCUREMENT_STARTER_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]);
+
+function startersFor(role: string | null | undefined, procurementEnabled: boolean): string[] {
+  const base = role && STARTERS_BY_ROLE[role] ? STARTERS_BY_ROLE[role] : STARTERS_BY_ROLE.ADMIN;
+  return procurementEnabled && role && PROCUREMENT_STARTER_ROLES.has(role) ? [...base, PROCUREMENT_STARTER] : base;
 }
 
 export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
   const { data: session } = useSession();
+  const { procurementEnabled } = useRuntimeFlags();
   const userId = session?.user?.id;
   const role = session?.user?.role ?? null;
 
@@ -220,7 +226,7 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
                 Try one of these, or type your own question below.
               </p>
               <div className="w-full space-y-2">
-                {startersFor(role).map((q) => (
+                {startersFor(role, procurementEnabled).map((q) => (
                   <button
                     key={q}
                     type="button"

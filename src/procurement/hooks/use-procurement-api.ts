@@ -83,6 +83,7 @@ export interface BudgetRow {
   notes: string | null;
   /** The optimistic-lock counter every header write must echo. */
   version: number;
+  event: { id: string; name: string; slug: string; startDate: string; endDate: string; eventType: string } | null;
   lines?: BudgetLineRow[];
 }
 
@@ -114,6 +115,8 @@ export interface ApprovalRequestRow {
   decidedAt: string | null;
   createdAt: string;
   budget: { id: string; eventCode: string; versionNo: number; status: BudgetStatus; reportingCurrency: string; event: { name: string } | null } | null;
+  /** A reallocation's move with the two lines named, so the inbox reads without opening the budget. */
+  move: { fromLineKey: string; toLineKey: string; amount: string; fromDescription: string | null; toDescription: string | null } | null;
   steps: ApprovalStepRow[];
 }
 
@@ -250,7 +253,7 @@ export function useUpsertBudgetLine(budgetId: string) {
   const invalidate = useBudgetInvalidation();
   return useMutation({
     mutationFn: ({ lineId, ...input }: Record<string, unknown> & { lineId?: string }) =>
-      send<{ budget: BudgetRow }>(lineId ? `/api/procurement/budgets/${budgetId}/lines/${lineId}` : `/api/procurement/budgets/${budgetId}/lines`, lineId ? "PUT" : "POST", input, "Couldn't save the line").then((r) => r.budget),
+      send<{ budget: BudgetRow }>(lineId ? `/api/procurement/budgets/${budgetId}/lines/${lineId}` : `/api/procurement/budgets/${budgetId}/lines`, lineId ? "PATCH" : "POST", input, "Couldn't save the line").then((r) => r.budget),
     onSuccess: () => invalidate(budgetId),
   });
 }

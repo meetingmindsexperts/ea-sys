@@ -328,6 +328,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <a class="nav-a" href="#s20"><span class="nav-n">20</span>Where is my email?</a>
     <div class="nav-lbl">Internal</div>
     <a class="nav-a" href="#s21"><span class="nav-n">21</span>HR &mdash; Attendance &amp; Leave</a>
+    <a class="nav-a" href="#s22"><span class="nav-n">22</span>Budgets &amp; Procurement</a>
     <a class="nav-a" href="#img-ref"><span class="nav-n">&#x1F5BC;</span>Screenshot Index</a>
     <a class="nav-a" href="#platform-scale"><span class="nav-n">&#9881;</span>Platform Scale</a>
   </nav>
@@ -2830,6 +2831,133 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       in. The change takes effect on their next click, with no need to sign out.</p>
       <p>Sick-leave records are personal data about colleagues; treat exports the same way you
       would treat a payslip.</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- BUDGETS & PROCUREMENT -->
+    <div class="section" id="s22">
+      <div class="sec-hd"><div class="sec-num">22</div><div class="sec-meta">
+        <div class="sec-title">Budgets &amp; Procurement</div>
+        <div class="sec-desc">Planning what an event will cost, getting the plan approved, and closing the books afterwards.</div>
+        <span class="sec-badge b-ops">Internal</span>
+      </div></div>
+
+      <p>Find it at <b>Budgets</b> in the sidebar. If you do not see that entry, the module is not
+      switched on for your organisation yet, or your account cannot read it: ask a super-admin.
+      Org staff can <b>read</b> every budget. Only some people can <b>author</b> one (organisers and
+      above), <b>approve</b> one (a person given an approval ceiling), or <b>sign off</b> a closed one
+      (a person given the settle grant). Those three are granted one person at a time under
+      <b>Settings &rsaquo; Users</b>, by a super-admin.</p>
+
+      <h3>What a budget is here</h3>
+      <p>A budget belongs to <b>one event</b> (the event needs a code first, set under the event&rsquo;s
+      Settings). It is a list of <b>lines</b>: one per thing you expect to pay for, each under a
+      <b>category</b> (Venue, Food &amp; Beverage, AV, Travel, and so on). Every line carries four numbers:
+      <b>planned</b> (what you expect to spend, before VAT), <b>committed</b> (what has been ordered),
+      <b>actual</b> (what has been invoiced) and <b>paid</b>. In this first release only planned is yours to
+      type; the other three arrive later, from purchase orders and invoices.</p>
+      <p>Two more figures sit above the lines. <b>Contingency</b> is a percentage of the planned total,
+      kept outside it, for the surprises; you set the percent and the amount follows. <b>Forecast</b> is
+      what each line will most likely end up costing; it defaults to the plan and you can override it
+      with a reason once the budget is active.</p>
+
+      <h3>The life of a budget</h3>
+      <p>A budget moves through a small number of states, and the buttons on the right of its page
+      change with the state:</p>
+      <ol>
+        <li><b>Draft</b>: the author fills the lines. Nothing is fixed yet.</li>
+        <li><b>Under review</b>: the author has submitted it and an approver has it in their inbox. The plan is locked while they decide.</li>
+        <li><b>Active</b>: approved. This is the plan the event runs on. Amounts can still move between lines within limits (below).</li>
+        <li><b>Frozen</b>: an author has locked the plan, usually close to the event. Nothing moves until an admin unfreezes it.</li>
+        <li><b>Closed</b>: the event is over and the books are done. A closed budget is read-only.</li>
+        <li><b>Archived</b>: a newer version was approved and replaced this one. Kept for the record.</li>
+      </ol>
+
+      <h3>Filling a draft</h3>
+      <ul>
+        <li><b>New budget</b> on the Budgets page starts from a <b>template</b>: one blank line per category. Pick the event, the reporting currency, the contingency percent and the expected attendance.</li>
+        <li>On the budget page, click the <b>pencil</b> on a line to set its description, quantity, unit cost and tax rate. Planned is quantity times unit cost, before VAT. <b>Add a line</b> adds one under any category; the bin icon removes one.</li>
+        <li>A line can be in a <b>different currency</b> from the budget (a USD hotel on an AED budget). Give it the exchange rate and the planned figure is converted at that rate.</li>
+        <li>The <b>category chips</b> above the table show where you stand: green has a line, amber has nothing yet, grey is marked <b>not applicable</b>. Click a chip to mark a category not applicable when your event simply has no such cost. Every category must be one or the other before you can submit.</li>
+        <li><b>Edit details</b> changes the contingency percent, the expected attendance, the brand and the notes. The reporting currency is fixed once the budget has lines.</li>
+        <li><b>Discard draft</b> deletes a draft you will not pursue. Nothing else is affected.</li>
+      </ul>
+
+      <h3>Submitting, and the Approvals inbox</h3>
+      <p><b>Submit for approval</b> checks the draft is complete (every category has a line or is marked not
+      applicable, contingency and attendance are set) and lists anything missing. Once submitted, the
+      right person finds it under <b>Budgets &rsaquo; Approvals</b>, in <b>Waiting on me</b>. Who that is
+      depends on the amount: each approver has a <b>ceiling in AED</b>, and the request goes to the
+      lowest ceiling that covers the total. A person can never approve something they raised themselves.</p>
+      <p>The approver clicks <b>Approve</b> or <b>Reject</b>, with an optional note the author will see.
+      Approving makes the budget <b>Active</b>; rejecting sends it back to <b>Draft</b> with the note. The
+      author can also <b>Withdraw</b> a submitted budget. Everyone sees their own requests, and what was
+      decided, under <b>My requests</b>. Decisions are taken on that page, never from an email.</p>
+
+      <h3>Move an amount between lines</h3>
+      <p>Plans change: the catering quote comes in high and the hall gives a discount. On an <b>active</b>
+      budget, <b>Move an amount</b> takes a planned amount from one line and gives it to another, with a
+      reason. The <b>10% rule</b> decides who signs it: you may move up to <b>10% of a line&rsquo;s approved
+      amount</b> out of that line on your own authority (added up over the whole version), and the move
+      applies at once. Anything beyond 10% becomes an <b>approval request</b>, exactly like a submission,
+      and applies when it is approved. The dialog tells you which of the two it will be before you click.
+      Contingency never takes part: raise the percent instead.</p>
+
+      <h3>Versions, and comparing them</h3>
+      <p>A big revision (a second day added, a venue change) is a <b>new version</b>, not a series of
+      moves. <b>New version</b> on an active budget creates a <b>draft copy</b> with every line and figure;
+      you edit the copy and submit it like any draft. The current version stays active until the new one
+      is approved, and is then <b>archived</b>. Only one draft or submitted version can exist at a time.</p>
+      <p><b>Compare versions</b> puts any two versions of the same event side by side, line by line, with
+      the difference in planned amount per line and per total, and marks what was added, removed or
+      changed. Lines keep their identity across versions, so a renamed line still lines up with itself.</p>
+
+      <h3>Freeze and unfreeze</h3>
+      <p><b>Freeze</b> locks the plan of an active budget: no more moves between lines, no new lines. Use
+      it when the numbers are agreed and the event is close. Forecasts and notes still move, and a
+      frozen budget can still be closed. Only an <b>admin</b> can <b>Unfreeze</b> it, and must say why;
+      the reason is kept on the trail.</p>
+
+      <h3>Forecasts</h3>
+      <p>On an active or frozen budget, the pencil on a line sets a <b>forecast override</b> with a
+      reason: your best estimate of the final cost when it will differ from the plan. The budget shows
+      <b>at risk</b> when the forecast exceeds planned plus contingency.</p>
+
+      <h3>Close-out</h3>
+      <p>After the event, the author opens <b>Close out</b>. The page lists every line with planned,
+      actual and the <b>variance</b> between them. Any line that is out by more than <b>10% or AED 5,000</b>
+      (whichever is larger) needs a written <b>variance note</b> saying why; the page highlights them and
+      the close refuses until each has one. <b>Save notes</b> keeps what you have written without closing;
+      <b>Close the budget</b> closes it. Closing records the checked-in attendance, writes the summary
+      by category, and stores the archive row that cross-event reports read. Once closed the budget is
+      read-only.</p>
+      <p>Then two more steps: the person with the <b>settle grant</b> reviews the summary and clicks
+      <b>Sign off</b>, which confirms the books are settled; and if something turns up afterwards (a late
+      supplier bill), an <b>admin</b> can <b>Reopen</b> it with a reason, fix the figures, and close it
+      again. The variance notes are kept, so a second close does not ask for them twice.</p>
+
+      <h3>In one table</h3>
+      <table>
+        <thead><tr><th>Word</th><th>Meaning</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td>Line</td><td>One expected cost under a category, with its planned amount.</td><td>Author</td></tr>
+          <tr><td>Not applicable</td><td>A category your event has no cost in; marked so it does not block submission.</td><td>Author</td></tr>
+          <tr><td>Contingency</td><td>A percentage of the planned total held aside for surprises.</td><td>Author sets the percent</td></tr>
+          <tr><td>Submit</td><td>Send the draft for approval; the plan locks while it is decided.</td><td>Author</td></tr>
+          <tr><td>Approve / Reject</td><td>Decide a submission or an over-10% move, in the Approvals inbox.</td><td>A person with an approval ceiling</td></tr>
+          <tr><td>Move an amount</td><td>Take planned money from one line and give it to another. Up to 10% is yours; beyond that it routes for approval.</td><td>Author</td></tr>
+          <tr><td>New version</td><td>A draft copy of the active budget for a bigger revision; replaces the old one when approved.</td><td>Author</td></tr>
+          <tr><td>Compare versions</td><td>Two versions side by side with the differences.</td><td>Anyone who can read</td></tr>
+          <tr><td>Freeze / Unfreeze</td><td>Lock the plan; only an admin unlocks it, with a reason.</td><td>Author / Admin</td></tr>
+          <tr><td>Forecast override</td><td>Your estimate of a line&rsquo;s final cost, with a reason.</td><td>Author</td></tr>
+          <tr><td>Close-out</td><td>Compare planned with actual, explain the big differences, close the books.</td><td>Author</td></tr>
+          <tr><td>Sign off</td><td>Confirm a closed budget is settled.</td><td>Settle grant</td></tr>
+          <tr><td>Reopen</td><td>Undo a close-out to correct it, with a reason.</td><td>Admin</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Why so many steps?</div><div class="c-text">Each state change is recorded with who did it, when, and why. That trail is what lets finance reconcile the event afterwards without asking anyone, and it is why a reason is required to unfreeze or reopen, and why nobody can approve their own request.</div></div></div>
     </div>
 
     <div class="divider"></div>

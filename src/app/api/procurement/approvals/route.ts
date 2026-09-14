@@ -9,6 +9,13 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { guardedRead, procurementGuard } from "@/procurement/lib/route-helpers";
 
+type Move = { fromLineKey: string; toLineKey: string; amount: string };
+/** The move a reallocation request carries (written by reallocateBudget); anything else reads as no move. */
+function readMove(payload: unknown): Move | null {
+  const p = payload as Partial<Move> | null;
+  return p && typeof p.fromLineKey === "string" && typeof p.toLineKey === "string" && typeof p.amount === "string" ? { fromLineKey: p.fromLineKey, toLineKey: p.toLineKey, amount: p.amount } : null;
+}
+
 export async function GET(req: NextRequest) {
   const g = await procurementGuard({ route: "procurement/approvals", need: "view" });
   if (!g.ok) return g.response;
@@ -36,16 +43,32 @@ export async function GET(req: NextRequest) {
     const users = userIds.length ? await db.user.findMany({ where: { id: { in: userIds }, organizationId: g.orgId }, select: { id: true, firstName: true, lastName: true } }) : [];
     const byBudget = new Map(budgets.map((b) => [b.id, b]));
     const byUser = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+    // A reallocation names its two lines by key; the inbox should read the
+    // lines' words, not their keys, so the descriptions ride along.
+    const moves = requests.flatMap((r) => (r.subjectType === "BUDGET_REALLOCATION" ? [readMove(r.payload)].filter((m): m is Move => m !== null).map((m) => ({ budgetId: r.subjectId, ...m })) : []));
+    const lineRows = moves.length
+      ? await db.budgetLine.findMany({
+          where: { organizationId: g.orgId, OR: moves.flatMap((m) => [{ budgetId: m.budgetId, lineKey: m.fromLineKey }, { budgetId: m.budgetId, lineKey: m.toLineKey }]) },
+          select: { budgetId: true, lineKey: true, description: true },
+        })
+      : [];
+    const lineDescription = new Map(lineRows.map((l) => [`${l.budgetId}:${l.lineKey}`, l.description]));
     return NextResponse.json({
       scope,
-      requests: requests.map((r) => ({
-        ...r,
-        amountAed: r.amountAed.toString(),
-        amount: r.amount?.toString() ?? null,
-        requesterName: byUser.get(r.requesterUserId) ?? null,
-        budget: byBudget.get(r.subjectId) ?? null,
-        steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null })),
-      })),
+      requests: requests.map((r) => {
+        const move = r.subjectType === "BUDGET_REALLOCATION" ? readMove(r.payload) : null;
+        return {
+          ...r,
+          amountAed: r.amountAed.toString(),
+          amount: r.amount?.toString() ?? null,
+          requesterName: byUser.get(r.requesterUserId) ?? null,
+          budget: byBudget.get(r.subjectId) ?? null,
+          move: move
+            ? { ...move, fromDescription: lineDescription.get(`${r.subjectId}:${move.fromLineKey}`) ?? null, toDescription: lineDescription.get(`${r.subjectId}:${move.toLineKey}`) ?? null }
+            : null,
+          steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null })),
+        };
+      }),
     });
   }));
 }
