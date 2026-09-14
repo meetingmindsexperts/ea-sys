@@ -7,8 +7,9 @@
  * ("kiosk") behave the same.
  */
 import { useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Package, X } from "lucide-react";
+import { Check, ChevronDown, Package, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import type { BudgetProductRow } from "@/procurement/hooks/use-procurement-api";
@@ -42,12 +43,26 @@ export function ProductPicker({ products, loading, value, onPick, onClear }: {
     <div className="flex gap-2">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="outline" role="combobox" aria-expanded={open} className="h-9 w-full justify-between font-normal" disabled={loading}>
+          {/* The empty state is styled as an action (accent border and text, a
+              search icon, a down chevron) so it reads as "click me" rather
+              than as an empty field; once a product is picked it settles back
+              to a plain value row. */}
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            title="Search the catalogue by SKU or name"
+            className={cn(
+              "h-9 w-full justify-between font-normal",
+              !current && !loading && "border-primary/50 text-primary hover:border-primary hover:bg-primary/5 hover:text-primary",
+            )}
+            disabled={loading}
+          >
             <span className="flex min-w-0 items-center gap-2">
-              <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{current ? `${current.sku} · ${current.name}` : loading ? "Loading the catalogue" : "Pick from the catalogue (optional)"}</span>
+              {current ? <Package className="h-4 w-4 shrink-0 text-muted-foreground" /> : <Search className="h-4 w-4 shrink-0" />}
+              <span className="truncate">{current ? `${current.sku} · ${current.name}` : loading ? "Loading the catalogue" : "Pick from the catalogue"}</span>
             </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[20rem] p-0" align="start">
