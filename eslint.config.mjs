@@ -138,6 +138,51 @@ const eslintConfig = defineConfig([
   },
 
   // Same rule for the worker tier: only the HR job shim may reach into src/hr/.
+  // Budget & Procurement module: the same one-way boundary (src/procurement/ ->
+  // core only). docs/BUDGET_PROCUREMENT_BUILD_PLAN.md §4.1.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/procurement/**",
+      "src/app/api/procurement/**",
+      "src/app/(dashboard)/procurement/**",
+      // Permitted core-side touch points, deliberately short.
+      "src/lib/agent/mcp-server-builder.ts",
+      "src/lib/agent/register-mcp-tools.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/procurement", "@/procurement/*", "@/procurement/**"],
+              message:
+                "Core must not import from src/procurement/. The boundary is one-way (src/procurement/ -> core only); see docs/BUDGET_PROCUREMENT_BUILD_PLAN.md §4.1. Predicates the core needs live in src/lib/procurement-visibility.ts.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["worker/**/*.ts"],
+    ignores: ["worker/jobs/procurement-*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/procurement", "@/procurement/*", "@/procurement/**"],
+              message:
+                "Only the procurement job shims (worker/jobs/procurement-*.ts) may import from src/procurement/.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     files: ["worker/**/*.ts"],
     ignores: ["worker/jobs/hr-year-roll.ts"],

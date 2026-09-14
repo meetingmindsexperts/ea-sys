@@ -36,6 +36,7 @@ import {
   type BlockedSession,
   type ScheduleShiftSummary,
 } from "@/services/event-schedule-shift";
+import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -213,6 +214,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         slug: true,
+        code: true,
         status: true,
         eventType: true,
         settings: true,
@@ -320,6 +322,29 @@ export async function PUT(req: Request, { params }: RouteParams) {
         return NextResponse.json(
           { error: "An event with this slug already exists" },
           { status: 400 }
+        );
+      }
+    }
+
+    // Event.code (budget module Phase 1, Sep 14 2026): unique per organisation
+    // and immutable once a budget references it, because it is the QuickBooks
+    // Class label and every budget's eventCode. Judged on a CHANGE only: the
+    // General form echoes the stored value on every save.
+    const nextCode = code === undefined ? undefined : code?.trim().toUpperCase() || null;
+    if (nextCode !== undefined && nextCode !== existingEvent.code) {
+      const refs = await runWithTenant(orgGuard.orgId, () => eventCodeReferences(orgGuard.orgId, eventId));
+      if (refs.budgets > 0) {
+        apiLogger.warn({ msg: "events:code-referenced", eventId, userId: session.user.id, budgets: refs.budgets });
+        return NextResponse.json(
+          { error: `The event code is referenced by ${refs.budgets} budget(s) and can no longer change`, code: "EVENT_CODE_REFERENCED" },
+          { status: 409 },
+        );
+      }
+      if (nextCode && (await isEventCodeTaken(orgGuard.orgId, nextCode, eventId))) {
+        apiLogger.warn({ msg: "events:code-taken", eventId, userId: session.user.id, code: nextCode });
+        return NextResponse.json(
+          { error: `Event code ${nextCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" },
+          { status: 409 },
         );
       }
     }
@@ -580,7 +605,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(eventType !== undefined && { eventType }),
         ...(tag !== undefined && { tag }),
         ...(specialty !== undefined && { specialty }),
-        ...(code !== undefined && { code }),
+        ...(nextCode !== undefined && { code: nextCode }),
         ...(startDate && { startDate: new Date(startDate) }),
         ...(endDate && { endDate: new Date(endDate) }),
         ...(timezone && { timezone }),

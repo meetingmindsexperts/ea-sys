@@ -82,6 +82,10 @@ export async function GET() {
         role: true,
         // So Settings can show who has been granted HR without a second call.
         hrAccess: true,
+        procurementRequest: true,
+        procurementApproveCeilingAed: true,
+        procurementApproveUnlimited: true,
+        procurementSettle: true,
         createdAt: true,
         image: true,
       },

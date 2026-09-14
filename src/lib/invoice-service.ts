@@ -112,9 +112,17 @@ async function resolveEventCode(
       where: { id: event.id, code: null },
       data: { code: fallback },
     })
-    .catch((err) =>
-      apiLogger.error({ err, eventId: event.id }, "invoice-service:event-code-backfill-failed"),
-    );
+    .catch((err) => {
+      // Event.code is unique per organisation since Sep 14, 2026. A derived
+      // code another event already holds is an expected miss, not a fault:
+      // the invoice still numbers off the derived prefix, and the organiser
+      // sets a code in Settings.
+      if ((err as { code?: string })?.code === "P2002") {
+        apiLogger.warn({ eventId: event.id, derivedCode: fallback }, "invoice-service:event-code-backfill-collision");
+        return;
+      }
+      apiLogger.error({ err, eventId: event.id }, "invoice-service:event-code-backfill-failed");
+    });
 
   return fallback;
 }

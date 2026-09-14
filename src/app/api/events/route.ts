@@ -5,6 +5,7 @@ import { resolveActingOrgId } from "@/lib/platform-operator";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { slugify, deriveEventCode } from "@/lib/utils";
+import { resolveUniqueEventCode } from "@/lib/event-code";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { EVENT_LIST_SELECT } from "@/lib/event-visibility";
@@ -173,14 +174,39 @@ export async function POST(req: Request) {
 
     // event.code is the invoice-number prefix. Auto-derive if not supplied so
     // invoice generation works without a second admin-UI visit.
-    const resolvedCode = code?.trim().toUpperCase() || deriveEventCode(name);
+    // Event.code is unique per organisation since Phase 1 of the budget module
+    // (Sep 14, 2026): it is the QuickBooks Class label. An explicit code that
+    // is taken is a 409; a DERIVED code that is taken is dropped to null with a
+    // warning, because nobody typed it and the organiser sets one in Settings
+    // (the owner chose no automatic codes over invented suffixes).
+    const explicitCode = code?.trim().toUpperCase() || null;
+    const resolvedCode = await resolveUniqueEventCode({
+      organizationId: orgGuard.orgId,
+      explicitCode,
+      derivedCode: explicitCode ? null : deriveEventCode(name),
+    });
+    if (!resolvedCode.ok) {
+      apiLogger.warn({ msg: "events:code-taken", organizationId: orgGuard.orgId, code: explicitCode });
+      return NextResponse.json(
+        { error: `Event code ${explicitCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" },
+        { status: 409 },
+      );
+    }
+    if (resolvedCode.derivedCollision) {
+      apiLogger.warn({
+        msg: "events:code-derivation-collision",
+        organizationId: orgGuard.orgId,
+        derivedCode: resolvedCode.derivedCollision,
+        hint: "Set the event code in Settings before creating a budget or issuing an invoice.",
+      });
+    }
 
     const event = await db.event.create({
       data: {
         organizationId: orgGuard.orgId,
         name,
         slug,
-        code: resolvedCode,
+        code: resolvedCode.code,
         description: description || null,
         startDate: new Date(startDate),
         endDate: new Date(endDate),

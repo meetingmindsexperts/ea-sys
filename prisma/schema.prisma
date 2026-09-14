@@ -43,27 +43,37 @@ model Organization {
   tenantDomains   TenantDomain[]
 
   // CRM module — see docs/CRM_MODULE_PLAN.md
-  crmCompanies       CrmCompany[]
-  crmContacts        CrmContact[]
-  crmPipelineStages  CrmPipelineStage[]
-  crmDealTypes       CrmDealType[]
-  crmDeals           CrmDeal[]
-  crmTasks           CrmTask[]
-  employees          Employee[]
-  leaveCodes         LeaveCode[]
-  attendanceEntries  AttendanceEntry[]
-  leaveGrants        LeaveGrant[]
-  publicHolidays     PublicHoliday[]
-  attendanceRules    AttendanceRule[]
-  crmNotes           CrmNote[]
-  crmActivities      CrmActivity[]
-  crmNotifications   CrmNotification[]
-  crmDealDocuments   CrmDealDocument[]
-  crmEmailTemplates  CrmEmailTemplate[]
-  crmProducts        CrmProduct[]
-  crmEmailThreads    CrmEmailThread[]
-  crmEmailSendClaims CrmEmailSendClaim[]
-  loginEvents        LoginEvent[]
+  crmCompanies                CrmCompany[]
+  crmContacts                 CrmContact[]
+  crmPipelineStages           CrmPipelineStage[]
+  crmDealTypes                CrmDealType[]
+  crmDeals                    CrmDeal[]
+  crmTasks                    CrmTask[]
+  employees                   Employee[]
+  leaveCodes                  LeaveCode[]
+  attendanceEntries           AttendanceEntry[]
+  leaveGrants                 LeaveGrant[]
+  publicHolidays              PublicHoliday[]
+  attendanceRules             AttendanceRule[]
+  // Budget & Procurement module, see docs/BUDGET_PROCUREMENT_MODULE.html
+  budgetCategories            BudgetCategory[]
+  budgetTemplates             BudgetTemplate[]
+  budgetTemplateLines         BudgetTemplateLine[]
+  eventBudgets                EventBudget[]
+  budgetLines                 BudgetLine[]
+  approvalWorkflowDefinitions ApprovalWorkflowDefinition[]
+  approvalRequests            ApprovalRequest[]
+  approvalSteps               ApprovalStep[]
+  eventFinancialSummaries     EventFinancialSummary[]
+  crmNotes                    CrmNote[]
+  crmActivities               CrmActivity[]
+  crmNotifications            CrmNotification[]
+  crmDealDocuments            CrmDealDocument[]
+  crmEmailTemplates           CrmEmailTemplate[]
+  crmProducts                 CrmProduct[]
+  crmEmailThreads             CrmEmailThread[]
+  crmEmailSendClaims          CrmEmailSendClaim[]
+  loginEvents                 LoginEvent[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -87,19 +97,19 @@ model TenantDomain {
 }
 
 model User {
-  id              String    @id @default(cuid())
-  organizationId  String?
-  email           String    @unique
-  passwordHash    String
-  firstName       String
-  lastName        String
-  role            UserRole  @default(ORGANIZER)
-  specialty       String?
-  emailVerified   DateTime?
-  termsAcceptedAt DateTime?
-  termsAcceptedIp String?
-  image           String?
-  emailSignature  String?   @db.Text
+  id                           String    @id @default(cuid())
+  organizationId               String?
+  email                        String    @unique
+  passwordHash                 String
+  firstName                    String
+  lastName                     String
+  role                         UserRole  @default(ORGANIZER)
+  specialty                    String?
+  emailVerified                DateTime?
+  termsAcceptedAt              DateTime?
+  termsAcceptedIp              String?
+  image                        String?
+  emailSignature               String?   @db.Text
   /// Last time this account was seen making an authenticated request.
   ///
   /// Stamped from the NextAuth JWT callback, piggybacking on the role
@@ -113,7 +123,7 @@ model User {
   /// attendees heartbeating every 30s, whereas this is a handful of staff
   /// accounts at 5-minute granularity — nowhere near enough row churn to be
   /// worth a join on every read.
-  lastSeenAt      DateTime?
+  lastSeenAt                   DateTime?
   /// Session revocation counter (Aug 11, 2026). Sessions are stateless JWTs, so
   /// there is no session row to delete — a cookie keeps working until it
   /// expires no matter what happens to this user. Deleting the account did NOT
@@ -137,7 +147,7 @@ model User {
   /// It rides an existing query rather than adding one — the 5-minute block
   /// already reads this row for `role`, so this is one more column in the same
   /// `select`. See docs/SESSION_ARCHITECTURE.md.
-  tokenVersion    Int       @default(0)
+  tokenVersion                 Int       @default(0)
   /// May this person see the HR module? (owner, Aug 31 2026)
   ///
   /// HR used to follow from being an ADMIN. That was the mistake `hr-roles.ts`
@@ -153,7 +163,22 @@ model User {
   /// It rides the session re-validation query that already reads this row, so
   /// it costs no extra round trip and a change takes effect on an internal
   /// user's next request rather than at their next sign-in.
-  hrAccess        Boolean   @default(false)
+  hrAccess                     Boolean   @default(false)
+  /// Budget & Procurement grants (Phase 1, Sep 14 2026). Additive capabilities
+  /// on top of the primary role, never a new exclusive role (spec §4): an
+  /// ORGANIZER who raises purchase requests keeps ORGANIZER and gains
+  /// `procurementRequest`. Carried in the JWT and re-validated on the same
+  /// 5-minute cycle as `hrAccess`. Approval authority is an AED ceiling checked
+  /// at decision time on the AED-converted amount; `procurementApproveUnlimited`
+  /// is the final approver and outranks any ceiling. `procurementSettle` is the
+  /// finance role that checks completeness and signs off, and can NEVER decide
+  /// a spend request or a budget (the approvals service refuses it). The final
+  /// approver's account never holds `procurementRequest` (spec §8.8), enforced
+  /// where the grant is written.
+  procurementRequest           Boolean   @default(false)
+  procurementApproveCeilingAed Decimal?  @db.Decimal(18, 2)
+  procurementApproveUnlimited  Boolean   @default(false)
+  procurementSettle            Boolean   @default(false)
   /// Set to deactivate an INTERNAL user without deleting them (Aug 11, 2026).
   /// Null means active. Their access stops immediately and they cannot sign
   /// back in, but the row and every foreign key pointing at it survive.
@@ -171,9 +196,9 @@ model User {
   /// attribution, audit rows, group coordinator and document uploader all keep
   /// pointing at them until someone reassigns. Deleting would SetNull most of
   /// those and silently orphan the work.
-  deactivatedAt   DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  deactivatedAt                DateTime?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
   organization              Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   speakers                  Speaker[]
@@ -496,7 +521,7 @@ model Event {
   zoomAttendances              ZoomAttendance[]
   webinarPresences             WebinarPresence[]
   promoCodes                   PromoCode[]
-  sponsors                         Sponsor[]
+  sponsors                     Sponsor[]
   scheduledEmails              ScheduledEmail[]
   eventStats                   EventStats?
   emailLogs                    EmailLog[]
@@ -517,7 +542,23 @@ model Event {
   // event it was sold against.
   crmDeals CrmDeal[]
 
+  // Budget & Procurement module (Phase 1, Sep 14 2026).
+  /// The edition this event repeats (spec §6c): the default benchmark source
+  /// for a repeat event. Set by the clone route, otherwise in Settings; SetNull
+  /// so deleting last year's event never blocks or cascades into this one.
+  previousEditionEventId String?
+  previousEdition        Event?        @relation("EventEditions", fields: [previousEditionEventId], references: [id], onDelete: SetNull)
+  nextEditions           Event[]       @relation("EventEditions")
+  budgets                EventBudget[]
+
+  /// `code` is the QuickBooks Class label and every budget's `eventCode`, so it
+  /// is unique per organisation (nulls stay distinct: an event without a code
+  /// simply cannot hold a budget yet; owner decision Sep 14 2026, no backfill).
+  /// Immutable once a budget references it, enforced in the event PUT, the
+  /// Settings form and the MCP update_event whitelist.
+  @@unique([organizationId, code])
   @@unique([organizationId, slug])
+  @@index([previousEditionEventId])
   @@index([organizationId])
   @@index([status])
   @@index([startDate])
@@ -1482,7 +1523,7 @@ model Speaker {
   /// inherit the event default in Event.settings.reimbursement.claimItems
   /// (absent there = all five). On Speaker, like the honorarium, so it is
   /// settable before any reimbursement link exists.
-  reimbursementClaimItems Json?
+  reimbursementClaimItems        Json?
   tags                           String[]      @default([])
   socialLinks                    Json          @default("{}")
   status                         SpeakerStatus @default(INVITED)
@@ -4751,37 +4792,37 @@ enum LeaveCategory {
 }
 
 model Employee {
-  id             String         @id @default(cuid())
-  organizationId String
-  empCode        String
-  name           String
-  department     String?
-  jobTitle       String?
+  id                    String         @id @default(cuid())
+  organizationId        String
+  empCode               String
+  name                  String
+  department            String?
+  jobTitle              String?
   /// Calendar date, no time component. See docs/HR_MODULE_PLAN.md §4.1: a leave
   /// day is a date, not an instant, and giving it a time invites a timezone to
   /// change which day it is.
-  joiningDate    DateTime       @db.Date
+  joiningDate           DateTime       @db.Date
   /// Last working day, INCLUSIVE. Null while employed.
-  exitDate       DateTime?      @db.Date
-  status         EmployeeStatus @default(ACTIVE)
+  exitDate              DateTime?      @db.Date
+  status                EmployeeStatus @default(ACTIVE)
   /// Annual-leave days carried in from the previous calendar year. Manual for
   /// the one-time seed of the year before go-live, written by the year-end roll
   /// thereafter. CAPPED at +30 (HR_CARRYOVER_CAP_DAYS); a NEGATIVE value is
   /// carried in full and never floored, because a cap on a debt would forgive
   /// it (owner, Aug 27 2026).
-  carryoverDays  Decimal        @default(0) @db.Decimal(5, 1)
+  carryoverDays         Decimal        @default(0) @db.Decimal(5, 1)
   /// Agreed annual entitlement for this person, overriding the standard rule.
   /// NULL means "use the rule": 30 days once the first year is complete, 0
   /// before it. Set by hand when a figure is agreed between the employee and
   /// management — typically for a leaver, whose final year is negotiated rather
   /// than calculated (owner ruling, Aug 31 2026). It deliberately BEATS the
   /// first-year gate too: an explicit human decision outranks a rule.
-  annualEntitlementDays Decimal? @db.Decimal(5, 1)
+  annualEntitlementDays Decimal?       @db.Decimal(5, 1)
   /// Sick days already consumed in the current leave year before go-live,
   /// mirroring the workbook's "Opening Sick Leave Used" column.
-  openingSickUsed Decimal       @default(0) @db.Decimal(5, 1)
+  openingSickUsed       Decimal        @default(0) @db.Decimal(5, 1)
   /// Comp-off days already earned before go-live.
-  openingCompOff  Decimal       @default(0) @db.Decimal(5, 1)
+  openingCompOff        Decimal        @default(0) @db.Decimal(5, 1)
   /// The leave year `carryoverDays` and `openingSickUsed` belong to: the year
   /// this record was created (2026 for the workbook import). They count in
   /// THAT year only; every later year reads its carry-in from `LeaveGrant`,
@@ -4790,16 +4831,16 @@ model Employee {
   /// go-live figures (review H6, Aug 31 2026). Null only on a row created by a
   /// path that forgot to set it, and treated as "applies to the year asked
   /// for" so a typed figure is never silently ignored.
-  seedLeaveYear   Int?
+  seedLeaveYear         Int?
   /// Link to the core User this employee signs in as, when they have one.
   /// Used from day one: the person who records attendance (Muthu) is himself an
   /// employee, so his entries are self-entries and the audit trail is what makes
   /// that visible. Optional on purpose: an employee who never signs in is still
   /// an employee, and most never will.
-  userId         String?        @unique
-  notes          String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  userId                String?        @unique
+  notes                 String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?             @relation("EmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
@@ -4875,17 +4916,17 @@ model AttendanceEntry {
 /// derived from a whole year of entries, and a derived number that later
 /// disagrees with the entries it came from is unanswerable.
 model LeaveGrant {
-  id             String   @id @default(cuid())
-  organizationId String
-  employeeId     String
+  id              String   @id @default(cuid())
+  organizationId  String
+  employeeId      String
   /// Calendar year. The leave year is the CALENDAR year, not the service year
   /// (docs/HR_MODULE_PLAN.md §3.1, read from the workbook's own formulas).
-  leaveYear      Int
+  leaveYear       Int
   /// 30, or 0 for an employee who has not completed twelve months.
-  entitlementDays Decimal @db.Decimal(4, 1)
+  entitlementDays Decimal  @db.Decimal(4, 1)
   /// Carried in from the previous year, already capped.
-  carriedInDays  Decimal  @db.Decimal(5, 1) @default(0)
-  grantedAt      DateTime @default(now())
+  carriedInDays   Decimal  @default(0) @db.Decimal(5, 1)
+  grantedAt       DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -5015,4 +5056,368 @@ model MirrorArchive {
 
   @@index([status, createdAt])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Budget & Procurement module (Phase 1: budget core, Sep 14 2026)
+// docs/BUDGET_PROCUREMENT_MODULE.html §5, docs/BUDGET_PROCUREMENT_BUILD_PLAN.md §5
+//
+// Every table carries organizationId (a flat RLS policy in prisma/rls/), money
+// is Decimal(18,4) ex-VAT with the tax beside it (spec §7), and people are
+// referenced by scalar user ids, never foreign keys: an approval trail and a
+// closed budget must outlive the account that wrote them (the LoginEvent
+// convention). Names resolve at read time.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum BudgetStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  ACTIVE
+  FROZEN
+  CLOSED
+  ARCHIVED
+}
+
+enum BudgetCategoryType {
+  EXPENSE
+  REVENUE
+}
+
+/// Reporting label only, never pushed to accounting: MME is the single
+/// QuickBooks company (spec §5). Event has no brand column, so cross-event
+/// views read brand from budgets and archive rows.
+enum EventBrand {
+  MMG_EXPERTS
+  MEDCOM
+  MEDULIVE
+}
+
+enum BenchmarkSourceType {
+  EA_SYS_BUDGET
+  ARCHIVE_SUMMARY
+  NONE
+}
+
+enum ApprovalSubjectType {
+  BUDGET
+  BUDGET_REALLOCATION
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+  CANCELLED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum FinancialSummarySource {
+  QUICKBOOKS
+  PROCUREMENTEXPRESS
+  EVENTSAIR
+  EA_SYS
+}
+
+/// Hierarchical (max depth 3), a FIXED code such as "VENUE.AV" that every
+/// budget line and every archive row keys on (spec §6c: the benchmark match
+/// key across budgets not born from the same template). Seeded per
+/// organisation from the spec's list; admin-editable, never deleted while a
+/// line references it (Restrict).
+model BudgetCategory {
+  id             String             @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  type           BudgetCategoryType @default(EXPENSE)
+  parentId       String?
+  depth          Int                @default(0)
+  sortOrder      Int                @default(0)
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent        BudgetCategory?      @relation("BudgetCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      BudgetCategory[]     @relation("BudgetCategoryTree")
+  templateLines BudgetTemplateLine[]
+  budgetLines   BudgetLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+}
+
+/// One per event type; seeds lines when a budget is created. Copying is a
+/// one-time act: editing a template never changes a live budget (spec §6a).
+model BudgetTemplate {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  eventType      EventType
+  description    String?   @db.Text
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines        BudgetTemplateLine[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, eventType, isActive])
+}
+
+model BudgetTemplateLine {
+  id              String   @id @default(cuid())
+  organizationId  String
+  templateId      String
+  categoryId      String
+  description     String
+  defaultQty      Decimal? @db.Decimal(14, 4)
+  defaultUnitCost Decimal? @db.Decimal(18, 4)
+  defaultCurrency String?
+  taxCode         String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template     BudgetTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  category     BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  budgetLines  BudgetLine[]
+
+  @@index([templateId])
+  @@index([organizationId])
+}
+
+/// One VERSION of an event's budget. Exactly one version per event is ACTIVE
+/// at a time (enforced by the service under a row lock, not by a partial index
+/// the migration-replay gate could not represent). `eventId` is nullable only
+/// for the reserved entity-level operational budget (spec §14 Q4); Restrict,
+/// because an event with a budget has a QuickBooks Class and a trail that must
+/// not vanish with a delete.
+model EventBudget {
+  id                  String              @id @default(cuid())
+  organizationId      String
+  eventId             String?
+  /// Copied from Event.code at creation; what the archive and QuickBooks key on.
+  eventCode           String
+  versionNo           Int
+  brand               EventBrand?
+  /// Immutable once lines exist (spec §7.4); a change is a clone to a new version.
+  reportingCurrency   String
+  /// Percent of plannedExpenseTotal, which EXCLUDES the contingency line.
+  contingencyPercent  Decimal             @default(10) @db.Decimal(5, 2)
+  contingencyAmount   Decimal             @default(0) @db.Decimal(18, 4)
+  /// Sum of planned over non-contingency, non-deleted lines, ex-VAT, reporting
+  /// currency. The approval ceiling and the at-risk test read this.
+  plannedExpenseTotal Decimal             @default(0) @db.Decimal(18, 4)
+  taxTotalPlanned     Decimal             @default(0) @db.Decimal(18, 4)
+  /// Sum of the lines' forecastFinalAmount; at risk when it exceeds
+  /// plannedExpenseTotal + contingencyAmount (spec §6a).
+  forecastTotal       Decimal             @default(0) @db.Decimal(18, 4)
+  /// Required at submission (spec §6c); the per-attendee divisor for the plan.
+  expectedAttendance  Int?
+  /// Written at close-out: checked-in registrations excluding faculty companions.
+  recordedAttendance  Int?
+  benchmarkSourceType BenchmarkSourceType @default(NONE)
+  benchmarkSourceId   String?
+  ownerUserId         String
+  financeOwnerUserId  String?
+  status              BudgetStatus        @default(DRAFT)
+  atRisk              Boolean             @default(false)
+  /// Categories the owner marked "not applicable" for the completeness check.
+  naCategoryCodes     String[]            @default([])
+  freezeAt            DateTime?
+  submittedAt         DateTime?
+  approvedAt          DateTime?
+  approvedByUserId    String?
+  activatedAt         DateTime?
+  frozenAt            DateTime?
+  closedAt            DateTime?
+  closedByUserId      String?
+  signedOffAt         DateTime?
+  signedOffByUserId   String?
+  closeOutSummary     Json?
+  notes               String?             @db.Text
+  createdByUserId     String
+  /// Optimistic lock: every mutating write is conditional on the version it read.
+  version             Int                 @default(0)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  lines        BudgetLine[]
+
+  @@unique([eventId, versionNo])
+  @@index([organizationId, status])
+  @@index([organizationId, eventCode])
+}
+
+/// A budget line. `lineKey` is stable across versions (copied on clone), so
+/// commitments and reports follow the line rather than the version. Planned,
+/// committed, actual and paid are all ex-VAT in the reporting currency;
+/// remaining = planned - committedOpen - actual (spec §7.7).
+model BudgetLine {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  budgetId            String
+  lineKey             String
+  templateLineId      String?
+  categoryId          String
+  description         String
+  qty                 Decimal   @default(1) @db.Decimal(14, 4)
+  unitCost            Decimal   @default(0) @db.Decimal(18, 4)
+  transactionCurrency String
+  /// FX snapshot at creation with its source; edits reuse it unless refreshed.
+  fxRateToReporting   Decimal   @default(1) @db.Decimal(18, 8)
+  fxRateSource        String    @default("manual")
+  fxRateAsOf          DateTime?
+  planned             Decimal   @default(0) @db.Decimal(18, 4)
+  committedOpen       Decimal   @default(0) @db.Decimal(18, 4)
+  committedTotal      Decimal   @default(0) @db.Decimal(18, 4)
+  actual              Decimal   @default(0) @db.Decimal(18, 4)
+  paid                Decimal   @default(0) @db.Decimal(18, 4)
+  taxCode             String?
+  taxRatePercent      Decimal?  @db.Decimal(5, 2)
+  taxAmountPlanned    Decimal   @default(0) @db.Decimal(18, 4)
+  /// Defaults to max(planned, committedOpen + actual); editable with a reason.
+  forecastFinalAmount Decimal?  @db.Decimal(18, 4)
+  forecastReason      String?
+  serviceStart        DateTime? @db.Date
+  serviceEnd          DateTime? @db.Date
+  notes               String?   @db.Text
+  isContingency       Boolean   @default(false)
+  /// Close-out: required where actual differs from planned past the threshold.
+  varianceNote        String?   @db.Text
+  sortOrder           Int       @default(0)
+  /// Soft delete; a line with open commitments is reassigned, never deleted.
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget       EventBudget         @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  templateLine BudgetTemplateLine? @relation(fields: [templateLineId], references: [id], onDelete: SetNull)
+  category     BudgetCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([budgetId, lineKey])
+  @@index([organizationId])
+  @@index([budgetId, categoryId])
+}
+
+/// The approvals primitive (build plan §4.5), in core because HR will reuse
+/// it for leave. A definition is an ordered list of bands, each an AED ceiling
+/// and the user who decides up to it; the last band is the unlimited approver.
+/// Stored as JSON so the launch matrix (Lina to AED 1,000,000, Medhat above)
+/// is config, not a deploy.
+model ApprovalWorkflowDefinition {
+  id             String              @id @default(cuid())
+  organizationId String
+  name           String
+  subjectType    ApprovalSubjectType
+  /// [{ "upToAed": "1000000" | null, "approverUserId": "..." }, ...] ascending;
+  /// null upToAed = unlimited, must be last.
+  bands          Json
+  isActive       Boolean             @default(true)
+  version        Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, subjectType, isActive])
+}
+
+model ApprovalRequest {
+  id              String                @id @default(cuid())
+  organizationId  String
+  subjectType     ApprovalSubjectType
+  subjectId       String
+  /// The amount the ceiling is checked against, converted to AED at the
+  /// subject's snapshot rates (spec §4).
+  amountAed       Decimal               @db.Decimal(18, 4)
+  amount          Decimal?              @db.Decimal(18, 4)
+  currency        String?
+  status          ApprovalRequestStatus @default(PENDING)
+  requesterUserId String
+  reason          String?               @db.Text
+  /// Set on the OLD request when an amount edit supersedes it (spec §8.1).
+  supersededById  String?
+  decidedAt       DateTime?
+  version         Int                   @default(0)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  steps        ApprovalStep[]
+
+  @@index([organizationId, status])
+  @@index([subjectType, subjectId])
+}
+
+/// One decision in a request. A decision is a conditional claim on the step's
+/// status, so two tabs cannot both approve. `assigneeUserId` is never the
+/// requester (the primitive refuses it).
+model ApprovalStep {
+  id              String             @id @default(cuid())
+  organizationId  String
+  requestId       String
+  sequence        Int
+  assigneeUserId  String
+  delegateUserId  String?
+  dueAt           DateTime
+  remindedAt      DateTime?
+  escalatedAt     DateTime?
+  status          ApprovalStepStatus @default(PENDING)
+  decidedByUserId String?
+  decidedAt       DateTime?
+  note            String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  request      ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, sequence])
+  @@index([organizationId, assigneeUserId, status])
+  @@index([status, dueAt])
+}
+
+/// The archive index of spec §13a: one row per past event, no transactions.
+/// Read-only for the module except the close-out writer, which writes the
+/// closed budget's own row so every source reads as one shape. Past-event rows
+/// (QuickBooks, ProcurementExpress, EventsAir) load in Phase 4.
+model EventFinancialSummary {
+  id             String                 @id @default(cuid())
+  organizationId String
+  sourceSystem   FinancialSummarySource
+  eventCode      String
+  name           String
+  year           Int
+  eventType      EventType?
+  brand          EventBrand?
+  attendance     Int?
+  currency       String
+  /// { "<BudgetCategory.code>": { "planned": "1234.5000", "actual": "..." } }
+  categoryTotals Json
+  expenseTotal   Decimal?               @db.Decimal(18, 4)
+  revenueTotal   Decimal?               @db.Decimal(18, 4)
+  asOf           DateTime
+  /// The closed EventBudget this row was written from, when sourceSystem is EA_SYS.
+  eventBudgetId  String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceSystem, eventCode])
+  @@index([organizationId, year])
 }

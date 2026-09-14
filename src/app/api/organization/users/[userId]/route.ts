@@ -6,8 +6,9 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isTeamRole } from "@/lib/team-roles";
-import { isHrModuleEnabled } from "@/lib/module-flags";
+import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
+import { isFinalApproverHoldingRequestGrant } from "@/lib/procurement-visibility";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -35,7 +36,24 @@ const updateUserSchema = z.object({
    * `User.hrAccess`.
    */
   hrAccess: z.boolean().optional(),
+  /**
+   * Budget & Procurement grants (Phase 1, Sep 14 2026). SUPER_ADMIN only for
+   * the same reason as hrAccess: an approval ceiling is authority over money,
+   * and an admin excluded from approving must not be able to grant it to
+   * themselves. Only the fields sent are changed. `null` clears the ceiling.
+   */
+  procurementRequest: z.boolean().optional(),
+  procurementApproveCeilingAed: z.number().positive().max(999_999_999_999).nullable().optional(),
+  procurementApproveUnlimited: z.boolean().optional(),
+  procurementSettle: z.boolean().optional(),
 });
+
+const PROCUREMENT_GRANT_KEYS = [
+  "procurementRequest",
+  "procurementApproveCeilingAed",
+  "procurementApproveUnlimited",
+  "procurementSettle",
+] as const;
 
 interface RouteParams {
   params: Promise<{ userId: string }>;
@@ -189,6 +207,32 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    const touchesProcurement = PROCUREMENT_GRANT_KEYS.some((k) => validated.data[k] !== undefined);
+    if (touchesProcurement) {
+      if (session.user.role !== "SUPER_ADMIN") {
+        apiLogger.warn({
+          msg: "organization/users:procurement-grant-refused",
+          callerRole: session.user.role,
+          callerId: session.user.id,
+          targetUserId: userId,
+        });
+        return NextResponse.json(
+          { error: "Only a super admin can change procurement grants." },
+          { status: 403 },
+        );
+      }
+      if (!isProcurementModuleEnabled()) {
+        apiLogger.warn({
+          msg: "organization/users:procurement-grant-not-available-on-this-deployment",
+          targetUserId: userId,
+        });
+        return NextResponse.json(
+          { error: "The Budget & Procurement module is not available on this deployment." },
+          { status: 400 },
+        );
+      }
+    }
+
     // Staff only, checked once the target is known. The flag would otherwise
     // work on an org-null reviewer or a registrant, who have no business in
     // there and no screen that offers it, so this keeps the reachable set equal
@@ -203,6 +247,39 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { error: "HR access can only be granted to a team member." },
         { status: 400 },
       );
+    }
+
+    if (touchesProcurement && !isTeamRole(user.role)) {
+      apiLogger.warn({
+        msg: "organization/users:procurement-grant-non-team-target",
+        targetUserId: userId,
+        targetRole: user.role,
+      });
+      return NextResponse.json(
+        { error: "Procurement grants can only be given to a team member." },
+        { status: 400 },
+      );
+    }
+    // Spec §8.8: the final approver never requests, so requester != approver
+    // can never leave a request with no approver. Judged on the RESULTING row.
+    if (touchesProcurement) {
+      const resulting = {
+        procurementApproveUnlimited: validated.data.procurementApproveUnlimited ?? user.procurementApproveUnlimited,
+        procurementRequest: validated.data.procurementRequest ?? user.procurementRequest,
+      };
+      if (isFinalApproverHoldingRequestGrant(resulting)) {
+        apiLogger.warn({
+          msg: "organization/users:final-approver-cannot-request",
+          targetUserId: userId,
+        });
+        return NextResponse.json(
+          {
+            error: "The final approver cannot also hold the request grant (a request from them would have no approver).",
+            code: "FINAL_APPROVER_CANNOT_REQUEST",
+          },
+          { status: 400 },
+        );
+      }
     }
 
     const { deactivated, ...rest } = validated.data;
@@ -235,6 +312,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         lastName: true,
         role: true,
         hrAccess: true,
+        procurementRequest: true,
+        procurementApproveCeilingAed: true,
+        procurementApproveUnlimited: true,
+        procurementSettle: true,
         deactivatedAt: true,
         createdAt: true,
       },

@@ -22,6 +22,10 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
     session.user.firstName = (token.firstName as string) ?? "";
     session.user.lastName = (token.lastName as string) ?? "";
     session.user.hrAccess = (token.hrAccess as boolean | undefined) ?? false;
+    session.user.procurementRequest = (token.procurementRequest as boolean | undefined) ?? false;
+    session.user.procurementApproveCeilingAed = (token.procurementApproveCeilingAed as number | null | undefined) ?? null;
+    session.user.procurementApproveUnlimited = (token.procurementApproveUnlimited as boolean | undefined) ?? false;
+    session.user.procurementSettle = (token.procurementSettle as boolean | undefined) ?? false;
   }
   return session;
 }

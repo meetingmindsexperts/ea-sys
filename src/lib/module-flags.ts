@@ -52,3 +52,13 @@
 export function isHrModuleEnabled(): boolean {
   return process.env.HR_MODULE_ENABLED === "true";
 }
+
+/**
+ * True when the Budget & Procurement module is switched on for this
+ * deployment. Same shape and same reasoning as the HR flag: read in ONE place,
+ * fail-closed, never derived from anything else. The module ships dark; the
+ * flag stays unset until the pilot (docs/BUDGET_PROCUREMENT_BUILD_PLAN.md §4.2).
+ */
+export function isProcurementModuleEnabled(): boolean {
+  return process.env.PROCUREMENT_MODULE_ENABLED === "true";
+}

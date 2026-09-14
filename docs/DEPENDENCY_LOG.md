@@ -14,6 +14,20 @@ carries pre-existing failures and a bare failure count proves nothing.
 
 ---
 
+## DEP-006: `decimal.js` promoted to a direct dependency, for the budget module's money rules
+
+| | |
+|---|---|
+| **Date** | 2026-09-14 |
+| **Trigger** | Phase 1 of the Budget & Procurement module (docs/BUDGET_PROCUREMENT_BUILD_PLAN.md §5). Spec §7 says every planned, committed, actual and paid figure is a Decimal stored to 4 places and displayed to 2, with banker's rounding at the total, never float |
+| **What moved** | `decimal.js` 10.6.0 added to `dependencies`, pinned exact. It was already in the tree as a transitive of `jsdom` (through `isomorphic-dompurify`), and Prisma's own `Decimal` class is the same library bundled inside `@prisma/client/runtime`, so no new code landed in `node_modules`; the change is that the money library imports it by name instead of depending on someone else's transitive |
+| **Why a dependency at all** | Prisma's `Decimal` is importable only from the client runtime, which must not be bundled into `"use client"` code (the no-Node-imports-in-client-bundle rule); the money rules are pure and run in the editor too. Hand-rolled fixed-point maths over integers is how banker's rounding gets implemented three different ways |
+| **Exposure** | Pure arithmetic, no I/O, no network, no native code. `npm audit`: no advisory names `decimal.js` |
+| **Verification** | 11 CI gate scripts 0 · lint 0 · tsc 0 · vitest 7,222 (the money table in `__tests__/procurement/money.test.ts`, whose two hand-computed expectations were wrong on the first run and were corrected against decimal.js's own answer, which is the point of having one) · `next build` clean |
+| **Rollback** | Revert the commit. The transitive copy stays either way |
+
+---
+
 ## DEP-005: `archiver` added, for the on-demand zip of the uploads mirror
 
 | | |

@@ -14,6 +14,11 @@ declare module "next-auth" {
       lastName: string;
       /** Explicit per-person HR grant. See User.hrAccess in the schema. */
       hrAccess?: boolean;
+      /** Budget & Procurement grants (see User.procurement* in the schema). */
+      procurementRequest?: boolean;
+      procurementApproveCeilingAed?: number | null;
+      procurementApproveUnlimited?: boolean;
+      procurementSettle?: boolean;
     } & DefaultSession["user"];
   }
 
@@ -28,6 +33,11 @@ declare module "next-auth" {
     firstName?: string;
     lastName?: string;
     hrAccess?: boolean;
+    /** Budget & Procurement grants (see User.procurement* in the schema). */
+    procurementRequest?: boolean;
+    procurementApproveCeilingAed?: number | null;
+    procurementApproveUnlimited?: boolean;
+    procurementSettle?: boolean;
   }
 }
 
@@ -55,5 +65,10 @@ declare module "next-auth/jwt" {
      * sidebar and the middleware both have to decide whether to show HR.
      */
     hrAccess?: boolean;
+    /** Budget & Procurement grants (see User.procurement* in the schema). */
+    procurementRequest?: boolean;
+    procurementApproveCeilingAed?: number | null;
+    procurementApproveUnlimited?: boolean;
+    procurementSettle?: boolean;
   }
 }

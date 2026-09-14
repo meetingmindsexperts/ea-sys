@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { slugify, deriveEventCode } from "@/lib/utils";
+import { eventCodeReferences, isEventCodeTaken, resolveUniqueEventCode } from "@/lib/event-code";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import type { ToolExecutor } from "./_shared";
@@ -166,7 +167,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
     // Resolve event.code (invoice-number prefix). Caller can pass explicit; we
     // validate + uppercase. If omitted, derive from name so invoice generation
     // works out of the box without forcing a second admin-UI visit.
-    let code: string;
+    let explicitCode: string | null = null;
     if (input.code != null) {
       const raw = String(input.code).trim().toUpperCase();
       if (!raw) return { error: "code cannot be empty", code: "INVALID_CODE" };
@@ -174,10 +175,27 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       if (!CODE_RE.test(raw)) {
         return { error: "code must contain only A-Z, 0-9, and hyphens", code: "INVALID_CODE" };
       }
-      code = raw;
-    } else {
-      code = deriveEventCode(name);
+      explicitCode = raw;
     }
+    // Unique per organisation since the budget module's Phase 1 (Sep 14, 2026).
+    // Explicit and taken: refuse. Derived and taken: null, the organiser sets
+    // one in Settings (owner decision: no invented suffixes).
+    const resolved = await resolveUniqueEventCode({
+      organizationId: ctx.organizationId,
+      explicitCode,
+      derivedCode: explicitCode ? null : deriveEventCode(name),
+    });
+    if (!resolved.ok) {
+      return { error: `Event code ${explicitCode} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" };
+    }
+    if (resolved.derivedCollision) {
+      apiLogger.warn({
+        msg: "mcp:create_event:code-derivation-collision",
+        organizationId: ctx.organizationId,
+        derivedCode: resolved.derivedCollision,
+      });
+    }
+    const code = resolved.code;
 
     const event = await db.event.create({
       data: {
@@ -290,7 +308,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.event.findFirst({
       where: { id: eventId, organizationId: ctx.organizationId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, code: true },
     });
     if (!existing) return { error: `Event ${eventId} not found or access denied`, code: "EVENT_NOT_FOUND" };
 
@@ -356,6 +374,23 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
           return { error: "code must contain only A-Z, 0-9, and hyphens", code: "INVALID_CODE" };
         }
         updates.code = raw;
+      }
+      // Unique per organisation and immutable once a budget references it
+      // (budget module Phase 1, Sep 14 2026). Judged on a CHANGE only, so an
+      // agent echoing the stored value is not refused.
+      if (updates.code !== existing.code) {
+        const refs = await eventCodeReferences(ctx.organizationId, eventId);
+        if (refs.budgets > 0) {
+          apiLogger.warn({ eventId, userId: ctx.userId, budgets: refs.budgets, source: "mcp" }, "agent:update_event code-referenced");
+          return {
+            error: `The event code is referenced by ${refs.budgets} budget(s) and can no longer change`,
+            code: "EVENT_CODE_REFERENCED",
+          };
+        }
+        if (typeof updates.code === "string" && (await isEventCodeTaken(ctx.organizationId, updates.code, eventId))) {
+          apiLogger.warn({ eventId, userId: ctx.userId, code: updates.code, source: "mcp" }, "agent:update_event code-taken");
+          return { error: `Event code ${updates.code} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" };
+        }
       }
     }
 

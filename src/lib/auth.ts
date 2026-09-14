@@ -17,6 +17,7 @@ import { decideSessionValidity } from "@/lib/session-validity";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
+import { procurementGrantsFromRow } from "@/lib/procurement-visibility";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -127,6 +128,10 @@ export const {
               // compared on every periodic re-validation. See the jwt callback.
               tokenVersion: true,
               hrAccess: true,
+              procurementRequest: true,
+              procurementApproveCeilingAed: true,
+              procurementApproveUnlimited: true,
+              procurementSettle: true,
               deactivatedAt: true,
               organizationId: true,
               organization: {
@@ -278,6 +283,7 @@ export const {
           role: user.role,
           tokenVersion: user.tokenVersion,
           hrAccess: user.hrAccess,
+          ...procurementGrantsFromRow(user),
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
           organizationLogo: user.organization?.logo ?? null,
@@ -306,6 +312,7 @@ export const {
         token.lastName = user.lastName;
         token.tokenVersion = user.tokenVersion ?? 0;
         token.hrAccess = user.hrAccess ?? false;
+        Object.assign(token, procurementGrantsFromRow(user));
         token.roleCheckedAt = Date.now();
       }
 
@@ -323,6 +330,7 @@ export const {
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;
           token.hrAccess = dbUser.hrAccess;
+          Object.assign(token, procurementGrantsFromRow(dbUser));
           token.roleCheckedAt = Date.now();
         }
       }
@@ -363,7 +371,16 @@ export const {
         try {
           const dbUser = await db.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, tokenVersion: true, deactivatedAt: true, hrAccess: true },
+            select: {
+              role: true,
+              tokenVersion: true,
+              deactivatedAt: true,
+              hrAccess: true,
+              procurementRequest: true,
+              procurementApproveCeilingAed: true,
+              procurementApproveUnlimited: true,
+              procurementSettle: true,
+            },
           });
 
           // The truth table lives in `decideSessionValidity` (pure, unit
@@ -393,7 +410,10 @@ export const {
           // cached role on a pooler blip for the same reason, and silently
           // revoking somebody's HR access because a query failed would be the
           // same mistake in the other direction.
-          if (dbUser) token.hrAccess = dbUser.hrAccess;
+          if (dbUser) {
+            token.hrAccess = dbUser.hrAccess;
+            Object.assign(token, procurementGrantsFromRow(dbUser));
+          }
           // Only the periodic pass moves the clock. If a staff per-request
           // check refreshed it, `dueForPeriodicCheck` would never come true
           // for staff and they would stop being stamped as online.

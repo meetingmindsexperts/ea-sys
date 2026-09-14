@@ -26,9 +26,11 @@ import { createContext, useContext } from "react";
 export interface RuntimeFlags {
   /** Is the HR module switched on for this deployment? Master silo only. */
   hrEnabled: boolean;
+  /** Is the Budget & Procurement module switched on for this deployment? */
+  procurementEnabled: boolean;
 }
 
-const DEFAULTS: RuntimeFlags = { hrEnabled: false };
+const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false };
 
 const RuntimeFlagsContext = createContext<RuntimeFlags>(DEFAULTS);
 
