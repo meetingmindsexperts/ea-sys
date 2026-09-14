@@ -15,6 +15,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { planSupplierImport, type SupplierImportRow } from "../lib/catalogue-import";
 
 export const SUPPLIER_SELECT = {
   id: true, code: true, legalName: true, displayName: true, taxRegistrationNo: true, country: true, currency: true,
@@ -241,4 +242,42 @@ export async function updateSupplier(input: UpdateSupplierInput): Promise<Suppli
     apiLogger.error({ msg: "procurement/suppliers:update-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not save the supplier.", ctx);
   }
+}
+
+export interface ImportSuppliersInput {
+  organizationId: string;
+  actorUserId: string;
+  source: Source;
+  approveOnCreate: boolean;
+  rows: SupplierImportRow[];
+}
+export interface ImportSuppliersResult {
+  created: number;
+  skipped: { rowNum: number; reason: string }[];
+  errors: string[];
+}
+
+/**
+ * Execute a supplier import: rows already on the master (by code or by
+ * legal name) are skipped and reported, never updated; the rest are created
+ * through `proposeSupplier`, so they land as Proposed for the settle holder
+ * or approved outright when the importer holds the settle grant. Bank
+ * details are not part of an import (classified, spec §2.9).
+ */
+export async function importSuppliers(input: ImportSuppliersInput): Promise<ImportSuppliersResult> {
+  const existing = await listSuppliers(input.organizationId, { includeInactive: true });
+  const plan = planSupplierImport(input.rows, existing);
+  const errors: string[] = [];
+  let created = 0;
+  for (const r of plan.creates) {
+    const { rowNum, ...row } = r;
+    const res = await proposeSupplier({ organizationId: input.organizationId, actorUserId: input.actorUserId, source: input.source, approveOnCreate: input.approveOnCreate, ...row });
+    if (!res.ok) {
+      errors.push(`Row ${rowNum}: ${res.message}`);
+      continue;
+    }
+    created += 1;
+  }
+  apiLogger.info({ msg: "procurement/suppliers:imported", organizationId: input.organizationId, userId: input.actorUserId, rows: input.rows.length, created, skipped: plan.skipped.length, errors: errors.length, approveOnCreate: input.approveOnCreate });
+  return { created, skipped: plan.skipped, errors };
 }

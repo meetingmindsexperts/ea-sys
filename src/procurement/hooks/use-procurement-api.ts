@@ -350,6 +350,34 @@ export function useUpdateBudgetProduct() {
   });
 }
 
+export interface CsvImportResult {
+  totalProcessed: number;
+  created: number;
+  updated?: number;
+  unchanged?: number;
+  skipped?: number;
+  skippedDetails?: string[];
+  /** Suppliers only: whether the created rows landed approved (settle grant) or as Proposed. */
+  approved?: boolean;
+  errors: string[];
+}
+
+export function useImportBudgetProducts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (csv: string) => send<CsvImportResult>("/api/procurement/products/import", "POST", { csv }, "Couldn't import the products"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: procurementKeys.products() }),
+  });
+}
+
+export function useImportSuppliers() {
+  const invalidate = useSupplierInvalidation();
+  return useMutation({
+    mutationFn: (csv: string) => send<CsvImportResult>("/api/procurement/suppliers/import", "POST", { csv }, "Couldn't import the suppliers"),
+    onSuccess: invalidate,
+  });
+}
+
 export function useBudgetCategories() {
   return useQuery({
     queryKey: procurementKeys.categories(),

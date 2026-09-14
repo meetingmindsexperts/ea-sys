@@ -12,7 +12,9 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
 import { BUDGET_CURRENCIES } from "@/procurement/lib/budget-schemas";
-import { useDecideSupplier, useProposeSupplier, useSuppliers, useUpdateSupplier, type SupplierRow } from "@/procurement/hooks/use-procurement-api";
+import { useDecideSupplier, useImportSuppliers, useProposeSupplier, useSuppliers, useUpdateSupplier, type SupplierRow } from "@/procurement/hooks/use-procurement-api";
+import { ProcurementCsvImportDialog } from "@/procurement/components/csv-import-dialog";
+import { SUPPLIER_IMPORT_COLUMNS } from "@/procurement/lib/catalogue-import";
 import { ErrorState, LoadingState, fmtWhen } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Check, Loader2, Pencil, Plus, Truck, X } from "lucide-react";
+import { ArrowLeft, Check, FileUp, Loader2, Pencil, Plus, Truck, X } from "lucide-react";
 
 type StatusFilter = "PROPOSED" | "APPROVED" | "REJECTED" | "ALL";
 const STATUS_LABEL: Record<SupplierRow["approvalStatus"], string> = { PROPOSED: "Proposed", APPROVED: "Approved", REJECTED: "Rejected" };
@@ -41,6 +43,8 @@ export default function SuppliersPage() {
   const [search, setSearch] = useState("");
   const suppliers = useSuppliers({ status: status === "ALL" ? undefined : status, includeInactive: showInactive });
   const [proposing, setProposing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importSuppliers = useImportSuppliers();
   const [deciding, setDeciding] = useState<SupplierRow | null>(null);
   const [editing, setEditing] = useState<SupplierRow | null>(null);
 
@@ -67,7 +71,10 @@ export default function SuppliersPage() {
             </p>
           </div>
           {canPropose && (
-            <Button onClick={() => setProposing(true)}><Plus className="h-4 w-4" /> {canSettle ? "Add supplier" : "Propose a supplier"}</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setImporting(true)}><FileUp className="h-4 w-4" /> Import CSV</Button>
+              <Button onClick={() => setProposing(true)}><Plus className="h-4 w-4" /> {canSettle ? "Add supplier" : "Propose a supplier"}</Button>
+            </div>
           )}
         </div>
       </div>
@@ -138,6 +145,19 @@ export default function SuppliersPage() {
       </div>
 
       {canPropose && <ProposeDialog open={proposing} onOpenChange={setProposing} settle={canSettle} />}
+      {canPropose && (
+        <ProcurementCsvImportDialog
+          open={importing}
+          onOpenChange={setImporting}
+          title="Import suppliers"
+          description={canSettle ? "One row per supplier, created approved: you hold the settle grant. A row whose code or legal name already exists is skipped." : "One row per supplier, created as Proposed for the settle holder to approve. A row whose code or legal name already exists is skipped."}
+          columns={SUPPLIER_IMPORT_COLUMNS}
+          templateFilename="suppliers-template.csv"
+          onImport={(csv) => importSuppliers.mutateAsync(csv)}
+          pending={importSuppliers.isPending}
+          note="Bank details are never imported; the settle holder enters them per supplier."
+        />
+      )}
       {canSettle && deciding && <DecideDialog key={deciding.id} supplier={deciding} onClose={() => setDeciding(null)} />}
       {canSettle && editing && <EditDialog key={`${editing.id}-${editing.version}`} supplier={editing} onClose={() => setEditing(null)} />}
     </div>

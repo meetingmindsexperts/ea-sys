@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { BUDGET_PRODUCT_SEED, BUDGET_PRODUCT_SKU_RE } from "../lib/budget-products-seed";
 import { ensureBudgetCategories } from "./budget-category-service";
+import { planProductImport, type ProductImportRow } from "../lib/catalogue-import";
 
 export const BUDGET_PRODUCT_SELECT = {
   id: true,
@@ -175,4 +176,56 @@ export async function updateBudgetProduct(input: UpdateBudgetProductInput) {
 function fail(code: BudgetProductErrorCode, message: string) {
   apiLogger.warn({ msg: "procurement/products:rejected", code, message });
   return { ok: false as const, code, message };
+}
+
+export interface ImportBudgetProductsInput {
+  organizationId: string;
+  actorUserId: string;
+  source: Source;
+  rows: ProductImportRow[];
+}
+export interface ImportBudgetProductsResult {
+  created: number;
+  updated: number;
+  /** Rows that matched an existing SKU with nothing to change. */
+  unchanged: number;
+  errors: string[];
+}
+
+/**
+ * Execute a product import: the plan is decided against the live catalogue
+ * (seeded first when the organisation has none), then every row goes
+ * through the same create/update functions the dialogs use, so an imported
+ * row obeys every rule a typed one does. One row's failure is reported and
+ * the rest continue; nothing is deleted.
+ */
+export async function importBudgetProducts(input: ImportBudgetProductsInput): Promise<ImportBudgetProductsResult> {
+  const existing = await ensureBudgetProducts(input.organizationId);
+  const categories = (await ensureBudgetCategories(input.organizationId)).filter((c) => c.isActive !== false);
+  const plan = planProductImport(input.rows, existing, categories);
+  const errors = [...plan.errors];
+  const base = { organizationId: input.organizationId, actorUserId: input.actorUserId, source: input.source };
+  let created = 0;
+  let updated = 0;
+  for (const c of plan.creates) {
+    const r = await createBudgetProduct({ ...base, sku: c.sku, name: c.name, categoryId: c.categoryId });
+    if (!r.ok) {
+      errors.push(`Row ${c.rowNum}: ${r.message}`);
+      continue;
+    }
+    created += 1;
+    if (c.active) continue;
+    const u = await updateBudgetProduct({ ...base, productId: r.product.id, isActive: false });
+    if (!u.ok) errors.push(`Row ${c.rowNum}: created, but could not archive it: ${u.message}`);
+  }
+  for (const u of plan.updates) {
+    const r = await updateBudgetProduct({ ...base, productId: u.productId, ...u.changes });
+    if (!r.ok) {
+      errors.push(`Row ${u.rowNum}: ${r.message}`);
+      continue;
+    }
+    updated += 1;
+  }
+  apiLogger.info({ msg: "procurement/products:imported", organizationId: input.organizationId, userId: input.actorUserId, rows: input.rows.length, created, updated, unchanged: plan.unchanged, errors: errors.length });
+  return { created, updated, unchanged: plan.unchanged, errors };
 }

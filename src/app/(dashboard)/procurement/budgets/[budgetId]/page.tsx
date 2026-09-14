@@ -25,6 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { approvalCeilingAed, canAdminProcurement, canAuthorBudgets, canSettleProcurement } from "@/lib/procurement-visibility";
 import { ApiError } from "@/lib/api-fetch";
+import { downloadExport } from "@/lib/export-download";
 import { CONTINGENCY_CATEGORY_CODE } from "@/procurement/lib/budget-categories-seed";
 import {
   procurementKeys,
@@ -44,7 +45,7 @@ import { BudgetLinesTable, lineCategories, type LinesMode } from "./budget-lines
 import { DecideDialog, HeaderDialog, ReallocateDialog, ReasonDialog, SubmitDialog } from "./budget-dialogs";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowLeftRight, Check, CheckCheck, ClipboardCheck, GitCompare, Loader2, Lock, PencilLine, RotateCcw, Send, Snowflake, Trash2, TriangleAlert, Unlock } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, Check, CheckCheck, ClipboardCheck, Download, GitCompare, Loader2, Lock, PencilLine, RotateCcw, Send, Snowflake, Trash2, TriangleAlert, Unlock } from "lucide-react";
 
 type Confirm = "discard" | "freeze" | "signoff" | "newversion" | null;
 type Prompt = "unfreeze" | "reopen" | null;
@@ -127,6 +128,17 @@ export default function BudgetEditorPage() {
     } catch (err) {
       failed(err);
     }
+  }
+
+  async function exportCsv() {
+    if (!b) return;
+    const r = await downloadExport({
+      url: `/api/procurement/budgets/${b.id}/export`,
+      filename: `budget-${b.eventCode}-v${b.versionNo}.csv`,
+      logKey: "procurement-budget:export-failed",
+      forbiddenMessage: "You cannot export this budget.",
+    });
+    if (!r.ok) toast.error(r.error ?? "Export failed.");
   }
 
   const confirmText: Record<Exclude<Confirm, null>, { title: string; body: string; label: string; destructive?: boolean }> = {
@@ -232,6 +244,7 @@ export default function BudgetEditorPage() {
               {b.eventId && (
                 <Button variant="ghost" size="sm" asChild><Link href={`/procurement/budgets/${b.id}/compare`}><GitCompare className="h-4 w-4" /> Compare versions</Link></Button>
               )}
+              <Button variant="ghost" size="sm" onClick={() => void exportCsv()}><Download className="h-4 w-4" /> Export CSV</Button>
             </div>
           </div>
           {mode === "plan" && (

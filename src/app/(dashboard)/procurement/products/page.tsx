@@ -10,7 +10,9 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { canAdminProcurement } from "@/lib/procurement-visibility";
-import { useBudgetCategories, useBudgetProducts, useCreateBudgetProduct, useUpdateBudgetProduct, type BudgetProductRow } from "@/procurement/hooks/use-procurement-api";
+import { useBudgetCategories, useBudgetProducts, useCreateBudgetProduct, useImportBudgetProducts, useUpdateBudgetProduct, type BudgetProductRow } from "@/procurement/hooks/use-procurement-api";
+import { ProcurementCsvImportDialog } from "@/procurement/components/csv-import-dialog";
+import { PRODUCT_IMPORT_COLUMNS } from "@/procurement/lib/catalogue-import";
 import { ErrorState, LoadingState } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArchiveRestore, ArrowLeft, Loader2, Package, Pencil, Plus } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, FileUp, Loader2, Package, Pencil, Plus } from "lucide-react";
 
 const ALL = "__all__";
 
@@ -33,6 +35,8 @@ export default function BudgetProductsPage() {
   const [category, setCategory] = useState(ALL);
   const [showArchived, setShowArchived] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importProducts = useImportBudgetProducts();
   const [editing, setEditing] = useState<BudgetProductRow | null>(null);
 
   const rows = useMemo(() => {
@@ -71,7 +75,10 @@ export default function BudgetProductsPage() {
             <p className="mt-1 text-sm text-muted-foreground">{`${activeCount} items a budget line can be picked from, each with its accounting SKU.`}</p>
           </div>
           {canAdmin && (
-            <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add product</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setImporting(true)}><FileUp className="h-4 w-4" /> Import CSV</Button>
+              <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add product</Button>
+            </div>
           )}
         </div>
       </div>
@@ -131,6 +138,18 @@ export default function BudgetProductsPage() {
       </div>
 
       {canAdmin && <AddProductDialog open={adding} onOpenChange={setAdding} categories={cats} />}
+      {canAdmin && (
+        <ProcurementCsvImportDialog
+          open={importing}
+          onOpenChange={setImporting}
+          title="Import products"
+          description="One row per cost item. An existing SKU is updated (name, category, active), a new SKU is created; nothing is deleted."
+          columns={PRODUCT_IMPORT_COLUMNS}
+          templateFilename="products-template.csv"
+          onImport={(csv) => importProducts.mutateAsync(csv)}
+          pending={importProducts.isPending}
+        />
+      )}
       {canAdmin && <EditProductDialog product={editing} onClose={() => setEditing(null)} categories={cats} />}
     </div>
   );

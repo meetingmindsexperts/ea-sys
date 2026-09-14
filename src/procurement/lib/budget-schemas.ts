@@ -168,3 +168,6 @@ export const updateSupplierSchema = z
   })
   .refine((v) => Object.keys(v).some((k) => k !== "expectedVersion"), { message: "Nothing to change" });
 export const decideSupplierSchema = z.object({ decision: z.enum(["APPROVED", "REJECTED"]), note: z.string().trim().max(2000).nullable().optional() });
+
+/** A CSV import: the file travels as text in the JSON body (the middleware caps it at 1 MB, the parser at 5,000 rows). */
+export const importCsvSchema = z.object({ csv: z.string().min(1).max(1_048_576) });
