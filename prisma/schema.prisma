@@ -5288,6 +5288,12 @@ model BudgetLine {
   taxCode             String?
   taxRatePercent      Decimal?  @db.Decimal(5, 2)
   taxAmountPlanned    Decimal   @default(0) @db.Decimal(18, 4)
+  /// The planned amount at the moment this version was approved: the base of
+  /// the owner's 10% reallocation authority (spec §6a). Null on a draft.
+  approvedPlanned     Decimal?  @db.Decimal(18, 4)
+  /// Total moved OUT of this line by the owner's own reallocations in this
+  /// version; compared against 10% of approvedPlanned.
+  reallocatedOut      Decimal   @default(0) @db.Decimal(18, 4)
   /// Defaults to max(planned, committedOpen + actual); editable with a reason.
   forecastFinalAmount Decimal?  @db.Decimal(18, 4)
   forecastReason      String?
@@ -5349,6 +5355,9 @@ model ApprovalRequest {
   status          ApprovalRequestStatus @default(PENDING)
   requesterUserId String
   reason          String?               @db.Text
+  /// What to apply on approval when the subject is an action rather than a
+  /// row (a reallocation: from, to, amount). Null for a budget approval.
+  payload         Json?
   /// Set on the OLD request when an amount edit supersedes it (spec §8.1).
   supersededById  String?
   decidedAt       DateTime?

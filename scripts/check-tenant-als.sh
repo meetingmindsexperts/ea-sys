@@ -48,6 +48,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # runWithTenant wrap + RLS policy). GROW this as domains are swept.
 SWEPT_ROUTE_DIRS=(
   "src/app/api/hr"                # HR module (Aug 27, 2026) — born swept, master-silo only
+  "src/app/api/procurement"       # Budget & Procurement module (Sep 14, 2026), born swept, ships dark
   "src/app/api/registrant"        # Registrant portal — lane taken from the HOST (item 6 follow-on, Aug 21, 2026)
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)

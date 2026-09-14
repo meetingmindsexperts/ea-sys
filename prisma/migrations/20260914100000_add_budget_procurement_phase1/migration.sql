@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS "BudgetLine" (
     "taxCode" TEXT,
     "taxRatePercent" DECIMAL(5,2),
     "taxAmountPlanned" DECIMAL(18,4) NOT NULL DEFAULT 0,
+    "approvedPlanned" DECIMAL(18,4),
+    "reallocatedOut" DECIMAL(18,4) NOT NULL DEFAULT 0,
     "forecastFinalAmount" DECIMAL(18,4),
     "forecastReason" TEXT,
     "serviceStart" DATE,
@@ -204,6 +206,7 @@ CREATE TABLE IF NOT EXISTS "ApprovalRequest" (
     "status" "ApprovalRequestStatus" NOT NULL DEFAULT 'PENDING',
     "requesterUserId" TEXT NOT NULL,
     "reason" TEXT,
+    "payload" JSONB,
     "supersededById" TEXT,
     "decidedAt" TIMESTAMP(3),
     "version" INTEGER NOT NULL DEFAULT 0,
@@ -254,6 +257,13 @@ CREATE TABLE IF NOT EXISTS "EventFinancialSummary" (
 
     CONSTRAINT "EventFinancialSummary_pkey" PRIMARY KEY ("id")
 );
+
+-- Columns added to the tables above while the migration was still unpushed
+-- (Sep 14 2026, slice 2); guarded so a database that ran the earlier text of
+-- this file comes level.
+ALTER TABLE "BudgetLine" ADD COLUMN IF NOT EXISTS "approvedPlanned" DECIMAL(18,4);
+ALTER TABLE "BudgetLine" ADD COLUMN IF NOT EXISTS "reallocatedOut" DECIMAL(18,4) NOT NULL DEFAULT 0;
+ALTER TABLE "ApprovalRequest" ADD COLUMN IF NOT EXISTS "payload" JSONB;
 
 -- Event.code uniqueness: name any duplicate before the index would refuse.
 DO $$
