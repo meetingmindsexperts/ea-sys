@@ -1,5 +1,5 @@
 -- Row-Level Security policies: Budget & Procurement module, Phase 1 (Sep 14, 2026).
--- One domain file for the ten tables, the webinar.sql shape; see contact.sql
+-- One domain file for the module's tables (Phase 1, the product catalogue, and the Phase 2 purchasing tables), the webinar.sql shape; see contact.sql
 -- for the FULL project-wide rationale and employee.sql for why a module that
 -- ships dark behind a flag is policied on day one anyway (a flag flips in a
 -- deploy, an unpoliced table cannot).
@@ -84,6 +84,69 @@ CREATE POLICY eventfinancialsummary_tenant_isolation ON "EventFinancialSummary"
 ALTER TABLE "BudgetProduct" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS budgetproduct_tenant_isolation ON "BudgetProduct";
 CREATE POLICY budgetproduct_tenant_isolation ON "BudgetProduct"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "Supplier" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS supplier_tenant_isolation ON "Supplier";
+CREATE POLICY supplier_tenant_isolation ON "Supplier"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "SupplierProduct" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS supplierproduct_tenant_isolation ON "SupplierProduct";
+CREATE POLICY supplierproduct_tenant_isolation ON "SupplierProduct"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "SpendRequest" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS spendrequest_tenant_isolation ON "SpendRequest";
+CREATE POLICY spendrequest_tenant_isolation ON "SpendRequest"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "SpendRequestQuote" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS spendrequestquote_tenant_isolation ON "SpendRequestQuote";
+CREATE POLICY spendrequestquote_tenant_isolation ON "SpendRequestQuote"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "Commitment" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS commitment_tenant_isolation ON "Commitment";
+CREATE POLICY commitment_tenant_isolation ON "Commitment"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "CommitmentLine" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS commitmentline_tenant_isolation ON "CommitmentLine";
+CREATE POLICY commitmentline_tenant_isolation ON "CommitmentLine"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "PaymentRecord" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS paymentrecord_tenant_isolation ON "PaymentRecord";
+CREATE POLICY paymentrecord_tenant_isolation ON "PaymentRecord"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "SpendRequestCounter" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS spendrequestcounter_tenant_isolation ON "SpendRequestCounter";
+CREATE POLICY spendrequestcounter_tenant_isolation ON "SpendRequestCounter"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "CommitmentCounter" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS commitmentcounter_tenant_isolation ON "CommitmentCounter";
+CREATE POLICY commitmentcounter_tenant_isolation ON "CommitmentCounter"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));

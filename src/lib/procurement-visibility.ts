@@ -59,6 +59,20 @@ export function canSettleProcurement(user: ProcurementUserLike | null | undefine
   return user?.procurementSettle === true;
 }
 
+const SUPPLIER_FINANCIALS_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+
+/**
+ * Supplier tax numbers and bank details are classified (spec §2.9): they follow
+ * the reimbursement boundary (SUPER_ADMIN, ADMIN, ORGANIZER) plus the settle
+ * grant, whose holder approves suppliers on exactly those fields. Everyone
+ * else reads the supplier with the two fields redacted. Fails closed.
+ */
+export function canViewSupplierFinancials(user: ProcurementUserLike | null | undefined): boolean {
+  if (!user) return false;
+  if (user.procurementSettle === true) return true;
+  return !!user.role && SUPPLIER_FINANCIALS_ROLES.has(user.role);
+}
+
 /**
  * The AED ceiling this person may decide up to: `Infinity` for the final
  * approver, a positive number for a banded approver, `null` for no authority.

@@ -123,6 +123,47 @@ export interface ApprovalRequestRow {
   steps: ApprovalStepRow[];
 }
 
+export interface SupplierContact {
+  name: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+}
+export interface SupplierBankDetails {
+  bankName?: string;
+  accountName?: string;
+  iban?: string;
+  swift?: string;
+  accountNumber?: string;
+}
+export interface SupplierRow {
+  id: string;
+  code: string;
+  legalName: string;
+  displayName: string;
+  /** Null when redacted for this reader (see financialsRedacted). */
+  taxRegistrationNo: string | null;
+  country: string | null;
+  currency: string;
+  contacts: SupplierContact[];
+  paymentTerms: string | null;
+  bankDetails: SupplierBankDetails | null;
+  externalSystemType: string | null;
+  externalVendorId: string | null;
+  approvalStatus: "PROPOSED" | "APPROVED" | "REJECTED";
+  riskStatus: "NONE" | "WATCH" | "BLOCKED";
+  isActive: boolean;
+  notes: string | null;
+  proposedByUserId: string | null;
+  decidedByUserId: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  financialsRedacted: boolean;
+}
+
 export interface BudgetProductRow {
   id: string;
   sku: string;
@@ -183,6 +224,7 @@ export const procurementKeys = {
   approvals: (scope: "inbox" | "mine") => ["procurement", "approvals", scope] as const,
   categories: () => ["procurement", "categories"] as const,
   products: () => ["procurement", "products"] as const,
+  suppliers: (status?: string, includeInactive?: boolean) => ["procurement", "suppliers", status ?? "all", includeInactive ? "all" : "active"] as const,
   templates: () => ["procurement", "templates"] as const,
 };
 
@@ -210,6 +252,76 @@ export function useBudgetActivity(budgetId: string | null) {
     queryKey: procurementKeys.budgetActivity(budgetId ?? "none"),
     queryFn: () => get<{ items: BudgetActivityItem[]; truncated: boolean }>(`/api/procurement/budgets/${budgetId}/activity`),
     enabled: !!budgetId,
+  });
+}
+
+export function useSuppliers(filter: { status?: "PROPOSED" | "APPROVED" | "REJECTED"; includeInactive?: boolean } = {}) {
+  const q = new URLSearchParams();
+  if (filter.status) q.set("status", filter.status);
+  if (filter.includeInactive) q.set("includeInactive", "1");
+  const qs = q.toString();
+  return useQuery({
+    queryKey: procurementKeys.suppliers(filter.status, filter.includeInactive),
+    queryFn: () => get<{ suppliers: SupplierRow[] }>(`/api/procurement/suppliers${qs ? `?${qs}` : ""}`).then((r) => r.suppliers),
+  });
+}
+
+function useSupplierInvalidation() {
+  const qc = useQueryClient();
+  return () => void qc.invalidateQueries({ queryKey: ["procurement", "suppliers"] });
+}
+
+export interface ProposeSupplierInput {
+  code?: string;
+  legalName: string;
+  displayName?: string;
+  taxRegistrationNo?: string | null;
+  country?: string | null;
+  currency: string;
+  contacts?: SupplierContact[];
+  paymentTerms?: string | null;
+  notes?: string | null;
+}
+
+export function useProposeSupplier() {
+  const invalidate = useSupplierInvalidation();
+  return useMutation({
+    mutationFn: (input: ProposeSupplierInput) => send<{ supplier: SupplierRow }>("/api/procurement/suppliers", "POST", input, "Couldn't save the supplier").then((r) => r.supplier),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDecideSupplier() {
+  const invalidate = useSupplierInvalidation();
+  return useMutation({
+    mutationFn: ({ supplierId, ...input }: { supplierId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }) =>
+      send<{ supplier: SupplierRow }>(`/api/procurement/suppliers/${supplierId}/decide`, "POST", input, "Couldn't record the decision").then((r) => r.supplier),
+    onSuccess: invalidate,
+  });
+}
+
+export interface UpdateSupplierInput {
+  supplierId: string;
+  expectedVersion: number;
+  legalName?: string;
+  displayName?: string;
+  taxRegistrationNo?: string | null;
+  country?: string | null;
+  currency?: string;
+  contacts?: SupplierContact[];
+  paymentTerms?: string | null;
+  bankDetails?: SupplierBankDetails | null;
+  riskStatus?: "NONE" | "WATCH" | "BLOCKED";
+  isActive?: boolean;
+  notes?: string | null;
+}
+
+export function useUpdateSupplier() {
+  const invalidate = useSupplierInvalidation();
+  return useMutation({
+    mutationFn: ({ supplierId, ...input }: UpdateSupplierInput) =>
+      send<{ supplier: SupplierRow }>(`/api/procurement/suppliers/${supplierId}`, "PATCH", input, "Couldn't save the supplier").then((r) => r.supplier),
+    onSuccess: invalidate,
   });
 }
 

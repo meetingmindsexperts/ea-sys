@@ -46,6 +46,18 @@ const SHARED_CATEGORY_CODE = "VENUE";
 const SHARED_SKU = "510301";
 const PROD_A = "tenancy-bp-prod-a";
 const PROD_B = "tenancy-bp-prod-b";
+/** Phase 2 (purchasing): both orgs hold a supplier on the SAME code and a request and an order on the SAME numbers. */
+const SHARED_SUPPLIER_CODE = "ACME";
+const SHARED_REQUEST_NO = "PR-2026-0001";
+const SHARED_COMMITMENT_NO = "PO-2026-0001";
+const SUP_A = "tenancy-bp-sup-a";
+const SUP_B = "tenancy-bp-sup-b";
+const SREQ_A = "tenancy-bp-sreq-a";
+const SREQ_B = "tenancy-bp-sreq-b";
+const COM_A = "tenancy-bp-com-a";
+const COM_B = "tenancy-bp-com-b";
+const CLINE_A = "tenancy-bp-cline-a";
+const CLINE_B = "tenancy-bp-cline-b";
 const SHARED_EVENT_CODE = "TEN2026";
 const NOW = new Date("2026-09-14T00:00:00.000Z");
 
@@ -118,9 +130,41 @@ beforeAll(async () => {
       { id: SUM_B, organizationId: ORG_B_ID, sourceSystem: "EA_SYS", eventCode: SHARED_EVENT_CODE, name: "Ten 2026 (B)", year: 2026, currency: "AED", categoryTotals: {}, asOf: NOW },
     ],
   });
+  await owner.supplier.createMany({
+    data: [
+      { id: SUP_A, organizationId: ORG_A_ID, code: SHARED_SUPPLIER_CODE, legalName: "Acme (A)", displayName: "Acme", currency: "AED", approvalStatus: "APPROVED", taxRegistrationNo: "TRN-A" },
+      { id: SUP_B, organizationId: ORG_B_ID, code: SHARED_SUPPLIER_CODE, legalName: "Acme (B)", displayName: "Acme", currency: "AED", approvalStatus: "APPROVED", taxRegistrationNo: "TRN-B" },
+    ],
+  });
+  await owner.spendRequest.createMany({
+    data: [
+      { id: SREQ_A, organizationId: ORG_A_ID, requestNo: SHARED_REQUEST_NO, budgetId: BUD_A, lineKey: "line-a", eventCode: SHARED_EVENT_CODE, requesterUserId: "owner-a", supplierId: SUP_A, title: "Hall deposit", currency: "AED", amount: 500 },
+      { id: SREQ_B, organizationId: ORG_B_ID, requestNo: SHARED_REQUEST_NO, budgetId: BUD_B, lineKey: "line-b", eventCode: SHARED_EVENT_CODE, requesterUserId: "owner-b", supplierId: SUP_B, title: "Hall deposit", currency: "AED", amount: 900 },
+    ],
+  });
+  await owner.commitment.createMany({
+    data: [
+      { id: COM_A, organizationId: ORG_A_ID, commitmentNo: SHARED_COMMITMENT_NO, spendRequestId: SREQ_A, budgetId: BUD_A, lineKey: "line-a", supplierId: SUP_A, eventCode: SHARED_EVENT_CODE, currency: "AED", amount: 500 },
+      { id: COM_B, organizationId: ORG_B_ID, commitmentNo: SHARED_COMMITMENT_NO, spendRequestId: SREQ_B, budgetId: BUD_B, lineKey: "line-b", supplierId: SUP_B, eventCode: SHARED_EVENT_CODE, currency: "AED", amount: 900 },
+    ],
+  });
+  await owner.commitmentLine.createMany({
+    data: [
+      { id: CLINE_A, organizationId: ORG_A_ID, commitmentId: COM_A, lineKey: "line-a", description: "Hall deposit", amount: 500 },
+      { id: CLINE_B, organizationId: ORG_B_ID, commitmentId: COM_B, lineKey: "line-b", description: "Hall deposit", amount: 900 },
+    ],
+  });
+  await owner.spendRequestCounter.createMany({ data: [{ organizationId: ORG_A_ID, year: 2026, lastSerial: 1 }, { organizationId: ORG_B_ID, year: 2026, lastSerial: 1 }], skipDuplicates: true });
+  await owner.commitmentCounter.createMany({ data: [{ organizationId: ORG_A_ID, year: 2026, lastSerial: 1 }, { organizationId: ORG_B_ID, year: 2026, lastSerial: 1 }], skipDuplicates: true });
 });
 
 async function cleanup() {
+  await owner?.commitmentLine.deleteMany({ where: { id: { in: [CLINE_A, CLINE_B] } } });
+  await owner?.commitment.deleteMany({ where: { id: { in: [COM_A, COM_B] } } });
+  await owner?.spendRequest.deleteMany({ where: { id: { in: [SREQ_A, SREQ_B] } } });
+  await owner?.supplier.deleteMany({ where: { id: { in: [SUP_A, SUP_B] } } });
+  await owner?.spendRequestCounter.deleteMany({ where: { organizationId: { in: [ORG_A_ID, ORG_B_ID] }, year: 2026 } });
+  await owner?.commitmentCounter.deleteMany({ where: { organizationId: { in: [ORG_A_ID, ORG_B_ID] }, year: 2026 } });
   await owner?.approvalStep.deleteMany({ where: { id: { in: [STEP_A, STEP_B] } } });
   await owner?.approvalRequest.deleteMany({ where: { id: { in: [REQ_A, REQ_B] } } });
   await owner?.approvalWorkflowDefinition.deleteMany({ where: { id: { in: [WF_A, WF_B] } } });
@@ -152,6 +196,16 @@ describe("Budget & Procurement RLS via the SET LOCAL extension", () => {
     expect(prodB?.id).toBe(PROD_B);
   });
 
+  it("lane-scoped (purchasing): the SHARED supplier code, request number and order number resolve per lane", async () => {
+    expect((await runWithTenant(ORG_A_ID, () => db.supplier.findFirst({ where: { code: SHARED_SUPPLIER_CODE } })))?.id).toBe(SUP_A);
+    expect((await runWithTenant(ORG_B_ID, () => db.supplier.findFirst({ where: { code: SHARED_SUPPLIER_CODE } })))?.id).toBe(SUP_B);
+    expect((await runWithTenant(ORG_A_ID, () => db.spendRequest.findFirst({ where: { requestNo: SHARED_REQUEST_NO } })))?.id).toBe(SREQ_A);
+    expect((await runWithTenant(ORG_B_ID, () => db.commitment.findFirst({ where: { commitmentNo: SHARED_COMMITMENT_NO } })))?.id).toBe(COM_B);
+    // A child addressed by the parent id misses across the fence, and a counter row is invisible from the other lane.
+    expect(await runWithTenant(ORG_A_ID, () => db.commitmentLine.findMany({ where: { commitmentId: COM_B } }))).toHaveLength(0);
+    expect(await runWithTenant(ORG_A_ID, () => db.spendRequestCounter.findMany({ where: { organizationId: ORG_B_ID } }))).toHaveLength(0);
+  });
+
   it("lane-scoped: the SHARED event code resolves to each lane's own budget and summary", async () => {
     const budA = await runWithTenant(ORG_A_ID, () => db.eventBudget.findFirst({ where: { eventCode: SHARED_EVENT_CODE } }));
     const budB = await runWithTenant(ORG_B_ID, () => db.eventBudget.findFirst({ where: { eventCode: SHARED_EVENT_CODE } }));
@@ -171,9 +225,15 @@ describe("Budget & Procurement RLS via the SET LOCAL extension", () => {
     expect(await runWithTenant(ORG_A_ID, () => db.budgetTemplateLine.findMany({ where: { templateId: TPL_B } }))).toHaveLength(0);
   });
 
-  it("fails closed across all ten tables with no tenant store", async () => {
+  it("fails closed across every module table with no tenant store", async () => {
     expect(await db.budgetCategory.findMany({ where: { code: SHARED_CATEGORY_CODE } })).toHaveLength(0);
     expect(await db.budgetProduct.findMany({ where: { sku: SHARED_SKU } })).toHaveLength(0);
+    expect(await db.supplier.findMany({ where: { code: SHARED_SUPPLIER_CODE } })).toHaveLength(0);
+    expect(await db.spendRequest.findMany({ where: { requestNo: SHARED_REQUEST_NO } })).toHaveLength(0);
+    expect(await db.commitment.findMany({ where: { commitmentNo: SHARED_COMMITMENT_NO } })).toHaveLength(0);
+    expect(await db.commitmentLine.findMany({ where: { id: { in: [CLINE_A, CLINE_B] } } })).toHaveLength(0);
+    expect(await db.spendRequestCounter.findMany({ where: { year: 2026 } })).toHaveLength(0);
+    expect(await db.commitmentCounter.findMany({ where: { year: 2026 } })).toHaveLength(0);
     expect(await db.budgetTemplate.findMany({ where: { name: "Conference" } })).toHaveLength(0);
     expect(await db.budgetTemplateLine.findMany({ where: { id: { in: [TLINE_A, TLINE_B] } } })).toHaveLength(0);
     expect(await db.eventBudget.findMany({ where: { eventCode: SHARED_EVENT_CODE } })).toHaveLength(0);

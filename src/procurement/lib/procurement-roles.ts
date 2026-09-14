@@ -25,7 +25,7 @@ import {
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
-export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve";
+export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose";
 
 export type ProcurementSession =
   | { user?: (ProcurementUserLike & { id?: string; organizationId?: string | null }) | null }
@@ -44,6 +44,9 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
       return canRequestProcurement(user);
     case "settle":
       return canSettleProcurement(user);
+    case "propose":
+      // A supplier is proposed by a requester or created by the settle holder (spec §4.3).
+      return canRequestProcurement(user) || canSettleProcurement(user);
     case "approve":
       return canApproveProcurement(user, amountAed ?? Number.NaN);
   }

@@ -124,3 +124,47 @@ export const upsertTemplateLineSchema = z.object({
   taxCode: z.string().max(30).nullable().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
 });
+
+// ── Suppliers (Phase 2, slice 1) ─────────────────────────────────────────────
+export const supplierContactSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(200).optional(),
+  phone: z.string().trim().max(40).optional(),
+  role: z.string().trim().max(80).optional(),
+});
+/** Classified (spec §2.9): stored, shown to the settle holder and staff, never audited. */
+export const supplierBankDetailsSchema = z.object({
+  bankName: z.string().trim().max(120).optional(),
+  accountName: z.string().trim().max(120).optional(),
+  iban: z.string().trim().max(40).optional(),
+  swift: z.string().trim().max(20).optional(),
+  accountNumber: z.string().trim().max(40).optional(),
+});
+export const proposeSupplierSchema = z.object({
+  code: z.string().trim().min(1).max(20).optional(),
+  legalName: z.string().trim().min(1).max(200),
+  displayName: z.string().trim().min(1).max(120).optional(),
+  taxRegistrationNo: z.string().trim().max(40).nullable().optional(),
+  country: z.string().trim().max(80).nullable().optional(),
+  currency: z.string().trim().length(3).toUpperCase(),
+  contacts: z.array(supplierContactSchema).max(10).optional(),
+  paymentTerms: z.string().trim().max(120).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+export const updateSupplierSchema = z
+  .object({
+    expectedVersion: z.number().int().min(1),
+    legalName: z.string().trim().min(1).max(200).optional(),
+    displayName: z.string().trim().min(1).max(120).optional(),
+    taxRegistrationNo: z.string().trim().max(40).nullable().optional(),
+    country: z.string().trim().max(80).nullable().optional(),
+    currency: z.string().trim().length(3).toUpperCase().optional(),
+    contacts: z.array(supplierContactSchema).max(10).optional(),
+    paymentTerms: z.string().trim().max(120).nullable().optional(),
+    bankDetails: supplierBankDetailsSchema.nullable().optional(),
+    riskStatus: z.enum(["NONE", "WATCH", "BLOCKED"]).optional(),
+    isActive: z.boolean().optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).some((k) => k !== "expectedVersion"), { message: "Nothing to change" });
+export const decideSupplierSchema = z.object({ decision: z.enum(["APPROVED", "REJECTED"]), note: z.string().trim().max(2000).nullable().optional() });

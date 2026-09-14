@@ -75,6 +75,13 @@ model Organization {
   crmEmailThreads             CrmEmailThread[]
   crmEmailSendClaims          CrmEmailSendClaim[]
   loginEvents                 LoginEvent[]
+  suppliers                   Supplier[]
+  supplierProducts            SupplierProduct[]
+  spendRequests               SpendRequest[]
+  spendRequestQuotes          SpendRequestQuote[]
+  commitments                 Commitment[]
+  commitmentLines             CommitmentLine[]
+  paymentRecords              PaymentRecord[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -2207,6 +2214,7 @@ model MediaFile {
   event        Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   uploadedBy   User         @relation(fields: [uploadedById], references: [id])
 
+  spendRequestQuotes SpendRequestQuote[]
   @@index([organizationId])
   @@index([eventId])
 }
@@ -5152,6 +5160,8 @@ model BudgetCategory {
   budgetLines   BudgetLine[]
   products      BudgetProduct[]
 
+  spendRequests   SpendRequest[]
+  commitmentLines CommitmentLine[]
   @@unique([organizationId, code])
   @@index([organizationId, isActive])
 }
@@ -5282,6 +5292,8 @@ model EventBudget {
   event        Event?       @relation(fields: [eventId], references: [id], onDelete: Restrict)
   lines        BudgetLine[]
 
+  spendRequests SpendRequest[]
+  commitments   Commitment[]
   @@unique([eventId, versionNo])
   @@index([organizationId, status])
   @@index([organizationId, eventCode])
@@ -5298,6 +5310,7 @@ model BudgetLine {
   lineKey             String
   templateLineId      String?
   productId           String?
+  supplierId          String?
   categoryId          String
   description         String
   qty                 Decimal   @default(1) @db.Decimal(14, 4)
@@ -5340,12 +5353,14 @@ model BudgetLine {
   budget       EventBudget         @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   templateLine BudgetTemplateLine? @relation(fields: [templateLineId], references: [id], onDelete: SetNull)
   product      BudgetProduct?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  supplier     Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   category     BudgetCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@unique([budgetId, lineKey])
   @@index([organizationId])
   @@index([budgetId, categoryId])
   @@index([productId])
+  @@index([supplierId])
 }
 
 /// The approvals primitive (build plan §4.5), in core because HR will reuse
@@ -5458,4 +5473,352 @@ model EventFinancialSummary {
 
   @@unique([organizationId, sourceSystem, eventCode])
   @@index([organizationId, year])
+}
+
+// ─── Budget & Procurement, Phase 2 (purchasing), slice 1: the tables ─────────
+// Spec docs/BUDGET_PROCUREMENT_MODULE.html §5; plan §6. Money DECIMAL(18,4)
+// ex-VAT with the tax beside it, rates DECIMAL(18,8), people as scalar user
+// ids (the trail outlives the account), organizationId on every table with a
+// policy in prisma/rls/procurement.sql. Document numbers come from the two
+// year-keyed counters below: PR-2026-0001 / PO-2026-0001, the sequence
+// restarting each January (owner decision, 14 Sep 2026).
+
+enum SupplierApprovalStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+enum SupplierRiskStatus {
+  NONE
+  WATCH
+  BLOCKED
+}
+
+enum SpendRequestStatus {
+  DRAFT
+  SUBMITTED
+  BUDGET_CHECKED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+  AWAITING_SUPPLIER
+  CONVERTED
+  CLOSED
+}
+
+enum BudgetCheckStatus {
+  NOT_CHECKED
+  WITHIN_BUDGET
+  OVER_BUDGET
+  FROZEN
+}
+
+enum SourcingMethod {
+  SINGLE_QUOTE
+  COMPETITIVE_QUOTES
+  EXISTING_CONTRACT
+  SOLE_SOURCE
+}
+
+enum SpendRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum CommitmentStatus {
+  APPROVED
+  SENT_TO_ACCOUNTING
+  POSTED
+  CLOSED
+  CANCELLED
+}
+
+enum FulfillmentStatus {
+  OPEN
+  PARTIALLY_RECEIVED
+  RECEIVED
+}
+
+enum AccountingSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+  LINKED_EXTERNAL
+  DIVERGED
+}
+
+enum PaymentRecordStatus {
+  RECORDED
+  CLEARED
+  VOID
+}
+
+/// A supplier. `taxRegistrationNo` and `bankDetails` are classified financial
+/// data (spec §2.9): read by the settle grant and admins only, redacted for
+/// everyone else, never quoted in an audit diff. Only an APPROVED supplier can
+/// appear on a Commitment.
+model Supplier {
+  id                 String                 @id @default(cuid())
+  organizationId     String
+  code               String
+  legalName          String
+  displayName        String
+  taxRegistrationNo  String?
+  country            String?
+  currency           String
+  contacts           Json                   @default("[]")
+  paymentTerms       String?
+  bankDetails        Json?
+  externalSystemType String?
+  externalVendorId   String?
+  approvalStatus     SupplierApprovalStatus @default(PROPOSED)
+  riskStatus         SupplierRiskStatus     @default(NONE)
+  isActive           Boolean                @default(true)
+  notes              String?                @db.Text
+  proposedByUserId   String?
+  decidedByUserId    String?
+  decidedAt          DateTime?
+  decisionNote       String?
+  version            Int                    @default(1)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products      SupplierProduct[]
+  spendRequests SpendRequest[]
+  quotes        SpendRequestQuote[]
+  commitments   Commitment[]
+  budgetLines   BudgetLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, approvalStatus])
+  @@index([organizationId, isActive])
+}
+
+/// Catalogue items a supplier is bought from repeatedly; a convenience only (spec §5).
+model SupplierProduct {
+  id             String   @id @default(cuid())
+  organizationId String
+  supplierId     String
+  name           String
+  sku            String?
+  unitCost       Decimal? @db.Decimal(18, 4)
+  currency       String?
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([supplierId])
+}
+
+/// A request to spend against one budget line (spec §5, §6). `lineKey` is
+/// optional on a draft and required at submission; `amountAed` is the routing
+/// amount, snapshotted at submission from the reporting-to-AED rate.
+model SpendRequest {
+  id                  String               @id @default(cuid())
+  organizationId      String
+  requestNo           String
+  budgetId            String?
+  lineKey             String?
+  eventCode           String
+  requesterUserId     String
+  departmentId        String?
+  supplierId          String?
+  proposedVendorName  String?
+  title               String
+  justification       String?              @db.Text
+  amount              Decimal              @default(0) @db.Decimal(18, 4)
+  taxAmount           Decimal              @default(0) @db.Decimal(18, 4)
+  currency            String
+  fxRateToReporting   Decimal?             @db.Decimal(18, 8)
+  amountAed           Decimal?             @db.Decimal(18, 4)
+  categoryId          String?
+  neededBy            DateTime?            @db.Date
+  sourcingMethod      SourcingMethod?
+  budgetCheckStatus   BudgetCheckStatus    @default(NOT_CHECKED)
+  status              SpendRequestStatus   @default(DRAFT)
+  priority            SpendRequestPriority @default(NORMAL)
+  linkedCommitmentId  String?
+  approvalRequestId   String?
+  submittedAt         DateTime?
+  decidedAt           DateTime?
+  decidedByUserId     String?
+  decisionNote        String?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  version             Int                  @default(1)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget       EventBudget?        @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  supplier     Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  category     BudgetCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  quotes       SpendRequestQuote[]
+  commitments  Commitment[]
+
+  @@unique([organizationId, requestNo])
+  @@index([organizationId, status])
+  @@index([budgetId])
+  @@index([requesterUserId])
+}
+
+model SpendRequestQuote {
+  id             String    @id @default(cuid())
+  organizationId String
+  spendRequestId String
+  vendorName     String
+  supplierId     String?
+  amount         Decimal   @default(0) @db.Decimal(18, 4)
+  taxAmount      Decimal   @default(0) @db.Decimal(18, 4)
+  currency       String
+  quotedOn       DateTime? @db.Date
+  validUntil     DateTime? @db.Date
+  recommended    Boolean   @default(false)
+  notes          String?   @db.Text
+  mediaFileId    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  spendRequest SpendRequest @relation(fields: [spendRequestId], references: [id], onDelete: Cascade)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  mediaFile    MediaFile?   @relation(fields: [mediaFileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([spendRequestId])
+}
+
+/// The purchase order (spec §5): what "committed" counts, what is posted to
+/// accounting and emailed to the supplier. `spendRequestId` is null only on
+/// rows linked from the previous system. Fulfilment is tracked apart from
+/// the document status.
+model Commitment {
+  id                       String               @id @default(cuid())
+  organizationId           String
+  commitmentNo             String
+  spendRequestId           String?
+  budgetId                 String?
+  lineKey                  String
+  supplierId               String
+  eventCode                String
+  amount                   Decimal              @default(0) @db.Decimal(18, 4)
+  taxAmount                Decimal              @default(0) @db.Decimal(18, 4)
+  currency                 String
+  fxRateToReporting        Decimal              @default(1) @db.Decimal(18, 8)
+  status                   CommitmentStatus     @default(APPROVED)
+  fulfillmentStatus        FulfillmentStatus    @default(OPEN)
+  accountingSyncStatus     AccountingSyncStatus @default(PENDING)
+  externalDocumentType     String?
+  externalDocumentId       String?
+  externalDocNumber        String?
+  approvedAt               DateTime             @default(now())
+  approvedByUserId         String?
+  sentToSupplierAt         DateTime?
+  pdfUrl                   String?
+  receivedAt               DateTime?
+  receivedByUserId         String?
+  receiptConfirmedAt       DateTime?
+  receiptConfirmedByUserId String?
+  cancelledAt              DateTime?
+  cancelledByUserId        String?
+  cancelReason             String?
+  closedAt                 DateTime?
+  version                  Int                  @default(1)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  spendRequest SpendRequest?    @relation(fields: [spendRequestId], references: [id], onDelete: SetNull)
+  budget       EventBudget?     @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  supplier     Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines        CommitmentLine[]
+  payments     PaymentRecord[]
+
+  @@unique([organizationId, commitmentNo])
+  @@index([organizationId, status])
+  @@index([budgetId, lineKey])
+  @@index([supplierId])
+}
+
+/// One PO line, so a bill line can later allocate to the right budget line.
+model CommitmentLine {
+  id             String   @id @default(cuid())
+  organizationId String
+  commitmentId   String
+  lineKey        String
+  categoryId     String?
+  description    String
+  qty            Decimal  @default(1) @db.Decimal(14, 4)
+  unitCost       Decimal  @default(0) @db.Decimal(18, 4)
+  taxCode        String?
+  taxRatePercent Decimal? @db.Decimal(5, 2)
+  amount         Decimal  @default(0) @db.Decimal(18, 4)
+  taxAmount      Decimal  @default(0) @db.Decimal(18, 4)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  commitment   Commitment      @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  category     BudgetCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([commitmentId])
+}
+
+/// A payment read back from accounting (spec §5): against a bill, or a
+/// deposit against a commitment before any bill exists. Phase 2 lands the
+/// table empty; the Phase 3 connector writes it. `supplierInvoiceId` is a
+/// plain id until the SupplierInvoice table lands with the connector.
+model PaymentRecord {
+  id                String              @id @default(cuid())
+  organizationId    String
+  commitmentId      String?
+  supplierInvoiceId String?
+  reference         String?
+  paidOn            DateTime            @db.Date
+  grossAmount       Decimal             @default(0) @db.Decimal(18, 4)
+  currency          String
+  fxRate            Decimal?            @db.Decimal(18, 8)
+  method            String?
+  status            PaymentRecordStatus @default(RECORDED)
+  externalPaymentId String?
+  notes             String?             @db.Text
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  commitment   Commitment?  @relation(fields: [commitmentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([commitmentId])
+}
+
+/// PR-<year>-<serial>: one row per organisation and year, the
+/// RegistrationSerialCounter upsert mechanism inside the creating transaction.
+model SpendRequestCounter {
+  organizationId String
+  year           Int
+  lastSerial     Int    @default(0)
+
+  @@id([organizationId, year])
+}
+
+/// PO-<year>-<serial>, the same mechanism.
+model CommitmentCounter {
+  organizationId String
+  year           Int
+  lastSerial     Int    @default(0)
+
+  @@id([organizationId, year])
 }
