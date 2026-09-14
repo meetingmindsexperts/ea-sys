@@ -27,10 +27,14 @@ import {
   remaining,
   storedString,
   toAed,
+  FLOATING_TO_AED_BAND,
+  resolveReportingToAedRate,
   VARIANCE_NOTE_FLOOR_AED,
   varianceRequiresNote,
   type MoneyInput,
+  type RateResolution,
 } from "../lib/money";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
 
 export type BudgetErrorCode =
@@ -50,6 +54,8 @@ export type BudgetErrorCode =
   | "NO_APPROVER"
   | "APPROVAL_FAILED"
   | "VERSION_IN_PROGRESS"
+  | "CAP_EXCEEDED"
+  | "INVALID_FILTER"
   | "LINE_HAS_COMMITMENTS"
   | "VARIANCE_NOTES_REQUIRED"
   | "UNKNOWN";
@@ -176,6 +182,12 @@ export async function recomputeBudgetTotals(tx: Db, budgetId: string): Promise<v
 }
 
 // ── read ─────────────────────────────────────────────────────────────────────
+
+const BUDGET_STATUSES: ReadonlySet<string> = new Set(["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"]);
+/** A status filter the enum does not know: refused, never silently widened (the INVALID_FILTER rule). */
+export function invalidBudgetStatusFilter(status: string | undefined): boolean {
+  return status !== undefined && !BUDGET_STATUSES.has(status);
+}
 
 export async function listBudgets(organizationId: string, filter: { eventId?: string; status?: string } = {}) {
   const rows = await db.eventBudget.findMany({
@@ -559,10 +571,11 @@ export async function deleteBudgetLine(input: { organizationId: string; actorUse
 
 // ── submit / decide / activate ───────────────────────────────────────────────
 
-function aedRateFor(reportingCurrency: string, given: MoneyInput | null | undefined): { ok: true; rate: MoneyInput } | { ok: false } {
-  if (reportingCurrency === "AED") return { ok: true, rate: 1 };
-  if (given === null || given === undefined || money(given).lte(0)) return { ok: false };
-  return { ok: true, rate: given };
+/** The reason a rate was refused, in the caller's words (spec §7.3: one rate, never the requester's choice). */
+function rateRefusal(currency: string, r: Extract<RateResolution, { ok: false }>, purpose: string): string {
+  return r.reason === "missing"
+    ? `The ${currency} to AED rate is needed ${purpose}.`
+    : `The ${currency} to AED rate must be between ${FLOATING_TO_AED_BAND.min} and ${FLOATING_TO_AED_BAND.max}.`;
 }
 
 export async function submitBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string; reportingToAedRate?: MoneyInput | null }): Promise<BudgetResult<BudgetView>> {
@@ -574,9 +587,10 @@ export async function submitBudget(input: { organizationId: string; actorUserId:
   const categories = await db.budgetCategory.findMany({ where: { organizationId: input.organizationId }, select: { id: true, code: true, depth: true, isActive: true } });
   const missing = missingForSubmission(b, lines, categories, CONTINGENCY_CATEGORY_CODE);
   if (missing.length > 0) return fail("INCOMPLETE", "The budget is not complete enough to submit.", ctx, { missing });
-  const aed = aedRateFor(b.reportingCurrency, input.reportingToAedRate);
-  if (!aed.ok) return fail("RATE_REQUIRED", `The ${b.reportingCurrency} to AED rate is needed to route the approval (spec §4).`, ctx);
+  const aed = resolveReportingToAedRate(b.reportingCurrency, input.reportingToAedRate);
+  if (!aed.ok) return fail("RATE_REQUIRED", rateRefusal(b.reportingCurrency, aed, "to route the approval (spec §7.3)"), ctx);
   const amountAed = toAed(b.plannedExpenseTotal, aed.rate);
+  const rateUsed = { reportingToAedRate: aed.rate.toString(), rateSource: aed.source };
   try {
     const outcome = await tenantTransaction(async (tx) => {
       const req = await createApprovalRequest(tx, {
@@ -587,12 +601,15 @@ export async function submitBudget(input: { organizationId: string; actorUserId:
         amount: storedString(b.plannedExpenseTotal),
         currency: b.reportingCurrency,
         requesterUserId: input.actorUserId,
+        // The rate that routed it travels with the request, so the approver
+        // sees the conversion and not only its result.
+        payload: rateUsed,
         source: input.source,
       });
       if (!req.ok) return req;
       const res = await tx.eventBudget.updateMany({ where: { id: b.id, organizationId: input.organizationId, status: "DRAFT" }, data: { status: "UNDER_REVIEW", submittedAt: new Date(), version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
-      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "SUBMIT", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, amountAed: amountAed.toString(), approvalRequestId: req.request.id } });
+      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "SUBMIT", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, amountAed: amountAed.toString(), ...rateUsed, approvalRequestId: req.request.id } });
       return req;
     });
     if (!outcome.ok) return fail("NO_APPROVER", outcome.message, ctx);
@@ -712,10 +729,38 @@ export interface ReallocateInput {
   reportingToAedRate?: MoneyInput | null;
 }
 
+const REALLOCATION_LINE_SELECT = { id: true, planned: true, approvedPlanned: true, reallocatedOut: true, fxRateToReporting: true, taxRatePercent: true, isContingency: true, deletedAt: true } as const;
+
+/**
+ * A moved amount is a new planned figure for the line: qty becomes 1, the unit
+ * cost is the planned amount back in the line's own currency (so a later edit
+ * on a cloned version recomputes qty × unitCost × rate to the same planned
+ * figure), and the planned tax follows the new amount at the line's rate.
+ */
+function replanned(planned: ReturnType<typeof money>, line: { fxRateToReporting: unknown; taxRatePercent: unknown }) {
+  const rate = money(line.fxRateToReporting as MoneyInput);
+  const taxPct = money((line.taxRatePercent ?? 0) as MoneyInput);
+  return {
+    planned: storedString(planned),
+    qty: "1",
+    unitCost: storedString(planned.div(rate)),
+    taxAmountPlanned: storedString(planned.mul(taxPct).div(100)),
+  };
+}
+
 async function applyReallocation(tx: Db, budgetId: string, move: { fromLineKey: string; toLineKey: string; amount: string }, countAgainstOwner: boolean) {
-  const from = await tx.budgetLine.findFirst({ where: { budgetId, lineKey: move.fromLineKey, deletedAt: null }, select: { id: true, planned: true, reallocatedOut: true, unitCost: true, qty: true } });
-  const to = await tx.budgetLine.findFirst({ where: { budgetId, lineKey: move.toLineKey, deletedAt: null }, select: { id: true, planned: true, isContingency: true } });
-  if (!from || !to) throw new Error("LINE_NOT_FOUND");
+  const fromRef = await tx.budgetLine.findFirst({ where: { budgetId, lineKey: move.fromLineKey, deletedAt: null }, select: { id: true } });
+  const toRef = await tx.budgetLine.findFirst({ where: { budgetId, lineKey: move.toLineKey, deletedAt: null }, select: { id: true } });
+  if (!fromRef || !toRef) throw new Error("LINE_NOT_FOUND");
+  // Lock both rows for the rest of the transaction, always in id order so two
+  // opposite moves cannot deadlock, and only THEN read the figures: what the
+  // caller read before the lock may be a move behind (two clicks, two tabs).
+  // Holds through the pooler inside an interactive transaction (the
+  // createCreditNote pattern).
+  for (const id of [fromRef.id, toRef.id].sort()) await tx.$queryRaw`SELECT id FROM "BudgetLine" WHERE id = ${id} FOR UPDATE`;
+  const from = await tx.budgetLine.findUnique({ where: { id: fromRef.id }, select: REALLOCATION_LINE_SELECT });
+  const to = await tx.budgetLine.findUnique({ where: { id: toRef.id }, select: REALLOCATION_LINE_SELECT });
+  if (!from || !to || from.deletedAt || to.deletedAt) throw new Error("LINE_NOT_FOUND");
   // The contingency line is sized by the percent: recomputeBudgetTotals below
   // would put it straight back, and the amount would leave the source line and
   // land nowhere. Refused here as well as at the request, so a request that
@@ -723,12 +768,13 @@ async function applyReallocation(tx: Db, budgetId: string, move: { fromLineKey: 
   if (to.isContingency) throw new Error("CONTINGENCY_TARGET");
   const amt = money(move.amount);
   if (money(from.planned).minus(amt).lt(0)) throw new Error("INVALID_AMOUNT");
+  // The owner's 10% is judged on the LOCKED row: a move that landed between the
+  // caller's check and this lock counts, so two moves cannot add up past the cap.
+  if (countAgainstOwner && reallocationAuthority(from, amt) !== "OWNER") throw new Error("CAP_EXCEEDED");
   const fromPlanned = money(from.planned).minus(amt);
   const toPlanned = money(to.planned).plus(amt);
-  // planned = qty × unitCost at the line's rate; a reallocation moves planned,
-  // so the unit cost is re-derived to keep the identity honest.
-  await tx.budgetLine.update({ where: { id: from.id }, data: { planned: storedString(fromPlanned), qty: "1", unitCost: storedString(fromPlanned), ...(countAgainstOwner ? { reallocatedOut: storedString(money(from.reallocatedOut).plus(amt)) } : {}) } });
-  await tx.budgetLine.update({ where: { id: to.id }, data: { planned: storedString(toPlanned), qty: "1", unitCost: storedString(toPlanned) } });
+  await tx.budgetLine.update({ where: { id: from.id }, data: { ...replanned(fromPlanned, from), ...(countAgainstOwner ? { reallocatedOut: storedString(money(from.reallocatedOut).plus(amt)) } : {}) } });
+  await tx.budgetLine.update({ where: { id: to.id }, data: replanned(toPlanned, to) });
   await recomputeBudgetTotals(tx, budgetId);
   await tx.eventBudget.update({ where: { id: budgetId }, data: { version: { increment: 1 } } });
 }
@@ -758,8 +804,9 @@ export async function reallocateBudget(input: ReallocateInput): Promise<BudgetRe
       });
       return getBudget(input.organizationId, b.id);
     }
-    const aed = aedRateFor(b.reportingCurrency, input.reportingToAedRate);
-    if (!aed.ok) return fail("RATE_REQUIRED", `This move is above your 10% authority and routes for approval; the ${b.reportingCurrency} to AED rate is needed.`, ctx);
+    const aed = resolveReportingToAedRate(b.reportingCurrency, input.reportingToAedRate);
+    if (!aed.ok) return fail("RATE_REQUIRED", rateRefusal(b.reportingCurrency, aed, "because this move is above your 10% authority and routes for approval"), ctx);
+    const rateUsed = { reportingToAedRate: aed.rate.toString(), rateSource: aed.source };
     const outcome = await tenantTransaction(async (tx) => {
       const req = await createApprovalRequest(tx, {
         organizationId: input.organizationId,
@@ -770,11 +817,11 @@ export async function reallocateBudget(input: ReallocateInput): Promise<BudgetRe
         currency: b.reportingCurrency,
         requesterUserId: input.actorUserId,
         reason: input.reason,
-        payload: move,
+        payload: { ...move, ...rateUsed },
         source: input.source,
       });
       if (!req.ok) return req;
-      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "REALLOCATION_REQUESTED", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, ...move, reason: input.reason, approvalRequestId: req.request.id } });
+      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "REALLOCATION_REQUESTED", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, ...move, ...rateUsed, reason: input.reason, approvalRequestId: req.request.id } });
       return req;
     });
     if (!outcome.ok) return fail("NO_APPROVER", outcome.message, ctx);
@@ -782,6 +829,11 @@ export async function reallocateBudget(input: ReallocateInput): Promise<BudgetRe
     if (!view.ok) return view;
     return { ok: true, budget: view.budget, pendingApprovalId: outcome.request.id };
   } catch (err) {
+    const m = (err as Error).message;
+    if (m === "CAP_EXCEEDED") return fail("CAP_EXCEEDED", "Another move on this line landed first and this one now exceeds your 10% authority. Reload, then route it for approval.", ctx);
+    if (m === "INVALID_AMOUNT") return fail("INVALID_AMOUNT", "The source line no longer holds that amount. Reload.", ctx);
+    if (m === "LINE_NOT_FOUND") return fail("LINE_NOT_FOUND", "A line in the move no longer exists. Reload.", ctx);
+    if (m === "CONTINGENCY_TARGET") return fail("INVALID_STATUS", "Contingency cannot receive a reallocation.", ctx);
     apiLogger.error({ msg: "procurement/budget:reallocate-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not move the amount.", ctx);
   }
@@ -852,7 +904,7 @@ export interface CloseBudgetInput {
   source: Source;
   budgetId: string;
   varianceNotes?: Record<string, string>;
-  aedToReportingRate?: MoneyInput | null;
+  reportingToAedRate?: MoneyInput | null;
 }
 
 export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult<BudgetView>> {
@@ -860,17 +912,18 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   const b = await loadBudget(db, input.organizationId, input.budgetId);
   if (!b) return fail("BUDGET_NOT_FOUND", "The budget was not found.", ctx);
   if (b.status !== "ACTIVE" && b.status !== "FROZEN") return fail("INVALID_STATUS", "Only the active or frozen version closes.", ctx);
-  const rate = b.reportingCurrency === "AED" ? money(1) : input.aedToReportingRate === null || input.aedToReportingRate === undefined ? null : money(input.aedToReportingRate);
-  if (rate === null || rate.lte(0)) return fail("RATE_REQUIRED", `The AED to ${b.reportingCurrency} rate is needed for the variance threshold (spec §14 Q13).`, ctx);
+  const aed = resolveReportingToAedRate(b.reportingCurrency, input.reportingToAedRate);
+  if (!aed.ok) return fail("RATE_REQUIRED", rateRefusal(b.reportingCurrency, aed, "for the variance threshold (spec §14 Q13)"), ctx);
   const lines = await loadLines(db, b.id);
-  const floor = VARIANCE_NOTE_FLOOR_AED.mul(rate);
+  // The AED-5,000 floor expressed in the reporting currency.
+  const floor = VARIANCE_NOTE_FLOOR_AED.div(aed.rate);
   const notes = input.varianceNotes ?? {};
   const needing = lines.filter((l) => !l.isContingency && varianceRequiresNote({ planned: l.planned, actual: l.actual, floorInReporting: floor }) && !(notes[l.lineKey]?.trim() || l.varianceNote?.trim()));
   if (needing.length > 0) {
     return fail("VARIANCE_NOTES_REQUIRED", "Every line whose actual differs from planned past the threshold needs a written explanation.", ctx, { lineKeys: needing.map((l) => l.lineKey) });
   }
   const recordedAttendance = b.eventId
-    ? await db.registration.count({ where: { eventId: b.eventId, status: "CHECKED_IN", OR: [{ ticketTypeId: null }, { ticketType: { isFaculty: false } }] } })
+    ? await db.registration.count({ where: { eventId: b.eventId, status: "CHECKED_IN", ...EXCLUDE_FACULTY_WHERE } })
     : null;
   const byCategory: Record<string, { planned: string; actual: string; variance: string }> = {};
   const acc = new Map<string, { planned: ReturnType<typeof money>; actual: ReturnType<typeof money> }>();
@@ -907,7 +960,7 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
           attendance: recordedAttendance, currency: b.reportingCurrency, categoryTotals: byCategory, expenseTotal: storedString(expenseTotal), asOf: new Date(), eventBudgetId: b.id,
         },
       });
-      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "CLOSE", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, recordedAttendance, actualTotal: storedString(expenseTotal), notesWritten: Object.keys(notes).length } });
+      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "CLOSE", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, recordedAttendance, actualTotal: storedString(expenseTotal), notesWritten: Object.keys(notes).length, reportingToAedRate: aed.rate.toString(), rateSource: aed.source, varianceFloorInReporting: storedString(floor) } });
     });
     return getBudget(input.organizationId, b.id);
   } catch (err) {

@@ -18,6 +18,10 @@ const rateInput = z.union([z.number(), z.string().trim().min(1)]).refine(
   (v) => Number.isFinite(Number(v)) && Number(v) > 0,
   { message: "Must be a rate greater than zero" },
 );
+const amountInput = z.union([z.number(), z.string().trim().min(1)]).refine(
+  (v) => Number.isFinite(Number(v)) && Number(v) > 0,
+  { message: "Must be an amount greater than zero" },
+);
 const dateInput = z.string().datetime().transform((s) => new Date(s));
 
 export const createBudgetSchema = z.object({
@@ -70,7 +74,7 @@ export const decideSchema = z.object({ decision: z.enum(["APPROVED", "REJECTED"]
 export const reallocateSchema = z.object({
   fromLineKey: z.string().min(1).max(100),
   toLineKey: z.string().min(1).max(100),
-  amount: rateInput,
+  amount: amountInput,
   reason: z.string().trim().min(1).max(1000),
   reportingToAedRate: rateInput.nullable().optional(),
 });
@@ -78,7 +82,8 @@ export const transitionSchema = z.object({
   action: z.enum(["freeze", "unfreeze", "close", "sign-off", "reopen"]),
   reason: z.string().max(1000).optional(),
   varianceNotes: z.record(z.string().max(100), z.string().max(2000)).optional(),
-  aedToReportingRate: rateInput.nullable().optional(),
+  /** Reporting currency to AED, the one rate the module speaks; a peg is never taken from the caller. */
+  reportingToAedRate: rateInput.nullable().optional(),
 });
 
 export const createCategorySchema = z.object({

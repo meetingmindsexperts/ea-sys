@@ -8,7 +8,7 @@ import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isTeamRole } from "@/lib/team-roles";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
-import { isFinalApproverHoldingRequestGrant } from "@/lib/procurement-visibility";
+import { approvalCeilingAed, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -263,11 +263,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Spec §8.8: the final approver never requests, so requester != approver
     // can never leave a request with no approver. Judged on the RESULTING row.
     if (touchesProcurement) {
-      const resulting = {
+      const grants = procurementGrantsFromRow({
         procurementApproveUnlimited: validated.data.procurementApproveUnlimited ?? user.procurementApproveUnlimited,
         procurementRequest: validated.data.procurementRequest ?? user.procurementRequest,
-      };
-      if (isFinalApproverHoldingRequestGrant(resulting)) {
+        procurementApproveCeilingAed:
+          validated.data.procurementApproveCeilingAed !== undefined ? validated.data.procurementApproveCeilingAed : user.procurementApproveCeilingAed,
+        procurementSettle: validated.data.procurementSettle ?? user.procurementSettle,
+      });
+      if (isFinalApproverHoldingRequestGrant(grants)) {
         apiLogger.warn({
           msg: "organization/users:final-approver-cannot-request",
           targetUserId: userId,
@@ -277,6 +280,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
             error: "The final approver cannot also hold the request grant (a request from them would have no approver).",
             code: "FINAL_APPROVER_CANNOT_REQUEST",
           },
+          { status: 400 },
+        );
+      }
+      // Spec §4: the settle grant checks and signs off and never decides, so it
+      // cannot sit beside an approval ceiling; the primitive refuses the pair at
+      // decision time as well, this keeps the pair from being stored at all.
+      if (grants.procurementSettle && approvalCeilingAed(grants) !== null) {
+        apiLogger.warn({ msg: "organization/users:settle-cannot-approve", targetUserId: userId });
+        return NextResponse.json(
+          { error: "The settle grant cannot be held together with an approval ceiling (settle checks and signs off; it never decides).", code: "SETTLE_CANNOT_APPROVE" },
           { status: 400 },
         );
       }

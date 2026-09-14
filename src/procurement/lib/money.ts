@@ -235,6 +235,29 @@ export function toAed(amountReporting: MoneyInput, reportingToAedRate: MoneyInpu
   return toStored(money(amountReporting).mul(assertRate(reportingToAedRate)));
 }
 
+/**
+ * Reporting currency to AED until the FX provider lands (spec §7.3, Phase 3).
+ * The pegs are facts and are never taken from the caller. A floating
+ * currency's rate is the caller's, but it must sit inside a wide plausibility
+ * band: the requester must not be able to pick the rate that decides who
+ * approves (a rate of 0.0001 would route a two-million budget to the lowest
+ * tier) or that sets the variance-note floor. The band is a rail, not a price:
+ * EUR and GBP have traded between 3.6 and 6.2 AED this century.
+ */
+export const AED_PEG_RATES: Readonly<Record<string, string>> = { AED: "1", USD: "3.6725", SAR: "0.97933" };
+export const FLOATING_TO_AED_BAND = { min: "2.5", max: "8" } as const;
+export type RateResolution =
+  | { ok: true; rate: Decimal; source: "peg" | "caller" }
+  | { ok: false; reason: "missing" | "out-of-band" };
+export function resolveReportingToAedRate(reportingCurrency: string, given: MoneyInput | null | undefined): RateResolution {
+  const peg = AED_PEG_RATES[reportingCurrency];
+  if (peg !== undefined) return { ok: true, rate: money(peg), source: "peg" };
+  if (given === null || given === undefined || given === "") return { ok: false, reason: "missing" };
+  const rate = money(given);
+  if (rate.lt(FLOATING_TO_AED_BAND.min) || rate.gt(FLOATING_TO_AED_BAND.max)) return { ok: false, reason: "out-of-band" };
+  return { ok: true, rate, source: "caller" };
+}
+
 /** Sum stored (4 dp) figures and present the 2 dp total: the one place display rounding happens. */
 export function displayTotal(values: readonly MoneyInput[]): Decimal {
   return toDisplay(values.reduce<Decimal>((acc, v) => acc.plus(money(v)), new Decimal(0)));

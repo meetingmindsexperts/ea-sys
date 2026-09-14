@@ -66,10 +66,25 @@ export const HTTP_STATUS_FOR_BUDGET_ERROR: Record<BudgetErrorCode, number> = {
   NO_APPROVER: 409,
   APPROVAL_FAILED: 409,
   VERSION_IN_PROGRESS: 409,
+  CAP_EXCEEDED: 409,
+  INVALID_FILTER: 400,
   LINE_HAS_COMMITMENTS: 409,
   VARIANCE_NOTES_REQUIRED: 422,
   UNKNOWN: 500,
 };
+
+/**
+ * A read that fails (a pooler blip, a bad row) is a logged 500, never a bare
+ * one: the module's GETs have no rejection path of their own to log through.
+ */
+export async function guardedRead(route: string, userId: string, fn: () => Promise<NextResponse>): Promise<NextResponse> {
+  try {
+    return await fn();
+  } catch (err) {
+    apiLogger.error({ msg: `${route}:read-failed`, err, userId });
+    return NextResponse.json({ error: "Could not load." }, { status: 500 });
+  }
+}
 
 export function rejected(route: string, userId: string, r: { code: string; message: string; meta?: Record<string, unknown> }, statusFor: Record<string, number>): NextResponse {
   apiLogger.warn({ msg: `${route}:rejected`, code: r.code, userId });

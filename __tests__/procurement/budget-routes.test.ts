@@ -14,6 +14,7 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), ge
 
 const svc = vi.hoisted(() => ({
   listBudgets: vi.fn().mockResolvedValue([]),
+  invalidBudgetStatusFilter: (s: string | undefined) => s !== undefined && !["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"].includes(s),
   createBudget: vi.fn().mockResolvedValue({ ok: true, budget: { id: "b1" } }),
   getBudget: vi.fn().mockResolvedValue({ ok: true, budget: { id: "b1" } }),
   updateBudgetHeader: vi.fn(),

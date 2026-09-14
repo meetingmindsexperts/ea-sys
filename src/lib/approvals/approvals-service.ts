@@ -20,7 +20,7 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { apiLogger } from "@/lib/logger";
-import { canApproveProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
+import { approvalCeilingAed, canApproveProcurement, canSettleProcurement, procurementGrantsFromRow, type ProcurementUserLike } from "@/lib/procurement-visibility";
 
 export type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -54,11 +54,9 @@ interface ApproverRow {
   procurementApproveUnlimited: boolean;
 }
 
+/** The one ceiling rule, from core: Infinity for the final approver, NaN for no authority. */
 function ceilingOf(row: ApproverRow): number {
-  if (row.procurementApproveUnlimited) return Number.POSITIVE_INFINITY;
-  const c = row.procurementApproveCeilingAed;
-  const n = c === null || c === undefined ? Number.NaN : Number(String(c));
-  return Number.isFinite(n) && n > 0 ? n : Number.NaN;
+  return approvalCeilingAed(procurementGrantsFromRow(row)) ?? Number.NaN;
 }
 
 /**
@@ -225,7 +223,18 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
   if (request.requesterUserId === input.decider.id) {
     return fail("REQUESTER_CANNOT_DECIDE", "You raised this request, so you cannot decide it.", input);
   }
-  if (canSettleProcurement(input.decider) && !hasApprovalGrant(input.decider)) {
+  // Authority is read from the ROW at decision time, not from the session: a
+  // ceiling lowered or a grant removed a minute ago must bite now, not after
+  // the JWT's five-minute re-validation. The session only says who is asking.
+  const row = await db.user.findFirst({
+    where: { id: input.decider.id, organizationId: input.organizationId, deactivatedAt: null },
+    select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+  });
+  if (!row) return fail("NOT_ASSIGNEE", "This request is assigned to someone else.", input);
+  const decider: ProcurementUserLike = { role: row.role, ...procurementGrantsFromRow(row) };
+  // Spec §4: the settle grant checks and signs off; it never decides, whatever
+  // else the person holds (the users PUT refuses the pair as well).
+  if (canSettleProcurement(decider)) {
     return fail("SETTLE_CANNOT_DECIDE", "The settle grant checks and signs off; it never decides a request.", input);
   }
   const step = request.steps.find((s) => s.status === "PENDING");
@@ -234,7 +243,7 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
     return fail("NOT_ASSIGNEE", "This request is assigned to someone else.", input);
   }
   const amountAed = Number(String(request.amountAed));
-  if (!canApproveProcurement(input.decider, amountAed)) {
+  if (!canApproveProcurement(decider, amountAed)) {
     return fail("INSUFFICIENT_AUTHORITY", `Your approval ceiling does not cover AED ${amountAed.toLocaleString("en-US")}.`, input);
   }
   const now = new Date();
@@ -297,9 +306,6 @@ export async function cancelPendingApprovals(
   return res.count;
 }
 
-function hasApprovalGrant(u: ProcurementUserLike): boolean {
-  return u.procurementApproveUnlimited === true || (typeof u.procurementApproveCeilingAed === "number" && u.procurementApproveCeilingAed > 0);
-}
 
 function fail(code: ApprovalErrorCode, message: string, input: { organizationId: string; requestId: string; decider: { id: string } }) {
   apiLogger.warn({ msg: "approvals:decision-refused", code, organizationId: input.organizationId, requestId: input.requestId, deciderUserId: input.decider.id });

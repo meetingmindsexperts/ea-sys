@@ -7,13 +7,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { procurementGuard } from "@/procurement/lib/route-helpers";
+import { guardedRead, procurementGuard } from "@/procurement/lib/route-helpers";
 
 export async function GET(req: NextRequest) {
   const g = await procurementGuard({ route: "procurement/approvals", need: "view" });
   if (!g.ok) return g.response;
   const scope = req.nextUrl.searchParams.get("scope") === "mine" ? "mine" : "inbox";
-  return runWithTenant(g.orgId, async () => {
+  return runWithTenant(g.orgId, () => guardedRead("procurement/approvals", g.user.id, async () => {
     const requests = await db.approvalRequest.findMany({
       where: {
         organizationId: g.orgId,
@@ -47,5 +47,5 @@ export async function GET(req: NextRequest) {
         steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null })),
       })),
     });
-  });
+  }));
 }

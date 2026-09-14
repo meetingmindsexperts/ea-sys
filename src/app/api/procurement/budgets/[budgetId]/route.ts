@@ -7,7 +7,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { updateBudgetHeaderSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_BUDGET_ERROR, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { guardedRead, HTTP_STATUS_FOR_BUDGET_ERROR, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
 import { discardDraftBudget, getBudget, updateBudgetHeader } from "@/procurement/services/budget-service";
 
 type Params = { params: Promise<{ budgetId: string }> };
@@ -15,11 +15,11 @@ type Params = { params: Promise<{ budgetId: string }> };
 export async function GET(_req: NextRequest, { params }: Params) {
   const [g, { budgetId }] = await Promise.all([procurementGuard({ route: "procurement/budgets/[budgetId]", need: "view" }), params]);
   if (!g.ok) return g.response;
-  return runWithTenant(g.orgId, async () => {
+  return runWithTenant(g.orgId, () => guardedRead("procurement/budgets/[budgetId]", g.user.id, async () => {
     const result = await getBudget(g.orgId, budgetId);
     if (!result.ok) return rejected("procurement/budgets/[budgetId]", g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
     return NextResponse.json({ budget: result.budget });
-  });
+  }));
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {

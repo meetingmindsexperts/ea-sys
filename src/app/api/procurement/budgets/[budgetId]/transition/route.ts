@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bud
     const result =
       parsed.data.action === "freeze" ? await freezeBudget(base)
       : parsed.data.action === "unfreeze" ? await unfreezeBudget({ ...base, reason: parsed.data.reason ?? "" })
-      : parsed.data.action === "close" ? await closeBudget({ ...base, varianceNotes: parsed.data.varianceNotes, aedToReportingRate: parsed.data.aedToReportingRate })
+      : parsed.data.action === "close" ? await closeBudget({ ...base, varianceNotes: parsed.data.varianceNotes, reportingToAedRate: parsed.data.reportingToAedRate })
       : parsed.data.action === "sign-off" ? await signOffBudget(base)
       : await reopenBudget({ ...base, reason: parsed.data.reason ?? "" });
     if (!result.ok) return rejected("procurement/budgets/[budgetId]/transition", g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
