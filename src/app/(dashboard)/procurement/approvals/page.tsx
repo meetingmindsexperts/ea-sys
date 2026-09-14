@@ -5,7 +5,8 @@
  * requests whose step is assigned (or delegated) to the caller, each with
  * approve or reject and a note; "My requests" lists what the caller raised
  * and how it was decided. A decision is a conditional claim on the step, so
- * two approvers racing commit once and the second is told so.
+ * two approvers racing commit once and the second is told so. "Decided by
+ * me" is the record of what the caller approved or rejected.
  */
 
 import { useState } from "react";
@@ -17,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Check, Inbox, Loader2, X } from "lucide-react";
+import { ArrowLeft, Check, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
 const REQUEST_STATUS_CLASS: Record<string, string> = {
   PENDING: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
@@ -29,6 +30,7 @@ const REQUEST_STATUS_CLASS: Record<string, string> = {
 export default function ApprovalsPage() {
   const inbox = useApprovals("inbox");
   const mine = useApprovals("mine");
+  const decided = useApprovals("decided");
 
   if (inbox.isLoading && mine.isLoading) return <LoadingState label="Loading approvals…" />;
   if (inbox.isError) return <ErrorState title="Couldn't load the approvals" message={(inbox.error as Error)?.message ?? "Try again."} backHref="/procurement" backLabel="Back to budgets" />;
@@ -55,6 +57,7 @@ export default function ApprovalsPage() {
         <TabsList>
           <TabsTrigger value="inbox">{`Waiting on me${waiting.length ? ` (${waiting.length})` : ""}`}</TabsTrigger>
           <TabsTrigger value="mine">My requests</TabsTrigger>
+          <TabsTrigger value="decided">{`Decided by me${decided.data?.length ? ` (${decided.data.length})` : ""}`}</TabsTrigger>
         </TabsList>
         <TabsContent value="inbox" className="space-y-3">
           {waiting.length === 0 && <Empty text="Nothing is waiting on you." />}
@@ -64,6 +67,11 @@ export default function ApprovalsPage() {
           {mine.isLoading && <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>}
           {!mine.isLoading && raised.length === 0 && <Empty text="You have not raised a request." />}
           {raised.map((r) => <RequestCard key={r.id} r={r} />)}
+        </TabsContent>
+        <TabsContent value="decided" className="space-y-3">
+          {decided.isLoading && <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>}
+          {!decided.isLoading && (decided.data ?? []).length === 0 && <Empty text="You have not decided a request yet." />}
+          {(decided.data ?? []).map((r) => <RequestCard key={r.id} r={r} />)}
         </TabsContent>
       </Tabs>
     </div>
@@ -78,7 +86,8 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   const decide = useDecideApproval();
   const [note, setNote] = useState("");
   const [pending, setPending] = useState<"APPROVED" | "REJECTED" | null>(null);
-  const subject = r.subjectType === "BUDGET" ? "Budget" : "Reallocation";
+  const subject = r.subjectType === "BUDGET" ? "Budget" : r.subjectType === "SPEND_REQUEST" ? (r.spendRequest?.kind === "AMENDMENT" ? "Amount change" : "Spend request") : "Reallocation";
+  const sr = r.spendRequest;
   const cur = r.currency ?? r.budget?.reportingCurrency ?? "";
   const step = r.steps.find((s) => s.status !== "PENDING") ?? r.steps[0];
 
@@ -86,7 +95,11 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
     setPending(decision);
     try {
       await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
-      toast.success(decision === "APPROVED" ? (r.subjectType === "BUDGET" ? "Approved. The budget is active." : "Approved. The amount is moved.") : "Rejected.");
+      toast.success(
+        decision === "APPROVED"
+          ? r.subjectType === "BUDGET" ? "Approved. The budget is active." : r.subjectType === "SPEND_REQUEST" ? (sr?.supplierApproved ? "Approved." : "Approved; the order waits until the supplier is approved.") : "Approved. The amount is moved."
+          : "Rejected.",
+      );
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -100,11 +113,15 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{subject}</Badge>
-            {r.budget ? (
+            {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
+            {sr ? (
+              <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
+            ) : r.budget ? (
               <Link href={`/procurement/budgets/${r.budget.id}`} className="font-medium hover:underline">{`${r.budget.eventCode} · v${r.budget.versionNo}`}</Link>
             ) : (
               <span className="font-medium text-muted-foreground">budget no longer exists</span>
             )}
+            {sr && r.budget && <Link href={`/procurement/budgets/${r.budget.id}`} className="text-sm text-muted-foreground hover:underline">{`${r.budget.eventCode} · v${r.budget.versionNo}`}</Link>}
             {r.budget?.event?.name && <span className="text-sm text-muted-foreground">{r.budget.event.name}</span>}
             {r.budget && <StatusBadge status={r.budget.status} />}
             {!decidable && <Badge variant="secondary" className={REQUEST_STATUS_CLASS[r.status] ?? ""}>{r.status.toLowerCase()}</Badge>}
@@ -117,6 +134,13 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           {r.move && (
             <div className="text-sm text-muted-foreground">
               {`Move ${cur} ${money2(r.move.amount)} from "${r.move.fromDescription ?? r.move.fromLineKey}" to "${r.move.toDescription ?? r.move.toLineKey}".`}
+            </div>
+          )}
+          {sr && (
+            <div className="space-y-0.5 text-sm text-muted-foreground">
+              <div>{`Line: ${sr.lineDescription ?? sr.lineKey ?? "none"}${sr.remainingAfter !== null && r.budget ? ` · leaves ${r.budget.reportingCurrency} ${money2(sr.remainingAfter)}${Number(sr.remainingAfter) < 0 ? " (over)" : ""}` : ""}`}</div>
+              <div>{`Vendor: ${sr.vendor ?? "not given"}${sr.vendor && !sr.supplierApproved ? " (supplier not yet approved; the order waits for that)" : ""}`}</div>
+              {sr.amendment && <div>{`Amount change: ${cur} ${money2(sr.amendment.previousAmount)} to ${money2(sr.amendment.nextAmount)}. ${sr.amendment.reason}`}</div>}
             </div>
           )}
           {r.reason && <div className="text-sm"><span className="text-muted-foreground">Reason: </span>{r.reason}</div>}

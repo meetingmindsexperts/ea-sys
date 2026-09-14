@@ -69,6 +69,28 @@ describe("resolveApprover", () => {
   });
 });
 
+describe("resolveApprover for an over-budget exception", () => {
+  it("goes to the final approver only, whatever the amount, and never to the requester", async () => {
+    expect(await resolveApprover(makeDb(), { organizationId: ORG, subjectType: "SPEND_REQUEST", amountAed: 10, requesterUserId: "owner", requireFinalApprover: true })).toEqual({ ok: true, approverUserId: "medhat" });
+    // A band that would route 10 AED to Lina is not consulted for an exception.
+    const banded = makeDb({ approvalWorkflowDefinition: { findFirst: vi.fn().mockResolvedValue({ bands: [{ upToAed: "1000000", approverUserId: "lina" }, { upToAed: null, approverUserId: "medhat" }] }) } });
+    expect(await resolveApprover(banded, { organizationId: ORG, subjectType: "SPEND_REQUEST", amountAed: 10, requesterUserId: "owner", requireFinalApprover: true })).toEqual({ ok: true, approverUserId: "medhat" });
+    // Medhat's own exception has nobody to decide it.
+    const r = await resolveApprover(makeDb(), { organizationId: ORG, subjectType: "SPEND_REQUEST", amountAed: 10, requesterUserId: "medhat", requireFinalApprover: true });
+    expect(r).toMatchObject({ ok: false, code: "NO_APPROVER" });
+  });
+  it("createApprovalRequest stamps the exception flag into the payload and the audit row", async () => {
+    const db = makeDb();
+    const r = await createApprovalRequest(db, { organizationId: ORG, subjectType: "SPEND_REQUEST", subjectId: "sr-1", amountAed: 10, requesterUserId: "owner", payload: { kind: "SUBMISSION" }, requireFinalApprover: true, source: "ui" });
+    expect(r.ok).toBe(true);
+    const created = (db as unknown as { approvalRequest: { create: ReturnType<typeof vi.fn> } }).approvalRequest.create.mock.calls[0][0].data;
+    expect(created.payload).toEqual({ kind: "SUBMISSION", requireFinalApprover: true });
+    expect(created.steps.create.assigneeUserId).toBe("medhat");
+    const audit = (db as unknown as { auditLog: { create: ReturnType<typeof vi.fn> } }).auditLog.create.mock.calls[0][0].data;
+    expect(audit.changes.requireFinalApprover).toBe(true);
+  });
+});
+
 describe("createApprovalRequest", () => {
   it("creates one step for the resolved approver and supersedes a pending request on the same subject", async () => {
     const db = makeDb({
@@ -117,6 +139,13 @@ describe("decideApprovalRequest", () => {
     expect(await decideApprovalRequest(db(), { organizationId: ORG, requestId: "req-1", decider: { id: "medhat", role: "SUPER_ADMIN", procurementApproveUnlimited: true }, decision: "APPROVED", source: "ui" })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
     const big = () => makeDb({ approvalRequest: { findFirst: vi.fn().mockResolvedValue({ ...pending(), amountAed: "5000000" }), update: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() } });
     expect(await decideApprovalRequest(big(), { organizationId: ORG, requestId: "req-1", decider: { id: "lina", role: "ADMIN", procurementApproveCeilingAed: 1_000_000 }, decision: "APPROVED", source: "ui" })).toMatchObject({ ok: false, code: "INSUFFICIENT_AUTHORITY" });
+  });
+  it("an exception is refused to a ceiling holder even when the amount is under their ceiling", async () => {
+    // The step was (mis)assigned to Lina, the amount is 10 AED, and her session says unlimited; the ROW says 1M, and the payload says final approver only.
+    const db = makeDb({ approvalRequest: { findFirst: vi.fn().mockResolvedValue({ ...pending(), amountAed: "10", payload: { kind: "SUBMISSION", requireFinalApprover: true } }), update: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() } });
+    expect(await decideApprovalRequest(db, { organizationId: ORG, requestId: "req-1", decider: { id: "lina", role: "ADMIN", procurementApproveUnlimited: true }, decision: "APPROVED", source: "ui" })).toMatchObject({ ok: false, code: "INSUFFICIENT_AUTHORITY" });
+    const claim = (db as unknown as { approvalStep: { updateMany: ReturnType<typeof vi.fn> } }).approvalStep.updateMany;
+    expect(claim).not.toHaveBeenCalled();
   });
   it("reads authority from the row, never from the session's claim", async () => {
     // Lina's session still says unlimited (the JWT re-validates every five

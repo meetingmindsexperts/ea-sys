@@ -10,9 +10,10 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
-import type { ProcurementUserLike } from "@/lib/procurement-visibility";
+import { canAdminProcurement, canRequestProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
 import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
 import type { BudgetErrorCode } from "../services/budget-service";
+import type { SpendRequestErrorCode } from "../services/spend-request-service";
 
 export type ProcurementActor = ProcurementUserLike & { id: string; organizationId: string };
 
@@ -49,6 +50,17 @@ export async function procurementGuard(opts: { route: string; need: ProcurementN
   };
 }
 
+/**
+ * A draft spend request is edited by its requester or by a module admin
+ * (who may lack the request grant): the guard takes "view", and this refuses
+ * everyone else with the same logged 403 the guard would write.
+ */
+export function denyUnlessRequestOrAdmin(route: string, user: ProcurementActor): NextResponse | null {
+  if (canRequestProcurement(user) || canAdminProcurement(user)) return null;
+  apiLogger.warn({ msg: `${route}:procurement-forbidden`, need: "request-or-admin", role: user.role ?? null, userId: user.id });
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
 export const HTTP_STATUS_FOR_BUDGET_ERROR: Record<BudgetErrorCode, number> = {
   EVENT_NOT_FOUND: 404,
   EVENT_CODE_REQUIRED: 409,
@@ -71,6 +83,27 @@ export const HTTP_STATUS_FOR_BUDGET_ERROR: Record<BudgetErrorCode, number> = {
   INVALID_FILTER: 400,
   LINE_HAS_COMMITMENTS: 409,
   VARIANCE_NOTES_REQUIRED: 422,
+  UNKNOWN: 500,
+};
+
+export const HTTP_STATUS_FOR_SPEND_REQUEST_ERROR: Record<SpendRequestErrorCode, number> = {
+  REQUEST_NOT_FOUND: 404,
+  BUDGET_NOT_FOUND: 404,
+  LINE_NOT_FOUND: 404,
+  SUPPLIER_NOT_FOUND: 404,
+  QUOTE_NOT_FOUND: 404,
+  BUDGET_NOT_ACTIVE: 409,
+  INVALID_STATUS: 409,
+  NOT_REQUESTER: 403,
+  FINAL_APPROVER_CANNOT_REQUEST: 403,
+  STALE_WRITE: 409,
+  RATE_REQUIRED: 400,
+  INVALID_AMOUNT: 400,
+  INCOMPLETE: 422,
+  REASON_REQUIRED: 422,
+  NO_APPROVER: 409,
+  APPROVAL_FAILED: 409,
+  INVALID_FILTER: 400,
   UNKNOWN: 500,
 };
 

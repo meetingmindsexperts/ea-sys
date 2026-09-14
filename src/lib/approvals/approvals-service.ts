@@ -11,6 +11,8 @@
  *   - the decider must hold authority for the amount in AED at decision time,
  *     and the settle grant can never decide;
  *   - an amount edit supersedes the pending request (spec §8.1);
+ *   - an over-budget exception (spec §6, §8.5) is routed to the final
+ *     approver only and can be decided by nobody else, whatever their ceiling;
  *   - every transition writes an AuditLog row with `source`.
  * Reminders, delegation and escalation (spec §8.3) are Phase 2.
  *
@@ -24,7 +26,7 @@ import { approvalCeilingAed, canApproveProcurement, canSettleProcurement, procur
 
 export type Db = PrismaClient | Prisma.TransactionClient;
 
-export type ApprovalSubject = "BUDGET" | "BUDGET_REALLOCATION";
+export type ApprovalSubject = "BUDGET" | "BUDGET_REALLOCATION" | "SPEND_REQUEST";
 
 export type ApprovalErrorCode =
   | "NO_APPROVER"
@@ -69,7 +71,7 @@ function ceilingOf(row: ApproverRow): number {
  */
 export async function resolveApprover(
   db: Db,
-  input: { organizationId: string; subjectType: ApprovalSubject; amountAed: number; requesterUserId: string },
+  input: { organizationId: string; subjectType: ApprovalSubject; amountAed: number; requesterUserId: string; requireFinalApprover?: boolean },
 ): Promise<{ ok: true; approverUserId: string } | { ok: false; code: "NO_APPROVER"; message: string }> {
   const holders = await db.user.findMany({
     where: {
@@ -84,6 +86,15 @@ export async function resolveApprover(
     const c = byId.get(userId);
     return c !== undefined && Number.isFinite(input.amountAed) && input.amountAed <= c && userId !== input.requesterUserId;
   };
+  if (input.requireFinalApprover) {
+    // An exception goes to the final approver and nobody else (spec §6):
+    // the bands are not consulted, the amount does not matter, and the
+    // requester is still never their own approver. Deterministic on a tie.
+    const finals = holders.filter((h) => h.procurementApproveUnlimited && h.id !== input.requesterUserId).sort((a, b) => a.id.localeCompare(b.id));
+    if (finals.length > 0) return { ok: true, approverUserId: finals[0].id };
+    apiLogger.warn({ msg: "approvals:no-final-approver", organizationId: input.organizationId, subjectType: input.subjectType, requesterUserId: input.requesterUserId, holders: holders.length });
+    return { ok: false, code: "NO_APPROVER", message: "Nobody other than the requester holds unlimited approval, and an over-budget exception can only be decided by the final approver. Grant one in Settings, Users." };
+  }
 
   const def = await db.approvalWorkflowDefinition.findFirst({
     where: { organizationId: input.organizationId, subjectType: input.subjectType, isActive: true },
@@ -129,8 +140,21 @@ export interface CreateApprovalRequestInput {
   requesterUserId: string;
   reason?: string | null;
   payload?: Prisma.InputJsonValue | null;
+  /** Route to the final approver only (an over-budget exception); the decision is refused to every other ceiling. */
+  requireFinalApprover?: boolean;
   source: "ui" | "mcp";
   dueHours?: number;
+}
+
+/** The exception flag rides in the payload so the decision reads it from the ROW, not from anything the decider sends. */
+export const REQUIRE_FINAL_APPROVER_KEY = "requireFinalApprover";
+export function requiresFinalApprover(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload) && (payload as Record<string, unknown>)[REQUIRE_FINAL_APPROVER_KEY] === true;
+}
+function withFinalFlag(payload: Prisma.InputJsonValue | null | undefined, flag: boolean | undefined): Prisma.InputJsonValue | undefined {
+  if (!flag) return payload ?? undefined;
+  const base = typeof payload === "object" && payload !== null && !Array.isArray(payload) ? (payload as Prisma.InputJsonObject) : {};
+  return { ...base, [REQUIRE_FINAL_APPROVER_KEY]: true };
 }
 
 /**
@@ -155,7 +179,7 @@ export async function createApprovalRequest(db: Db, input: CreateApprovalRequest
       currency: input.currency ?? null,
       requesterUserId: input.requesterUserId,
       reason: input.reason ?? null,
-      payload: input.payload ?? undefined,
+      payload: withFinalFlag(input.payload, input.requireFinalApprover),
       steps: {
         create: {
           organizationId: input.organizationId,
@@ -191,6 +215,7 @@ export async function createApprovalRequest(db: Db, input: CreateApprovalRequest
           subjectId: input.subjectId,
           amountAed: input.amountAed,
           assigneeUserId: route.approverUserId,
+          requireFinalApprover: input.requireFinalApprover === true,
           superseded: superseded.map((r) => r.id),
         },
       },
@@ -245,6 +270,9 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
   const amountAed = Number(String(request.amountAed));
   if (!canApproveProcurement(decider, amountAed)) {
     return fail("INSUFFICIENT_AUTHORITY", `Your approval ceiling does not cover AED ${amountAed.toLocaleString("en-US")}.`, input);
+  }
+  if (requiresFinalApprover(request.payload) && approvalCeilingAed(decider) !== Number.POSITIVE_INFINITY) {
+    return fail("INSUFFICIENT_AUTHORITY", "This is an over-budget exception; only the final approver decides it.", input);
   }
   const now = new Date();
   const claimed = await db.approvalStep.updateMany({

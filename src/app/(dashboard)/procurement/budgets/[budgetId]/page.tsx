@@ -23,7 +23,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { approvalCeilingAed, canAdminProcurement, canAuthorBudgets, canSettleProcurement } from "@/lib/procurement-visibility";
+import { approvalCeilingAed, canAdminProcurement, canAuthorBudgets, canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
 import { ApiError } from "@/lib/api-fetch";
 import { downloadExport } from "@/lib/export-download";
 import { CONTINGENCY_CATEGORY_CODE } from "@/procurement/lib/budget-categories-seed";
@@ -45,7 +45,7 @@ import { BudgetLinesTable, lineCategories, type LinesMode } from "./budget-lines
 import { DecideDialog, HeaderDialog, ReallocateDialog, ReasonDialog, SubmitDialog } from "./budget-dialogs";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ArrowLeftRight, Check, CheckCheck, ClipboardCheck, Download, GitCompare, Loader2, Lock, PencilLine, RotateCcw, Send, Snowflake, Trash2, TriangleAlert, Unlock } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, Check, CheckCheck, ClipboardCheck, Download, FileText, GitCompare, Loader2, Lock, PencilLine, RotateCcw, Send, Snowflake, Trash2, TriangleAlert, Unlock } from "lucide-react";
 
 type Confirm = "discard" | "freeze" | "signoff" | "newversion" | null;
 type Prompt = "unfreeze" | "reopen" | null;
@@ -62,6 +62,7 @@ export default function BudgetEditorPage() {
   const canAuthor = canAuthorBudgets(session?.user);
   const canAdmin = canAdminProcurement(session?.user);
   const canSettle = canSettleProcurement(session?.user);
+  const canRequest = canRequestProcurement(session?.user);
   const canDecide = approvalCeilingAed(session?.user) !== null;
 
   const [headerOpen, setHeaderOpen] = useState(false);
@@ -240,6 +241,9 @@ export default function BudgetEditorPage() {
               {b.status === "APPROVED" && <Note>Approved and awaiting activation.</Note>}
               {open && b.status !== "DRAFT" && canAuthor && (
                 <Button variant="ghost" size="sm" onClick={() => setHeaderOpen(true)}><PencilLine className="h-4 w-4" /> Edit notes</Button>
+              )}
+              {(b.status === "ACTIVE" || b.status === "FROZEN") && canRequest && (
+                <Button variant="outline" size="sm" asChild><Link href="/procurement/requests/new"><FileText className="h-4 w-4" /> Raise a spend request</Link></Button>
               )}
               {b.eventId && (
                 <Button variant="ghost" size="sm" asChild><Link href={`/procurement/budgets/${b.id}/compare`}><GitCompare className="h-4 w-4" /> Compare versions</Link></Button>

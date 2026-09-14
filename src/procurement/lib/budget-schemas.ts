@@ -171,3 +171,71 @@ export const decideSupplierSchema = z.object({ decision: z.enum(["APPROVED", "RE
 
 /** A CSV import: the file travels as text in the JSON body (the middleware caps it at 1 MB, the parser at 5,000 rows). */
 export const importCsvSchema = z.object({ csv: z.string().min(1).max(1_048_576) });
+
+// ── spend requests (Phase 2 slice 2) ─────────────────────────────────────────
+export const SPEND_REQUEST_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
+export const SOURCING_METHODS = ["SINGLE_QUOTE", "COMPETITIVE_QUOTES", "EXISTING_CONTRACT", "SOLE_SOURCE"] as const;
+const isoCurrency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "A currency is a three-letter code");
+/** A request is priced in one of the module's five currencies, whatever the case it arrives in. */
+const moduleCurrency = z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(BUDGET_CURRENCIES));
+const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD");
+
+const spendRequestFields = {
+  budgetId: z.string().min(1).max(100),
+  lineKey: z.string().min(1).max(100).nullable().optional(),
+  title: z.string().trim().min(1).max(200),
+  justification: z.string().trim().max(4000).nullable().optional(),
+  amount: amountInput,
+  taxAmount: moneyInput.nullable().optional(),
+  /** One of the module's currencies (spec §14 Q7): the pegs and the plausibility band exist only for them. */
+  currency: moduleCurrency,
+  /** Request currency to the budget's reporting currency; ignored for the same currency or two pegged ones, banded otherwise. */
+  fxRateToReporting: rateInput.nullable().optional(),
+  supplierId: z.string().min(1).max(100).nullable().optional(),
+  proposedVendorName: z.string().trim().max(200).nullable().optional(),
+  categoryId: z.string().min(1).max(100).nullable().optional(),
+  neededBy: calendarDay.nullable().optional(),
+  sourcingMethod: z.enum(SOURCING_METHODS).nullable().optional(),
+  priority: z.enum(SPEND_REQUEST_PRIORITIES).optional(),
+};
+export const createSpendRequestSchema = z.object(spendRequestFields);
+export const updateSpendRequestSchema = z.object({ ...spendRequestFields, expectedVersion: z.number().int().min(1) }).partial({ budgetId: true, title: true, amount: true, currency: true });
+export const submitSpendRequestSchema = z.object({
+  /** Reporting currency to AED for the ceiling; a peg is never taken from the caller. */
+  reportingToAedRate: rateInput.nullable().optional(),
+  expectedVersion: z.number().int().min(1),
+});
+export const spendRequestTransitionSchema = z.object({
+  action: z.enum(["withdraw", "cancel"]),
+  reason: z.string().trim().max(2000).nullable().optional(),
+  expectedVersion: z.number().int().min(1),
+});
+export const amendSpendRequestSchema = z.object({
+  amount: amountInput,
+  taxAmount: moneyInput.nullable().optional(),
+  reason: z.string().trim().min(1).max(2000),
+  reportingToAedRate: rateInput.nullable().optional(),
+  expectedVersion: z.number().int().min(1),
+});
+export const createQuoteSchema = z.object({
+  vendorName: z.string().trim().min(1).max(200),
+  supplierId: z.string().min(1).max(100).nullable().optional(),
+  amount: amountInput,
+  taxAmount: moneyInput.nullable().optional(),
+  currency: isoCurrency,
+  quotedOn: calendarDay.nullable().optional(),
+  validUntil: calendarDay.nullable().optional(),
+  recommended: z.boolean().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+/** The live side panel's question: this amount on this line, what does the check say and who would decide? */
+export const budgetCheckQuerySchema = z.object({
+  budgetId: z.string().min(1).max(100),
+  lineKey: z.string().min(1).max(100),
+  amount: amountInput,
+  currency: moduleCurrency,
+  fxRateToReporting: rateInput.nullable().optional(),
+  reportingToAedRate: rateInput.nullable().optional(),
+  /** Leave this request out of the "already asked for" figure when it is being edited. */
+  excludeRequestId: z.string().min(1).max(100).nullable().optional(),
+});

@@ -14,6 +14,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BudgetActivityItem } from "@/procurement/lib/budget-activity";
 import { ApiError, apiFetch } from "@/lib/api-fetch";
+import type { BudgetCheckStatusValue, SpendRequestStatusValue } from "@/procurement/lib/spend-request-rules";
 
 export type BudgetStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "FROZEN" | "CLOSED" | "ARCHIVED";
 export const BUDGET_STATUS_ORDER: BudgetStatus[] = ["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"];
@@ -105,7 +106,7 @@ export interface ApprovalStepRow {
 
 export interface ApprovalRequestRow {
   id: string;
-  subjectType: "BUDGET" | "BUDGET_REALLOCATION";
+  subjectType: "BUDGET" | "BUDGET_REALLOCATION" | "SPEND_REQUEST";
   subjectId: string;
   amountAed: string;
   amount: string | null;
@@ -120,6 +121,22 @@ export interface ApprovalRequestRow {
   budget: { id: string; eventCode: string; versionNo: number; status: BudgetStatus; reportingCurrency: string; event: { name: string } | null } | null;
   /** A reallocation's move with the two lines named, so the inbox reads without opening the budget. */
   move: { fromLineKey: string; toLineKey: string; amount: string; fromDescription: string | null; toDescription: string | null } | null;
+  /** Present when the subject is a spend request: what the inbox card needs without opening it. */
+  spendRequest: {
+    id: string;
+    requestNo: string;
+    title: string;
+    status: SpendRequestStatusValue;
+    budgetCheckStatus: BudgetCheckStatusValue;
+    lineKey: string | null;
+    lineDescription: string | null;
+    vendor: string | null;
+    supplierApproved: boolean;
+    exception: boolean;
+    kind: "SUBMISSION" | "AMENDMENT" | null;
+    amendment: { previousAmount: string; nextAmount: string; deltaReporting: string; reason: string } | null;
+    remainingAfter: string | null;
+  } | null;
   steps: ApprovalStepRow[];
 }
 
@@ -195,6 +212,99 @@ export interface BudgetTemplateRow {
 const FORBIDDEN_MESSAGE =
   "You do not have access to Budget & Procurement. Org staff read it; authoring, approving and settling are granted per person under Settings, Users.";
 
+export interface SpendRequestQuoteRow {
+  id: string;
+  vendorName: string;
+  supplierId: string | null;
+  supplier: { id: string; code: string; displayName: string; approvalStatus: string } | null;
+  amount: string;
+  taxAmount: string;
+  currency: string;
+  quotedOn: string | null;
+  validUntil: string | null;
+  recommended: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface SpendRequestRow {
+  id: string;
+  requestNo: string;
+  budgetId: string | null;
+  lineKey: string | null;
+  eventCode: string;
+  requesterUserId: string;
+  requesterName: string | null;
+  supplierId: string | null;
+  supplier: { id: string; code: string; displayName: string; approvalStatus: string; isActive: boolean } | null;
+  proposedVendorName: string | null;
+  title: string;
+  justification: string | null;
+  amount: string;
+  taxAmount: string;
+  currency: string;
+  fxRateToReporting: string | null;
+  amountReporting: string | null;
+  amountAed: string | null;
+  categoryId: string | null;
+  category: { id: string; code: string; name: string } | null;
+  neededBy: string | null;
+  sourcingMethod: "SINGLE_QUOTE" | "COMPETITIVE_QUOTES" | "EXISTING_CONTRACT" | "SOLE_SOURCE" | null;
+  budgetCheckStatus: BudgetCheckStatusValue;
+  status: SpendRequestStatusValue;
+  statusLabel: string;
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  linkedCommitmentId: string | null;
+  approvalRequestId: string | null;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  decidedByUserId: string | null;
+  decisionNote: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  budget: { id: string; eventCode: string; versionNo: number; status: BudgetStatus; reportingCurrency: string; event: { name: string } | null } | null;
+  quotes: SpendRequestQuoteRow[];
+}
+
+export interface SpendRequestLineRow {
+  lineKey: string;
+  description: string;
+  planned: string;
+  committedOpen: string;
+  actual: string;
+  remaining: string;
+  isContingency: boolean;
+  category: { id: string; code: string; name: string };
+}
+
+export interface SpendRequestDetailRow extends SpendRequestRow {
+  decidedByName: string | null;
+  line: SpendRequestLineRow | null;
+  approvals: {
+    id: string;
+    status: string;
+    amountAed: string;
+    payload: Record<string, unknown> | null;
+    createdAt: string;
+    decidedAt: string | null;
+    steps: { assigneeUserId: string; assigneeName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null; dueAt: string }[];
+  }[];
+}
+
+export interface BudgetCheckPreviewRow {
+  budget: { id: string; eventCode: string; versionNo: number; status: BudgetStatus; reportingCurrency: string };
+  line: SpendRequestLineRow;
+  requestToReportingRate: string;
+  rateSource: "same" | "peg" | "caller";
+  check: { status: Exclude<BudgetCheckStatusValue, "NOT_CHECKED">; exception: boolean; reasonRequired: boolean; amountReporting: string; remainingBefore: string; remainingAfter: string };
+  amountAed: string | null;
+  route: { ok: true; approverUserId: string; approverName: string | null; exception: boolean } | { ok: false; code: "NO_APPROVER" | "RATE_REQUIRED"; message: string };
+  openRequests: { id: string; requestNo: string; title: string; status: SpendRequestStatusValue; amountReporting: string | null }[];
+}
+
 export async function get<T>(url: string): Promise<T> {
   try {
     return await apiFetch<T>(url);
@@ -221,11 +331,14 @@ export const procurementKeys = {
   budget: (budgetId: string) => ["procurement", "budget", budgetId] as const,
   /** Under the budget key on purpose: every budget mutation's invalidation refreshes the log too. */
   budgetActivity: (budgetId: string) => ["procurement", "budget", budgetId, "activity"] as const,
-  approvals: (scope: "inbox" | "mine") => ["procurement", "approvals", scope] as const,
+  approvals: (scope: ApprovalScope) => ["procurement", "approvals", scope] as const,
   categories: () => ["procurement", "categories"] as const,
   products: () => ["procurement", "products"] as const,
   suppliers: (status?: string, includeInactive?: boolean) => ["procurement", "suppliers", status ?? "all", includeInactive ? "all" : "active"] as const,
   templates: () => ["procurement", "templates"] as const,
+  requests: (filter: string) => ["procurement", "requests", filter] as const,
+  request: (requestId: string) => ["procurement", "request", requestId] as const,
+  budgetCheck: (key: string) => ["procurement", "budget-check", key] as const,
 };
 
 export function useBudgets(filter: { eventId?: string; status?: string } = {}) {
@@ -394,7 +507,8 @@ export function useBudgetTemplates() {
   });
 }
 
-export function useApprovals(scope: "inbox" | "mine") {
+export type ApprovalScope = "inbox" | "mine" | "decided";
+export function useApprovals(scope: ApprovalScope) {
   return useQuery({
     queryKey: procurementKeys.approvals(scope),
     queryFn: () => get<{ requests: ApprovalRequestRow[] }>(`/api/procurement/approvals?scope=${scope}`).then((r) => r.requests),
@@ -475,10 +589,15 @@ export function useDecideBudget(budgetId: string) {
 
 export function useDecideApproval() {
   const invalidate = useBudgetInvalidation();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ requestId, ...input }: { requestId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }) =>
-      send<{ budget: BudgetRow }>(`/api/procurement/approvals/${requestId}/decide`, "POST", input, "Couldn't record the decision").then((r) => r.budget),
-    onSuccess: (b) => invalidate(b.id),
+      send<{ budget?: BudgetRow; spendRequest?: SpendRequestDetailRow }>(`/api/procurement/approvals/${requestId}/decide`, "POST", input, "Couldn't record the decision"),
+    onSuccess: (r) => {
+      invalidate(r.budget?.id ?? r.spendRequest?.budgetId ?? undefined);
+      void qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
+      if (r.spendRequest) void qc.invalidateQueries({ queryKey: procurementKeys.request(r.spendRequest.id) });
+    },
   });
 }
 
@@ -518,5 +637,159 @@ export function useDiscardBudget() {
   return useMutation({
     mutationFn: (budgetId: string) => send<{ discarded: string }>(`/api/procurement/budgets/${budgetId}`, "DELETE", undefined, "Couldn't discard the draft"),
     onSuccess: () => invalidate(),
+  });
+}
+
+// ── spend requests ───────────────────────────────────────────────────────────
+
+export function useSpendRequests(filter: { status?: SpendRequestStatusValue; budgetId?: string; mine?: boolean } = {}) {
+  const q = new URLSearchParams();
+  if (filter.status) q.set("status", filter.status);
+  if (filter.budgetId) q.set("budgetId", filter.budgetId);
+  if (filter.mine) q.set("mine", "1");
+  const qs = q.toString();
+  return useQuery({
+    queryKey: procurementKeys.requests(qs || "all"),
+    queryFn: () => get<{ requests: SpendRequestRow[] }>(`/api/procurement/requests${qs ? `?${qs}` : ""}`).then((r) => r.requests),
+  });
+}
+
+export function useSpendRequest(requestId: string | null) {
+  return useQuery({
+    queryKey: procurementKeys.request(requestId ?? "none"),
+    queryFn: () => get<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}`).then((r) => r.request),
+    enabled: !!requestId,
+  });
+}
+
+export interface BudgetCheckQuery {
+  budgetId: string;
+  lineKey: string;
+  amount: string;
+  currency: string;
+  fxRateToReporting?: string | null;
+  reportingToAedRate?: string | null;
+  excludeRequestId?: string | null;
+}
+
+/** The live side panel: refetched as the requester types (the caller debounces), never cached across forms. */
+export function useBudgetCheckPreview(query: BudgetCheckQuery | null) {
+  const q = new URLSearchParams();
+  if (query) {
+    q.set("budgetId", query.budgetId);
+    q.set("lineKey", query.lineKey);
+    q.set("amount", query.amount);
+    q.set("currency", query.currency);
+    if (query.fxRateToReporting) q.set("fxRateToReporting", query.fxRateToReporting);
+    if (query.reportingToAedRate) q.set("reportingToAedRate", query.reportingToAedRate);
+    if (query.excludeRequestId) q.set("excludeRequestId", query.excludeRequestId);
+  }
+  const qs = q.toString();
+  return useQuery({
+    queryKey: procurementKeys.budgetCheck(qs),
+    queryFn: () => get<{ preview: BudgetCheckPreviewRow }>(`/api/procurement/requests/budget-check?${qs}`).then((r) => r.preview),
+    enabled: !!query && Number(query.amount) > 0,
+    staleTime: 15_000,
+    retry: false,
+  });
+}
+
+function useSpendRequestInvalidation() {
+  const qc = useQueryClient();
+  return (r: { id: string; budgetId: string | null }) => {
+    void qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
+    void qc.invalidateQueries({ queryKey: procurementKeys.request(r.id) });
+    void qc.invalidateQueries({ queryKey: ["procurement", "approvals"] });
+    void qc.invalidateQueries({ queryKey: ["procurement", "budget-check"] });
+    if (r.budgetId) void qc.invalidateQueries({ queryKey: procurementKeys.budget(r.budgetId) });
+  };
+}
+
+export interface SpendRequestInput {
+  budgetId: string;
+  lineKey?: string | null;
+  title: string;
+  justification?: string | null;
+  amount: string;
+  taxAmount?: string | null;
+  currency: string;
+  fxRateToReporting?: string | null;
+  supplierId?: string | null;
+  proposedVendorName?: string | null;
+  categoryId?: string | null;
+  neededBy?: string | null;
+  sourcingMethod?: SpendRequestRow["sourcingMethod"];
+  priority?: SpendRequestRow["priority"];
+}
+
+export function useCreateSpendRequest() {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: SpendRequestInput) => send<{ request: SpendRequestDetailRow }>("/api/procurement/requests", "POST", input, "Couldn't create the request").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateSpendRequest(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: Partial<SpendRequestInput> & { expectedVersion: number }) =>
+      send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}`, "PATCH", input, "Couldn't save the request").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSubmitSpendRequest(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: { expectedVersion: number; reportingToAedRate?: string | null }) =>
+      send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/submit`, "POST", input, "Couldn't submit the request").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export function useTransitionSpendRequest(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: { action: "withdraw" | "cancel"; reason?: string | null; expectedVersion: number }) =>
+      send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/transition`, "POST", input, "Couldn't update the request").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAmendSpendRequest(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: { amount: string; taxAmount?: string | null; reason: string; reportingToAedRate?: string | null; expectedVersion: number }) =>
+      send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/amend`, "POST", input, "Couldn't change the amount").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export interface QuoteInput {
+  vendorName: string;
+  supplierId?: string | null;
+  amount: string;
+  taxAmount?: string | null;
+  currency: string;
+  quotedOn?: string | null;
+  validUntil?: string | null;
+  recommended?: boolean;
+  notes?: string | null;
+}
+
+export function useAddQuote(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (input: QuoteInput) => send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/quotes`, "POST", input, "Couldn't attach the quote").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveQuote(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (quoteId: string) => send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/quotes/${quoteId}`, "DELETE", undefined, "Couldn't remove the quote").then((r) => r.request),
+    onSuccess: invalidate,
   });
 }

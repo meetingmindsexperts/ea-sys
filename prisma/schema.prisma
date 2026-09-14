@@ -5111,6 +5111,7 @@ enum BenchmarkSourceType {
 enum ApprovalSubjectType {
   BUDGET
   BUDGET_REALLOCATION
+  SPEND_REQUEST
 }
 
 enum ApprovalRequestStatus {
