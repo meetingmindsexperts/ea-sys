@@ -555,6 +555,7 @@ curl -s -X POST https://events.meetingmindsgroup.com/api/mcp \
 - **Bulk creates** (`create_speakers_bulk`, `create_registrations_bulk`) — useful for CSV-style imports via Claude, not yet wrapped.
 - **Hard deletes** — intentionally deferred as safety rail.
 - **Webhooks / real-time events** — separate architectural lift.
+- **Budget & Procurement (dark, Phase 1, September 14, 2026)**: two read tools, `list_budgets` and `get_budget`, exist in the code but are NOT in the count above because they register only while `PROCUREMENT_MODULE_ENABLED` is on (unset on production) and only for an OAuth grant whose user may read the module (SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER). An API key never sees them: procurement is a per-person surface and a key has nobody behind it, the same rule the HR module applies. When the flag turns on, the tool count in this file moves to 115 and connected clients must reconnect. Registered from inside the module (`src/procurement/agent-tools.ts`), the CRM pattern.
 
 See `docs/MCP_AUDIT_RESPONSE.html` for the full post-audit status and Sprint B planning.
 

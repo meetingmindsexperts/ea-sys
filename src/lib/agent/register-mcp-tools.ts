@@ -7,6 +7,7 @@
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerCrmMcpTools, type CrmMcpActor } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
+import { registerProcurementMcpTools } from "@/procurement/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -992,4 +993,9 @@ export function registerAllMcpTools(
   // Registered from inside the CRM module (src/crm/agent-tools.ts) so the tool
   // logic stays behind the import boundary; this file is the named exemption.
   registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, actor);
+
+  // ── Budget & Procurement (dark until PROCUREMENT_MODULE_ENABLED) ──
+  // Same shape as the CRM: the module hands core one registration function,
+  // which registers nothing while the flag is off or for an API key.
+  registerProcurementMcpTools(server, organizationId, actor);
 }
