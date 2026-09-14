@@ -57,6 +57,7 @@ model Organization {
   attendanceRules             AttendanceRule[]
   // Budget & Procurement module, see docs/BUDGET_PROCUREMENT_MODULE.html
   budgetCategories            BudgetCategory[]
+  budgetProducts              BudgetProduct[]
   budgetTemplates             BudgetTemplate[]
   budgetTemplateLines         BudgetTemplateLine[]
   eventBudgets                EventBudget[]
@@ -5149,9 +5150,34 @@ model BudgetCategory {
   children      BudgetCategory[]     @relation("BudgetCategoryTree")
   templateLines BudgetTemplateLine[]
   budgetLines   BudgetLine[]
+  products      BudgetProduct[]
 
   @@unique([organizationId, code])
   @@index([organizationId, isActive])
+}
+
+/// The cost catalogue a budget line can be picked from (Sep 14, 2026): the
+/// organisation's product list with the QuickBooks SKU that Phase 3 maps onto
+/// accounting items. Seeded once per organisation from the MME list; an admin
+/// adds, renames, re-categorises or archives items. A SKU is a stable key.
+model BudgetProduct {
+  id             String   @id @default(cuid())
+  organizationId String
+  sku            String
+  name           String
+  categoryId     String
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  budgetLines  BudgetLine[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, isActive])
+  @@index([categoryId])
 }
 
 /// One per event type; seeds lines when a budget is created. Copying is a
@@ -5271,6 +5297,7 @@ model BudgetLine {
   budgetId            String
   lineKey             String
   templateLineId      String?
+  productId           String?
   categoryId          String
   description         String
   qty                 Decimal   @default(1) @db.Decimal(14, 4)
@@ -5312,11 +5339,13 @@ model BudgetLine {
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   budget       EventBudget         @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   templateLine BudgetTemplateLine? @relation(fields: [templateLineId], references: [id], onDelete: SetNull)
+  product      BudgetProduct?      @relation(fields: [productId], references: [id], onDelete: SetNull)
   category     BudgetCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@unique([budgetId, lineKey])
   @@index([organizationId])
   @@index([budgetId, categoryId])
+  @@index([productId])
 }
 
 /// The approvals primitive (build plan §4.5), in core because HR will reuse

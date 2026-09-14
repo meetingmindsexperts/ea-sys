@@ -14,7 +14,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { BUDGET_CURRENCIES } from "@/procurement/lib/budget-schemas";
 import { CONTINGENCY_CATEGORY_CODE } from "@/procurement/lib/budget-categories-seed";
-import { useDeleteBudgetLine, useUpsertBudgetLine, type BudgetCategoryRow, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
+import { useBudgetProducts, useDeleteBudgetLine, useUpsertBudgetLine, type BudgetCategoryRow, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
+import { ProductPicker } from "@/procurement/components/product-picker";
 import { money2 } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,7 +147,10 @@ function LineRow({ l, cur, mode, onEdit, onDelete }: { l: BudgetLineRow; cur: st
     <TableRow className={l.isContingency ? "bg-muted/40" : undefined}>
       <TableCell className="text-xs text-muted-foreground">{l.category.code}</TableCell>
       <TableCell>
-        <div>{l.description}</div>
+        <div>
+          {l.description}
+          {l.product && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground" title={l.product.name}>{l.product.sku}</span>}
+        </div>
         {foreign && <div className="text-xs text-muted-foreground">{`${l.transactionCurrency} ${money2(l.unitCost)} × ${Number(l.qty)} at ${Number(l.fxRateToReporting)}`}</div>}
         {l.forecastFinalAmount && <div className="text-xs text-amber-700 dark:text-amber-400">{`forecast override: ${l.forecastReason ?? ""}`}</div>}
         {l.varianceNote && <div className="text-xs text-muted-foreground">{`variance note: ${l.varianceNote}`}</div>}
@@ -187,7 +191,9 @@ function LineRow({ l, cur, mode, onEdit, onDelete }: { l: BudgetLineRow; cur: st
 function LineEditForm({ b, categories, mode, line, onDone }: { b: BudgetRow; categories: BudgetCategoryRow[]; mode: LinesMode; line?: BudgetLineRow; onDone: () => void }) {
   const upsert = useUpsertBudgetLine(b.id);
   const cats = lineCategories(categories);
+  const products = useBudgetProducts();
   const [f, setF] = useState(() => ({
+    productId: line?.productId ?? "",
     categoryId: line?.categoryId ?? cats[0]?.id ?? "",
     description: line?.description ?? "",
     qty: line ? String(Number(line.qty)) : "1",
@@ -211,6 +217,7 @@ function LineEditForm({ b, categories, mode, line, onDone }: { b: BudgetRow; cat
         if (foreign && !(Number(f.fxRateToReporting) > 0)) return toast.error(`A ${f.transactionCurrency} line needs its exchange rate to ${b.reportingCurrency}.`);
         await upsert.mutateAsync({
           lineId: line?.id,
+          productId: f.productId || null,
           categoryId: f.categoryId,
           description: f.description.trim(),
           qty: f.qty.trim() === "" ? "1" : f.qty.trim(),
@@ -241,6 +248,16 @@ function LineEditForm({ b, categories, mode, line, onDone }: { b: BudgetRow; cat
     <div className="space-y-3 py-1">
       {mode === "plan" ? (
         <div className="grid gap-3 md:grid-cols-6">
+          <div className="space-y-1 md:col-span-6">
+            <Label className="text-xs">Catalogue item</Label>
+            <ProductPicker
+              products={products.data ?? []}
+              loading={products.isPending}
+              value={f.productId || null}
+              onPick={(p) => setF((s) => ({ ...s, productId: p.id, description: p.name, categoryId: cats.some((c) => c.id === p.categoryId) ? p.categoryId : s.categoryId }))}
+              onClear={() => set("productId", "")}
+            />
+          </div>
           <div className="space-y-1 md:col-span-2">
             <Label className="text-xs">Category</Label>
             <Select value={f.categoryId} onValueChange={(v) => set("categoryId", v)}>

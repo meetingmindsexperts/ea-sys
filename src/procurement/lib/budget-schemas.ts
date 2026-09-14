@@ -52,6 +52,8 @@ export const updateBudgetHeaderSchema = z.object({
 });
 
 export const upsertBudgetLineSchema = z.object({
+  /** A catalogue item (BudgetProduct id); null unlinks. */
+  productId: z.string().max(100).nullable().optional(),
   categoryId: z.string().min(1).max(100).optional(),
   description: z.string().trim().min(1).max(500).optional(),
   qty: moneyInput.optional(),
@@ -92,6 +94,14 @@ export const createCategorySchema = z.object({
   parentId: z.string().max(100).nullable().optional(),
   type: z.enum(["EXPENSE", "REVENUE"]).optional(),
 });
+export const createProductSchema = z.object({
+  sku: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(160),
+  categoryId: z.string().min(1).max(100),
+});
+export const patchProductSchema = z
+  .object({ name: z.string().trim().min(1).max(160).optional(), categoryId: z.string().min(1).max(100).optional(), isActive: z.boolean().optional() })
+  .refine((v) => v.name !== undefined || v.categoryId !== undefined || v.isActive !== undefined, { message: "Nothing to change" });
 export const patchCategorySchema = z.object({ isActive: z.boolean().optional(), name: z.string().trim().min(1).max(120).optional() }).refine((v) => v.isActive !== undefined || v.name !== undefined, { message: "Nothing to change" });
 
 export const createTemplateSchema = z.object({

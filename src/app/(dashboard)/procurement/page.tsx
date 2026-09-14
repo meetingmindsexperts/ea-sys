@@ -31,7 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Inbox, Loader2, Plus, TriangleAlert, Wallet } from "lucide-react";
+import { Inbox, Loader2, Plus, TriangleAlert, Wallet, Package } from "lucide-react";
 
 const CURRENCIES = ["AED", "USD", "EUR", "GBP", "SAR"] as const;
 const BRANDS: { value: string; label: string }[] = [
@@ -128,6 +128,12 @@ export default function ProcurementBudgetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/procurement/products">
+              <Package className="h-4 w-4" />
+              Products
+            </Link>
+          </Button>
           <Button asChild variant="outline">
             <Link href="/procurement/approvals">
               <Inbox className="h-4 w-4" />

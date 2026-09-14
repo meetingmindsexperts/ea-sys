@@ -42,6 +42,10 @@ const SUM_B = "tenancy-bp-sum-b";
 
 /** Both orgs use this category code and this event code. Scoping keeps them apart. */
 const SHARED_CATEGORY_CODE = "VENUE";
+/** Both orgs hold this SKU too: `BudgetProduct.sku` is unique per ORG. */
+const SHARED_SKU = "510301";
+const PROD_A = "tenancy-bp-prod-a";
+const PROD_B = "tenancy-bp-prod-b";
 const SHARED_EVENT_CODE = "TEN2026";
 const NOW = new Date("2026-09-14T00:00:00.000Z");
 
@@ -58,6 +62,12 @@ beforeAll(async () => {
     data: [
       { id: CAT_A, organizationId: ORG_A_ID, code: SHARED_CATEGORY_CODE, name: "Venue (A)" },
       { id: CAT_B, organizationId: ORG_B_ID, code: SHARED_CATEGORY_CODE, name: "Venue (B)" },
+    ],
+  });
+  await owner.budgetProduct.createMany({
+    data: [
+      { id: PROD_A, organizationId: ORG_A_ID, sku: SHARED_SKU, name: "AV rental (A)", categoryId: CAT_A },
+      { id: PROD_B, organizationId: ORG_B_ID, sku: SHARED_SKU, name: "AV rental (B)", categoryId: CAT_B },
     ],
   });
   await owner.budgetTemplate.createMany({
@@ -119,6 +129,7 @@ async function cleanup() {
   await owner?.eventBudget.deleteMany({ where: { id: { in: [BUD_A, BUD_B] } } });
   await owner?.budgetTemplateLine.deleteMany({ where: { id: { in: [TLINE_A, TLINE_B] } } });
   await owner?.budgetTemplate.deleteMany({ where: { id: { in: [TPL_A, TPL_B] } } });
+  await owner?.budgetProduct.deleteMany({ where: { id: { in: [PROD_A, PROD_B] } } });
   await owner?.budgetCategory.deleteMany({ where: { id: { in: [CAT_A, CAT_B] } } });
 }
 
@@ -135,6 +146,10 @@ describe("Budget & Procurement RLS via the SET LOCAL extension", () => {
     const inB = await runWithTenant(ORG_B_ID, () => db.budgetCategory.findFirst({ where: { code: SHARED_CATEGORY_CODE } }));
     expect(inA?.id).toBe(CAT_A);
     expect(inB?.id).toBe(CAT_B);
+    const prodA = await runWithTenant(ORG_A_ID, () => db.budgetProduct.findFirst({ where: { sku: SHARED_SKU } }));
+    const prodB = await runWithTenant(ORG_B_ID, () => db.budgetProduct.findFirst({ where: { sku: SHARED_SKU } }));
+    expect(prodA?.id).toBe(PROD_A);
+    expect(prodB?.id).toBe(PROD_B);
   });
 
   it("lane-scoped: the SHARED event code resolves to each lane's own budget and summary", async () => {
@@ -156,8 +171,9 @@ describe("Budget & Procurement RLS via the SET LOCAL extension", () => {
     expect(await runWithTenant(ORG_A_ID, () => db.budgetTemplateLine.findMany({ where: { templateId: TPL_B } }))).toHaveLength(0);
   });
 
-  it("fails closed across all nine tables with no tenant store", async () => {
+  it("fails closed across all ten tables with no tenant store", async () => {
     expect(await db.budgetCategory.findMany({ where: { code: SHARED_CATEGORY_CODE } })).toHaveLength(0);
+    expect(await db.budgetProduct.findMany({ where: { sku: SHARED_SKU } })).toHaveLength(0);
     expect(await db.budgetTemplate.findMany({ where: { name: "Conference" } })).toHaveLength(0);
     expect(await db.budgetTemplateLine.findMany({ where: { id: { in: [TLINE_A, TLINE_B] } } })).toHaveLength(0);
     expect(await db.eventBudget.findMany({ where: { eventCode: SHARED_EVENT_CODE } })).toHaveLength(0);

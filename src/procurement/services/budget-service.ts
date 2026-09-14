@@ -45,6 +45,7 @@ export type BudgetErrorCode =
   | "TEMPLATE_NOT_FOUND"
   | "CATEGORY_NOT_FOUND"
   | "LINE_NOT_FOUND"
+  | "PRODUCT_NOT_FOUND"
   | "INVALID_STATUS"
   | "STALE_WRITE"
   | "CURRENCY_LOCKED"
@@ -67,13 +68,14 @@ export type BudgetResult<T> =
 type Source = "ui" | "mcp";
 
 export const BUDGET_LINE_SELECT = {
-  id: true, lineKey: true, templateLineId: true, categoryId: true, description: true, qty: true, unitCost: true,
+  id: true, lineKey: true, templateLineId: true, productId: true, categoryId: true, description: true, qty: true, unitCost: true,
   transactionCurrency: true, fxRateToReporting: true, fxRateSource: true, fxRateAsOf: true, planned: true,
   committedOpen: true, committedTotal: true, actual: true, paid: true, taxCode: true, taxRatePercent: true,
   taxAmountPlanned: true, approvedPlanned: true, reallocatedOut: true, forecastFinalAmount: true, forecastReason: true,
   serviceStart: true, serviceEnd: true, notes: true, isContingency: true, varianceNote: true, sortOrder: true,
   deletedAt: true, createdAt: true, updatedAt: true,
   category: { select: { id: true, code: true, name: true, depth: true } },
+  product: { select: { id: true, sku: true, name: true } },
 } as const;
 
 export const BUDGET_SELECT = {
@@ -426,6 +428,8 @@ export interface UpsertBudgetLineInput {
   transactionCurrency?: string;
   fxRateToReporting?: MoneyInput | null;
   taxCode?: string | null;
+  /** A catalogue item; null unlinks. The line keeps its own description and category. */
+  productId?: string | null;
   taxRatePercent?: MoneyInput | null;
   serviceStart?: Date | null;
   serviceEnd?: Date | null;
@@ -436,7 +440,7 @@ export interface UpsertBudgetLineInput {
   sortOrder?: number;
 }
 
-const PLANNED_FIELDS: (keyof UpsertBudgetLineInput)[] = ["categoryId", "description", "qty", "unitCost", "transactionCurrency", "fxRateToReporting", "taxCode", "taxRatePercent", "serviceStart", "serviceEnd", "sortOrder"];
+const PLANNED_FIELDS: (keyof UpsertBudgetLineInput)[] = ["productId", "categoryId", "description", "qty", "unitCost", "transactionCurrency", "fxRateToReporting", "taxCode", "taxRatePercent", "serviceStart", "serviceEnd", "sortOrder"];
 
 export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<BudgetResult<BudgetView>> {
   const ctx = { budgetId: input.budgetId, lineId: input.lineId ?? null, userId: input.actorUserId };
@@ -466,6 +470,15 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
   }
   const description = (input.description ?? existing?.description ?? "").trim();
   if (!description) return fail("INVALID_AMOUNT", "A line needs a description.", ctx);
+  let productSku: string | null = existing?.product?.sku ?? null;
+  if (input.productId !== undefined) {
+    productSku = null;
+    if (input.productId) {
+      const product = await db.budgetProduct.findFirst({ where: { id: input.productId, organizationId: input.organizationId, isActive: true }, select: { sku: true } });
+      if (!product) return fail("PRODUCT_NOT_FOUND", "The catalogue item was not found or is archived.", ctx);
+      productSku = product.sku;
+    }
+  }
   const currency = input.transactionCurrency ?? existing?.transactionCurrency ?? b.reportingCurrency;
   let rate: MoneyInput = 1;
   if (currency !== b.reportingCurrency) {
@@ -492,6 +505,7 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
   }
   const plannedData = touchesPlanned
     ? {
+        productId: input.productId !== undefined ? input.productId : (existing?.productId ?? null),
         categoryId,
         description,
         qty: storedString(input.qty ?? existing?.qty ?? 1),
@@ -536,7 +550,7 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
       await tx.eventBudget.update({ where: { id: b.id }, data: { version: { increment: 1 } } });
       await audit(tx, {
         userId: input.actorUserId, organizationId: input.organizationId, action: existing ? "UPDATE" : "CREATE", entityType: "BudgetLine",
-        entityId: existing?.id ?? b.id, changes: { source: input.source, budgetId: b.id, description, planned: storedString(totals.planned), touchesPlanned },
+        entityId: existing?.id ?? b.id, changes: { source: input.source, budgetId: b.id, description, planned: storedString(totals.planned), touchesPlanned, productSku },
       });
     });
     return getBudget(input.organizationId, b.id);

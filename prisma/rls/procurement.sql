@@ -1,5 +1,5 @@
 -- Row-Level Security policies: Budget & Procurement module, Phase 1 (Sep 14, 2026).
--- One domain file for the nine tables, the webinar.sql shape; see contact.sql
+-- One domain file for the ten tables, the webinar.sql shape; see contact.sql
 -- for the FULL project-wide rationale and employee.sql for why a module that
 -- ships dark behind a flag is policied on day one anyway (a flag flips in a
 -- deploy, an unpoliced table cannot).
@@ -77,6 +77,13 @@ CREATE POLICY approvalstep_tenant_isolation ON "ApprovalStep"
 ALTER TABLE "EventFinancialSummary" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS eventfinancialsummary_tenant_isolation ON "EventFinancialSummary";
 CREATE POLICY eventfinancialsummary_tenant_isolation ON "EventFinancialSummary"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "BudgetProduct" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS budgetproduct_tenant_isolation ON "BudgetProduct";
+CREATE POLICY budgetproduct_tenant_isolation ON "BudgetProduct"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
