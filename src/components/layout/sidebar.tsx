@@ -37,7 +37,6 @@ import {
   ClipboardCheck,
   HelpCircle,
   BarChart3,
-  BookOpen,
   FileCode2,
   Cpu,
   Handshake,
@@ -111,10 +110,10 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // It also now hosts the Sign-in Activity tab, whose own gate
   // (canViewLoginActivity) is exactly ADMIN + SUPER_ADMIN.
   { name: "Activity",  href: "/activity",  icon: Activity, adminOnly: true },
-  // The USER GUIDE is the documentation an organiser actually needs, and until
-  // Aug 21 2026 it had no link anywhere — only the help chat referenced it,
-  // while the repo docs viewer below sat in the sidebar for every admin.
-  { name: "User Guide", href: "/user-guide.html", icon: BookOpen, external: true },
+  // The user guide (public/user-guide.html) is reached through the help chat,
+  // which answers from it; its sidebar link was removed on Sep 14 2026 at the
+  // owner's request. `external` stays on the nav item type for the next
+  // static-file link.
   // Docs viewer: PLATFORM OPERATOR only since Aug 21 2026, narrowed from ADMIN.
   // It serves every .md and .html in the repository — incident log, AWS runbook
   // with instance ids, the rebuild-production procedure, our security posture
@@ -575,8 +574,8 @@ export function Sidebar() {
           ) : (
             /* Top-level nav */
             baseNavigation.map((item) => {
-              // The user guide is a static file, not an app route: it must not
-              // be prefetched or client-navigated, and it should never match
+              // An external item is a static file, not an app route: it must
+              // not be prefetched or client-navigated, and it never matches
               // the active-highlight (pathname never equals it).
               const isActive = !item.external && pathname.startsWith(item.href);
               const navLink = (
