@@ -50,6 +50,20 @@ export async function lockEventCommitted(tx: Db, organizationId: string, budgetI
   return { originId: origin.id, versions };
 }
 
+/**
+ * The event's budget is closed out: no version is active or frozen and one is
+ * closed. Its figures are the signed-off record benchmarking reads, so nothing
+ * that moves committed money may run against it until an admin reopens it.
+ */
+export async function eventBudgetClosed(client: Db, organizationId: string, budgetId: string): Promise<boolean> {
+  const origin = await client.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: { id: true, eventId: true, status: true } });
+  if (!origin) return false;
+  const versions = origin.eventId
+    ? await client.eventBudget.findMany({ where: { organizationId, eventId: origin.eventId }, select: { status: true } })
+    : [{ status: origin.status }];
+  return !versions.some((v) => CURRENT_STATUSES.has(v.status)) && versions.some((v) => v.status === "CLOSED");
+}
+
 /** Every version of the event a budget belongs to (only the budget itself when it has no event), read without a lock: for display, and for a check that locks before it writes. */
 export async function eventBudgetIds(client: Db, organizationId: string, budgetId: string): Promise<string[]> {
   const origin = await client.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: { id: true, eventId: true } });

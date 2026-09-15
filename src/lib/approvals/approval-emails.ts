@@ -1,6 +1,7 @@
 /**
  * The approval emails, as one pure builder: assignment, reminder, delegation,
- * escalation, and the decision back to the requester.
+ * escalation, the "nobody can approve this" notice to the admins, and the
+ * decision back to the requester.
  *
  * The spec's rule shapes every one of them: the decision is taken on the
  * Approvals page in EA-SYS, and the email only says something is waiting,
@@ -13,7 +14,7 @@
  */
 import { escapeHtml } from "@/lib/html";
 
-export type ApprovalEmailKind = "assigned" | "escalated" | "reminder" | "delegated" | "decided";
+export type ApprovalEmailKind = "assigned" | "escalated" | "reminder" | "delegated" | "stuck" | "decided";
 
 export interface ApprovalEmailInput {
   kind: ApprovalEmailKind;
@@ -84,6 +85,13 @@ export function buildApprovalEmail(input: ApprovalEmailInput): { subject: string
     case "delegated":
       subject = `You can now approve: ${label}`;
       lead = `This ${word} from ${requester} has waited ${waited} for ${previous}, so it has been passed to you as well. Either of you can decide it.`;
+      break;
+    case "stuck":
+      // To the admins, who set grants: the approver can no longer decide and
+      // nobody else holds the authority, so the request cannot move.
+      subject = `Nobody can approve: ${label}`;
+      lead = `This ${word} from ${requester} is waiting on ${previous}, who can no longer decide it, and nobody else holds an approval grant that covers it, so it cannot move. It has waited ${waited}.`;
+      footer = "Give someone an approval grant that covers it in Settings, Users, procurement grants. The request moves to them on the next check. Until then this email repeats every day.";
       break;
     case "decided": {
       const approved = input.decision === "APPROVED";

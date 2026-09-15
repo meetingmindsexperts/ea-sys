@@ -20,6 +20,11 @@
  * retry risks a duplicate for a failure that delivered, and the approver
  * still sees the request on the Approvals page and gets the next reminder.
  *
+ * ISOLATED. Each step and each decision is handled in its own try/catch, so
+ * a row that throws is logged and counted and the rest of the organisation's
+ * work still runs; the scan is oldest first, so one bad row would otherwise
+ * stop everything after it, every tick.
+ *
  * BOUNDED. Assignment and decision emails go out only for rows newer than
  * NOTIFY_WINDOW_DAYS, so a worker that was down for a week does not mail old
  * news, and the migration stamped every existing row as already notified.
@@ -46,6 +51,8 @@ export interface ApprovalTickResult {
   reminded: number;
   delegated: number;
   escalated: number;
+  /** Requests nobody can decide, reported to the admins. */
+  stuck: number;
   decided: number;
   skipped: number;
   failed: number;
@@ -106,7 +113,7 @@ interface Person {
 }
 
 export async function runApprovalNotificationsTick(now: Date = new Date()): Promise<ApprovalTickResult> {
-  const result: ApprovalTickResult = { assigned: 0, reminded: 0, delegated: 0, escalated: 0, decided: 0, skipped: 0, failed: 0 };
+  const result: ApprovalTickResult = { assigned: 0, reminded: 0, delegated: 0, escalated: 0, stuck: 0, decided: 0, skipped: 0, failed: 0 };
   // Approvals have one consumer today, the Budget & Procurement module; with it
   // off on a deployment there is nothing to notify and nothing to scan.
   if (!isProcurementModuleEnabled()) {
@@ -132,7 +139,7 @@ export async function runApprovalNotificationsTick(now: Date = new Date()): Prom
     }
   }
 
-  const acted = result.assigned + result.reminded + result.delegated + result.escalated + result.decided;
+  const acted = result.assigned + result.reminded + result.delegated + result.escalated + result.stuck + result.decided;
   if (acted > 0 || result.failed > 0) apiLogger.info({ msg: "approvals-notify:tick", ...result });
   else apiLogger.debug({ msg: "approvals-notify:tick-idle", pendingSteps: steps.length });
   return result;
@@ -174,6 +181,20 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     const p = id ? people.get(id) : undefined;
     return p ? `${p.firstName} ${p.lastName}`.trim() || p.email : null;
   };
+  // Who is told when a request cannot move: the super admins, who set grants,
+  // or the admins when the organisation has none. Read once, only when needed.
+  let adminIds: string[] | null = null;
+  const grantAdmins = async (): Promise<string[]> => {
+    if (adminIds) return adminIds;
+    const rows = await db.user.findMany({
+      where: { organizationId: orgId, deactivatedAt: null, role: { in: ["SUPER_ADMIN", "ADMIN"] } },
+      select: { id: true, firstName: true, lastName: true, email: true, deactivatedAt: true, role: true },
+    });
+    for (const row of rows) people.set(row.id, row);
+    const superAdmins = rows.filter((row) => row.role === "SUPER_ADMIN");
+    adminIds = (superAdmins.length > 0 ? superAdmins : rows).map((row) => row.id);
+    return adminIds;
+  };
 
   const labels = await subjectLabels(orgId, [...steps.map((s) => s.request), ...decided]);
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
@@ -214,7 +235,7 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     link,
   });
 
-  for (const step of steps) {
+  const handleStep = async (step: PendingStepRow) => {
     const r = step.request;
     const ref = `step:${step.id}`;
     const base = baseFor(r, r.requesterUserId, approvalsLink);
@@ -230,11 +251,11 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
       });
       if (claim.count === 0) {
         result.skipped++;
-        continue;
+        return;
       }
       result.assigned++;
       await deliver("assigned", step.assigneeUserId, base, ref);
-      continue;
+      return;
     }
 
     // 2. Everything else runs off the plan.
@@ -245,8 +266,11 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     const assigneeCanDecide =
       step.assigneeUserId !== r.requesterUserId && (requireFinal ? assigneeCeiling === Number.POSITIVE_INFINITY : Number.isFinite(amountAed) && amountAed <= assigneeCeiling);
     const nextTierUserId = pickNextTier({ holders, amountAed, requesterUserId: r.requesterUserId, currentUserId: step.assigneeUserId, currentCeilingAed: assigneeCeiling, requireFinal });
+    const standIn = step.delegateUserId ? holders.find((h) => h.id === step.delegateUserId) : undefined;
+    const delegateCanDecide =
+      !!standIn && standIn.id !== r.requesterUserId && (requireFinal ? standIn.ceilingAed === Number.POSITIVE_INFINITY : Number.isFinite(amountAed) && amountAed <= standIn.ceilingAed);
     const delegate = pickDelegate({ holders, assigneeUserId: step.assigneeUserId, amountAed, requesterUserId: r.requesterUserId, requireFinal });
-    const action = planStepAction(step, { now, assigneeCanDecide, assigneeIsFinal: assigneeCeiling === Number.POSITIVE_INFINITY, nextTierUserId, delegate });
+    const action = planStepAction(step, { now, assigneeCanDecide, delegateCanDecide, assigneeIsFinal: assigneeCeiling === Number.POSITIVE_INFINITY, nextTierUserId, delegate });
 
     switch (action.kind) {
       case "none":
@@ -262,12 +286,8 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
           break;
         }
         result.reminded++;
-        if (!assigneeCanDecide) {
-          // Nobody above them either: the request cannot move until someone is
-          // granted authority. Said once a day, with the reminder, not every tick.
-          apiLogger.warn({ msg: "approvals-notify:no-one-can-decide", organizationId: orgId, requestId: r.id, assigneeUserId: step.assigneeUserId, amountAed });
-        }
-        const recipients = [...new Set([step.assigneeUserId, step.delegateUserId].filter((v): v is string => !!v))];
+        // Only someone who can still decide it is reminded.
+        const recipients = [...new Set([assigneeCanDecide ? step.assigneeUserId : null, delegateCanDecide ? step.delegateUserId : null].filter((v): v is string => !!v))];
         for (const recipientId of recipients) await deliver("reminder", recipientId, { ...base, hoursWaiting: waited }, ref);
         break;
       }
@@ -324,17 +344,50 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
         );
         break;
       }
+
+      case "stuck": {
+        // Nobody holds the authority any more, not the assignee and nobody
+        // above them, so the request cannot move until someone is granted it.
+        // The people who set grants are told, daily; the assignee is not.
+        const claim = await db.approvalStep.updateMany({
+          where: { id: step.id, organizationId: orgId, status: "PENDING", remindedAt: step.remindedAt },
+          data: { remindedAt: now },
+        });
+        if (claim.count === 0) {
+          result.skipped++;
+          break;
+        }
+        result.stuck++;
+        apiLogger.warn({ msg: "approvals-notify:no-one-can-decide", organizationId: orgId, requestId: r.id, stepId: step.id, assigneeUserId: step.assigneeUserId, amountAed });
+        const admins = await grantAdmins();
+        if (admins.length === 0) {
+          result.failed++;
+          apiLogger.error({ msg: "approvals-notify:stuck-no-admin", organizationId: orgId, requestId: r.id, stepId: step.id });
+          break;
+        }
+        for (const adminId of admins) await deliver("stuck", adminId, { ...base, previousApproverName: nameOf(step.assigneeUserId), hoursWaiting: waited }, ref);
+        break;
+      }
+    }
+  };
+
+  for (const step of steps) {
+    try {
+      await handleStep(step);
+    } catch (err) {
+      result.failed++;
+      apiLogger.error({ msg: "approvals-notify:step-failed", organizationId: orgId, stepId: step.id, requestId: step.requestId, err });
     }
   }
 
-  for (const r of decided) {
+  const handleDecided = async (r: DecidedRow) => {
     const claim = await db.approvalRequest.updateMany({
       where: { id: r.id, organizationId: orgId, status: r.status, decisionNotifiedAt: null },
       data: { decisionNotifiedAt: now },
     });
     if (claim.count === 0) {
       result.skipped++;
-      continue;
+      return;
     }
     result.decided++;
     const decidingStep = r.steps[0];
@@ -350,6 +403,15 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
       },
       `request:${r.id}`,
     );
+  };
+
+  for (const r of decided) {
+    try {
+      await handleDecided(r);
+    } catch (err) {
+      result.failed++;
+      apiLogger.error({ msg: "approvals-notify:decision-failed", organizationId: orgId, requestId: r.id, err });
+    }
   }
 }
 

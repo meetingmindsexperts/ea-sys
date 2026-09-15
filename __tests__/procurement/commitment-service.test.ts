@@ -286,6 +286,20 @@ describe("cancelOrder (close and release)", () => {
     expect(audits().map((a) => [a.entityType, a.action])).toEqual([["SpendRequest", "ORDER_CANCELLED"], ["Commitment", "CANCEL"]]);
     expect(audits()[1].changes).toMatchObject({ reason: "Supplier withdrew", released: "4200.0000" });
   });
+  it("refuses once the event's budget is closed out, and moves nothing", async () => {
+    mockDb.eventBudget.findFirst.mockResolvedValueOnce({ id: "b1", eventId: "e1", status: "ARCHIVED" });
+    mockDb.eventBudget.findMany.mockResolvedValueOnce([{ status: "ARCHIVED" }, { status: "CLOSED" }]);
+    expect(await cancel(admin)).toMatchObject({ ok: false, code: "BUDGET_CLOSED" });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.budgetLine.update).not.toHaveBeenCalled();
+    expect(reroute).not.toHaveBeenCalled();
+  });
+  it("still cancels while a later version of the event's budget is active", async () => {
+    mockDb.eventBudget.findFirst.mockResolvedValueOnce({ id: "b1", eventId: "e1", status: "ARCHIVED" });
+    mockDb.eventBudget.findMany.mockResolvedValueOnce([{ status: "ARCHIVED" }, { status: "ACTIVE" }]);
+    expect((await cancel(admin)).ok).toBe(true);
+    expect(mockDb.commitment.updateMany).toHaveBeenCalledTimes(1);
+  });
   it("a lost claim is STALE_WRITE and nothing else moves", async () => {
     mockDb.commitment.updateMany.mockResolvedValueOnce({ count: 0 });
     expect(await cancel(settle)).toMatchObject({ ok: false, code: "STALE_WRITE" });

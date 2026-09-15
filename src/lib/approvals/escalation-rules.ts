@@ -20,7 +20,9 @@
  * An assignee who has lost the authority to decide (grant removed, ceiling
  * lowered below the amount, account deactivated) is escalated on the next
  * tick rather than after four days: waiting on someone who cannot decide
- * helps nobody.
+ * helps nobody. When nobody above them can take it either, the step is STUCK:
+ * the people who set grants are told at once and then daily, and the
+ * assignee, who cannot act, is no longer reminded.
  *
  * Client-safe: no db, no Node imports.
  */
@@ -105,7 +107,8 @@ export type StepAction =
   | { kind: "none" }
   | { kind: "remind"; repeat: boolean }
   | { kind: "delegate"; toUserId: string; via: "configured" | "next-tier" }
-  | { kind: "escalate"; toUserId: string; reason: "no-decision" | "assignee-lost-authority" };
+  | { kind: "escalate"; toUserId: string; reason: "no-decision" | "assignee-lost-authority" }
+  | { kind: "stuck" };
 
 export interface StepSnapshot {
   createdAt: Date;
@@ -121,6 +124,8 @@ export function planStepAction(
     now: Date;
     /** The assignee still holds authority for this amount (and for an exception, is a final approver). */
     assigneeCanDecide: boolean;
+    /** The step's delegate still holds authority for this amount. */
+    delegateCanDecide?: boolean;
     assigneeIsFinal: boolean;
     nextTierUserId: string | null;
     delegate: { userId: string; via: "configured" | "next-tier" } | null;
@@ -130,6 +135,12 @@ export function planStepAction(
   const age = now - step.createdAt.getTime();
   if (!ctx.assigneeCanDecide && ctx.nextTierUserId) {
     return { kind: "escalate", toUserId: ctx.nextTierUserId, reason: "assignee-lost-authority" };
+  }
+  if (!ctx.assigneeCanDecide && !ctx.delegateCanDecide) {
+    // Nobody holding this step can decide it and nobody sits above: say so to
+    // the people who can grant the authority, now and then daily.
+    if (step.remindedAt === null || now - step.remindedAt.getTime() >= REPEAT_REMINDER_HOURS * HOUR_MS) return { kind: "stuck" };
+    return { kind: "none" };
   }
   const canMove = !ctx.assigneeIsFinal && ctx.nextTierUserId !== null;
   if (canMove && age >= ESCALATE_AFTER_HOURS * HOUR_MS) {

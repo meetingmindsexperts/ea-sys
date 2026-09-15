@@ -35,7 +35,7 @@ import {
 } from "../lib/commitment-rules";
 import { generatePurchaseOrderPdf } from "../lib/commitment-pdf";
 import { recomputeBudgetTotals } from "./budget-service";
-import { syncLineCommitted } from "./committed-figures";
+import { eventBudgetClosed, syncLineCommitted } from "./committed-figures";
 import { rerouteAfterOrderCancelInTx, type RerouteOutcome } from "./spend-request-reroute";
 
 export type CommitmentErrorCode =
@@ -45,6 +45,7 @@ export type CommitmentErrorCode =
   | "ALREADY_ORDERED"
   | "SUPPLIER_NOT_APPROVED"
   | "BUDGET_NOT_ACTIVE"
+  | "BUDGET_CLOSED"
   | "LINE_NOT_FOUND"
   | "NOT_ALLOWED"
   | "REASON_REQUIRED"
@@ -522,6 +523,8 @@ export async function cancelOrder(input: { organizationId: string; actor: OrderA
   let reroute: RerouteOutcome | null = null;
   try {
     await tenantTransaction(async (tx) => {
+      // A closed-out budget's figures are the signed-off record: a cancel would re-sum a line on it.
+      if (c.budgetId && (await eventBudgetClosed(tx, input.organizationId, c.budgetId))) throw new Error("BUDGET_CLOSED");
       const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "OPEN", version: input.expectedVersion }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledByUserId: input.actor.id, cancelReason: reason, version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
       if (c.budgetId) {
@@ -542,6 +545,7 @@ export async function cancelOrder(input: { organizationId: string; actor: OrderA
     return view.ok ? { ...view, reroute } : view;
   } catch (err) {
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The order changed while you were acting on it. Reload.", ctx);
+    if ((err as Error).message === "BUDGET_CLOSED") return fail("BUDGET_CLOSED", "The event's budget is closed out, so its figures are final and the order cannot be cancelled. An admin can reopen the budget first.", ctx);
     apiLogger.error({ msg: "procurement/commitments:cancel-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not cancel the purchase order.", ctx);
   }

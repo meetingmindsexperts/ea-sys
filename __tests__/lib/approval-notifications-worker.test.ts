@@ -62,11 +62,13 @@ function stepRow(o: Partial<{ id: string; ageHours: number; notifiedAt: Date | n
   };
 }
 
-function setup(o: { steps?: unknown[]; decided?: unknown[]; holders?: unknown[]; people?: unknown[] } = {}) {
+const ADMINS = [{ ...PEOPLE[0], role: "SUPER_ADMIN" }, { ...PEOPLE[2], role: "ADMIN" }];
+
+function setup(o: { steps?: unknown[]; decided?: unknown[]; holders?: unknown[]; people?: unknown[]; admins?: unknown[] } = {}) {
   mockDb.approvalStep.findMany.mockResolvedValue(o.steps ?? []);
   mockDb.approvalRequest.findMany.mockResolvedValue(o.decided ?? []);
   mockDb.user.findMany.mockImplementation(async (args: { where: Record<string, unknown> }) =>
-    args.where.OR ? (o.holders ?? [HOLDER.lina, HOLDER.medhat]) : (o.people ?? PEOPLE),
+    args.where.role ? (o.admins ?? ADMINS) : args.where.OR ? (o.holders ?? [HOLDER.lina, HOLDER.medhat]) : (o.people ?? PEOPLE),
   );
 }
 
@@ -240,6 +242,43 @@ describe("escalation", () => {
   });
 });
 
+describe("a request nobody can decide", () => {
+  it("tells the super admins, not the assignee who lost their authority, claiming on remindedAt", async () => {
+    setup({ steps: [stepRow({ ageHours: 30 })], holders: [] });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(mockDb.approvalStep.updateMany.mock.calls[0][0]).toEqual({ where: { id: "step-1", organizationId: ORG, status: "PENDING", remindedAt: null }, data: { remindedAt: NOW } });
+    const adminQuery = mockDb.user.findMany.mock.calls.find((c) => (c[0] as { where: Record<string, unknown> }).where.role)![0];
+    expect(adminQuery.where).toMatchObject({ organizationId: ORG, deactivatedAt: null, role: { in: ["SUPER_ADMIN", "ADMIN"] } });
+    expect(sentTo()).toEqual(["dev@x.test"]);
+    expect(sent().subject).toBe("Nobody can approve: HM2026 v2 · Hematology Summit");
+    expect(sent().textContent).toContain("is waiting on Lina H, who can no longer decide it");
+    expect(sent().logContext).toMatchObject({ templateSlug: "procurement-approval-stuck" });
+    expect(mockDb.approvalStep.create).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:no-one-can-decide", stepId: "step-1" }));
+    expect(r).toMatchObject({ stuck: 1, reminded: 0, escalated: 0 });
+  });
+  it("repeats daily, not every tick", async () => {
+    setup({ steps: [stepRow({ ageHours: 40, remindedAt: ago(5) })], holders: [] });
+    await runApprovalNotificationsTick(NOW);
+    expect(mockSend).not.toHaveBeenCalled();
+    setup({ steps: [stepRow({ ageHours: 60, remindedAt: ago(25) })], holders: [] });
+    await runApprovalNotificationsTick(NOW);
+    expect(sentTo()).toEqual(["dev@x.test"]);
+  });
+  it("tells the admins when there is no super admin, and logs an error when there is nobody to tell", async () => {
+    setup({ steps: [stepRow({ ageHours: 30 })], holders: [], admins: [{ ...PEOPLE[2], role: "ADMIN" }] });
+    await runApprovalNotificationsTick(NOW);
+    expect(sentTo()).toEqual(["sara@x.test"]);
+    vi.clearAllMocks();
+    mockDb.approvalStep.updateMany.mockResolvedValue({ count: 1 });
+    setup({ steps: [stepRow({ ageHours: 30 })], holders: [], admins: [] });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ stuck: 1, failed: 1 });
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:stuck-no-admin", stepId: "step-1" }));
+  });
+});
+
 describe("the decision email", () => {
   it("claims decisionNotifiedAt, then tells the requester who decided and links to the request", async () => {
     setup({
@@ -271,6 +310,23 @@ describe("failures", () => {
     expect(mockSend).not.toHaveBeenCalled();
     expect(r.skipped).toBe(1);
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:recipient-unreachable", recipientUserId: "lina", deactivated: true }));
+  });
+  it("one step that throws is logged and counted, and the organisation's later steps still run", async () => {
+    setup({ steps: [stepRow({ id: "step-1", notifiedAt: null }), stepRow({ id: "step-2", notifiedAt: null })] });
+    mockDb.approvalStep.updateMany.mockRejectedValueOnce(new Error("lock timeout")).mockResolvedValue({ count: 1 });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(r).toMatchObject({ failed: 1, assigned: 1 });
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:step-failed", organizationId: ORG, stepId: "step-1" }));
+    expect(mockLogger.error).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:org-failed" }));
+    expect(sentTo()).toEqual(["lina@x.test"]);
+  });
+  it("one decision that throws does not stop the next", async () => {
+    const decided = (id: string) => ({ id, organizationId: ORG, status: "APPROVED", subjectType: "SPEND_REQUEST", subjectId: "sr1", amountAed: "5000", amount: "5000", currency: "AED", requesterUserId: "owner", payload: null, steps: [{ decidedByUserId: "lina", note: null }] });
+    setup({ decided: [decided("req-8"), decided("req-9")] });
+    mockDb.approvalRequest.updateMany.mockRejectedValueOnce(new Error("lock timeout")).mockResolvedValue({ count: 1 });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(r).toMatchObject({ failed: 1, decided: 1 });
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ msg: "approvals-notify:decision-failed", requestId: "req-8" }));
   });
   it("one organisation's failure does not stop the next", async () => {
     setup({ steps: [stepRow({ notifiedAt: null }), { ...stepRow({ id: "step-9", notifiedAt: null }), organizationId: "org-2" }] });

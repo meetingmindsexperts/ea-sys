@@ -33,6 +33,13 @@ describe("buildApprovalEmail", () => {
     expect(escalated.subject).toBe("Approval passed to you: PR-2026-0004 · LED wall");
     expect(escalated.text).toContain("waited 4 days without a decision from Lina H, so it now comes to you.");
   });
+  it("stuck: tells an admin the approver can no longer decide and what unblocks it, without the approver footer", () => {
+    const e = buildApprovalEmail({ ...base, kind: "stuck", previousApproverName: "Lina H", hoursWaiting: 30 });
+    expect(e.subject).toContain("Nobody can approve: ");
+    expect(e.text).toContain("is waiting on Lina H, who can no longer decide it, and nobody else holds an approval grant that covers it");
+    expect(e.text).toContain("Give someone an approval grant that covers it");
+    expect(e.text).not.toContain("cannot approve anything");
+  });
   it("an over-budget exception says only the final approver decides it", () => {
     expect(buildApprovalEmail({ ...base, kind: "assigned", exception: true }).text).toContain("Over-budget exception: only the final approver decides it.");
   });

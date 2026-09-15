@@ -60,9 +60,16 @@ describe("planStepAction: a step that cannot move", () => {
     const stuck = { ...banded, nextTierUserId: null, delegate: null };
     expect(planStepAction(step(100, { remindedAt: ago(24) }), stuck)).toEqual({ kind: "remind", repeat: true });
   });
-  it("an assignee who lost authority with nobody above keeps being reminded rather than escalated to no one", () => {
+  it("an assignee who lost authority with nobody above is stuck: reported at once, then daily, never reminded", () => {
     const stuck = { ...banded, assigneeCanDecide: false, nextTierUserId: null, delegate: null };
-    expect(planStepAction(step(30), stuck)).toEqual({ kind: "remind", repeat: false });
+    expect(planStepAction(step(2), stuck)).toEqual({ kind: "stuck" });
+    expect(planStepAction(step(30), stuck)).toEqual({ kind: "stuck" });
+    expect(planStepAction(step(30, { remindedAt: ago(5) }), stuck)).toEqual({ kind: "none" });
+    expect(planStepAction(step(60, { remindedAt: ago(24) }), stuck)).toEqual({ kind: "stuck" });
+  });
+  it("is not stuck while the step's delegate can still decide it: that falls to the daily reminder", () => {
+    const standIn = { ...banded, assigneeCanDecide: false, delegateCanDecide: true, nextTierUserId: null, delegate: null };
+    expect(planStepAction(step(30, { delegateUserId: "sara" }), standIn)).toEqual({ kind: "remind", repeat: false });
   });
 });
 
