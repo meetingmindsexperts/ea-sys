@@ -23,6 +23,8 @@
  * title, and a reader that already sits on one subject (the budget page) has
  * no need of it.
  */
+import { waitedPhrase } from "@/lib/approvals/approval-emails";
+
 export interface ProcurementActivityRow {
   id: string;
   /** ISO instant. */
@@ -298,6 +300,38 @@ function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeConte
       return { title: "Approval refused", detail: parts(aed, note) };
     case "APPROVAL_CANCELLED":
       return { title: "Approval request cancelled", detail: null };
+    case "APPROVAL_DELEGATED": {
+      // Written by the approval-escalation job at 48 hours (spec §8.3).
+      const to = str(c.toUserId);
+      const from = str(c.fromUserId);
+      const toName = to ? ctx.userNames[to] ?? null : null;
+      const fromName = from ? ctx.userNames[from] ?? null : null;
+      const hours = num(c.afterHours);
+      return {
+        title: toName ? `Passed to ${toName} as well` : "Passed to a delegate as well",
+        detail: parts(
+          hours !== null ? `after ${waitedPhrase(hours)} without a decision` : null,
+          fromName ? `${fromName} can still decide it` : null,
+          c.via === "configured" ? "chosen as their named delegate" : c.via === "next-tier" ? "chosen from the next tier" : null,
+        ),
+      };
+    }
+    case "APPROVAL_ESCALATED": {
+      // Written by the approval-escalation job at 96 hours, or at once when the
+      // assignee no longer holds the authority to decide.
+      const to = str(c.toUserId);
+      const from = str(c.fromUserId);
+      const toName = to ? ctx.userNames[to] ?? null : null;
+      const fromName = from ? ctx.userNames[from] ?? null : null;
+      const hours = num(c.afterHours);
+      return {
+        title: toName ? `Escalated to ${toName}` : "Escalated to the next tier",
+        detail:
+          c.reason === "assignee-lost-authority"
+            ? `${fromName ?? "the approver"} no longer has the authority to decide it`
+            : parts(hours !== null ? `after ${waitedPhrase(hours)} without a decision` : null, fromName ? `from ${fromName}` : null),
+      };
+    }
     default:
       return { title: humanize(row.action), detail: null };
   }

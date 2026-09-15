@@ -47,7 +47,7 @@ export async function listBudgetActivity(organizationId: string, budgetId: strin
         OR: [
           { entityType: "EventBudget", entityId: budgetId },
           { entityType: "BudgetLine", changes: { path: ["budgetId"], equals: budgetId } },
-          { entityType: "ApprovalRequest", action: { in: ["APPROVAL_REQUESTED", "APPROVAL_CANCELLED"] }, changes: { path: ["subjectId"], equals: budgetId } },
+          { entityType: "ApprovalRequest", action: { in: ["APPROVAL_REQUESTED", "APPROVAL_CANCELLED", "APPROVAL_DELEGATED", "APPROVAL_ESCALATED"] }, changes: { path: ["subjectId"], equals: budgetId } },
         ],
       },
       orderBy: { createdAt: "desc" },
@@ -59,7 +59,7 @@ export async function listBudgetActivity(organizationId: string, budgetId: strin
   const truncated = rows.length > BUDGET_ACTIVITY_LIMIT;
   const kept = truncated ? rows.slice(0, BUDGET_ACTIVITY_LIMIT) : rows;
 
-  const assigneeIds = [...new Set(kept.map((r) => asRecord(r.changes).assigneeUserId).filter((v): v is string => typeof v === "string"))];
+  const assigneeIds = [...new Set(kept.flatMap((r) => ["assigneeUserId", "fromUserId", "toUserId"].map((k) => asRecord(r.changes)[k])).filter((v): v is string => typeof v === "string"))];
   const users = assigneeIds.length
     ? await db.user.findMany({ where: { id: { in: assigneeIds }, organizationId }, select: { id: true, firstName: true, lastName: true, email: true } })
     : [];

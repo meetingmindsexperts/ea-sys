@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useApprovals, useDecideApproval, type ApprovalRequestRow } from "@/procurement/hooks/use-procurement-api";
 import { ErrorState, LoadingState, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
@@ -89,7 +90,15 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   const subject = r.subjectType === "BUDGET" ? "Budget" : r.subjectType === "SPEND_REQUEST" ? (r.spendRequest?.kind === "AMENDMENT" ? "Amount change" : "Spend request") : "Reallocation";
   const sr = r.spendRequest;
   const cur = r.currency ?? r.budget?.reportingCurrency ?? "";
-  const step = r.steps.find((s) => s.status !== "PENDING") ?? r.steps[0];
+  const { data: session } = useSession();
+  const meId = session?.user?.id;
+  // Escalation leaves a skipped step behind (spec §8.3), so "the step" is the
+  // deciding one once decided and the open one while pending, never simply the first.
+  const decidedStep = [...r.steps].reverse().find((s) => s.status === "APPROVED" || s.status === "REJECTED");
+  const openStep = r.steps.find((s) => s.status === "PENDING");
+  const step = decidedStep ?? openStep ?? r.steps[r.steps.length - 1];
+  const escalatedFrom = r.steps.length > 1 ? r.steps[0].assigneeName : null;
+  const asDelegate = !!openStep && !!meId && openStep.delegateUserId === meId && openStep.assigneeUserId !== meId;
 
   async function go(decision: "APPROVED" | "REJECTED") {
     setPending(decision);
@@ -114,6 +123,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{subject}</Badge>
             {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
+            {asDelegate && <Badge variant="secondary" className="bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
             {sr ? (
               <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
             ) : r.budget ? (
@@ -145,7 +155,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           )}
           {r.reason && <div className="text-sm"><span className="text-muted-foreground">Reason: </span>{r.reason}</div>}
           <div className="text-xs text-muted-foreground">
-            {`Raised by ${r.requesterName ?? "someone no longer on the team"} · ${fmtWhen(r.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${r.decidedAt ? ` · decided ${fmtWhen(r.decidedAt)}` : ""}`}
+            {`Raised by ${r.requesterName ?? "someone no longer on the team"} · ${fmtWhen(r.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${escalatedFrom && escalatedFrom !== step?.assigneeName ? ` (escalated from ${escalatedFrom})` : ""}${openStep?.delegateName && openStep.delegateUserId !== meId ? ` · ${openStep.delegateName} can decide it too` : ""}${r.decidedAt ? ` · decided ${fmtWhen(r.decidedAt)}` : ""}`}
           </div>
           {!decidable && step?.note && <div className="text-sm"><span className="text-muted-foreground">Decision note: </span>{step.note}</div>}
         </div>

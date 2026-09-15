@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 
@@ -30,14 +31,34 @@ export interface ProcurementGrantTarget {
   procurementApproveCeilingAed?: number | null;
   procurementApproveUnlimited?: boolean;
   procurementSettle?: boolean;
+  /** Who stands in after 48 hours without a decision; null = the next tier. */
+  procurementDelegateUserId?: string | null;
+}
+
+/** The Select cannot hold an empty value, so "the next tier" travels as this sentinel. */
+const NEXT_TIER = "__next_tier__";
+
+function personName(u: ProcurementGrantTarget): string {
+  return `${u.firstName} ${u.lastName}`.trim() || u.email;
 }
 
 export function hasAnyGrant(u: ProcurementGrantTarget): boolean {
   return !!u.procurementRequest || !!u.procurementApproveUnlimited || !!u.procurementSettle || (u.procurementApproveCeilingAed ?? 0) > 0;
 }
 
-export function ProcurementGrantsDialog({ user, onClose, onSaved }: { user: ProcurementGrantTarget | null; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ request: false, ceiling: "", unlimited: false, settle: false });
+export function ProcurementGrantsDialog({
+  user,
+  approvers = [],
+  onClose,
+  onSaved,
+}: {
+  user: ProcurementGrantTarget | null;
+  /** Team members who can approve, the delegate candidates. */
+  approvers?: ProcurementGrantTarget[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ request: false, ceiling: "", unlimited: false, settle: false, delegate: NEXT_TIER });
   const [saving, setSaving] = useState(false);
   // Seed on every closed -> open transition (React's previous-render pattern,
   // not an effect), so the switches show the person being edited.
@@ -50,9 +71,12 @@ export function ProcurementGrantsDialog({ user, onClose, onSaved }: { user: Proc
         ceiling: user.procurementApproveCeilingAed ? String(user.procurementApproveCeilingAed) : "",
         unlimited: !!user.procurementApproveUnlimited,
         settle: !!user.procurementSettle,
+        delegate: user.procurementDelegateUserId ?? NEXT_TIER,
       });
     }
   }
+
+  const bandedApprover = !form.unlimited && !form.settle && form.ceiling.trim() !== "";
 
   async function save() {
     if (!user) return;
@@ -71,6 +95,10 @@ export function ProcurementGrantsDialog({ user, onClose, onSaved }: { user: Proc
           procurementApproveCeilingAed: form.unlimited ? null : ceiling,
           procurementApproveUnlimited: form.unlimited,
           procurementSettle: form.settle,
+          // Only a banded approver has a delegate (the final approver has no
+          // standby, and a delegate for someone who cannot approve means nothing),
+          // so anything else clears it rather than leaving a stale one stored.
+          procurementDelegateUserId: bandedApprover && form.delegate !== NEXT_TIER ? form.delegate : null,
         }),
       });
       if (!res.ok) {
@@ -89,7 +117,9 @@ export function ProcurementGrantsDialog({ user, onClose, onSaved }: { user: Proc
     }
   }
 
-  const name = user ? `${user.firstName} ${user.lastName}`.trim() || user.email : "";
+  const name = user ? personName(user) : "";
+  const candidates = approvers.filter((a) => a.id !== user?.id);
+  const storedNotListed = form.delegate !== NEXT_TIER && !candidates.some((a) => a.id === form.delegate);
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -114,6 +144,28 @@ export function ProcurementGrantsDialog({ user, onClose, onSaved }: { user: Proc
             <Input id="ceiling" type="number" min={1} step="1" value={form.ceiling} disabled={form.unlimited || form.settle} placeholder="No approval authority" onChange={(e) => setForm((f) => ({ ...f, ceiling: e.target.value }))} />
             <p className="text-xs text-muted-foreground">Decides budgets and reallocations up to this AED amount; anything above routes to the tier above.</p>
           </div>
+          {bandedApprover && (
+            <div className="space-y-2">
+              <Label htmlFor="delegate">Stands in after 48 hours</Label>
+              <Select value={form.delegate} onValueChange={(v) => setForm((f) => ({ ...f, delegate: v }))}>
+                <SelectTrigger id="delegate" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NEXT_TIER}>The next tier (default)</SelectItem>
+                  {storedNotListed && <SelectItem value={form.delegate}>Someone who can no longer approve</SelectItem>}
+                  {candidates.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {`${personName(a)} · ${a.procurementApproveUnlimited ? "final approver" : `up to AED ${Number(a.procurementApproveCeilingAed ?? 0).toLocaleString("en-US")}`}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                When this person has not decided a request for 48 hours, the delegate can decide it too; at 96 hours it moves to the next tier. A request above the delegate&apos;s ceiling goes to the next tier instead.
+              </p>
+            </div>
+          )}
           <label className="flex items-start justify-between gap-4">
             <span>
               <span className="font-medium">Unlimited approver</span>

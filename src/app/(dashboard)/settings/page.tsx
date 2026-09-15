@@ -128,6 +128,7 @@ interface User {
   procurementApproveCeilingAed?: number | null;
   procurementApproveUnlimited?: boolean;
   procurementSettle?: boolean;
+  procurementDelegateUserId?: string | null;
   createdAt: string;
 }
 
@@ -1096,7 +1097,14 @@ export default function SettingsPage() {
                   </Dialog>
                 )}
                 {procurementEnabled && (
-                  <ProcurementGrantsDialog user={grantUser} onClose={() => setGrantUser(null)} onSaved={fetchUsers} />
+                  <ProcurementGrantsDialog
+                    user={grantUser}
+                    // Delegate candidates: active team members who can decide (a
+                    // ceiling or the final approver), never a settle holder.
+                    approvers={users.filter((u) => !u.deactivatedAt && !u.procurementSettle && (u.procurementApproveUnlimited || Number(u.procurementApproveCeilingAed ?? 0) > 0))}
+                    onClose={() => setGrantUser(null)}
+                    onSaved={fetchUsers}
+                  />
                 )}
               </div>
             </CardHeader>

@@ -463,7 +463,10 @@ function ApprovalTrail({ r }: { r: SpendRequestDetailRow }) {
         {r.approvals.map((a) => {
           const kind = (a.payload as { kind?: string } | null)?.kind;
           const amend = kind === "AMENDMENT" ? (a.payload as { previousAmount?: string; nextAmount?: string; reason?: string }) : null;
-          const step = a.steps[0];
+          // Escalation leaves a skipped step behind, so the step that matters is
+          // the last one that was not skipped; the first names who it started with.
+          const step = [...a.steps].reverse().find((s) => s.status !== "SKIPPED") ?? a.steps[a.steps.length - 1];
+          const escalatedFrom = a.steps.length > 1 ? a.steps[0].assigneeName : null;
           return (
             <li key={a.id} className="rounded-md bg-muted/40 p-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -473,7 +476,7 @@ function ApprovalTrail({ r }: { r: SpendRequestDetailRow }) {
               </div>
               {amend && <div className="text-xs text-muted-foreground">{`${r.currency} ${money2(amend.previousAmount)} to ${money2(amend.nextAmount)}${amend.reason ? ` · ${amend.reason}` : ""}`}</div>}
               <div className="text-xs text-muted-foreground">
-                {`${fmtWhen(a.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${step?.decidedByName ? ` · decided by ${step.decidedByName}` : ""}${step?.decidedAt ? ` ${fmtWhen(step.decidedAt)}` : ""}`}
+                {`${fmtWhen(a.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${escalatedFrom && escalatedFrom !== step?.assigneeName ? ` (escalated from ${escalatedFrom})` : ""}${step?.delegateName && !step.decidedByName ? ` · ${step.delegateName} can decide it too` : ""}${step?.decidedByName ? ` · decided by ${step.decidedByName}` : ""}${step?.decidedAt ? ` ${fmtWhen(step.decidedAt)}` : ""}`}
               </div>
               {step?.note && <div className="mt-1 text-xs"><span className="text-muted-foreground">Note: </span>{step.note}</div>}
             </li>

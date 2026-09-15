@@ -14,7 +14,10 @@
  *   - an over-budget exception (spec §6, §8.5) is routed to the final
  *     approver only and can be decided by nobody else, whatever their ceiling;
  *   - every transition writes an AuditLog row with `source`.
- * Reminders, delegation and escalation (spec §8.3) are Phase 2.
+ * Reminders, delegation and escalation (spec §8.3) live beside this file:
+ * `escalation-rules.ts` (the timeline, pure) and
+ * `approval-notifications-worker.ts` (the `approval-escalation` job). A step
+ * is decided by its assignee or by the delegate the job named at 48 hours.
  *
  * Errors as values (src/services/README.md). Every function takes the client
  * to write through so a caller can compose the request into its own
@@ -279,7 +282,14 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
     where: { id: step.id, status: "PENDING" },
     data: { status: input.decision, decidedByUserId: input.decider.id, decidedAt: now, note: input.note ?? null },
   });
-  if (claimed.count === 0) return fail("ALREADY_DECIDED", "Someone decided this request a moment ago.", input);
+  if (claimed.count === 0) {
+    // Lost the claim. Either someone decided it, or the escalation job closed
+    // this step and opened the next tier's a moment ago; the two need
+    // different words, because the second is not a decision at all.
+    const moved = await db.approvalStep.findFirst({ where: { requestId: request.id, status: "PENDING", id: { not: step.id } }, select: { id: true } });
+    if (moved) return fail("NOT_ASSIGNEE", "This request passed to the next approver a moment ago, so it is no longer yours to decide.", input);
+    return fail("ALREADY_DECIDED", "Someone decided this request a moment ago.", input);
+  }
   const updated = await db.approvalRequest.update({
     where: { id: request.id },
     data: { status: input.decision, decidedAt: now, version: { increment: 1 } },

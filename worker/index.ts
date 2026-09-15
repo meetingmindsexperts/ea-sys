@@ -66,6 +66,7 @@ import * as dailyDigest from "./jobs/daily-digest";
 import * as analyticsPrune from "./jobs/analytics-prune";
 import * as hrYearRoll from "./jobs/hr-year-roll";
 import * as mirrorArchive from "./jobs/mirror-archive";
+import * as approvalEscalation from "./jobs/approval-escalation";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -106,6 +107,7 @@ const JOBS = [
   analyticsPrune,
   hrYearRoll,
   mirrorArchive,
+  approvalEscalation,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads

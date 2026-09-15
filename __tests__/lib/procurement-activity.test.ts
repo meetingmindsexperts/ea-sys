@@ -153,3 +153,20 @@ describe("robustness", () => {
     }
   });
 });
+
+describe("delegation and escalation rows, written by the approval-escalation job", () => {
+  it("a delegate at 48 hours: who, after how long, and that the assignee still can", () => {
+    expect(d("ApprovalRequest", "APPROVAL_DELEGATED", { fromUserId: "u3", toUserId: "u2", via: "configured", afterHours: 49 }))
+      .toEqual({ title: "Passed to Muthu as well", detail: "after 2 days without a decision, Lina can still decide it, chosen as their named delegate" });
+    expect(d("ApprovalRequest", "APPROVAL_DELEGATED", { fromUserId: "gone", toUserId: "gone2", via: "next-tier", afterHours: 48 }))
+      .toEqual({ title: "Passed to a delegate as well", detail: "after 2 days without a decision, chosen from the next tier" });
+  });
+  it("an escalation at 96 hours, and one because the assignee lost authority", () => {
+    expect(d("ApprovalRequest", "APPROVAL_ESCALATED", { fromUserId: "u3", toUserId: "u2", reason: "no-decision", afterHours: 97 }))
+      .toEqual({ title: "Escalated to Muthu", detail: "after 4 days without a decision, from Lina" });
+    expect(d("ApprovalRequest", "APPROVAL_ESCALATED", { fromUserId: "u3", toUserId: "u2", reason: "assignee-lost-authority", afterHours: 2 }))
+      .toEqual({ title: "Escalated to Muthu", detail: "Lina no longer has the authority to decide it" });
+    expect(describeProcurementActivity(row("ApprovalRequest", "APPROVAL_ESCALATED", { reason: "no-decision" })))
+      .toEqual({ title: "Escalated to the next tier", detail: null });
+  });
+});

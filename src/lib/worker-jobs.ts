@@ -53,6 +53,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "daily-digest", cadence: "daily 05:30 UTC", expectedPerDay: 1 },
   { name: "hr-year-roll", cadence: "daily 01:05 UTC (acts in January)", expectedPerDay: 1 },
   { name: "mirror-archive", cadence: "every 3 min, offset :02 (builds on request)", expectedPerDay: 480 },
+  { name: "approval-escalation", cadence: "every 10 min", expectedPerDay: 144 },
 ];
 
 /**

@@ -137,7 +137,7 @@ async function attachProcurementSubjects(rows: AuditRow[], orgId: string) {
       const key = strOf(c[k]);
       if (key) lineKeys.add(key);
     }
-    for (const k of ["assigneeUserId", "receivedByUserId"]) {
+    for (const k of ["assigneeUserId", "receivedByUserId", "fromUserId", "toUserId"]) {
       const id = strOf(c[k]);
       if (id) userIds.add(id);
     }

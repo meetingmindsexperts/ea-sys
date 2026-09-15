@@ -39,7 +39,7 @@ function makeDb(over: Record<string, unknown> = {}) {
       update: vi.fn(async (args: { data: Record<string, unknown> }) => ({ id: "req-1", ...args.data, steps: [] })),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
-    approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     ...over,
   } as never;
@@ -127,10 +127,23 @@ describe("decideApprovalRequest", () => {
   it("the second tab loses the claim", async () => {
     const db = makeDb({
       approvalRequest: { findFirst: vi.fn().mockResolvedValue(pending()), update: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
-      approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), findFirst: vi.fn().mockResolvedValue(null) },
     });
     const r = await decideApprovalRequest(db, { organizationId: ORG, requestId: "req-1", decider: { id: "lina", role: "ADMIN", procurementApproveCeilingAed: 1_000_000 }, decision: "APPROVED", source: "ui" });
     expect(r).toMatchObject({ ok: false, code: "ALREADY_DECIDED" });
+  });
+  it("a step escalated away a moment ago is not reported as decided", async () => {
+    // The escalation job closed Lina's step and opened the next tier's between
+    // her read and her claim: that is not a decision, and she is told so.
+    const findFirst = vi.fn().mockResolvedValue({ id: "step-2" });
+    const db = makeDb({
+      approvalRequest: { findFirst: vi.fn().mockResolvedValue(pending()), update: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+      approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), findFirst },
+    });
+    const r = await decideApprovalRequest(db, { organizationId: ORG, requestId: "req-1", decider: { id: "lina", role: "ADMIN", procurementApproveCeilingAed: 1_000_000 }, decision: "APPROVED", source: "ui" });
+    expect(r).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
+    if (!r.ok) expect(r.message).toContain("passed to the next approver");
+    expect(findFirst.mock.calls[0][0].where).toEqual({ requestId: "req-1", status: "PENDING", id: { not: "step-1" } });
   });
   it("refuses the requester, a non-assignee, the settle grant, and a ceiling that does not cover", async () => {
     const db = () => makeDb({ approvalRequest: { findFirst: vi.fn().mockResolvedValue(pending()), update: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() } });

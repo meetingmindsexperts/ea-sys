@@ -98,6 +98,8 @@ export interface ApprovalStepRow {
   assigneeUserId: string;
   assigneeName: string | null;
   delegateUserId: string | null;
+  /** Who can decide beside the assignee, named by the approval-escalation job after 48 hours. */
+  delegateName: string | null;
   dueAt: string | null;
   status: string;
   decidedByUserId: string | null;
@@ -372,7 +374,7 @@ export interface SpendRequestDetailRow extends SpendRequestRow {
     payload: Record<string, unknown> | null;
     createdAt: string;
     decidedAt: string | null;
-    steps: { assigneeUserId: string; assigneeName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null; dueAt: string }[];
+    steps: { assigneeUserId: string; assigneeName: string | null; delegateUserId: string | null; delegateName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null; dueAt: string }[];
   }[];
 }
 

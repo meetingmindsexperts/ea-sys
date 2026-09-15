@@ -265,7 +265,7 @@ export type SpendRequestDetail = SpendRequestView & {
     payload: SpendRequestApprovalPayload | null;
     createdAt: Date;
     decidedAt: Date | null;
-    steps: { assigneeUserId: string; assigneeName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: Date | null; note: string | null; dueAt: Date }[];
+    steps: { assigneeUserId: string; assigneeName: string | null; delegateUserId: string | null; delegateName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: Date | null; note: string | null; dueAt: Date }[];
   }[];
 };
 
@@ -277,12 +277,12 @@ export async function getSpendRequest(organizationId: string, requestId: string)
     r.linkedCommitmentId ? db.commitment.findFirst({ where: { id: r.linkedCommitmentId, organizationId }, select: COMMITMENT_SELECT }) : null,
     db.approvalRequest.findMany({
       where: { organizationId, subjectType: "SPEND_REQUEST", subjectId: r.id },
-      select: { id: true, status: true, amountAed: true, payload: true, createdAt: true, decidedAt: true, steps: { select: { assigneeUserId: true, status: true, decidedByUserId: true, decidedAt: true, note: true, dueAt: true }, orderBy: { sequence: "asc" } } },
+      select: { id: true, status: true, amountAed: true, payload: true, createdAt: true, decidedAt: true, steps: { select: { assigneeUserId: true, delegateUserId: true, status: true, decidedByUserId: true, decidedAt: true, note: true, dueAt: true }, orderBy: { sequence: "asc" } } },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
   ]);
-  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.decidedByUserId ?? ""]))]);
+  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""]))]);
   return {
     ok: true,
     request: {
@@ -298,7 +298,7 @@ export async function getSpendRequest(organizationId: string, requestId: string)
         payload: readApprovalPayload(a.payload),
         createdAt: a.createdAt,
         decidedAt: a.decidedAt,
-        steps: a.steps.map((s) => ({ ...s, assigneeName: names.get(s.assigneeUserId) ?? null, decidedByName: s.decidedByUserId ? (names.get(s.decidedByUserId) ?? null) : null })),
+        steps: a.steps.map((s) => ({ ...s, assigneeName: names.get(s.assigneeUserId) ?? null, delegateName: s.delegateUserId ? (names.get(s.delegateUserId) ?? null) : null, decidedByName: s.decidedByUserId ? (names.get(s.decidedByUserId) ?? null) : null })),
       })),
     },
   };

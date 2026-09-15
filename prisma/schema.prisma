@@ -188,6 +188,11 @@ model User {
   procurementApproveCeilingAed Decimal?  @db.Decimal(18, 2)
   procurementApproveUnlimited  Boolean   @default(false)
   procurementSettle            Boolean   @default(false)
+  /// The approver who stands in when this person has not decided a step for
+  /// 48 hours (spec §8.3). A scalar user id like every person on the module's
+  /// tables. Null = the next tier stands in. SUPER_ADMIN-set; the final
+  /// approver never has one (decision 9 Sep 2026: no standby for Medhat).
+  procurementDelegateUserId    String?
   /// Set to deactivate an INTERNAL user without deleting them (Aug 11, 2026).
   /// Null means active. Their access stops immediately and they cannot sign
   /// back in, but the row and every foreign key pointing at it survive.
@@ -5508,6 +5513,8 @@ model ApprovalRequest {
   /// Set on the OLD request when an amount edit supersedes it (spec §8.1).
   supersededById  String?
   decidedAt       DateTime?
+  /// The requester was emailed the decision (the worker's decision pass).
+  decisionNotifiedAt DateTime?
   version         Int                   @default(0)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -5517,6 +5524,7 @@ model ApprovalRequest {
 
   @@index([organizationId, status])
   @@index([subjectType, subjectId])
+  @@index([status, decisionNotifiedAt])
 }
 
 /// One decision in a request. A decision is a conditional claim on the step's
@@ -5532,6 +5540,8 @@ model ApprovalStep {
   dueAt           DateTime
   remindedAt      DateTime?
   escalatedAt     DateTime?
+  /// The assignee was emailed about this step (the worker's assignment pass).
+  notifiedAt      DateTime?
   status          ApprovalStepStatus @default(PENDING)
   decidedByUserId String?
   decidedAt       DateTime?
@@ -5545,6 +5555,7 @@ model ApprovalStep {
   @@unique([requestId, sequence])
   @@index([organizationId, assigneeUserId, status])
   @@index([status, dueAt])
+  @@index([status, notifiedAt])
 }
 
 /// The archive index of spec §13a: one row per past event, no transactions.

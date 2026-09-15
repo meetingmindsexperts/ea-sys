@@ -46,6 +46,13 @@ const updateUserSchema = z.object({
   procurementApproveCeilingAed: z.number().positive().max(999_999_999_999).nullable().optional(),
   procurementApproveUnlimited: z.boolean().optional(),
   procurementSettle: z.boolean().optional(),
+  /**
+   * Who stands in for this approver after 48 hours without a decision (spec
+   * §8.3). Null = the next tier. Validated below on the RESULTING row: never
+   * themselves, never on the final approver (no standby, decision 9 Sep
+   * 2026), and the delegate must hold approval authority of their own.
+   */
+  procurementDelegateUserId: z.string().min(1).max(100).nullable().optional(),
 });
 
 const PROCUREMENT_GRANT_KEYS = [
@@ -53,6 +60,7 @@ const PROCUREMENT_GRANT_KEYS = [
   "procurementApproveCeilingAed",
   "procurementApproveUnlimited",
   "procurementSettle",
+  "procurementDelegateUserId",
 ] as const;
 
 interface RouteParams {
@@ -293,6 +301,33 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
+      // The delegate, judged on the RESULTING row like the pairs above.
+      const delegateId =
+        validated.data.procurementDelegateUserId !== undefined ? validated.data.procurementDelegateUserId : user.procurementDelegateUserId;
+      if (delegateId) {
+        const refuse = (code: string, error: string) => {
+          apiLogger.warn({ msg: "organization/users:procurement-delegate-refused", code, targetUserId: userId, delegateUserId: delegateId });
+          return NextResponse.json({ error, code }, { status: 400 });
+        };
+        if (delegateId === userId) return refuse("DELEGATE_IS_SELF", "An approver cannot be their own delegate.");
+        if (grants.procurementApproveUnlimited) {
+          return refuse("FINAL_APPROVER_HAS_NO_DELEGATE", "The final approver has no delegate: a request waiting on them is reminded daily instead.");
+        }
+        if (approvalCeilingAed(grants) === null) {
+          return refuse("DELEGATE_NEEDS_AN_APPROVER", "Only an approver has a delegate. Give this person an approval ceiling first.");
+        }
+        if (validated.data.procurementDelegateUserId) {
+          const delegate = await db.user.findFirst({
+            where: { id: delegateId, organizationId: session.user.organizationId!, deactivatedAt: null },
+            select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+          });
+          if (!delegate || !isTeamRole(delegate.role)) return refuse("DELEGATE_NOT_FOUND", "The delegate is not an active team member of this organisation.");
+          const delegateGrants = procurementGrantsFromRow(delegate);
+          if (delegateGrants.procurementSettle || approvalCeilingAed(delegateGrants) === null) {
+            return refuse("DELEGATE_CANNOT_APPROVE", "The delegate must hold an approval ceiling or be the final approver.");
+          }
+        }
+      }
     }
 
     const { deactivated, ...rest } = validated.data;
@@ -329,6 +364,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         procurementApproveCeilingAed: true,
         procurementApproveUnlimited: true,
         procurementSettle: true,
+        procurementDelegateUserId: true,
         deactivatedAt: true,
         createdAt: true,
       },

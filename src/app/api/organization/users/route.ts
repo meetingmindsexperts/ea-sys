@@ -86,6 +86,7 @@ export async function GET() {
         procurementApproveCeilingAed: true,
         procurementApproveUnlimited: true,
         procurementSettle: true,
+        procurementDelegateUserId: true,
         createdAt: true,
         image: true,
       },

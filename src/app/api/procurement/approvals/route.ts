@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     const budgets = budgetIds.length
       ? await db.eventBudget.findMany({ where: { id: { in: budgetIds }, organizationId: g.orgId }, select: { id: true, eventCode: true, versionNo: true, status: true, reportingCurrency: true, event: { select: { name: true } } } })
       : [];
-    const userIds = [...new Set(requests.flatMap((r) => [r.requesterUserId, ...r.steps.map((s) => s.assigneeUserId)]))];
+    const userIds = [...new Set(requests.flatMap((r) => [r.requesterUserId, ...r.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? ""])]).filter(Boolean))];
     const users = userIds.length ? await db.user.findMany({ where: { id: { in: userIds }, organizationId: g.orgId }, select: { id: true, firstName: true, lastName: true } }) : [];
     const byBudget = new Map(budgets.map((b) => [b.id, b]));
     const byUser = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
           move: move
             ? { ...move, fromDescription: lineDescription.get(`${r.subjectId}:${move.fromLineKey}`) ?? null, toDescription: lineDescription.get(`${r.subjectId}:${move.toLineKey}`) ?? null }
             : null,
-          steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null })),
+          steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null, delegateName: s.delegateUserId ? (byUser.get(s.delegateUserId) ?? null) : null })),
         };
       }),
     });
