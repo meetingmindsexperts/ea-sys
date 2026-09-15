@@ -49,7 +49,7 @@ import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewCrm } from "@/crm/lib/crm-roles";
 import { canViewHr } from "@/lib/hr-visibility";
-import { canViewProcurement } from "@/lib/procurement-visibility";
+import { canViewProcurement, hasAnyProcurementGrant } from "@/lib/procurement-visibility";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
@@ -236,6 +236,7 @@ export function Sidebar() {
   const isOnsite      = session?.user?.role === "ONSITE";
   const isCrmUser     = session?.user?.role === "CRM_USER";
   const isWebinars    = session?.user?.role === "WEBINARS";
+  const isOrganizer   = session?.user?.role === "ORGANIZER";
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
   const canCrm        = canViewCrm(session?.user?.role);
@@ -317,7 +318,10 @@ export function Sidebar() {
     ? hrOnlyNavigation
     : isCrmUser
     ? crmOnlyNavigation
-    : isOnsite || isWebinars
+    : isWebinars
+    ? // Events, plus Budgets for a webinars user given procurement access (owner, Sep 15 2026).
+      [...eventsOnlyNavigation, ...navigation.filter((item) => item.procurementOnly && canProcurement)]
+    : isOnsite
     ? eventsOnlyNavigation
     : isRestricted
       ? restrictedNavigation
@@ -326,6 +330,11 @@ export function Sidebar() {
           if (item.adminOnly && !isAdmin) return false;
           if (item.financeOnly && !canFinance) return false;
           if (item.crmOnly && (!canCrm || !CRM_IN_SIDEBAR)) return false;
+          // Organizers run events, not the sales pipeline or budgets (owner, Sep 15 2026).
+          // SIDEBAR ONLY, by owner decision: the pages and APIs still answer an organizer
+          // as before. An organizer holding a procurement grant still sees Budgets.
+          if (item.crmOnly && isOrganizer) return false;
+          if (item.procurementOnly && isOrganizer && !hasAnyProcurementGrant(session?.user)) return false;
           if (item.hrOnly && !canHr) return false;
           if (item.procurementOnly && !canProcurement) return false;
           return true;
