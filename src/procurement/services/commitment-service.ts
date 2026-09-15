@@ -19,6 +19,7 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { sendEmail } from "@/lib/email";
 import type { Prisma } from "@prisma/client";
 import type { Db } from "@/lib/approvals/approvals-service";
@@ -84,7 +85,7 @@ type Row = Prisma.CommitmentGetPayload<{ select: typeof COMMITMENT_SELECT }>;
 
 /** The request as the order needs it: enough to issue, nothing the request service owns. */
 const REQUEST_FOR_ORDER_SELECT = {
-  id: true, requestNo: true, budgetId: true, lineKey: true, eventCode: true, requesterUserId: true, supplierId: true, title: true,
+  id: true, requestNo: true, budgetId: true, lineKey: true, eventCode: true, requesterUserId: true, decidedByUserId: true, supplierId: true, title: true,
   amount: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, status: true, linkedCommitmentId: true, emailSupplierOnIssue: true, version: true,
   supplier: { select: { id: true, approvalStatus: true, isActive: true } },
 } as const;
@@ -194,6 +195,28 @@ export async function getCommitment(organizationId: string, commitmentId: string
 
 // ── issue ────────────────────────────────────────────────────────────────────
 
+/**
+ * The actor's grants as the user row holds them now. The session carries them
+ * too but refreshes only every five minutes, so a grant removed a moment ago
+ * would still let someone cancel an order or confirm a receipt; those two read
+ * the row, the way the approval decision does.
+ */
+async function actorFromRow(organizationId: string, actor: OrderActor): Promise<OrderActor> {
+  const row = await db.user.findFirst({
+    where: { id: actor.id, organizationId, deactivatedAt: null },
+    select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+  });
+  if (!row) {
+    apiLogger.warn({ msg: "procurement/commitments:actor-row-missing", userId: actor.id, organizationId });
+    return { id: actor.id, isAdmin: false, canRequest: false, canSettle: false, canApprove: false };
+  }
+  const user = { role: row.role, ...procurementGrantsFromRow(row) };
+  const fresh: OrderActor = { id: actor.id, isAdmin: canAdminProcurement(user), canRequest: canRequestProcurement(user), canSettle: canSettleProcurement(user), canApprove: canApproveProcurement(user, 0) };
+  const changed = fresh.isAdmin !== actor.isAdmin || fresh.canRequest !== actor.canRequest || fresh.canSettle !== actor.canSettle || fresh.canApprove !== actor.canApprove;
+  if (changed) apiLogger.info({ msg: "procurement/commitments:grants-changed-since-sign-in", userId: actor.id, organizationId, session: actor, now: fresh });
+  return fresh;
+}
+
 /** The requester of the linked request (holding the request grant), the settle holder, or an admin. */
 function actsOnOrder(actor: OrderActor, requesterUserId: string | null | undefined): boolean {
   if (actor.isAdmin || actor.canSettle) return true;
@@ -244,7 +267,9 @@ export async function issueOrderInTx(tx: Db, input: { organizationId: string; ac
       fulfillmentStatus: "OPEN",
       accountingSyncStatus: "PENDING",
       approvedAt: now,
-      approvedByUserId: input.actorUserId,
+      // The approver of record is whoever decided the request, not whoever set off the issue
+      // (a supplier's approval, or a by-hand raise after a failed conversion).
+      approvedByUserId: r.decidedByUserId ?? input.actorUserId,
       lines: {
         create: [{
           organizationId: input.organizationId,
@@ -383,7 +408,7 @@ export async function renderOrderPdf(organizationId: string, commitmentId: strin
       currency: c.currency,
       amount: view.amount,
       taxAmount: view.taxAmount,
-      lines: view.lines.map((l) => ({ description: l.description, qty: l.qty, unitCost: l.unitCost, amount: l.amount, taxRatePercent: l.taxRatePercent, taxCode: l.taxCode })),
+      lines: view.lines.map((l) => ({ description: l.description, qty: l.qty, unitCost: l.unitCost, amount: l.amount, taxAmount: l.taxAmount, taxRatePercent: l.taxRatePercent, taxCode: l.taxCode })),
       supplier: { code: c.supplier.code, displayName: c.supplier.displayName, legalName: c.supplier.legalName, country: c.supplier.country, paymentTerms: c.supplier.paymentTerms, contactName: contact?.name || null, contactEmail: contact?.email ?? null },
       company: { name: org.name, companyName: org.companyName, address: org.companyAddress, city: org.companyCity, state: org.companyState, zipCode: org.companyZipCode, country: org.companyCountry, phone: org.companyPhone, email: org.companyEmail, taxId: org.taxId, logoPath: org.logo },
     });
@@ -476,13 +501,13 @@ export async function receiveOrder(input: { organizationId: string; actor: Order
 /** The second person of spec §6: the settle holder or an approver, never the one who marked it received. */
 export async function confirmReceipt(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail>> {
   const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
-  const c = await loadCommitment(db, input.organizationId, input.commitmentId);
+  const [c, actor] = await Promise.all([loadCommitment(db, input.organizationId, input.commitmentId), actorFromRow(input.organizationId, input.actor)]);
   if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
   if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order's receipt is not confirmed.`, ctx, { status: c.status });
   if (c.fulfillmentStatus !== "RECEIVED" || c.receivedByUserId === null) return fail("INVALID_STATUS", "The order has not been marked fully received yet.", ctx, { fulfillmentStatus: c.fulfillmentStatus });
   if (c.receiptConfirmedAt) return fail("INVALID_STATUS", "This receipt is already confirmed.", ctx);
   if (!receiptNeedsSecondPerson(c.spendRequest?.amountAed)) return fail("INVALID_STATUS", "This order is below the second-person floor; its receipt needs no confirmation.", ctx);
-  if (!(input.actor.canSettle || input.actor.canApprove)) return fail("NOT_ALLOWED", "The second person is the settle holder or an approver.", ctx);
+  if (!(actor.canSettle || actor.canApprove)) return fail("NOT_ALLOWED", "The second person is the settle holder or an approver.", ctx);
   if (input.actor.id === c.receivedByUserId) return fail("NOT_ALLOWED", "The person who marked the order received cannot confirm it; a second person must.", ctx);
   try {
     await tenantTransaction(async (tx) => {
@@ -512,9 +537,9 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
  */
 export async function cancelOrder(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; reason: string | null | undefined; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail> & { reroute?: RerouteOutcome | null }> {
   const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
-  const c = await loadCommitment(db, input.organizationId, input.commitmentId);
+  const [c, actor] = await Promise.all([loadCommitment(db, input.organizationId, input.commitmentId), actorFromRow(input.organizationId, input.actor)]);
   if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
-  if (!(input.actor.canSettle || input.actor.isAdmin)) return fail("NOT_ALLOWED", "Only the settle holder or an admin cancels a purchase order.", ctx);
+  if (!(actor.canSettle || actor.isAdmin)) return fail("NOT_ALLOWED", "Only the settle holder or an admin cancels a purchase order.", ctx);
   if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order cannot be cancelled.`, ctx, { status: c.status });
   if (c.fulfillmentStatus !== "OPEN") return fail("INVALID_STATUS", "Part or all of this order has been received, so it can no longer be cancelled. A received order is closed against the supplier's invoice.", ctx, { fulfillmentStatus: c.fulfillmentStatus });
   const reason = input.reason?.trim() || null;

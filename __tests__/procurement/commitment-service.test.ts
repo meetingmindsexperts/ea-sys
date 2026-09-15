@@ -18,7 +18,7 @@ const mockDb = vi.hoisted(() => ({
   $queryRaw: vi.fn().mockResolvedValue([]),
   budgetLine: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   organization: { findUnique: vi.fn() },
-  user: { findMany: vi.fn().mockResolvedValue([]) },
+  user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
   auditLog: { create: vi.fn().mockResolvedValue({}) },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
@@ -49,6 +49,15 @@ const settle = { id: "muthu", isAdmin: false, canRequest: false, canSettle: true
 const approver = { id: "lina", isAdmin: false, canRequest: false, canSettle: false, canApprove: true };
 const admin = { id: "root", isAdmin: true, canRequest: false, canSettle: false, canApprove: false };
 const stranger = { id: "who", isAdmin: false, canRequest: true, canSettle: false, canApprove: false };
+/** The user rows behind the actors above: cancel and confirm read these, not the session. */
+const grant = (over: Record<string, unknown>) => ({ role: "ORGANIZER", procurementRequest: false, procurementApproveCeilingAed: null, procurementApproveUnlimited: false, procurementSettle: false, ...over });
+const ROWS: Record<string, unknown> = {
+  req: grant({ procurementRequest: true }),
+  muthu: grant({ role: "MEMBER", procurementSettle: true }),
+  lina: grant({ procurementApproveCeilingAed: "1000000" }),
+  root: grant({ role: "ADMIN" }),
+  who: grant({ procurementRequest: true }),
+};
 
 const request = (over: Record<string, unknown> = {}) => ({
   id: "sr1", requestNo: "PR-2026-0007", budgetId: "b1", lineKey: "k-av", eventCode: "HM2026", requesterUserId: "req", supplierId: "s1", title: "LED wall",
@@ -87,6 +96,7 @@ beforeEach(() => {
   reroute.mockResolvedValue({ status: "PENDING_APPROVAL", approvalRequestId: "ar9", exception: false });
   mockDb.organization.findUnique.mockResolvedValue({ name: "MM Group", logo: null, companyName: "Meeting Minds FZ LLC", companyAddress: null, companyCity: null, companyState: null, companyZipCode: null, companyCountry: null, companyPhone: null, companyEmail: null, taxId: null });
   mockDb.user.findMany.mockResolvedValue([]);
+  mockDb.user.findFirst.mockImplementation(async (args: { where: { id: string } }) => ROWS[args.where.id] ?? null);
   sendEmail.mockResolvedValue({ success: true, messageId: "m1" });
 });
 
@@ -334,5 +344,28 @@ describe("review fixes, 15 September 2026", () => {
     expect(await raise()).toMatchObject({ ok: true, autoSend: { requested: false } });
     mockDb.commitment.findFirst.mockResolvedValue(commitment({ spendRequest: { ...commitment().spendRequest, emailSupplierOnIssue: true }, supplier: { ...commitment().supplier, contacts: [{ name: "Nobody" }] } }));
     expect(await raise()).toMatchObject({ ok: true, autoSend: { requested: true, sent: false, code: "NO_SUPPLIER_EMAIL" } });
+  });
+});
+
+describe("low fixes, 15 September 2026", () => {
+  it("the order's approver of record is whoever decided the request, not whoever set off the issue", async () => {
+    mockDb.spendRequest.findFirst.mockResolvedValueOnce(request({ decidedByUserId: "karim" }));
+    const out = await issueOrderInTx(mockDb as never, { organizationId: ORG, actorUserId: "muthu", source: "ui", requestId: "sr1" });
+    expect(out).toMatchObject({ ok: true });
+    expect(mockDb.commitment.create.mock.calls[0][0].data).toMatchObject({ approvedByUserId: "karim" });
+  });
+  it("cancel and confirm receipt judge the grants the user row holds now, not the session's", async () => {
+    // The session still says settle holder; the grant was removed a moment ago.
+    mockDb.user.findFirst.mockResolvedValueOnce(grant({ role: "MEMBER" }));
+    expect(await cancelOrder({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1", reason: "Late", expectedVersion: 1 })).toMatchObject({ ok: false, code: "NOT_ALLOWED" });
+    expect(mockDb.user.findFirst.mock.calls[0][0].where).toEqual({ id: "muthu", organizationId: ORG, deactivatedAt: null });
+    // A deactivated account has no row to read.
+    mockDb.commitment.findFirst.mockResolvedValueOnce(commitment({ fulfillmentStatus: "RECEIVED", receivedAt: new Date(), receivedByUserId: "req", spendRequest: { ...commitment().spendRequest, amountAed: "60000.0000" } }));
+    mockDb.user.findFirst.mockResolvedValueOnce(null);
+    expect(await confirmReceipt({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1", expectedVersion: 1 })).toMatchObject({ ok: false, code: "NOT_ALLOWED" });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+    // The other way: an admin role given since sign-in may cancel.
+    mockDb.user.findFirst.mockResolvedValueOnce(grant({ role: "ADMIN" }));
+    expect((await cancelOrder({ organizationId: ORG, actor: requester, source: "ui", commitmentId: "c1", reason: "Late", expectedVersion: 1 })).ok).toBe(true);
   });
 });

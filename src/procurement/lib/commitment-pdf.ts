@@ -31,6 +31,8 @@ export interface PurchaseOrderPdfLine {
   qty: string;
   unitCost: string;
   amount: string;
+  /** The line's VAT; a zero here means the order carries none, so no tax code is printed. */
+  taxAmount?: string | null;
   taxRatePercent: string | null;
   taxCode: string | null;
 }
@@ -82,6 +84,9 @@ export function orderLineText(line: PurchaseOrderPdfLine): string {
   const qty = money(line.qty);
   const parts = [line.description];
   if (!qty.eq(1)) parts.push(`${qty.toString()} × ${money(line.unitCost).toFixed(2)}`);
+  // The code is the budget line's; beside a line that carries no VAT it would tell
+  // the supplier to charge VAT nobody asked for.
+  if (line.taxAmount !== undefined && line.taxAmount !== null && money(line.taxAmount).isZero()) return parts.join(" · ");
   if (line.taxCode) parts.push(line.taxCode);
   else if (line.taxRatePercent !== null && money(line.taxRatePercent).gt(0)) parts.push(`VAT ${money(line.taxRatePercent).toString()}%`);
   return parts.join(" · ");

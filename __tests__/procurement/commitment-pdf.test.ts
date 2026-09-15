@@ -47,3 +47,10 @@ describe("orderLineText", () => {
     expect(orderLineText({ description: "Rigging", qty: "1", unitCost: "500", amount: "500", taxRatePercent: "5", taxCode: "ZR" })).toBe("Rigging · ZR");
   });
 });
+
+describe("orderLineText on a line with no VAT", () => {
+  it("names no tax code or rate beside a zero VAT figure, and keeps them when VAT is charged", () => {
+    expect(orderLineText({ description: "LED wall", qty: "1", unitCost: "36000", amount: "36000", taxAmount: "0.0000", taxRatePercent: null, taxCode: "SR" })).toBe("LED wall");
+    expect(orderLineText({ description: "LED wall", qty: "1", unitCost: "36000", amount: "36000", taxAmount: "1800.0000", taxRatePercent: "5", taxCode: "SR" })).toBe("LED wall · SR");
+  });
+});
