@@ -1,7 +1,7 @@
 /**
  * The purchase order's pure rules (spec §5, §6, §7.7): what a commitment is
  * called in each state, when an approved request may become one, and the
- * receiving rule above AED 50,000. No I/O, so the pages, the service and
+ * receiving rule from AED 50,000. No I/O, so the pages, the service and
  * the tests read one definition.
  */
 import { Decimal, money, type MoneyInput } from "./money";

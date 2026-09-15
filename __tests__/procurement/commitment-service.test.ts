@@ -5,7 +5,7 @@
  * is the requester's or an admin's and emails the supplier only when the
  * request asked for it; a supplier's approval converts every request waiting
  * on it, one transaction each; receiving is the requester's mark and a full
- * receipt above AED 50,000 needs a second person who is not the receiver;
+ * receipt of AED 50,000 or more needs a second person who is not the receiver;
  * cancel releases the line and returns the request to approved.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -237,7 +237,7 @@ describe("receiving", () => {
   });
 });
 
-describe("confirmReceipt (the second person above AED 50,000)", () => {
+describe("confirmReceipt (the second person from AED 50,000)", () => {
   const received = (over: Record<string, unknown> = {}) => commitment({ fulfillmentStatus: "RECEIVED", receivedAt: new Date(), receivedByUserId: "req", spendRequest: { ...commitment().spendRequest, amountAed: "60000.0000" }, ...over });
   const confirm = (actor: typeof settle) => confirmReceipt({ organizationId: ORG, actor, source: "ui", commitmentId: "c1", expectedVersion: 1 });
   it("the settle holder or an approver confirms; the receiver, a requester and an order below the floor are refused", async () => {

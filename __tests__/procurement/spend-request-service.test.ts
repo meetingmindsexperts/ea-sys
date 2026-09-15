@@ -41,7 +41,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), inf
 const orderSvc = vi.hoisted(() => ({ issueOrderInTx: vi.fn(), afterOrderIssued: vi.fn(), convertRequestsAwaitingSupplier: vi.fn().mockResolvedValue({ issued: [], failed: [], sendFailed: 0 }) }));
 vi.mock("@/procurement/services/commitment-service", () => ({ ...orderSvc, COMMITMENT_SELECT: {}, toCommitmentView: (x: unknown) => x }));
 
-import { addQuote, amendSpendRequest, createSpendRequest, decideSpendRequest, submitSpendRequest, transitionSpendRequest } from "@/procurement/services/spend-request-service";
+import { addQuote, amendSpendRequest, createSpendRequest, decideSpendRequest, setQuoteFile, submitSpendRequest, transitionSpendRequest } from "@/procurement/services/spend-request-service";
 
 const ORG = "org-1";
 const actor = { id: "req", isAdmin: false };
@@ -381,5 +381,13 @@ describe("the decision after it commits (review, 15 September 2026)", () => {
     mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "PROPOSED", isActive: true });
     await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
     expect(orderSvc.convertRequestsAwaitingSupplier).not.toHaveBeenCalled();
+  });
+});
+
+describe("setQuoteFile", () => {
+  it("removing a file that is not there writes nothing and audits nothing", async () => {
+    await setQuoteFile({ ...base, requestId: "sr1", quoteId: "q1", fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
+    expect(mockDb.spendRequestQuote.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-/** POST: the second person confirms a full receipt above AED 50,000 (the settle holder or an approver, never the receiver; the service decides). */
+/** POST: the second person confirms a full receipt of AED 50,000 or more (the settle holder or an approver, never the receiver; the service decides). */
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";

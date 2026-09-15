@@ -103,3 +103,39 @@ describe("refusals, each logged with its code and nothing written", () => {
     }
   });
 });
+
+describe("a delegate gone stale", () => {
+  it("is cleared, not refused, when a save only carries it along, and the save goes through", async () => {
+    ROWS.lina.procurementDelegateUserId = "owner"; // owner can no longer approve
+    try {
+      const res = await put("lina", { procurementDelegateUserId: "owner" });
+      expect(res.status).toBe(200);
+      expect(mockDb.user.update.mock.calls[0][0].data).toMatchObject({ procurementDelegateUserId: null });
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.objectContaining({ msg: "organization/users:procurement-delegate-cleared", code: "DELEGATE_CANNOT_APPROVE", targetUserId: "lina" }));
+      expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ procurementDelegateUserId: null, delegateCleared: true });
+    } finally {
+      ROWS.lina.procurementDelegateUserId = null;
+    }
+  });
+  it("a deactivated delegate is cleared the same way when the save does not mention the delegate", async () => {
+    ROWS.lina.procurementDelegateUserId = "ghost";
+    try {
+      const res = await put("lina", { procurementRequest: false });
+      expect(res.status).toBe(200);
+      expect(mockDb.user.update.mock.calls[0][0].data).toMatchObject({ procurementDelegateUserId: null });
+    } finally {
+      ROWS.lina.procurementDelegateUserId = null;
+    }
+  });
+  it("a new delegate who cannot approve is still refused", async () => {
+    ROWS.lina.procurementDelegateUserId = "sara";
+    try {
+      const res = await put("lina", { procurementDelegateUserId: "owner" });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: "DELEGATE_CANNOT_APPROVE" });
+      expect(mockDb.user.update).not.toHaveBeenCalled();
+    } finally {
+      ROWS.lina.procurementDelegateUserId = null;
+    }
+  });
+});

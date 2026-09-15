@@ -268,6 +268,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    // Set when the stored delegate no longer fits and this save only carries it along.
+    let clearStaleDelegate = false;
     // Spec §8.8: the final approver never requests, so requester != approver
     // can never leave a request with no approver. Judged on the RESULTING row.
     if (touchesProcurement) {
@@ -316,16 +318,29 @@ export async function PUT(req: Request, { params }: RouteParams) {
         if (approvalCeilingAed(grants) === null) {
           return refuse("DELEGATE_NEEDS_AN_APPROVER", "Only an approver has a delegate. Give this person an approval ceiling first.");
         }
-        if (validated.data.procurementDelegateUserId) {
-          const delegate = await db.user.findFirst({
-            where: { id: delegateId, organizationId: session.user.organizationId!, deactivatedAt: null },
-            select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
-          });
-          if (!delegate || !isTeamRole(delegate.role)) return refuse("DELEGATE_NOT_FOUND", "The delegate is not an active team member of this organisation.");
+        // The delegate's own side: deactivated, or no longer able to approve,
+        // since they were named. Refused when this save names a new delegate;
+        // when it only carries the stored one along (the grants dialog sends it
+        // with every save), it is cleared instead, so a stale delegate never
+        // blocks an unrelated change to this person's grants.
+        const delegateChanged = delegateId !== user.procurementDelegateUserId;
+        const delegate = await db.user.findFirst({
+          where: { id: delegateId, organizationId: session.user.organizationId!, deactivatedAt: null },
+          select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+        });
+        let delegateProblem: { code: string; error: string } | null = null;
+        if (!delegate || !isTeamRole(delegate.role)) {
+          delegateProblem = { code: "DELEGATE_NOT_FOUND", error: "The delegate is not an active team member of this organisation." };
+        } else {
           const delegateGrants = procurementGrantsFromRow(delegate);
           if (delegateGrants.procurementSettle || approvalCeilingAed(delegateGrants) === null) {
-            return refuse("DELEGATE_CANNOT_APPROVE", "The delegate must hold an approval ceiling or be the final approver.");
+            delegateProblem = { code: "DELEGATE_CANNOT_APPROVE", error: "The delegate must hold an approval ceiling or be the final approver." };
           }
+        }
+        if (delegateProblem && delegateChanged) return refuse(delegateProblem.code, delegateProblem.error);
+        if (delegateProblem) {
+          clearStaleDelegate = true;
+          apiLogger.info({ msg: "organization/users:procurement-delegate-cleared", code: delegateProblem.code, targetUserId: userId, delegateUserId: delegateId });
         }
       }
     }
@@ -339,6 +354,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       where: { id: userId, organizationId: session.user.organizationId! },
       data: {
         ...rest,
+        ...(clearStaleDelegate ? { procurementDelegateUserId: null } : {}),
         // `deactivated` is the API's boolean; the column is a timestamp, so
         // the trail records WHEN, not merely that it happened.
         ...(deactivated === undefined
@@ -380,6 +396,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         entityId: userId,
         changes: {
           ...validated.data,
+          ...(clearStaleDelegate ? { procurementDelegateUserId: null, delegateCleared: true } : {}),
           // A role change is security-relevant, so record what it was BEFORE.
           // Without this the trail says someone is now an Admin but not what
           // they were promoted from.

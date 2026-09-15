@@ -7,7 +7,7 @@
  * something went wrong or after a cancel (cancel and re-issue is the only
  * change a posted order takes). Issuing an order raises the budget line's
  * committed figures; cancelling releases them. Receiving is the requester's
- * mark, and a full receipt above AED 50,000 needs a second person.
+ * mark, and a full receipt of AED 50,000 or more needs a second person.
  *
  * ONE implementation for the routes, the pages and the MCP reads. Errors as
  * values (src/services/README.md). Runs inside the caller's tenant lane;
@@ -118,7 +118,7 @@ export function toCommitmentView(c: Row) {
     amountAed: s4(c.spendRequest?.amountAed),
     statusLabel: COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue] ?? c.status,
     fulfillmentLabel: FULFILLMENT_LABEL[c.fulfillmentStatus as FulfillmentStatusValue] ?? c.fulfillmentStatus,
-    /** A full receipt of this order needs a second person (spec §6, above AED 50,000). */
+    /** A full receipt of this order needs a second person (spec §6, from AED 50,000). */
     receiptNeedsSecondPerson: receiptNeedsSecondPerson(c.spendRequest?.amountAed),
     receiptConfirmed: c.receiptConfirmedAt !== null,
     emailSupplierOnIssue: c.spendRequest?.emailSupplierOnIssue ?? false,

@@ -961,6 +961,12 @@ export async function setQuoteFile(input: { organizationId: string; actor: Actor
   if (r.requesterUserId !== input.actor.id && !input.actor.isAdmin) return fail("NOT_REQUESTER", "Only the person who raised this request can change a quote's file.", ctx);
   const quote = r.quotes.find((q) => q.id === input.quoteId);
   if (!quote) return fail("QUOTE_NOT_FOUND", "That quote is not on this request.", ctx);
+  if (!input.fileUrl && !quote.fileUrl) {
+    // Nothing to remove: no write, and no audit row saying a file went.
+    apiLogger.info({ msg: "procurement/requests:quote-file-already-absent", ...ctx });
+    const detail = await getSpendRequest(input.organizationId, r.id);
+    return { ...detail, replacedFileUrl: null };
+  }
   try {
     const res = await db.spendRequestQuote.updateMany({
       where: { id: quote.id, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } },

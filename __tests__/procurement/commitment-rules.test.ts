@@ -19,7 +19,7 @@ describe("labels", () => {
   });
 });
 
-describe("receiptNeedsSecondPerson (spec §6: above AED 50,000 a second person confirms)", () => {
+describe("receiptNeedsSecondPerson (spec §6: from AED 50,000 a second person confirms)", () => {
   it("is false below the floor and true from the floor up", () => {
     expect(RECEIPT_SECOND_PERSON_FLOOR_AED.toString()).toBe("50000");
     expect(receiptNeedsSecondPerson("49999.99")).toBe(false);

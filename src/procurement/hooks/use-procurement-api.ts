@@ -686,6 +686,11 @@ export function useDecideApproval() {
       void qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
       if (r.spendRequest) void qc.invalidateQueries({ queryKey: procurementKeys.request(r.spendRequest.id) });
     },
+    // A refused decision usually means the request moved on (decided by someone
+    // else, or escalated away): refetch so its card does not linger.
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["procurement", "approvals"] });
+    },
   });
 }
 

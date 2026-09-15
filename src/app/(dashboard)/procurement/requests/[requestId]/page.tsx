@@ -290,7 +290,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
         {o.receivedAt && <Field k="Received" v={fmtWhen(o.receivedAt)} />}
         {o.fulfillmentStatus === "PARTIALLY_RECEIVED" && <Field k="Received" v="Partly" />}
-        {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}` : "Awaiting confirmation (above AED 50,000)"} />}
+        {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}` : "Awaiting confirmation (AED 50,000 or more)"} />}
         {o.status === "CANCELLED" && <Field k="Cancelled" v={`${o.cancelledAt ? fmtWhen(o.cancelledAt) : ""}${o.cancelReason ? ` · ${o.cancelReason}` : ""}`} />}
       </dl>
       {o.lines.length > 0 && (
@@ -322,7 +322,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Mark the order received</DialogTitle>
-              <DialogDescription>{o.receiptNeedsSecondPerson ? "Above AED 50,000 a full receipt is confirmed by a second person, the settle holder or an approver, before it counts." : "Below AED 50,000 your mark is the receipt."}</DialogDescription>
+              <DialogDescription>{o.receiptNeedsSecondPerson ? "From AED 50,000 a full receipt is confirmed by a second person, the settle holder or an approver, before it counts." : "Below AED 50,000 your mark is the receipt."}</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
               <Label htmlFor="rc-extent">How much arrived</Label>
