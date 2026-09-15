@@ -86,6 +86,77 @@ describe("resolveColumns — Freshsales header synonyms", () => {
     expect(cols.index.externalId).toBe(0);
     expect(cols.index.name).toBe(1);
   });
+
+  it.each(["Account", "Accounts", "Sales Account", "Sales_Account", "Sales Account(s)", "Company", "Organisation", "Organization", "Sales Account Name"])(
+    "maps a contact's account column named %s",
+    (header) => {
+      const cols = resolveColumns(parseCSVHeaders(`First name,Last name,Email,${header}`), CONTACT_FIELDS);
+      expect(cols.index.companyName).toBe(3);
+      expect(cols.unrecognized).toEqual([]);
+    },
+  );
+
+  it("the deals spec shares the account names", () => {
+    const cols = resolveColumns(parseCSVHeaders("Id,Name,Account"), DEAL_FIELDS);
+    expect(cols.index.companyName).toBe(2);
+  });
+
+  it("ignores a byte-order mark on the first header", () => {
+    const cols = resolveColumns(parseCSVHeaders("\uFEFFId,First name,Last name,Email"), CONTACT_FIELDS);
+    expect(cols.index.externalId).toBe(0);
+    expect(cols.missingRequired).toEqual([]);
+  });
+});
+
+describe("importFreshsalesContacts — account column", () => {
+  beforeEach(() => {
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-1" } as never);
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "co-1" } as never);
+  });
+
+  it("links the contact to a company named in an 'Account' column", async () => {
+    const res = await importFreshsalesContacts({
+      organizationId: ORG, userId: "u-1", dryRun: false,
+      csvText: "First name,Last name,Email,Account\nSara,Khan,s@abbott.com,Abbott",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.warnings).toEqual([]);
+    expect(db.crmCompany.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: "Abbott", nameKey: "abbott" }) }),
+    );
+    const created = vi.mocked(db.crmContact.create).mock.calls[0]![0] as { data: { companyId: string | null } };
+    expect(created.data.companyId).toBe("co-1");
+  });
+
+  it("warns when the file has no account column", async () => {
+    const res = await importFreshsalesContacts({
+      organizationId: ORG, userId: "u-1", dryRun: true,
+      csvText: "First name,Last name,Email,Employer\nSara,Khan,s@abbott.com,Abbott",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.warnings).toHaveLength(1);
+    expect(res.warnings[0]).toMatch(/No account column found/);
+    expect(res.unrecognizedColumns).toEqual(["employer"]);
+  });
+
+  it("warns when the account column is blank in every row", async () => {
+    const res = await importFreshsalesContacts({
+      organizationId: ORG, userId: "u-1", dryRun: true,
+      csvText: "First name,Last name,Email,Sales Account\nSara,Khan,s@abbott.com,\nAli,Raza,a@pfizer.com,",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.warnings).toEqual([expect.stringMatching(/empty in every row/)]);
+  });
+
+  it("says nothing when at least one row names an account", async () => {
+    const res = await importFreshsalesContacts({
+      organizationId: ORG, userId: "u-1", dryRun: true,
+      csvText: "First name,Last name,Email,Sales Account\nSara,Khan,s@abbott.com,Abbott\nAli,Raza,a@pfizer.com,",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.warnings).toEqual([]);
+  });
 });
 
 // ── Row mappers ───────────────────────────────────────────────────────────────

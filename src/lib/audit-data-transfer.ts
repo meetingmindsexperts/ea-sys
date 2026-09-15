@@ -88,6 +88,8 @@ interface ImportArgs extends TransferScope {
   errors?: number;
   /** "csv" | "eventsair" | … */
   format?: string;
+  /** File headers the importer did not map. Names only, never cell values. */
+  unrecognizedColumns?: string[];
 }
 
 function scopeEntityId(scope: TransferScope): string {
@@ -170,6 +172,9 @@ export function recordImport(req: Request | null, args: ImportArgs): Promise<voi
   if (args.updated !== undefined) changes.updated = args.updated;
   if (args.skipped !== undefined) changes.skipped = args.skipped;
   if (args.errors !== undefined) changes.errors = args.errors;
+  if (args.unrecognizedColumns && args.unrecognizedColumns.length > 0) {
+    changes.unrecognizedColumns = args.unrecognizedColumns;
+  }
 
   // Returns the promise so a SHORT-LIVED caller can await it. HTTP routes must
   // still ignore the return (fire-and-forget: an audit blip must not fail an

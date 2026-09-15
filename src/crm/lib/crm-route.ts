@@ -338,7 +338,7 @@ export const crmCsvImportBaseSchema = z.object({
 });
 
 type CrmImportOutcome =
-  | { ok: true }
+  | { ok: true; unrecognizedColumns?: string[] }
   | { ok: false; code: string; message: string; meta?: Record<string, unknown> };
 
 /**
@@ -412,6 +412,10 @@ export async function runCrmCsvImport<T extends { csv: string; dryRun?: boolean 
       source: ctx.fromApiKey ? "api" : "rest",
       totalProcessed: Math.max(0, dataLines - 1), // minus the header row
       format: "csv",
+      // Header names only, never cell values. Without them "which column did
+      // that file carry?" had no answer after the fact (the Aug 31 2026
+      // contact import linked 1 company in 28 and nothing recorded why).
+      unrecognizedColumns: result.unrecognizedColumns,
     });
   }
 

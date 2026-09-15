@@ -267,6 +267,29 @@ export const COMPANY_FIELDS = {
   notes: { synonyms: ["description", "about", "notes"] },
 } satisfies FieldSpec<string>;
 
+/**
+ * The account column, shared by the contacts and deals specs so the two cannot
+ * drift. Freshsales labels it "Sales Account(s)" in one view and "Account" in
+ * another, and a hand-built sheet says "Company" or "Organisation". Missing one
+ * of these is not a loud failure: the column lands in "not imported" and every
+ * contact imports with no company (Aug 31 2026, 27 of 28 contacts).
+ */
+const ACCOUNT_SYNONYMS = [
+  "salesaccount",
+  "salesaccounts",
+  "salesaccountname",
+  "accountname",
+  "account",
+  "accounts",
+  "company",
+  "companyname",
+  "organization",
+  "organisation",
+];
+
+/** How the account column may be named, for the report's warning. */
+export const ACCOUNT_COLUMN_EXAMPLES = "Sales Account, Account, Company, Company Name or Organization";
+
 export const CONTACT_FIELDS = {
   externalId: { synonyms: ["id", "contactid"] },
   firstName: { synonyms: ["firstname"], required: true },
@@ -277,7 +300,7 @@ export const CONTACT_FIELDS = {
   mobilePhone: { synonyms: ["mobile", "mobilenumber", "mobilephone"] },
   phone: { synonyms: ["phone", "phonenumber", "telephone"] },
   country: { synonyms: ["country"] },
-  companyName: { synonyms: ["salesaccount", "salesaccounts", "accountname", "company", "companyname"] },
+  companyName: { synonyms: ACCOUNT_SYNONYMS },
   tags: { synonyms: ["tags", "tag"] },
   ownerEmail: { synonyms: ["salesowneremail", "owneremail", "contactowneremail"] },
   ownerName: { synonyms: ["salesowner", "owner", "contactowner"] },
@@ -293,7 +316,7 @@ export const DEAL_FIELDS = {
   stage: { synonyms: ["dealstage", "stage"] },
   expectedClose: { synonyms: ["expectedclose", "expectedclosedate"] },
   closedDate: { synonyms: ["closeddate", "actualclosedate", "wondate"] },
-  companyName: { synonyms: ["salesaccount", "salesaccounts", "accountname", "company", "companyname"] },
+  companyName: { synonyms: ACCOUNT_SYNONYMS },
   ownerEmail: { synonyms: ["salesowneremail", "owneremail", "dealowneremail"] },
   ownerName: { synonyms: ["salesowner", "owner", "dealowner"] },
   // `dealreason` is the label the API field `deal_reason_id` most likely renders
@@ -314,6 +337,18 @@ export interface ColumnResolution<T extends string> {
   unrecognized: string[];
 }
 
+/**
+ * A header as a synonym key: lowercase letters and digits only.
+ *
+ * csv-parser strips whitespace (a byte-order mark included, since JS `\s`
+ * matches U+FEFF), but an export also carries underscores ("Sales_Account"),
+ * brackets ("Account(s)") or other punctuation. Each of those used to make a
+ * known column read as unknown, and the importer then carried on without it.
+ */
+function headerKey(header: string): string {
+  return header.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /** Resolve normalized CSV headers against a field spec's synonym lists. */
 export function resolveColumns<T extends string>(
   headers: string[],
@@ -323,12 +358,13 @@ export function resolveColumns<T extends string>(
   const matched: Partial<Record<T, string>> = {};
   const claimed = new Set<number>();
   const missingRequired: T[] = [];
+  const keys = headers.map(headerKey);
 
   for (const field of Object.keys(spec) as T[]) {
     const { synonyms, required } = spec[field];
     let found = -1;
     for (const syn of synonyms) {
-      const i = headers.indexOf(syn);
+      const i = keys.indexOf(syn);
       if (i >= 0 && !claimed.has(i)) {
         found = i;
         break;

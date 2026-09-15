@@ -52,6 +52,8 @@ interface ImportReport {
   errors: Array<{ row: number; error: string }>;
   unrecognizedColumns: string[];
   notes: string[];
+  /** Optional: a server from before this field existed omits it. */
+  warnings?: string[];
 }
 
 const TYPE_COPY: Record<FreshsalesImportType, { title: string; source: string }> = {
@@ -299,6 +301,13 @@ export function FreshsalesImportDialog({
                   <span className="text-destructive">{shown.errors.length} row error(s)</span>
                 )}
               </div>
+
+              {(shown.warnings ?? []).map((w, i) => (
+                <p key={i} className="flex items-start gap-1.5 text-sm font-medium text-amber-700">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  {w}
+                </p>
+              ))}
 
               {shown.notes.length > 0 && (
                 <ul className="space-y-0.5 text-xs text-muted-foreground">

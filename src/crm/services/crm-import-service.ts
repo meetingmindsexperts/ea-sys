@@ -34,6 +34,7 @@ import {
   mapCompanyRow,
   mapContactRow,
   mapDealRow,
+  ACCOUNT_COLUMN_EXAMPLES,
   dealOutcomeFromStageName,
   matchEventByName,
   decideImportAction,
@@ -60,6 +61,12 @@ export interface ImportReport {
   unrecognizedColumns: string[];
   /** Extra, per-type mapping notes for the confirm screen (deals fill these). */
   notes: string[];
+  /**
+   * Problems with the FILE the operator should fix before confirming, shown
+   * above the notes. A note is information; a warning means the import will
+   * run but leave out something the operator almost certainly wanted.
+   */
+  warnings: string[];
 }
 
 export type ImportResult = ImportReport | { ok: false; code: string; message: string };
@@ -172,6 +179,29 @@ const ARCHIVED_NOTE = (n: number, noun: string) =>
 const ARCHIVED_COMPANIES_NOTE = (n: number) =>
   ARCHIVED_NOTE(n, "compan").replace("compans", "companies").replace("compan ", "company ");
 
+/**
+ * The account column is optional, so a file without one imports "fine": every
+ * row lands with no company and the only trace was the column's name in the
+ * not-imported list. On Aug 31 2026 that linked 1 of 28 contacts. Now the file
+ * itself is called out, for the missing column and for a column that is blank
+ * in every row.
+ */
+function accountColumnWarning(
+  noun: "contacts" | "deals",
+  columnPresent: boolean,
+  rowsWithAccount: number,
+  rowCount: number,
+): string | null {
+  if (rowCount === 0) return null;
+  if (!columnPresent) {
+    return `No account column found, so none of these ${noun} will be linked to a company. Name the column ${ACCOUNT_COLUMN_EXAMPLES} and preview again.`;
+  }
+  if (rowsWithAccount === 0) {
+    return `The account column is empty in every row, so none of these ${noun} will be linked to a company.`;
+  }
+  return null;
+}
+
 /** Message for guard (2) above — shared so companies and contacts read alike. */
 const CONSUMED_ROW_ERROR =
   "An earlier row in this file already updated the record this row matches — split the conflicting rows across two files, or fix the duplicate in Freshsales";
@@ -227,7 +257,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
   const report: ImportReport = {
     ok: true, dryRun: ctx.dryRun, total: parsed.rows.length,
     created: 0, updated: 0, enriched: 0, keptLocal: 0,
-    errors: [], unrecognizedColumns: cols.unrecognized, notes: [],
+    errors: [], unrecognizedColumns: cols.unrecognized, notes: [], warnings: [],
   };
   const activity: CrmActivityEntry[] = [];
   const seenKeys = new Set<string>(); // duplicate rows within ONE file
@@ -412,7 +442,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   const report: ImportReport = {
     ok: true, dryRun: ctx.dryRun, total: parsed.rows.length,
     created: 0, updated: 0, enriched: 0, keptLocal: 0,
-    errors: [], unrecognizedColumns: cols.unrecognized, notes: [],
+    errors: [], unrecognizedColumns: cols.unrecognized, notes: [], warnings: [],
   };
   const activity: CrmActivityEntry[] = [];
   const seenKeys = new Set<string>();
@@ -429,6 +459,13 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
     const m = mapContactRow(r, cols);
     return "row" in m ? m.row : null;
   });
+  const accountWarning = accountColumnWarning(
+    "contacts",
+    cols.index.companyName >= 0,
+    wanted.filter((w) => w?.companyName).length,
+    wanted.filter(Boolean).length,
+  );
+  if (accountWarning) report.warnings.push(accountWarning);
   const existingContacts = await db.crmContact.findMany({
     where: {
       organizationId: ctx.organizationId,
@@ -819,19 +856,25 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   const report: ImportReport = {
     ok: true, dryRun: ctx.dryRun, total: parsed.rows.length,
     created: 0, updated: 0, enriched: 0, keptLocal: 0,
-    errors: [], unrecognizedColumns: cols.unrecognized, notes: [],
+    errors: [], unrecognizedColumns: cols.unrecognized, notes: [], warnings: [],
   };
   const activity: CrmActivityEntry[] = [];
   const resolveCompany = await makeCompanyResolver(ctx);
   const seenIds = new Set<string>();
 
   // One prefetch instead of a read per row — see indexBy().
-  const wantedIds = parsed.rows
-    .map((r) => {
-      const m = mapDealRow(r, cols, ctx.dateFormat);
-      return "row" in m ? m.row.externalId : null;
-    })
-    .filter((v): v is string => !!v);
+  const mappedDeals = parsed.rows.map((r) => {
+    const m = mapDealRow(r, cols, ctx.dateFormat);
+    return "row" in m ? m.row : null;
+  });
+  const wantedIds = mappedDeals.map((d) => d?.externalId).filter((v): v is string => !!v);
+  const accountWarning = accountColumnWarning(
+    "deals",
+    cols.index.companyName >= 0,
+    mappedDeals.filter((d) => d?.companyName).length,
+    mappedDeals.filter(Boolean).length,
+  );
+  if (accountWarning) report.warnings.push(accountWarning);
   const existingDeals = wantedIds.length
     ? await db.crmDeal.findMany({
         where: { organizationId: ctx.organizationId, externalSource: FRESHSALES_SOURCE, externalId: { in: wantedIds } },
