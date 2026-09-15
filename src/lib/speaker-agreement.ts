@@ -1,4 +1,5 @@
 import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
+import { sanitizePdfText } from "@/lib/pdf/pdf-text";
 import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { randomBytes, randomUUID } from "crypto";
 import PizZip from "pizzip";
@@ -1673,46 +1674,6 @@ function pickFont(bold: boolean, italic: boolean): string {
   if (bold) return "Helvetica-Bold";
   if (italic) return "Helvetica-Oblique";
   return "Helvetica";
-}
-
-/**
- * Substitute glyphs that aren't in Helvetica's WinAnsi encoding so they
- * render as legible ASCII in the PDF rather than missing-glyph boxes.
- * Applied only at PDF emission — the acceptance HTML view keeps the
- * original Unicode since browsers render it fine.
- */
-function sanitizePdfText(s: string): string {
-  const substituted = s
-    .replace(/☐/g, "[ ]")
-    .replace(/☑/g, "[x]")
-    .replace(/☒/g, "[x]")
-    // Non-WinAnsi dashes only — explicit enumeration so we don't accidentally
-    // include en-dash (U+2013) or em-dash (U+2014), which ARE WinAnsi-safe and
-    // get preserved by the allowlist below. Earlier `[‐-―]` was a range
-    // U+2010..U+2015 that swallowed en/em dashes, making the allowlist dead.
-    .replace(/[‐‑‒―]/g, "-")
-    .replace(/[‘’]/g, "'") // smart single quotes
-    .replace(/[“”]/g, '"') // smart double quotes
-    .replace(/•/g, "•") // bullet (this IS in WinAnsi but belt-and-suspenders)
-    .replace(/ /g, " "); // nbsp
-  // Defensive sweep: codepoints outside printable ASCII + Latin-1
-  // Supplement get replaced with "?". pdfkit's default WinAnsi encoder
-  // throws on unencodable codepoints — this stops a stray emoji / CJK /
-  // box-drawing char from nuking a whole batch of PDFs.
-  let out = "";
-  for (const ch of substituted) {
-    const cp = ch.codePointAt(0) ?? 0;
-    const safe =
-      cp === 0x0a || cp === 0x09 ||
-      (cp >= 0x20 && cp <= 0x7e) ||
-      (cp >= 0xa0 && cp <= 0xff) ||
-      cp === 0x2013 || cp === 0x2014 || // en/em dashes (WinAnsi-mapped)
-      cp === 0x2022 || // bullet
-      cp === 0x20ac || // euro
-      cp === 0x2122; // trademark
-    out += safe ? ch : "?";
-  }
-  return out;
 }
 
 const HEADING_FONT_SIZE = [20, 17, 15, 13, 12, 11]; // h1..h6

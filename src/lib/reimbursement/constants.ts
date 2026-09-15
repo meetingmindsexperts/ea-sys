@@ -174,6 +174,25 @@ export const bankDetailsSchema = z
   });
 export type BankDetails = z.infer<typeof bankDetailsSchema>;
 
+/**
+ * Section D labels in form order. Shared by the console's review dialog and the
+ * reimbursement PDF so the document finance files cannot label a field
+ * differently from the screen it was checked on.
+ */
+export const BANK_FIELD_LABELS: [keyof BankDetails, string][] = [
+  ["beneficiaryName", "Beneficiary Name"],
+  ["beneficiaryAddress", "Beneficiary Address"],
+  ["bankName", "Bank Name"],
+  ["bankAddress", "Bank Address"],
+  ["bankCountry", "Bank Country"],
+  ["accountNumber", "Account Number"],
+  ["iban", "IBAN"],
+  ["swift", "SWIFT / BIC"],
+  ["routingNumber", "Routing Number"],
+  ["sortCode", "SORT Code"],
+  ["intermediaryBank", "Intermediary Bank"],
+];
+
 /** The public submit body (Sections B + C + D + F). */
 export const reimbursementSubmitSchema = z.object({
   // Section B — wire-compliance-critical fields are required; the rest
@@ -368,6 +387,31 @@ export function stripHonorariumFields<T extends object>(
   // reimbursement data, not roster data.
   delete copy.reimbursementClaimItems;
   return copy as Omit<T, "honorariumAmount" | "honorariumCurrency" | "reimbursementClaimItems">;
+}
+
+/**
+ * "reimbursement-bridges-2026-ahmed-osman.pdf". ASCII only, so it is safe in a
+ * Content-Disposition header; shared by the route and the download buttons so
+ * the saved file is named the same whichever one names it.
+ */
+export function reimbursementPdfFilename(eventName: string | null | undefined, personName: string | null | undefined): string {
+  const slug = (s: string) => {
+    const full = s
+      .normalize("NFKD")
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (full.length <= 40) return full;
+    // Cut at the last whole word inside 40 characters, so a long event name
+    // ends "...mental-health", not "...mental-health-conferen".
+    const cut = full.slice(0, 41);
+    const lastHyphen = cut.lastIndexOf("-");
+    return (lastHyphen > 0 ? cut.slice(0, lastHyphen) : full.slice(0, 40)).replace(/-+$/, "");
+  };
+  const parts = ["reimbursement", slug(eventName ?? ""), slug(personName ?? "")].filter(Boolean);
+  return `${parts.join("-")}.pdf`;
 }
 
 /** Max uploaded documents per reimbursement (sanity cap on the token route). */

@@ -75,6 +75,7 @@ sensitive fields in the system**, stricter than the finance boundary
 | `GET/PATCH/DELETE .../reimbursements/[id]` | Detail · **reopen** (`{action:"reopen"}`, conditional `SUBMITTED→PENDING` claim, audited) · delete (+ best-effort file unlink). |
 | `POST .../reimbursements/send` | Email links — `{reimbursementId}` (single, explicit resend) or `{target: "all"\|"pending"}` + optional `subject`/`message`. EmailLog-based 10-min batch retry-safety; logged against the **SPEAKER** entity so sends show on the speaker's Email History. 10/hr/event. |
 | `GET .../reimbursements/[id]/documents/[docId]` | Authed file stream (see §2). |
+| `GET .../reimbursements/[id]/pdf` | The submitted claim as a PDF (Sep 15, 2026), rendered on demand by `reimbursement-pdf.ts` and never stored. **SUBMITTED only** (409 `NOT_SUBMITTED` otherwise). Full bank details and passport number; attached documents listed, not merged; one total per currency. 60/hr/user; every download is an EXPORT audit row (format `pdf`). |
 | `GET/PATCH /api/events/[eventId]/speakers/[speakerId]/honorarium` | The organiser-agreed fee (§4c). `PATCH { amount, currency }`; amount 0 clears both columns. `denyReviewer(session)` with NO allow-list (the reimbursement boundary), `buildEventAccessWhere`, write bound to `{ id, eventId }`, 60/hr/user, audited `HONORARIUM_SET` with before/after. Deliberately not part of the speaker PUT, which admits WEBINARS. |
 
 **Public** (token-gated, rate-limited per IP + per token, every rejection logs):
@@ -249,6 +250,11 @@ merged) and a deep link to the template editor.
   resend, copy link, open console, and the **Honorarium / speaker fee** row
   (settable before any form exists, since the email variable needs it).
   Self-hides outside the boundary.
+- **Download PDF** (Sep 15, 2026): a file icon on submitted console rows, a
+  button in the submission view and on the profile card. All three fetch then
+  save through `downloadExport`, so a refusal is a toast rather than an error
+  page saved as a `.pdf`. The filename comes from `reimbursementPdfFilename`
+  in the constants, shared with the route's `Content-Disposition`.
 - **Speaker Activity timeline**: reimbursement audits fold in via
   `activity-feed.ts` (actions remapped to `REIMBURSEMENT_SUBMITTED` /
   `REIMBURSEMENT_REOPENED` etc. so the card reads like a sentence); the

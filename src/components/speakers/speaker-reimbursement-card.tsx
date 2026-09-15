@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Banknote, Check, Copy, ExternalLink, Eye, FileText, Loader2, PenLine, Plus, Send } from "lucide-react";
+import { Banknote, Check, Copy, ExternalLink, Eye, FileDown, FileText, Loader2, PenLine, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -51,11 +51,13 @@ import {
   documentKindLabel,
   formatClaimTotals,
   formatHonorarium,
+  reimbursementPdfFilename,
   type ClaimItemKey,
   type ClaimLine,
   type Honorarium,
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
+import { downloadExport } from "@/lib/export-download";
 import { formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -69,6 +71,7 @@ interface Row {
   token: string;
   status: "PENDING" | "SUBMITTED";
   submittedAt: string | null;
+  fullName: string | null;
   claimLines: ClaimLine[] | null;
   documents: { id: string; kind: string; filename: string; size: number; createdAt: string }[];
 }
@@ -107,6 +110,22 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(
     null,
   );
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  // Fetch-then-save, so a refusal or a lapsed session shows a toast instead of
+  // saving an error page under a .pdf name (export-download.ts).
+  async function handleDownloadPdf() {
+    if (!row) return;
+    setPdfBusy(true);
+    const result = await downloadExport({
+      url: `/api/events/${eventId}/reimbursements/${row.id}/pdf`,
+      filename: reimbursementPdfFilename(event?.name, row.fullName),
+      logKey: "speaker-reimbursement-card:pdf-download-failed",
+      forbiddenMessage: "You don't have access to reimbursement documents.",
+    });
+    setPdfBusy(false);
+    if (!result.ok) toast.error(result.error ?? "Could not download the PDF.");
+  }
 
   const load = useCallback(async () => {
     try {
@@ -404,6 +423,16 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
                 <Send className="h-4 w-4 mr-1" />
                 {row.status === "SUBMITTED" ? "Resend link" : "Email link"}
               </Button>
+              {row.status === "SUBMITTED" && (
+                <Button size="sm" variant="outline" disabled={pdfBusy} onClick={() => void handleDownloadPdf()}>
+                  {pdfBusy ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <FileDown className="h-4 w-4 mr-1" />
+                  )}
+                  Download PDF
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => void handleCopy()}>
                 <Copy className="h-4 w-4 mr-1" /> Copy link
               </Button>

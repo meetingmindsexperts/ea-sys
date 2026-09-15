@@ -23,6 +23,7 @@ import {
   Copy,
   Download,
   Eye,
+  FileDown,
   FileText,
   Loader2,
   PenLine,
@@ -51,6 +52,7 @@ import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from 
 import { formatPersonName } from "@/lib/utils";
 import { ClaimItemsPicker, claimItemsSummary } from "@/components/reimbursement/claim-items-picker";
 import {
+  BANK_FIELD_LABELS,
   CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
   canManageReimbursements,
@@ -59,11 +61,13 @@ import {
   formatClaimTotals,
   formatHonorarium,
   readHonorarium,
+  reimbursementPdfFilename,
   type BankDetails,
   type ClaimItemKey,
   type ClaimLine,
   type ReimbursementCurrency,
 } from "@/lib/reimbursement/constants";
+import { downloadExport } from "@/lib/export-download";
 import { toast } from "sonner";
 
 interface DocumentRow {
@@ -104,20 +108,6 @@ interface ReimbursementRow {
   documents: DocumentRow[];
 }
 
-const BANK_FIELD_LABELS: [keyof BankDetails, string][] = [
-  ["beneficiaryName", "Beneficiary Name"],
-  ["beneficiaryAddress", "Beneficiary Address"],
-  ["bankName", "Bank Name"],
-  ["bankAddress", "Bank Address"],
-  ["bankCountry", "Bank Country"],
-  ["accountNumber", "Account Number"],
-  ["iban", "IBAN"],
-  ["swift", "SWIFT / BIC"],
-  ["routingNumber", "Routing Number"],
-  ["sortCode", "SORT Code"],
-  ["intermediaryBank", "Intermediary Bank"],
-];
-
 export default function ReimbursementsPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { data: session } = useSession();
@@ -144,6 +134,7 @@ export default function ReimbursementsPage() {
   const [sending, setSending] = useState(false);
   const [detail, setDetail] = useState<ReimbursementRow | null>(null);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
+  const [pdfRowId, setPdfRowId] = useState<string | null>(null);
   // Inline honorarium editor, one row at a time. An empty amount or 0 clears.
   const [honorariumEditId, setHonorariumEditId] = useState<string | null>(null);
   const [honorariumDraft, setHonorariumDraft] = useState<{
@@ -472,6 +463,24 @@ export default function ReimbursementsPage() {
     [event?.slug],
   );
 
+  // The submitted claim as a PDF, rendered on demand and never stored. Fetch
+  // then save, so a refusal or a lapsed session is a toast rather than an error
+  // page saved under a .pdf name (export-download.ts).
+  const handleDownloadPdf = useCallback(
+    async (row: ReimbursementRow) => {
+      setPdfRowId(row.id);
+      const result = await downloadExport({
+        url: `/api/events/${eventId}/reimbursements/${row.id}/pdf`,
+        filename: reimbursementPdfFilename(event?.name, row.fullName),
+        logKey: "reimbursements:pdf-download-failed",
+        forbiddenMessage: "You don't have access to reimbursement documents.",
+      });
+      setPdfRowId(null);
+      if (!result.ok) toast.error(result.error ?? "Could not download the PDF.");
+    },
+    [eventId, event?.name],
+  );
+
   const handleReopen = useCallback(
     async (row: ReimbursementRow) => {
       if (
@@ -791,6 +800,21 @@ export default function ReimbursementsPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {row.status === "SUBMITTED" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Download the claim as a PDF"
+                                disabled={pdfRowId === row.id}
+                                onClick={() => void handleDownloadPdf(row)}
+                              >
+                                {pdfRowId === row.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
                             {row.status === "SUBMITTED" && (
                               <Button
                                 variant="ghost"
@@ -1158,7 +1182,22 @@ export default function ReimbursementsPage() {
                       ? new Date(detail.submittedAt).toLocaleString()
                       : "—"}
                   </section>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
+                    {detail.status === "SUBMITTED" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pdfRowId === detail.id}
+                        onClick={() => void handleDownloadPdf(detail)}
+                      >
+                        {pdfRowId === detail.id ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <FileDown className="h-4 w-4 mr-1" />
+                        )}
+                        Download PDF
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
