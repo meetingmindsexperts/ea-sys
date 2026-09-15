@@ -213,7 +213,7 @@ function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenCh
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2"><Label htmlFor="legalName">Legal name</Label><Input id="legalName" value={f.legalName} onChange={(e) => set("legalName", e.target.value)} placeholder="As on the trade licence" autoFocus /></div>
           <div className="space-y-1"><Label htmlFor="displayName">Display name</Label><Input id="displayName" value={f.displayName} onChange={(e) => set("displayName", e.target.value)} placeholder="Short name (optional)" /></div>
-          <div className="space-y-1"><Label htmlFor="code">Code</Label><Input id="code" value={f.code} onChange={(e) => set("code", e.target.value)} placeholder="Derived from the name if empty" /></div>
+          <div className="space-y-1"><Label htmlFor="code">Code</Label><Input id="code" value={f.code} onChange={(e) => set("code", e.target.value)} placeholder="Left empty: the name plus four characters, e.g. ACME-7K2Q" /></div>
           <div className="space-y-1"><Label htmlFor="country">Country</Label><Input id="country" value={f.country} onChange={(e) => set("country", e.target.value)} placeholder="United Arab Emirates" /></div>
           <div className="space-y-1"><Label>Currency</Label><CurrencySelect value={f.currency} onChange={(v) => set("currency", v)} /></div>
           <div className="space-y-1"><Label htmlFor="trn">Tax registration number</Label><Input id="trn" value={f.taxRegistrationNo} onChange={(e) => set("taxRegistrationNo", e.target.value)} placeholder="If known" /></div>

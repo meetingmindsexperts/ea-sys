@@ -1,22 +1,24 @@
 /**
- * The supplier service with the db mocked: a derived code that collides gets
- * a suffix while an explicit one is refused, the decision is a conditional
+ * The supplier service with the db mocked: a derived code ends with four
+ * characters of the new row's own id (a clash retries with a new row) while
+ * an explicit one is used as typed and refused when taken, the decision is a conditional
  * claim that commits once, a stale edit is refused, and NO audit row ever
  * carries a tax number or bank details, only the field names.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockDb = vi.hoisted(() => ({
-  supplier: { create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+  supplier: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
   auditLog: { create: vi.fn().mockResolvedValue({}) },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: vi.fn((fn: (tx: typeof mockDb) => unknown) => fn(mockDb)) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 // Slice 3: an approved supplier converts the requests waiting on it; the conversion's own mechanics are pinned in commitment-service.test.ts.
 const orderSvc = vi.hoisted(() => ({ convertRequestsAwaitingSupplier: vi.fn().mockResolvedValue({ issued: [], failed: [] }) }));
 vi.mock("@/procurement/services/commitment-service", () => orderSvc);
 
-import { decideSupplier, deriveSupplierCode, proposeSupplier, redactSupplier, updateSupplier, type SupplierRow } from "@/procurement/services/supplier-service";
+import { tenantTransaction } from "@/lib/db";
+import { decideSupplier, deriveSupplierCode, proposeSupplier, redactSupplier, updateSupplier, withIdSuffix, type SupplierRow } from "@/procurement/services/supplier-service";
 
 const base = { organizationId: "org-1", actorUserId: "u1", source: "ui" as const };
 const row = (over: Partial<SupplierRow> = {}): SupplierRow => ({
@@ -37,6 +39,10 @@ describe("deriveSupplierCode + redaction", () => {
     expect(deriveSupplierCode("Acme Events & Co. LLC")).toBe("ACMEEVENTSCO");
     expect(deriveSupplierCode("!!!")).toBe("SUPPLIER");
   });
+  it("suffixes a code with the last four characters of the id, upper-cased, inside the 20-character limit", () => {
+    expect(withIdSuffix("ACME", "cmfq1a2b3c7k2q")).toBe("ACME-7K2Q");
+    expect(withIdSuffix("ACMEEVENTSCO", "cmfq1a2b3cp0xd")).toHaveLength(17);
+  });
   it("redacts the two classified fields for a reader outside the boundary and says so", () => {
     const r = redactSupplier(row(), false);
     expect(r.taxRegistrationNo).toBeNull();
@@ -47,23 +53,40 @@ describe("deriveSupplierCode + redaction", () => {
 });
 
 describe("proposeSupplier", () => {
-  it("creates PROPOSED with a derived code, retrying with a suffix when the code is taken, and audits without the tax number", async () => {
-    mockDb.supplier.create.mockRejectedValueOnce({ code: "P2002" }).mockResolvedValueOnce(row({ code: "ACME-2" }));
+  it("creates PROPOSED with the derived code plus four characters of its own id, in one transaction, and audits without the tax number", async () => {
+    mockDb.supplier.create.mockResolvedValueOnce({ id: "cmfq1a2b3c7k2q" });
+    mockDb.supplier.update.mockResolvedValueOnce(row({ id: "cmfq1a2b3c7k2q", code: "ACME-7K2Q" }));
     const r = await proposeSupplier({ ...base, approveOnCreate: false, legalName: "Acme Events LLC", displayName: "Acme", currency: "aed", taxRegistrationNo: "100200300400003" });
-    expect(r).toMatchObject({ ok: true, supplier: { code: "ACME-2" } });
-    expect(mockDb.supplier.create.mock.calls[0][0].data).toMatchObject({ code: "ACME", approvalStatus: "PROPOSED", currency: "AED", proposedByUserId: "u1" });
-    expect(mockDb.supplier.create.mock.calls[1][0].data).toMatchObject({ code: "ACME-2" });
-    expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ entityType: "Supplier", action: "PROPOSE" }) }));
+    expect(r).toMatchObject({ ok: true, supplier: { code: "ACME-7K2Q" } });
+    expect(tenantTransaction).toHaveBeenCalledTimes(1);
+    const created = mockDb.supplier.create.mock.calls[0][0].data;
+    expect(created).toMatchObject({ approvalStatus: "PROPOSED", currency: "AED", proposedByUserId: "u1" });
+    expect(created.code).toMatch(/^~/);
+    expect(mockDb.supplier.update.mock.calls[0][0]).toMatchObject({ where: { id: "cmfq1a2b3c7k2q", organizationId: "org-1" }, data: { code: "ACME-7K2Q" } });
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ entityType: "Supplier", action: "PROPOSE", changes: expect.objectContaining({ code: "ACME-7K2Q" }) }) }));
     expect(auditJson()).not.toContain("100200300400003");
   });
-  it("an explicit code that is taken is CODE_TAKEN, and a malformed one is refused before the db", async () => {
+  it("a derived code that clashes is retried with a new row, so a new id and new four characters", async () => {
+    mockDb.supplier.create.mockResolvedValueOnce({ id: "cmfq1a2b3caaaa" }).mockResolvedValueOnce({ id: "cmfq1a2b3cbbbb" });
+    mockDb.supplier.update.mockRejectedValueOnce({ code: "P2002" }).mockResolvedValueOnce(row({ code: "ACME-BBBB" }));
+    const r = await proposeSupplier({ ...base, approveOnCreate: false, legalName: "Acme", currency: "AED" });
+    expect(r).toMatchObject({ ok: true, supplier: { code: "ACME-BBBB" } });
+    expect(mockDb.supplier.update.mock.calls.map((c) => c[0].data.code)).toEqual(["ACME-AAAA", "ACME-BBBB"]);
+  });
+  it("an explicit code is used as typed with no suffix, refused when taken, and a malformed one is refused before the db", async () => {
+    mockDb.supplier.create.mockResolvedValueOnce(row({ code: "GULFAV" }));
+    expect(await proposeSupplier({ ...base, approveOnCreate: false, code: "gulfav", legalName: "Gulf AV", currency: "AED" })).toMatchObject({ ok: true, supplier: { code: "GULFAV" } });
+    expect(mockDb.supplier.create.mock.calls[0][0].data.code).toBe("GULFAV");
+    expect(mockDb.supplier.update).not.toHaveBeenCalled();
+    expect(tenantTransaction).not.toHaveBeenCalled();
     mockDb.supplier.create.mockRejectedValue({ code: "P2002" });
     expect(await proposeSupplier({ ...base, approveOnCreate: false, code: "ACME", legalName: "Acme", currency: "AED" })).toMatchObject({ ok: false, code: "CODE_TAKEN" });
-    expect(mockDb.supplier.create).toHaveBeenCalledTimes(1);
+    expect(mockDb.supplier.create).toHaveBeenCalledTimes(2);
     expect(await proposeSupplier({ ...base, approveOnCreate: false, code: "bad code!", legalName: "Acme", currency: "AED" })).toMatchObject({ ok: false, code: "INVALID_CODE" });
   });
   it("the settle holder creates it approved, decided by themselves", async () => {
-    mockDb.supplier.create.mockResolvedValue(row({ approvalStatus: "APPROVED" }));
+    mockDb.supplier.create.mockResolvedValue({ id: "cmfq1a2b3c7k2q" });
+    mockDb.supplier.update.mockResolvedValue(row({ approvalStatus: "APPROVED" }));
     await proposeSupplier({ ...base, approveOnCreate: true, legalName: "Acme", currency: "AED" });
     expect(mockDb.supplier.create.mock.calls[0][0].data).toMatchObject({ approvalStatus: "APPROVED", decidedByUserId: "u1" });
     expect(mockDb.auditLog.create.mock.calls[0][0].data.action).toBe("CREATE");

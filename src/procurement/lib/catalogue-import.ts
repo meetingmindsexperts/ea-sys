@@ -181,7 +181,7 @@ export function planProductImport(rows: ProductImportRow[], existing: ExistingPr
 export const SUPPLIER_IMPORT_COLUMNS: readonly ImportColumn[] = [
   { name: "legalName", sample: "Gulf Audio Visual LLC", required: true },
   { name: "displayName", sample: "Gulf AV", hint: "blank uses the legal name" },
-  { name: "code", sample: "GULFAV", hint: "blank derives one from the name; an existing code is skipped" },
+  { name: "code", sample: "GULFAV", hint: "blank makes one from the name plus four characters (ACME-7K2Q); an existing code is skipped" },
   { name: "country", sample: "AE" },
   { name: "currency", sample: "AED", hint: "three letters; blank means AED" },
   { name: "taxRegistrationNo", sample: "100123456700003" },

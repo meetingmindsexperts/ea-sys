@@ -12,8 +12,9 @@
  * Errors as values (src/services/README.md). Runs inside the caller's tenant
  * lane; it never opens one itself.
  */
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { planSupplierImport, type SupplierImportRow } from "../lib/catalogue-import";
 import { convertRequestsAwaitingSupplier } from "./commitment-service";
@@ -62,6 +63,15 @@ export function deriveSupplierCode(name: string): string {
   return code || "SUPPLIER";
 }
 
+/**
+ * A derived code ends with the last four characters of the supplier's own id,
+ * so two suppliers whose names derive the same code still get different codes
+ * (ACME-7K2Q, ACME-P0XD). At most 17 characters, inside the 20 a code allows.
+ */
+export function withIdSuffix(base: string, id: string): string {
+  return `${base}-${id.slice(-4).toUpperCase()}`;
+}
+
 export async function listSuppliers(organizationId: string, opts: { status?: "PROPOSED" | "APPROVED" | "REJECTED"; includeInactive?: boolean } = {}): Promise<SupplierRow[]> {
   return db.supplier.findMany({
     where: { organizationId, ...(opts.status ? { approvalStatus: opts.status } : {}), ...(opts.includeInactive ? {} : { isActive: true }) },
@@ -100,39 +110,50 @@ export async function proposeSupplier(input: ProposeSupplierInput): Promise<Supp
   if (explicit !== undefined && !CODE_RE.test(explicit)) return fail("INVALID_CODE", "A supplier code is letters, digits, dashes or underscores, up to 20 characters.", ctx);
   const base = explicit ?? deriveSupplierCode(displayName);
   const approvalStatus = input.approveOnCreate ? ("APPROVED" as const) : ("PROPOSED" as const);
-  // A derived code that is taken gets a numeric suffix (three tries); an explicit one is refused.
+  const data = {
+    organizationId: input.organizationId,
+    legalName: input.legalName.trim(),
+    displayName,
+    taxRegistrationNo: input.taxRegistrationNo?.trim() || null,
+    country: input.country?.trim() || null,
+    currency: input.currency.toUpperCase(),
+    contacts: (input.contacts ?? []) as Prisma.InputJsonValue,
+    paymentTerms: input.paymentTerms?.trim() || null,
+    notes: input.notes?.trim() || null,
+    approvalStatus,
+    proposedByUserId: input.actorUserId,
+    ...(input.approveOnCreate ? { decidedByUserId: input.actorUserId, decidedAt: new Date() } : {}),
+  };
+  // An explicit code is used as typed and refused when taken. A derived one ends
+  // with four characters of the new row's own id, set in the same transaction as
+  // the create; a clash needs the same name AND the same four characters, and is
+  // retried with a new row (so a new id), three tries.
   for (let attempt = 0; attempt < 3; attempt++) {
-    const code = attempt === 0 ? base : `${base.slice(0, 17)}-${attempt + 1}`;
     try {
-      const supplier = await db.supplier.create({
-        data: {
-          organizationId: input.organizationId,
-          code,
-          legalName: input.legalName.trim(),
-          displayName,
-          taxRegistrationNo: input.taxRegistrationNo?.trim() || null,
-          country: input.country?.trim() || null,
-          currency: input.currency.toUpperCase(),
-          contacts: (input.contacts ?? []) as Prisma.InputJsonValue,
-          paymentTerms: input.paymentTerms?.trim() || null,
-          notes: input.notes?.trim() || null,
-          approvalStatus,
-          proposedByUserId: input.actorUserId,
-          ...(input.approveOnCreate ? { decidedByUserId: input.actorUserId, decidedAt: new Date() } : {}),
-        },
-        select: SUPPLIER_SELECT,
-      });
+      const supplier =
+        explicit !== undefined
+          ? await db.supplier.create({ data: { ...data, code: explicit }, select: SUPPLIER_SELECT })
+          : await tenantTransaction(async (tx) => {
+              // The placeholder carries "~", which no real code can hold, and is never committed.
+              const created = await tx.supplier.create({ data: { ...data, code: `~${randomUUID()}` }, select: { id: true } });
+              return tx.supplier.update({
+                where: { id: created.id, organizationId: input.organizationId },
+                data: { code: withIdSuffix(base, created.id) },
+                select: SUPPLIER_SELECT,
+              });
+            });
       await audit({
         userId: input.actorUserId,
         organizationId: input.organizationId,
         action: input.approveOnCreate ? "CREATE" : "PROPOSE",
         entityId: supplier.id,
-        changes: { source: input.source, code, displayName, currency: supplier.currency, hasTaxRegistrationNo: !!supplier.taxRegistrationNo },
+        changes: { source: input.source, code: supplier.code, displayName, currency: supplier.currency, hasTaxRegistrationNo: !!supplier.taxRegistrationNo },
       });
       return { ok: true, supplier };
     } catch (err) {
       if ((err as { code?: string })?.code === "P2002") {
-        if (explicit !== undefined) return fail("CODE_TAKEN", `Supplier code ${code} already exists.`, ctx);
+        if (explicit !== undefined) return fail("CODE_TAKEN", `Supplier code ${explicit} already exists.`, ctx);
+        apiLogger.info({ msg: "procurement/suppliers:derived-code-clash-retried", attempt: attempt + 1, base, ...ctx });
         continue;
       }
       apiLogger.error({ msg: "procurement/suppliers:create-failed", err, ...ctx });
