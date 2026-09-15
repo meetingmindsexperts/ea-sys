@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (request.subjectType === "SPEND_REQUEST") {
       const result = await decideSpendRequest({ organizationId: g.orgId, decider: g.user, source: "ui", approvalRequestId: requestId, ...parsed.data });
       if (!result.ok) return rejected("procurement/approvals/[requestId]/decide", g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
-      return NextResponse.json({ spendRequest: result.request });
+      return NextResponse.json({ spendRequest: result.request, autoSend: result.autoSend ?? null });
     }
     const result =
       request.subjectType === "BUDGET"

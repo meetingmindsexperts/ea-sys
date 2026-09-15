@@ -152,7 +152,7 @@ export interface DecideSupplierInput {
 }
 
 /** A conditional claim on PROPOSED: two settle holders deciding at once commit once; the loser is told. */
-export async function decideSupplier(input: DecideSupplierInput): Promise<SupplierResult<SupplierRow>> {
+export async function decideSupplier(input: DecideSupplierInput): Promise<SupplierResult<SupplierRow> & { conversion?: { issued: number; failed: number; sendFailed: number } }> {
   const ctx = { supplierId: input.supplierId, userId: input.actorUserId };
   const res = await db.supplier.updateMany({
     where: { id: input.supplierId, organizationId: input.organizationId, approvalStatus: "PROPOSED" },
@@ -176,10 +176,9 @@ export async function decideSupplier(input: DecideSupplierInput): Promise<Suppli
   // Each conversion runs in its own transaction after the decision committed, so
   // a failure there never undoes the decision; it is logged and the request
   // page offers "Raise the purchase order".
-  if (input.decision === "APPROVED") {
-    await convertRequestsAwaitingSupplier({ organizationId: input.organizationId, supplierId: supplier.id, actorUserId: input.actorUserId, source: input.source });
-  }
-  return { ok: true, supplier };
+  if (input.decision !== "APPROVED") return { ok: true, supplier };
+  const c = await convertRequestsAwaitingSupplier({ organizationId: input.organizationId, supplierId: supplier.id, actorUserId: input.actorUserId, source: input.source });
+  return { ok: true, supplier, conversion: { issued: c.issued.length, failed: c.failed.length, sendFailed: c.sendFailed ?? 0 } };
 }
 
 export interface UpdateSupplierInput {

@@ -49,7 +49,10 @@ describe("spend requests", () => {
   });
   it("the order rows written against the request", () => {
     expect(d("SpendRequest", "CONVERT", { commitmentNo: "PO-2026-0001", from: "PENDING_APPROVAL" })).toEqual({ title: "Purchase order issued", detail: "PO-2026-0001" });
+    // Rows written before 15 September 2026 carry no requestNow and keep their wording.
     expect(d("SpendRequest", "ORDER_CANCELLED", { commitmentNo: "PO-2026-0001", reason: "Duplicate" })).toEqual({ title: "Purchase order cancelled, request back to approved", detail: "PO-2026-0001, reason: Duplicate" });
+    expect(d("SpendRequest", "ORDER_CANCELLED", { commitmentNo: "PO-2026-0002", reason: "Late", requestNow: "PENDING_APPROVAL" })).toEqual({ title: "Purchase order cancelled, request back with the approver", detail: "PO-2026-0002, reason: Late" });
+    expect(d("SpendRequest", "ORDER_CANCELLED", { commitmentNo: "PO-2026-0003", reason: "Late", requestNow: "DRAFT" }).title).toBe("Purchase order cancelled, request back to draft");
   });
 });
 

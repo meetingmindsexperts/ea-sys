@@ -381,7 +381,10 @@ function describeSpendRequest(row: ProcurementActivityRow): { title: string; det
     case "CONVERT":
       return { title: "Purchase order issued", detail: str(c.commitmentNo) };
     case "ORDER_CANCELLED":
-      return { title: "Purchase order cancelled, request back to approved", detail: parts(str(c.commitmentNo), reason) };
+      return {
+        title: c.requestNow === "PENDING_APPROVAL" ? "Purchase order cancelled, request back with the approver" : c.requestNow === "DRAFT" ? "Purchase order cancelled, request back to draft" : "Purchase order cancelled, request back to approved",
+        detail: parts(str(c.commitmentNo), reason),
+      };
     default:
       return { title: humanize(row.action), detail: null };
   }

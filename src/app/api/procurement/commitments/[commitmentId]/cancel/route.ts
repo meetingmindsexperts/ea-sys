@@ -1,4 +1,4 @@
-/** POST: cancel the order with a reason, releasing what it held on the line (the settle holder or an admin; the service decides). */
+/** POST: cancel the order with a reason, releasing what it held on the line and sending the request back to its approver (the settle holder or an admin; the service decides). */
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -17,6 +17,6 @@ export async function POST(req: NextRequest, { params }: Params) {
   return runWithTenant(g.orgId, async () => {
     const result = await cancelOrder({ organizationId: g.orgId, actor: orderActorFrom(g.user), source: "ui", commitmentId, reason: parsed.data.reason, expectedVersion: parsed.data.expectedVersion });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_COMMITMENT_ERROR);
-    return NextResponse.json({ commitment: result.commitment });
+    return NextResponse.json({ commitment: result.commitment, reroute: result.reroute ?? null });
   });
 }

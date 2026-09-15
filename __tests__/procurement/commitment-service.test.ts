@@ -25,6 +25,8 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) =
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 const recompute = vi.hoisted(() => vi.fn());
 vi.mock("@/procurement/services/budget-service", () => ({ recomputeBudgetTotals: recompute }));
+const reroute = vi.hoisted(() => vi.fn());
+vi.mock("@/procurement/services/spend-request-reroute", () => ({ rerouteAfterOrderCancelInTx: reroute }));
 const sendEmail = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/email", () => ({ sendEmail }));
 vi.mock("@/procurement/lib/commitment-pdf", () => ({ generatePurchaseOrderPdf: vi.fn().mockResolvedValue(Buffer.from("%PDF-1.4 sample")) }));
@@ -82,6 +84,7 @@ beforeEach(() => {
   mockDb.eventBudget.findMany.mockResolvedValue([{ id: "b1", status: "ACTIVE" }]);
   mockDb.commitment.findMany.mockResolvedValue([]);
   mockDb.$queryRaw.mockResolvedValue([]);
+  reroute.mockResolvedValue({ status: "PENDING_APPROVAL", approvalRequestId: "ar9", exception: false });
   mockDb.organization.findUnique.mockResolvedValue({ name: "MM Group", logo: null, companyName: "Meeting Minds FZ LLC", companyAddress: null, companyCity: null, companyState: null, companyZipCode: null, companyCountry: null, companyPhone: null, companyEmail: null, taxId: null });
   mockDb.user.findMany.mockResolvedValue([]);
   sendEmail.mockResolvedValue({ success: true, messageId: "m1" });
@@ -165,7 +168,7 @@ describe("convertRequestsAwaitingSupplier", () => {
       .mockResolvedValueOnce(request({ id: "srB", status: "AWAITING_SUPPLIER", linkedCommitmentId: "c9" }));
     const out = await convertRequestsAwaitingSupplier({ organizationId: ORG, supplierId: "s1", actorUserId: "muthu", source: "ui" });
     expect(mockDb.spendRequest.findMany.mock.calls[0][0].where).toMatchObject({ organizationId: ORG, supplierId: "s1", status: "AWAITING_SUPPLIER", linkedCommitmentId: null });
-    expect(out).toEqual({ issued: ["c1"], failed: ["srB"] });
+    expect(out).toEqual({ issued: ["c1"], failed: ["srB"], sendFailed: 0 });
   });
 });
 
@@ -269,7 +272,7 @@ describe("cancelOrder (close and release)", () => {
     expect(mockDb.budgetLine.update).not.toHaveBeenCalled();
     expect(mockDb.spendRequest.updateMany).not.toHaveBeenCalled();
   });
-  it("cancels the order, re-sums the line from the orders left on it, returns the request to approved and audits both", async () => {
+  it("cancels the order, re-sums the line from the orders left on it, sends the request back to its approver and audits both", async () => {
     mockDb.commitment.findMany.mockResolvedValueOnce([{ lineKey: "k-av", amount: "500.0000", fxRateToReporting: "1", status: "APPROVED" }]);
     const r = await cancel(admin);
     expect(r.ok).toBe(true);
@@ -277,7 +280,9 @@ describe("cancelOrder (close and release)", () => {
     expect(mockDb.budgetLine.update.mock.calls[0][0]).toMatchObject({ where: { id: "l1" }, data: { committedOpen: "500.0000", committedTotal: "500.0000" } });
     expect(mockDb.commitment.findMany.mock.calls[0][0].where).toMatchObject({ budgetId: { in: ["b1"] }, lineKey: { in: ["k-av"] }, status: { not: "CANCELLED" } });
     expect(recompute).toHaveBeenCalledWith(mockDb, "b1");
-    expect(mockDb.spendRequest.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: "sr1", status: "CONVERTED", linkedCommitmentId: "c1" }, data: { status: "APPROVED", linkedCommitmentId: null } });
+    expect(reroute).toHaveBeenCalledWith(mockDb, { organizationId: ORG, requestId: "sr1", commitmentId: "c1", commitmentNo: "PO-2026-0003", cancelReason: "Supplier withdrew", source: "ui" });
+    expect(r).toMatchObject({ ok: true, reroute: { status: "PENDING_APPROVAL", approvalRequestId: "ar9" } });
+    expect(audits()[0].changes).toMatchObject({ requestNow: "PENDING_APPROVAL", approvalRequestId: "ar9" });
     expect(audits().map((a) => [a.entityType, a.action])).toEqual([["SpendRequest", "ORDER_CANCELLED"], ["Commitment", "CANCEL"]]);
     expect(audits()[1].changes).toMatchObject({ reason: "Supplier withdrew", released: "4200.0000" });
   });
@@ -297,5 +302,23 @@ describe("views", () => {
     expect(v).toMatchObject({ amountReporting: "4200.0000", amountAed: "60000.0000", statusLabel: "Issued", fulfillmentLabel: "Not received", receiptNeedsSecondPerson: true, receiptConfirmed: false });
     expect(v.supplier.contactEmails).toEqual([{ name: "Sara", email: "sara@example.test" }]);
     expect((v.supplier as { contacts?: unknown }).contacts).toBeUndefined();
+  });
+});
+
+describe("review fixes, 15 September 2026", () => {
+  it("a receipt on a cancelled order is not confirmed, and the confirm claim is conditional on a live order", async () => {
+    const received = { fulfillmentStatus: "RECEIVED", receivedAt: new Date(), receivedByUserId: "req", spendRequest: { ...commitment().spendRequest, amountAed: "60000.0000" } };
+    mockDb.commitment.findFirst.mockResolvedValueOnce(commitment({ ...received, status: "CANCELLED" }));
+    expect(await confirmReceipt({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1", expectedVersion: 1 })).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+    mockDb.commitment.findFirst.mockResolvedValueOnce(commitment(received));
+    await confirmReceipt({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1", expectedVersion: 1 });
+    expect(mockDb.commitment.updateMany.mock.calls[0][0].where).toMatchObject({ status: "APPROVED", fulfillmentStatus: "RECEIVED" });
+  });
+  it("raising an order reports the automatic supplier email: not asked for, or asked for and not sent with the reason", async () => {
+    const raise = () => raiseOrder({ organizationId: ORG, actor: requester, source: "ui", requestId: "sr1" });
+    expect(await raise()).toMatchObject({ ok: true, autoSend: { requested: false } });
+    mockDb.commitment.findFirst.mockResolvedValue(commitment({ spendRequest: { ...commitment().spendRequest, emailSupplierOnIssue: true }, supplier: { ...commitment().supplier, contacts: [{ name: "Nobody" }] } }));
+    expect(await raise()).toMatchObject({ ok: true, autoSend: { requested: true, sent: false, code: "NO_SUPPLIER_EMAIL" } });
   });
 });

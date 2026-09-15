@@ -1,8 +1,8 @@
 /**
  * POST: raise the purchase order for an approved request by hand. Approval
  * issues it by itself; this is the recovery after a conversion that failed
- * and the re-issue after a cancel (the requester with the grant, or an
- * admin; the service decides).
+ * (the requester with the grant, or an admin; the service decides). A cancel
+ * sends the request back for approval, which issues the next order.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -18,6 +18,6 @@ export async function POST(_req: NextRequest, { params }: Params) {
   return runWithTenant(g.orgId, async () => {
     const result = await raiseOrder({ organizationId: g.orgId, actor: orderActorFrom(g.user), source: "ui", requestId });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_COMMITMENT_ERROR);
-    return NextResponse.json({ commitment: result.commitment }, { status: 201 });
+    return NextResponse.json({ commitment: result.commitment, autoSend: result.autoSend ?? null }, { status: 201 });
   });
 }

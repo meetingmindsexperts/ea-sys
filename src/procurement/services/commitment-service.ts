@@ -36,6 +36,7 @@ import {
 import { generatePurchaseOrderPdf } from "../lib/commitment-pdf";
 import { recomputeBudgetTotals } from "./budget-service";
 import { syncLineCommitted } from "./committed-figures";
+import { rerouteAfterOrderCancelInTx, type RerouteOutcome } from "./spend-request-reroute";
 
 export type CommitmentErrorCode =
   | "COMMITMENT_NOT_FOUND"
@@ -280,19 +281,27 @@ export async function issueOrderInTx(tx: Db, input: { organizationId: string; ac
  * asked for it at raise time. Never throws and never undoes the order; a
  * failed send is logged and the order page offers Send.
  */
-export async function afterOrderIssued(input: { organizationId: string; actorUserId: string; source: Source; commitmentId: string }): Promise<void> {
+export type AutoSendOutcome = { requested: false } | { requested: true; sent: true } | { requested: true; sent: false; code: string };
+
+export async function afterOrderIssued(input: { organizationId: string; actorUserId: string; source: Source; commitmentId: string }): Promise<AutoSendOutcome> {
   try {
     const c = await loadCommitment(db, input.organizationId, input.commitmentId);
-    if (!c?.spendRequest?.emailSupplierOnIssue) return;
+    if (!c?.spendRequest?.emailSupplierOnIssue) return { requested: false };
     const sent = await sendOrderToSupplier({ organizationId: input.organizationId, actor: { id: input.actorUserId, isAdmin: true, canRequest: false, canSettle: false, canApprove: false }, source: input.source, commitmentId: input.commitmentId });
-    if (!sent.ok) apiLogger.warn({ msg: "procurement/commitments:auto-send-skipped", code: sent.code, commitmentId: input.commitmentId, organizationId: input.organizationId });
+    if (!sent.ok) {
+      apiLogger.warn({ msg: "procurement/commitments:auto-send-skipped", code: sent.code, commitmentId: input.commitmentId, organizationId: input.organizationId });
+      return { requested: true, sent: false, code: sent.code };
+    }
+    return { requested: true, sent: true };
   } catch (err) {
     apiLogger.error({ msg: "procurement/commitments:auto-send-failed", err, commitmentId: input.commitmentId, organizationId: input.organizationId });
+    // Whether the email was asked for is unknown here, so the person is told to check the order.
+    return { requested: true, sent: false, code: "UNKNOWN" };
   }
 }
 
-/** The manual raise: the requester (with the grant) or an admin, on an approved request that has no order yet; also the re-issue after a cancel. */
-export async function raiseOrder(input: { organizationId: string; actor: OrderActor; source: Source; requestId: string }): Promise<CommitmentResult<CommitmentDetail>> {
+/** The manual raise: the requester (with the grant) or an admin, on an approved request that has no order yet (a conversion that failed). A cancel sends the request back for approval instead. */
+export async function raiseOrder(input: { organizationId: string; actor: OrderActor; source: Source; requestId: string }): Promise<CommitmentResult<CommitmentDetail> & { autoSend?: AutoSendOutcome }> {
   const ctx = { requestId: input.requestId, userId: input.actor.id };
   const r = await db.spendRequest.findFirst({ where: { id: input.requestId, organizationId: input.organizationId }, select: { requesterUserId: true } });
   if (!r) return fail("REQUEST_NOT_FOUND", "The spend request was not found.", ctx);
@@ -309,8 +318,9 @@ export async function raiseOrder(input: { organizationId: string; actor: OrderAc
     apiLogger.error({ msg: "procurement/commitments:raise-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not raise the purchase order.", ctx);
   }
-  await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.actor.id, source: input.source, commitmentId: issued.commitmentId });
-  return getCommitment(input.organizationId, issued.commitmentId);
+  const autoSend = await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.actor.id, source: input.source, commitmentId: issued.commitmentId });
+  const view = await getCommitment(input.organizationId, issued.commitmentId);
+  return view.ok ? { ...view, autoSend } : view;
 }
 
 /** Carries a refusal out of a transaction so the caller rolls back and returns it as a value. */
@@ -325,10 +335,11 @@ class RefusalError extends Error {
  * order, each in its own transaction so one failure never blocks the rest.
  * Called by the supplier service after its own write; failure-isolated.
  */
-export async function convertRequestsAwaitingSupplier(input: { organizationId: string; supplierId: string; actorUserId: string; source: Source }): Promise<{ issued: string[]; failed: string[] }> {
+export async function convertRequestsAwaitingSupplier(input: { organizationId: string; supplierId: string; actorUserId: string; source: Source }): Promise<{ issued: string[]; failed: string[]; sendFailed: number }> {
   const waiting = await db.spendRequest.findMany({ where: { organizationId: input.organizationId, supplierId: input.supplierId, status: "AWAITING_SUPPLIER", linkedCommitmentId: null }, select: { id: true }, orderBy: { createdAt: "asc" } });
   const issued: string[] = [];
   const failed: string[] = [];
+  let sendFailed = 0;
   for (const w of waiting) {
     try {
       const res = await tenantTransaction(async (tx) => {
@@ -337,14 +348,15 @@ export async function convertRequestsAwaitingSupplier(input: { organizationId: s
         return out;
       });
       issued.push(res.commitmentId);
-      await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.actorUserId, source: input.source, commitmentId: res.commitmentId });
+      const sent = await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.actorUserId, source: input.source, commitmentId: res.commitmentId });
+      if (sent.requested && !sent.sent) sendFailed += 1;
     } catch (err) {
       failed.push(w.id);
       apiLogger.error({ msg: "procurement/commitments:convert-on-supplier-approval-failed", err: err instanceof RefusalError ? err.refusal.code : err, requestId: w.id, supplierId: input.supplierId, organizationId: input.organizationId });
     }
   }
   if (waiting.length > 0) apiLogger.info({ msg: "procurement/commitments:converted-on-supplier-approval", supplierId: input.supplierId, issued: issued.length, failed: failed.length, organizationId: input.organizationId });
-  return { issued, failed };
+  return { issued, failed, sendFailed };
 }
 
 // ── the PDF and the send ─────────────────────────────────────────────────────
@@ -465,6 +477,7 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
   const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
   const c = await loadCommitment(db, input.organizationId, input.commitmentId);
   if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
+  if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order's receipt is not confirmed.`, ctx, { status: c.status });
   if (c.fulfillmentStatus !== "RECEIVED" || c.receivedByUserId === null) return fail("INVALID_STATUS", "The order has not been marked fully received yet.", ctx, { fulfillmentStatus: c.fulfillmentStatus });
   if (c.receiptConfirmedAt) return fail("INVALID_STATUS", "This receipt is already confirmed.", ctx);
   if (!receiptNeedsSecondPerson(c.spendRequest?.amountAed)) return fail("INVALID_STATUS", "This order is below the second-person floor; its receipt needs no confirmation.", ctx);
@@ -472,7 +485,7 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
   if (input.actor.id === c.receivedByUserId) return fail("NOT_ALLOWED", "The person who marked the order received cannot confirm it; a second person must.", ctx);
   try {
     await tenantTransaction(async (tx) => {
-      const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, fulfillmentStatus: "RECEIVED", receiptConfirmedAt: null, version: input.expectedVersion }, data: { receiptConfirmedAt: new Date(), receiptConfirmedByUserId: input.actor.id, version: { increment: 1 } } });
+      const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "RECEIVED", receiptConfirmedAt: null, version: input.expectedVersion }, data: { receiptConfirmedAt: new Date(), receiptConfirmedByUserId: input.actor.id, version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
       await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CONFIRM_RECEIPT", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, receivedByUserId: c.receivedByUserId, amountAed: s4(c.spendRequest?.amountAed) } });
     });
@@ -488,13 +501,15 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
 
 /**
  * Cancel is close-and-release (spec §6): the order is cancelled, the line's
- * committed figures fall by what it held, and the request goes back to
- * approved with no order, so it can be re-issued or cancelled in its turn.
+ * committed figures fall by what it held, and the request goes back to its
+ * approver for a fresh decision (owner decision, 15 September 2026), so the
+ * requester cannot undo the cancel by raising a new order alone; on approval
+ * a new order is issued. When nobody can take it any more it returns to draft.
  * The settle holder's or an admin's action, with a reason. Only an order
  * with nothing received is cancelled: once goods or services have arrived,
  * the money is owed and the order is closed against the supplier's invoice.
  */
-export async function cancelOrder(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; reason: string | null | undefined; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail>> {
+export async function cancelOrder(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; reason: string | null | undefined; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail> & { reroute?: RerouteOutcome | null }> {
   const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
   const c = await loadCommitment(db, input.organizationId, input.commitmentId);
   if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
@@ -504,6 +519,7 @@ export async function cancelOrder(input: { organizationId: string; actor: OrderA
   const reason = input.reason?.trim() || null;
   if (!reason) return fail("REASON_REQUIRED", "Give the reason for cancelling the order.", ctx);
   const amountReporting = toReporting(c.amount, money(c.fxRateToReporting));
+  let reroute: RerouteOutcome | null = null;
   try {
     await tenantTransaction(async (tx) => {
       const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "OPEN", version: input.expectedVersion }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledByUserId: input.actor.id, cancelReason: reason, version: { increment: 1 } } });
@@ -514,13 +530,16 @@ export async function cancelOrder(input: { organizationId: string; actor: OrderA
         await recomputeBudgetTotals(tx, committedOn ?? c.budgetId);
       }
       if (c.spendRequestId) {
-        await tx.spendRequest.updateMany({ where: { id: c.spendRequestId, organizationId: input.organizationId, status: "CONVERTED", linkedCommitmentId: c.id }, data: { status: "APPROVED", linkedCommitmentId: null, version: { increment: 1 } } });
-        await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "ORDER_CANCELLED", entityType: "SpendRequest", entityId: c.spendRequestId, changes: { source: input.source, commitmentNo: c.commitmentNo, commitmentId: c.id, reason } });
+        // After the release above, so the fresh budget check sees the order's money as free again.
+        const outcome = await rerouteAfterOrderCancelInTx(tx, { organizationId: input.organizationId, requestId: c.spendRequestId, commitmentId: c.id, commitmentNo: c.commitmentNo, cancelReason: reason, source: input.source });
+        reroute = outcome;
+        await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "ORDER_CANCELLED", entityType: "SpendRequest", entityId: c.spendRequestId, changes: { source: input.source, commitmentNo: c.commitmentNo, commitmentId: c.id, reason, requestNow: outcome.status, approvalRequestId: outcome.status === "PENDING_APPROVAL" ? outcome.approvalRequestId : null } });
       }
       await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CANCEL", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, reason, released: storedString(amountReporting), budgetId: c.budgetId, lineKey: c.lineKey } });
     });
-    apiLogger.info({ msg: "procurement/commitments:cancelled", ...ctx, organizationId: input.organizationId });
-    return getCommitment(input.organizationId, c.id);
+    apiLogger.info({ msg: "procurement/commitments:cancelled", requestNow: (reroute as RerouteOutcome | null)?.status ?? null, ...ctx, organizationId: input.organizationId });
+    const view = await getCommitment(input.organizationId, c.id);
+    return view.ok ? { ...view, reroute } : view;
   } catch (err) {
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The order changed while you were acting on it. Reload.", ctx);
     apiLogger.error({ msg: "procurement/commitments:cancel-failed", err, ...ctx });

@@ -50,6 +50,15 @@ export async function lockEventCommitted(tx: Db, organizationId: string, budgetI
   return { originId: origin.id, versions };
 }
 
+/** Every version of the event a budget belongs to (only the budget itself when it has no event), read without a lock: for display, and for a check that locks before it writes. */
+export async function eventBudgetIds(client: Db, organizationId: string, budgetId: string): Promise<string[]> {
+  const origin = await client.eventBudget.findFirst({ where: { id: budgetId, organizationId }, select: { id: true, eventId: true } });
+  if (!origin) return [budgetId];
+  if (!origin.eventId) return [origin.id];
+  const rows = await client.eventBudget.findMany({ where: { organizationId, eventId: origin.eventId }, select: { id: true } });
+  return rows.map((r) => r.id);
+}
+
 async function committedByLineKey(tx: Db, organizationId: string, budgetIds: string[], lineKeys?: string[]): Promise<Map<string, Figures>> {
   const orders = await tx.commitment.findMany({
     where: { organizationId, budgetId: { in: budgetIds }, status: { not: "CANCELLED" }, ...(lineKeys ? { lineKey: { in: lineKeys } } : {}) },

@@ -89,6 +89,12 @@ describe("decideSupplier", () => {
     await decideSupplier({ ...base, supplierId: "s1", decision: "REJECTED" });
     expect(orderSvc.convertRequestsAwaitingSupplier).toHaveBeenCalledTimes(1);
   });
+  it("reports what the approval issued, failed to issue and failed to email, for the page to say", async () => {
+    mockDb.supplier.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.supplier.findFirst.mockResolvedValue(row({ id: "s1", approvalStatus: "APPROVED" }));
+    orderSvc.convertRequestsAwaitingSupplier.mockResolvedValueOnce({ issued: ["c1", "c2"], failed: ["srX"], sendFailed: 1 });
+    expect(await decideSupplier({ ...base, supplierId: "s1", decision: "APPROVED" })).toMatchObject({ ok: true, conversion: { issued: 2, failed: 1, sendFailed: 1 } });
+  });
   it("a foreign supplier is SUPPLIER_NOT_FOUND", async () => {
     mockDb.supplier.updateMany.mockResolvedValue({ count: 0 });
     mockDb.supplier.findFirst.mockResolvedValue(null);

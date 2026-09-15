@@ -103,7 +103,11 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   async function go(decision: "APPROVED" | "REJECTED") {
     setPending(decision);
     try {
-      await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
+      const out = await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
+      if (out.autoSend?.requested && !out.autoSend.sent) {
+        toast.warning("Approved and the purchase order is issued, but the email to the supplier did not go. Use Send on the order.");
+        return;
+      }
       toast.success(
         decision === "APPROVED"
           ? r.subjectType === "BUDGET" ? "Approved. The budget is active." : r.subjectType === "SPEND_REQUEST" ? (sr?.supplierApproved ? "Approved." : "Approved; the order waits until the supplier is approved.") : "Approved. The amount is moved."

@@ -89,6 +89,8 @@ export interface BudgetCheckInput {
   amountReporting: MoneyInput;
   /** What this request already holds on the line (a commitment already counted in committedOpen); zero before conversion. */
   alreadyCommitted?: MoneyInput;
+  /** What the line's OTHER open requests already ask for, reporting currency (see reservedOnLine). */
+  reservedByOthers?: MoneyInput;
 }
 export interface BudgetCheckOutcome {
   status: Exclude<BudgetCheckStatusValue, "NOT_CHECKED">;
@@ -97,6 +99,8 @@ export interface BudgetCheckOutcome {
   /** A frozen budget's exception needs the requester's reason (spec §8.5). */
   reasonRequired: boolean;
   amountReporting: Decimal;
+  /** Taken by the line's other open requests before this one. */
+  reservedByOthers: Decimal;
   /** The line's remaining before and after this request, reporting currency; after may be negative. */
   remainingBefore: Decimal;
   remainingAfter: Decimal;
@@ -104,8 +108,10 @@ export interface BudgetCheckOutcome {
 
 /**
  * The budget check, per line against the STORED figures (spec §6): remaining
- * is planned minus committed-open minus actual; a request that leaves it
- * negative is over budget. On a frozen budget the over-budget case is the
+ * is planned minus committed-open minus actual, minus what the line's other
+ * open requests already ask for (review M3: without that, two open requests
+ * could cross the line in pieces); a request that leaves it negative is over
+ * budget. On a frozen budget the over-budget case is the
  * FROZEN outcome, an exception with a reason; within remaining it runs on the
  * normal matrix like an active budget. A draw from the contingency line is a
  * request like any other.
@@ -113,12 +119,33 @@ export interface BudgetCheckOutcome {
 export function budgetCheck(input: BudgetCheckInput): BudgetCheckOutcome {
   const amountReporting = toStored(input.amountReporting);
   const effective = amountReporting.minus(money(input.alreadyCommitted ?? 0));
-  const remainingBefore = remaining(input.line);
+  const reservedByOthers = toStored(money(input.reservedByOthers ?? 0));
+  const remainingBefore = toStored(remaining(input.line).minus(reservedByOthers));
   const remainingAfter = toStored(remainingBefore.minus(effective));
   const over = remainingAfter.lt(0);
-  if (over && input.budgetStatus === "FROZEN") return { status: "FROZEN", exception: true, reasonRequired: true, amountReporting, remainingBefore, remainingAfter };
-  if (over) return { status: "OVER_BUDGET", exception: true, reasonRequired: false, amountReporting, remainingBefore, remainingAfter };
-  return { status: "WITHIN_BUDGET", exception: false, reasonRequired: false, amountReporting, remainingBefore, remainingAfter };
+  if (over && input.budgetStatus === "FROZEN") return { status: "FROZEN", exception: true, reasonRequired: true, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
+  if (over) return { status: "OVER_BUDGET", exception: true, reasonRequired: false, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
+  return { status: "WITHIN_BUDGET", exception: false, reasonRequired: false, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
+}
+
+/**
+ * A request holds money on its line while it is being decided, while it
+ * waits for its supplier, and while it is approved without an order; once it
+ * is ordered, the order's amount is in the line's committed figures instead.
+ */
+export function holdsLineReservation(r: { status: string; linkedCommitmentId: string | null }): boolean {
+  if (r.status === "PENDING_APPROVAL" || r.status === "AWAITING_SUPPLIER") return true;
+  return r.status === "APPROVED" && r.linkedCommitmentId === null;
+}
+
+/** The sum, reporting currency, of what the given requests hold on their line; rows without a rate are skipped. */
+export function reservedOnLine(rows: { status: string; linkedCommitmentId: string | null; amount: MoneyInput; fxRateToReporting: MoneyInput | null }[]): Decimal {
+  let sum = money(0);
+  for (const r of rows) {
+    if (r.fxRateToReporting === null || !holdsLineReservation(r)) continue;
+    sum = sum.plus(toReporting(r.amount, r.fxRateToReporting));
+  }
+  return toStored(sum);
 }
 
 /** What a request still lacks before it can be submitted; the page shows the list and the submit refuses on it (spec §6: quotes, a line, a vendor). */

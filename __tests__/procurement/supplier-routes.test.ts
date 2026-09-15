@@ -117,3 +117,13 @@ describe("supplier routes: who writes", () => {
     expect((await patchOne(req("/api/procurement/suppliers/s1", "PATCH", { expectedVersion: 1, notes: "x" }), params)).status).toBe(409);
   });
 });
+
+describe("the supplier decision reports what it issued", () => {
+  it("returns the orders issued, failed and not emailed, for the page to say", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
+    svc.decideSupplier.mockResolvedValue({ ok: true, supplier: { ...supplier, approvalStatus: "APPROVED" }, conversion: { issued: 2, failed: 1, sendFailed: 1 } });
+    const res = await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED" }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ordersIssued: 2, ordersFailed: 1, ordersEmailFailed: 1 });
+  });
+});

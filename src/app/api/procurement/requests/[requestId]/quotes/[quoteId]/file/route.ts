@@ -21,6 +21,15 @@ import { getSpendRequest, setQuoteFile } from "@/procurement/services/spend-requ
 type Params = { params: Promise<{ requestId: string; quoteId: string }> };
 const ROUTE = "procurement/requests/[requestId]/quotes/[quoteId]/file";
 
+/** Removes a stored quote file; a failure is logged and never thrown, since the row write it follows already stands. */
+async function removeStored(path: string, why: string, ctx: Record<string, unknown>): Promise<void> {
+  try {
+    await deleteStoredFile(path, UPLOAD_PREFIX.procurementQuotes);
+  } catch (err) {
+    apiLogger.error({ msg: `${ROUTE}:file-cleanup-failed`, err, path, why, ...ctx });
+  }
+}
+
 export async function POST(req: NextRequest, { params }: Params) {
   const [g, { requestId, quoteId }] = await Promise.all([procurementGuard({ route: ROUTE, need: "view", write: true }), params]);
   if (!g.ok) return g.response;
@@ -49,17 +58,26 @@ export async function POST(req: NextRequest, { params }: Params) {
     apiLogger.warn({ msg: `${ROUTE}:bad-type`, declared: file.type, userId: g.user.id, requestId, quoteId });
     return NextResponse.json({ error: "A quote is a PDF, PNG or JPEG.", code: "UNSUPPORTED_TYPE" }, { status: 400 });
   }
+  const ctx = { requestId, quoteId, userId: g.user.id };
+  const fileName = file.name;
   return runWithTenant(g.orgId, async () => {
-    const storedPath = await uploadFile(buf, `${quoteId}-${randomUUID()}.${kind.ext}`, kind.mime, `${UPLOAD_SEGMENT.procurementQuotes}/${g.orgId}`);
-    const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: storedPath, fileName: safeQuoteFileName(file.name), fileMimeType: kind.mime, fileSize: buf.length });
-    if (!result.ok) {
-      // The row refused the file (not a draft, not this person's): the bytes must not stay behind.
-      await deleteStoredFile(storedPath, UPLOAD_PREFIX.procurementQuotes);
-      return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
+    let storedPath: string | null = null;
+    try {
+      storedPath = await uploadFile(buf, `${quoteId}-${randomUUID()}.${kind.ext}`, kind.mime, `${UPLOAD_SEGMENT.procurementQuotes}/${g.orgId}`);
+      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: storedPath, fileName: safeQuoteFileName(fileName), fileMimeType: kind.mime, fileSize: buf.length });
+      if (!result.ok) {
+        // The row refused the file (not a draft, not this person's): the bytes must not stay behind.
+        await removeStored(storedPath, "refused", ctx);
+        return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
+      }
+      if (result.replacedFileUrl) await removeStored(result.replacedFileUrl, "replaced", ctx);
+      apiLogger.info({ msg: `${ROUTE}:attached`, bytes: buf.length, mime: kind.mime, ...ctx });
+      return NextResponse.json({ request: result.request }, { status: 201 });
+    } catch (err) {
+      apiLogger.error({ msg: `${ROUTE}:attach-failed`, err, ...ctx });
+      if (storedPath) await removeStored(storedPath, "attach-failed", ctx);
+      return NextResponse.json({ error: "The quote file could not be saved. Try again.", code: "UNKNOWN" }, { status: 500 });
     }
-    if (result.replacedFileUrl) await deleteStoredFile(result.replacedFileUrl, UPLOAD_PREFIX.procurementQuotes);
-    apiLogger.info({ msg: `${ROUTE}:attached`, requestId, quoteId, bytes: buf.length, mime: kind.mime, userId: g.user.id });
-    return NextResponse.json({ request: result.request }, { status: 201 });
   });
 }
 
@@ -81,6 +99,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
           "Content-Type": quote.fileMimeType ?? "application/octet-stream",
           "Content-Disposition": `inline; filename="${safeQuoteFileName(quote.fileName)}"`,
           "Cache-Control": "private, no-store",
+          // Only the magic bytes were checked, so the browser must not sniff or run anything in the file (the /uploads handler's headers).
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'none'; script-src 'none'",
         },
       });
     } catch (err) {
@@ -96,10 +117,16 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!g.ok) return g.response;
   const denied = denyUnlessRequestOrAdmin(ROUTE, g.user);
   if (denied) return denied;
+  const ctx = { requestId, quoteId, userId: g.user.id };
   return runWithTenant(g.orgId, async () => {
-    const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
-    if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
-    if (result.replacedFileUrl) await deleteStoredFile(result.replacedFileUrl, UPLOAD_PREFIX.procurementQuotes);
-    return NextResponse.json({ request: result.request });
+    try {
+      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
+      if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
+      if (result.replacedFileUrl) await removeStored(result.replacedFileUrl, "removed", ctx);
+      return NextResponse.json({ request: result.request });
+    } catch (err) {
+      apiLogger.error({ msg: `${ROUTE}:remove-failed`, err, ...ctx });
+      return NextResponse.json({ error: "The quote file could not be removed. Try again.", code: "UNKNOWN" }, { status: 500 });
+    }
   });
 }

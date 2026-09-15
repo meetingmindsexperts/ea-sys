@@ -24,7 +24,8 @@ import type { Prisma } from "@prisma/client";
 import { cancelPendingApprovals, createApprovalRequest, decideApprovalRequest, resolveApprover, type Db } from "@/lib/approvals/approvals-service";
 import type { ProcurementUserLike } from "@/lib/procurement-visibility";
 import { nextDocumentNumber } from "../lib/document-numbers";
-import { afterOrderIssued, COMMITMENT_SELECT, issueOrderInTx, toCommitmentView, type CommitmentView } from "./commitment-service";
+import { afterOrderIssued, COMMITMENT_SELECT, convertRequestsAwaitingSupplier, issueOrderInTx, toCommitmentView, type AutoSendOutcome, type CommitmentView } from "./commitment-service";
+import { eventBudgetIds, lockEventCommitted } from "./committed-figures";
 import { FULFILLMENT_LABEL, type FulfillmentStatusValue } from "../lib/commitment-rules";
 import { AED_PEG_RATES, FLOATING_TO_AED_BAND, money, resolveReportingToAedRate, storedString, toAed, toStored, type MoneyInput, type RateResolution } from "../lib/money";
 import {
@@ -34,6 +35,7 @@ import {
   FLOATING_PAIR_BAND,
   missingForSubmission,
   OPEN_REQUEST_STATUSES,
+  reservedOnLine,
   resolveRequestToReportingRate,
   SPEND_REQUEST_STATUS_LABEL,
   toReporting,
@@ -334,6 +336,15 @@ export type BudgetCheckPreview = {
   openRequests: { id: string; requestNo: string; title: string; status: string; amountReporting: string | null }[];
 };
 
+/** What the line's OTHER open requests already ask for, across every version of the event (review M3). */
+async function reservedByOthersOnLine(client: Db, organizationId: string, versionIds: string[], lineKey: string, excludeRequestId: string | null) {
+  const rows = await client.spendRequest.findMany({
+    where: { organizationId, budgetId: { in: versionIds }, lineKey, status: { in: [...OPEN_REQUEST_STATUSES] }, ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}) },
+    select: { status: true, linkedCommitmentId: true, amount: true, fxRateToReporting: true },
+  });
+  return reservedOnLine(rows);
+}
+
 /** What the form's side panel shows while the requester types: the same check and the same routing the submit will run. */
 export async function previewBudgetCheck(input: PreviewBudgetCheckInput): Promise<SpendRequestResult<BudgetCheckPreview>> {
   const ctx = { budgetId: input.budgetId, lineKey: input.lineKey, userId: input.actorUserId };
@@ -345,7 +356,9 @@ export async function previewBudgetCheck(input: PreviewBudgetCheckInput): Promis
   const rate = resolveRequestToReportingRate(input.currency, budget.reportingCurrency, input.fxRateToReporting);
   if (!rate.ok) return fail("RATE_REQUIRED", requestRateRefusal(input.currency, budget.reportingCurrency, rate.reason), ctx, { reason: rate.reason });
   const amountReporting = toReporting(input.amount, rate.rate);
-  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting });
+  const versionIds = await eventBudgetIds(db, input.organizationId, budget.id);
+  const reserved = await reservedByOthersOnLine(db, input.organizationId, versionIds, line.lineKey, input.excludeRequestId ?? null);
+  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting, reservedByOthers: reserved });
   const open = await db.spendRequest.findMany({
     where: { organizationId: input.organizationId, budgetId: budget.id, lineKey: line.lineKey, status: { in: [...OPEN_REQUEST_STATUSES] }, ...(input.excludeRequestId ? { id: { not: input.excludeRequestId } } : {}) },
     select: { id: true, requestNo: true, title: true, status: true, amount: true, fxRateToReporting: true },
@@ -553,7 +566,10 @@ export async function submitSpendRequest(input: { organizationId: string; actor:
   const rate = resolveRequestToReportingRate(r.currency, budget.reportingCurrency, r.fxRateToReporting === null ? null : money(r.fxRateToReporting));
   if (!rate.ok) return fail("RATE_REQUIRED", requestRateRefusal(r.currency, budget.reportingCurrency, rate.reason), ctx, { reason: rate.reason });
   const amountReporting = toReporting(r.amount, rate.rate);
-  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting });
+  // The line's other open requests count as taken (review M3).
+  const versionIds = await eventBudgetIds(db, input.organizationId, budget.id);
+  const reserved = await reservedByOthersOnLine(db, input.organizationId, versionIds, line.lineKey, r.id);
+  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting, reservedByOthers: reserved });
   if (check.reasonRequired && !r.justification) {
     return fail("REASON_REQUIRED", "This request is over the line's remaining on a frozen budget: give the reason before it goes to the final approver (spec §8.5).", ctx, { budgetCheck: check.status });
   }
@@ -575,6 +591,14 @@ export async function submitSpendRequest(input: { organizationId: string; actor:
   };
   try {
     const outcome = await tenantTransaction(async (tx) => {
+      // Read again under the event's lock: an order, or another request on this line, may have moved it since the check above.
+      const locked = await lockEventCommitted(tx, input.organizationId, budget.id);
+      const lineNow = await loadLine(tx, budget.id, line.lineKey);
+      const reservedNow = await reservedByOthersOnLine(tx, input.organizationId, locked?.versions.map((v) => v.id) ?? versionIds, line.lineKey, r.id);
+      const checkNow = lineNow ? budgetCheck({ budgetStatus: budget.status, line: lineNow, amountReporting, reservedByOthers: reservedNow }) : null;
+      if (!checkNow || checkNow.status !== check.status) throw new Error("RECHECK");
+      payload.remainingBefore = storedString(checkNow.remainingBefore);
+      payload.remainingAfter = storedString(checkNow.remainingAfter);
       const req = await createApprovalRequest(tx, {
         organizationId: input.organizationId,
         subjectType: "SPEND_REQUEST",
@@ -602,6 +626,7 @@ export async function submitSpendRequest(input: { organizationId: string; actor:
     return getSpendRequest(input.organizationId, r.id);
   } catch (err) {
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The request changed while you were submitting it. Reload.", ctx);
+    if ((err as Error).message === "RECHECK") return fail("STALE_WRITE", "The line changed while you were submitting (another request or an order moved it). Reload, look at the check again and submit.", ctx);
     apiLogger.error({ msg: "procurement/requests:submit-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not submit the spend request.", ctx);
   }
@@ -621,7 +646,7 @@ async function supplierIsApproved(client: Db, organizationId: string, supplierId
  * while the supplier is not yet approved (spec §6); an amendment applies the
  * new amount on approval and leaves the old one standing on rejection.
  */
-export async function decideSpendRequest(input: { organizationId: string; decider: ProcurementUserLike & { id: string }; source: Source; approvalRequestId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }): Promise<SpendRequestResult<SpendRequestDetail>> {
+export async function decideSpendRequest(input: { organizationId: string; decider: ProcurementUserLike & { id: string }; source: Source; approvalRequestId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }): Promise<SpendRequestResult<SpendRequestDetail> & { autoSend?: AutoSendOutcome }> {
   const ctx = { approvalRequestId: input.approvalRequestId, userId: input.decider.id };
   const approval = await db.approvalRequest.findFirst({ where: { id: input.approvalRequestId, organizationId: input.organizationId, subjectType: "SPEND_REQUEST" }, select: { id: true, subjectId: true, status: true, payload: true } });
   if (!approval) return fail("APPROVAL_FAILED", "No approval request was found for this spend request.", ctx);
@@ -632,6 +657,7 @@ export async function decideSpendRequest(input: { organizationId: string; decide
   if (!payload) return fail("APPROVAL_FAILED", "The approval request carries no spend-request payload.", ctx);
   // Set inside the transaction when the approval issued the order; read after the commit for the supplier email.
   let issuedCommitmentId: string | null = null;
+  let landedAwaitingSupplier = false;
   try {
     const outcome = await tenantTransaction(async (tx) => {
       const d = await decideApprovalRequest(tx, { organizationId: input.organizationId, requestId: approval.id, decider: input.decider, decision: input.decision, note: input.note, source: input.source });
@@ -646,6 +672,7 @@ export async function decideSpendRequest(input: { organizationId: string; decide
       const now = new Date();
       const approvedSupplier = await supplierIsApproved(tx, input.organizationId, r.supplierId);
       const landing = approvedSupplier ? ("APPROVED" as const) : ("AWAITING_SUPPLIER" as const);
+      landedAwaitingSupplier = input.decision === "APPROVED" && landing === "AWAITING_SUPPLIER";
       let data: Prisma.SpendRequestUpdateManyMutationInput;
       if (payload.kind === "SUBMISSION") {
         data = input.decision === "APPROVED"
@@ -677,8 +704,14 @@ export async function decideSpendRequest(input: { organizationId: string; decide
       return d;
     });
     if (!outcome.ok) return fail("APPROVAL_FAILED", outcome.message, ctx, { code: outcome.code });
-    if (issuedCommitmentId) await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.decider.id, source: input.source, commitmentId: issuedCommitmentId });
-    return getSpendRequest(input.organizationId, r.id);
+    const autoSend = issuedCommitmentId ? await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.decider.id, source: input.source, commitmentId: issuedCommitmentId }) : undefined;
+    // A supplier approved while this decision was committing ran its scan before this request was awaiting it: look once more (the conversion is idempotent).
+    if (landedAwaitingSupplier && (await supplierIsApproved(db, input.organizationId, r.supplierId))) {
+      apiLogger.info({ msg: "procurement/requests:supplier-approved-during-decision", supplierId: r.supplierId, ...ctx });
+      await convertRequestsAwaitingSupplier({ organizationId: input.organizationId, supplierId: r.supplierId as string, actorUserId: input.decider.id, source: input.source });
+    }
+    const view = await getSpendRequest(input.organizationId, r.id);
+    return view.ok ? { ...view, autoSend } : view;
   } catch (err) {
     const message = (err as Error).message ?? "";
     if (message === "STALE" || message === "ORDER:STALE_WRITE") return fail("STALE_WRITE", "The request changed while it was being decided. Reload.", ctx);
@@ -711,9 +744,12 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
   if (!budgetAcceptsRequests(budget.status)) return fail("BUDGET_NOT_ACTIVE", `This version is ${budget.status.toLowerCase().replace("_", " ")} and takes no change.`, ctx, { status: budget.status });
   const line = await loadLine(db, budget.id, r.lineKey);
   if (!line) return fail("LINE_NOT_FOUND", "That line is no longer on this budget version.", ctx);
+  // The line's other open requests count as taken (review M3); this request's own old amount is not one of them.
+  const versionIds = await eventBudgetIds(db, input.organizationId, budget.id);
+  const reserved = await reservedByOthersOnLine(db, input.organizationId, versionIds, line.lineKey, r.id);
   if (effect.direction === "DECREASE") {
     // Applied at once; the check is re-read so a request lowered back within the line drops its exception badge.
-    const lowered = budgetCheck({ budgetStatus: budget.status, line, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0 });
+    const lowered = budgetCheck({ budgetStatus: budget.status, line, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0, reservedByOthers: reserved });
     try {
       const res = await db.spendRequest.updateMany({
         where: { id: r.id, organizationId: input.organizationId, status: r.status, version: input.expectedVersion },
@@ -731,7 +767,7 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
   // Before conversion the request holds nothing on the line, so the whole new
   // total is checked; once a commitment carries the old amount in
   // committedOpen, only the rise is new money.
-  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0 });
+  const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0, reservedByOthers: reserved });
   const aed = resolveReportingToAedRate(budget.reportingCurrency, input.reportingToAedRate);
   if (!aed.ok) return fail("RATE_REQUIRED", rateRefusal(budget.reportingCurrency, aed), ctx, { reason: aed.reason });
   const nextAmountAed = toAed(nextReporting, aed.rate);
@@ -752,6 +788,12 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
   };
   try {
     const outcome = await tenantTransaction(async (tx) => {
+      // Read again under the event's lock, as the submit does.
+      const locked = await lockEventCommitted(tx, input.organizationId, budget.id);
+      const lineNow = await loadLine(tx, budget.id, line.lineKey);
+      const reservedNow = await reservedByOthersOnLine(tx, input.organizationId, locked?.versions.map((v) => v.id) ?? versionIds, line.lineKey, r.id);
+      const checkNow = lineNow ? budgetCheck({ budgetStatus: budget.status, line: lineNow, amountReporting: nextReporting, alreadyCommitted: r.linkedCommitmentId ? previousReporting : 0, reservedByOthers: reservedNow }) : null;
+      if (!checkNow || checkNow.status !== check.status) throw new Error("RECHECK");
       const req = await createApprovalRequest(tx, {
         organizationId: input.organizationId,
         subjectType: "SPEND_REQUEST",
@@ -778,6 +820,7 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
     return getSpendRequest(input.organizationId, r.id);
   } catch (err) {
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The request changed while you were editing it. Reload.", ctx);
+    if ((err as Error).message === "RECHECK") return fail("STALE_WRITE", "The line changed while you were changing the amount (another request or an order moved it). Reload and try again.", ctx);
     apiLogger.error({ msg: "procurement/requests:amend-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not route the change.", ctx);
   }

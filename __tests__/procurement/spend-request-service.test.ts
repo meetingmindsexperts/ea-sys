@@ -24,7 +24,8 @@ const mockDb = vi.hoisted(() => ({
   commitment: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
   spendRequestQuote: { create: vi.fn().mockResolvedValue({ id: "q1" }), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
   spendRequestCounter: { upsert: vi.fn().mockResolvedValue({ lastSerial: 7 }) },
-  eventBudget: { findFirst: vi.fn() },
+  eventBudget: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([{ id: "b1", status: "ACTIVE" }]) },
+  $queryRaw: vi.fn().mockResolvedValue([]),
   budgetLine: { findFirst: vi.fn() },
   budgetCategory: { findFirst: vi.fn().mockResolvedValue({ id: "c-av" }) },
   supplier: { findFirst: vi.fn() },
@@ -37,7 +38,7 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 // The order is issued INSIDE the decision's transaction (slice 3); its own mechanics are pinned in commitment-service.test.ts.
-const orderSvc = vi.hoisted(() => ({ issueOrderInTx: vi.fn(), afterOrderIssued: vi.fn() }));
+const orderSvc = vi.hoisted(() => ({ issueOrderInTx: vi.fn(), afterOrderIssued: vi.fn(), convertRequestsAwaitingSupplier: vi.fn().mockResolvedValue({ issued: [], failed: [], sendFailed: 0 }) }));
 vi.mock("@/procurement/services/commitment-service", () => ({ ...orderSvc, COMMITMENT_SELECT: {}, toCommitmentView: (x: unknown) => x }));
 
 import { addQuote, amendSpendRequest, createSpendRequest, decideSpendRequest, submitSpendRequest, transitionSpendRequest } from "@/procurement/services/spend-request-service";
@@ -67,6 +68,8 @@ beforeEach(() => {
   mockDb.spendRequest.updateMany.mockResolvedValue({ count: 1 });
   mockDb.spendRequestCounter.upsert.mockResolvedValue({ lastSerial: 7 });
   mockDb.eventBudget.findFirst.mockResolvedValue(budget());
+  mockDb.eventBudget.findMany.mockResolvedValue([{ id: "b1", status: "ACTIVE" }]);
+  mockDb.$queryRaw.mockResolvedValue([]);
   mockDb.budgetLine.findFirst.mockResolvedValue(line());
   mockDb.budgetCategory.findFirst.mockResolvedValue({ id: "c-av" });
   mockDb.supplier.findFirst.mockResolvedValue({ id: "s1", approvalStatus: "APPROVED", isActive: true });
@@ -335,5 +338,48 @@ describe("transitionSpendRequest and quotes", () => {
     mockDb.spendRequest.findFirst.mockResolvedValue(request());
     mockDb.spendRequest.updateMany.mockResolvedValueOnce({ count: 0 });
     expect(await addQuote({ ...base, requestId: "sr1", vendorName: "Acme", amount: "1", currency: "AED" })).toMatchObject({ ok: false, code: "STALE_WRITE" });
+  });
+});
+
+describe("the line's other open requests at submit (review M3)", () => {
+  const open3000 = { status: "PENDING_APPROVAL", linkedCommitmentId: null, amount: "3000", fxRateToReporting: "1" };
+  it("counts them as taken, reading them again under the event's lock", async () => {
+    mockDb.spendRequest.findFirst.mockResolvedValue(request());
+    mockDb.spendRequest.findMany.mockResolvedValue([open3000]);
+    const r = await submitSpendRequest({ ...base, requestId: "sr1", expectedVersion: 1 });
+    expect(r.ok).toBe(true);
+    // 10,000 planned - 2,500 committed - 1,000 actual - 3,000 asked for by another request = 3,500, and this one is 5,000.
+    expect(created().payload).toMatchObject({ budgetCheck: "OVER_BUDGET", remainingBefore: "3500.0000" });
+    expect(mockDb.$queryRaw).toHaveBeenCalled();
+    expect(mockDb.spendRequest.findMany.mock.calls[0][0].where).toMatchObject({ budgetId: { in: ["b1"] }, lineKey: "k-av", id: { not: "sr1" } });
+  });
+  it("refuses when the line moved between the check and the lock, and routes nothing", async () => {
+    mockDb.spendRequest.findFirst.mockResolvedValue(request());
+    mockDb.spendRequest.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([open3000]);
+    expect(await submitSpendRequest({ ...base, requestId: "sr1", expectedVersion: 1 })).toMatchObject({ ok: false, code: "STALE_WRITE" });
+    expect(mockDb.approvalRequest.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the decision after it commits (review, 15 September 2026)", () => {
+  const pending = { id: "ar1", organizationId: ORG, subjectType: "SPEND_REQUEST", subjectId: "sr1", status: "PENDING", amountAed: "5000", requesterUserId: "req", payload: { kind: "SUBMISSION", budgetCheck: "WITHIN_BUDGET" }, steps: [{ id: "st1", status: "PENDING", assigneeUserId: "lina", delegateUserId: null }] };
+  const lina = { id: "lina", role: "ADMIN", procurementApproveCeilingAed: 1_000_000 };
+  it("returns what became of the automatic supplier email", async () => {
+    mockDb.approvalRequest.findFirst.mockResolvedValue(pending);
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "PENDING_APPROVAL" }));
+    orderSvc.afterOrderIssued.mockResolvedValueOnce({ requested: true, sent: false, code: "SEND_FAILED" });
+    expect(await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" })).toMatchObject({ ok: true, autoSend: { requested: true, sent: false, code: "SEND_FAILED" } });
+  });
+  it("a supplier approved while the decision was committing still converts the request, and one still proposed does not", async () => {
+    mockDb.approvalRequest.findFirst.mockResolvedValue(pending);
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "PENDING_APPROVAL" }));
+    mockDb.supplier.findFirst.mockResolvedValueOnce({ approvalStatus: "PROPOSED", isActive: true }).mockResolvedValueOnce({ approvalStatus: "APPROVED", isActive: true });
+    await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
+    expect(updated().data.status).toBe("AWAITING_SUPPLIER");
+    expect(orderSvc.convertRequestsAwaitingSupplier).toHaveBeenCalledWith({ organizationId: ORG, supplierId: "s1", actorUserId: "lina", source: "ui" });
+    orderSvc.convertRequestsAwaitingSupplier.mockClear();
+    mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "PROPOSED", isActive: true });
+    await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
+    expect(orderSvc.convertRequestsAwaitingSupplier).not.toHaveBeenCalled();
   });
 });

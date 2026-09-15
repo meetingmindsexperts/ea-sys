@@ -162,7 +162,7 @@ export default function SpendRequestPage() {
             {r.status === "APPROVED" && !canRaiseOrder && <Note>Approved. The purchase order is issued on approval; if it is missing here, the person who raised the request or an admin can raise it.</Note>}
             {canRaiseOrder && (
               <>
-                <Note>{r.status === "AWAITING_SUPPLIER" ? "The supplier is approved now, but the order was not issued. Raise it here." : "Approved without an order (after a cancel, or a conversion that failed). Raise it here."}</Note>
+                <Note>{r.status === "AWAITING_SUPPLIER" ? "The supplier is approved now, but the order was not issued. Raise it here." : "Approved without an order (the conversion failed). Raise it here."}</Note>
                 <Button className="w-full" onClick={() => setPrompt("raise")}><ShoppingCart className="h-4 w-4" /> Raise the purchase order</Button>
               </>
             )}
@@ -193,8 +193,10 @@ function RaiseOrderDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: (
   const raise = useRaiseOrder(r.id);
   async function go() {
     try {
-      const c = await raise.mutateAsync();
-      toast.success(`Purchase order ${c.commitmentNo} issued.${c.sentToSupplierAt ? " Sent to the supplier." : ""}`);
+      const out = await raise.mutateAsync();
+      const c = out.commitment;
+      if (out.autoSend?.requested && !out.autoSend.sent) toast.warning(`Purchase order ${c.commitmentNo} issued, but the email to the supplier did not go. Use Send on the order.`);
+      else toast.success(`Purchase order ${c.commitmentNo} issued.${c.sentToSupplierAt ? " Sent to the supplier." : ""}`);
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -346,7 +348,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Cancel the purchase order</DialogTitle>
-              <DialogDescription>{`${rep} ${money2(o.amountReporting)} is released on the line and the request goes back to approved, so it can be re-issued or cancelled in its turn. Tell the supplier yourself; nothing is emailed.`}</DialogDescription>
+              <DialogDescription>{`${rep} ${money2(o.amountReporting)} is released on the line and the request goes back to its approver for a fresh decision; on approval a new order is issued. Tell the supplier yourself; nothing is emailed.`}</DialogDescription>
             </DialogHeader>
             <div className="space-y-1">
               <Label htmlFor="oc-reason">Reason</Label>
@@ -354,7 +356,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPrompt(null)} disabled={cancel.isPending}>Keep it</Button>
-              <Button variant="destructive" onClick={() => void run(cancel, { reason: reason.trim(), expectedVersion: o.version }, () => "Order cancelled; the request is back to approved.", () => setPrompt(null))} disabled={cancel.isPending || !reason.trim()}>
+              <Button variant="destructive" onClick={() => void run(cancel, { reason: reason.trim(), expectedVersion: o.version }, (v) => (v.reroute?.status === "DRAFT" ? "Order cancelled. Nobody can approve the request now, so it is back to draft." : "Order cancelled; the request is back with its approver."), () => setPrompt(null))} disabled={cancel.isPending || !reason.trim()}>
                 {cancel.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Cancel order
               </Button>
             </DialogFooter>

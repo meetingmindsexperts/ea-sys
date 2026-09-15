@@ -236,8 +236,17 @@ function DecideDialog({ supplier, onClose }: { supplier: SupplierRow; onClose: (
   async function run(decision: "APPROVED" | "REJECTED") {
     if (decision === "REJECTED" && !note.trim()) return toast.error("Say why the supplier is rejected; the requester reads it.");
     try {
-      await decide.mutateAsync({ supplierId: supplier.id, decision, note: note.trim() || null });
-      toast.success(decision === "APPROVED" ? `${supplier.code} approved; it can now carry an order.` : `${supplier.code} rejected.`);
+      const out = await decide.mutateAsync({ supplierId: supplier.id, decision, note: note.trim() || null });
+      onClose();
+      if (decision === "REJECTED") return void toast.success(`${supplier.code} rejected.`);
+      const said = [`${supplier.code} approved.`];
+      if (out.ordersIssued > 0) said.push(`${out.ordersIssued} purchase ${out.ordersIssued === 1 ? "order was" : "orders were"} issued for requests waiting on it.`);
+      if (out.ordersFailed > 0) said.push(`${out.ordersFailed} could not be issued; raise ${out.ordersFailed === 1 ? "it" : "them"} from the request page.`);
+      if (out.ordersEmailFailed > 0) said.push(`The email to the supplier did not go for ${out.ordersEmailFailed}; use Send on the order.`);
+      if (said.length === 1) return void toast.success(`${supplier.code} approved; it can now carry an order.`);
+      if (out.ordersFailed > 0 || out.ordersEmailFailed > 0) return void toast.warning(said.join(" "));
+      toast.success(said.join(" "));
+      return;
       onClose();
     } catch (err) {
       toast.error((err as Error).message);

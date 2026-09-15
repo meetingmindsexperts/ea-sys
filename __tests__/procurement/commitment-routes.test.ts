@@ -13,7 +13,8 @@ const authMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
-vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "127.0.0.1" }));
+const rateLimit = vi.hoisted(() => vi.fn((): { allowed: boolean; retryAfterSeconds: number } => ({ allowed: true, retryAfterSeconds: 0 })));
+vi.mock("@/lib/security", () => ({ checkRateLimit: () => rateLimit(), getClientIp: () => "127.0.0.1" }));
 vi.mock("@/lib/db", () => ({ db: {}, tenantTransaction: vi.fn() }));
 
 const svc = vi.hoisted(() => ({
@@ -192,5 +193,41 @@ describe("the quote file", () => {
     expect(res.headers.get("content-type")).toBe("application/pdf");
     expect(storage.readStoredFile).toHaveBeenCalledWith("/uploads/procurement-quotes/org-1/q1-x.pdf", "/uploads/procurement-quotes/");
     expect((await readQuote(get("/x"), qParams("q2"))).status).toBe(404);
+  });
+});
+
+describe("review fixes, 15 September 2026", () => {
+  const qParams = (quoteId = "q2") => ({ params: Promise.resolve({ requestId: "sr1", quoteId }) });
+  function multipart(bytes: Buffer, name = "quote.pdf", type = "application/pdf") {
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array(bytes)], name, { type }));
+    return new NextRequest("http://localhost/api/procurement/requests/sr1/quotes/q2/file", { method: "POST", body: form });
+  }
+  it("send has its own limit of 10 an hour per person", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    rateLimit.mockReturnValueOnce({ allowed: false, retryAfterSeconds: 1200 });
+    const res = await send(post("/api/procurement/commitments/c1/send"), cParams());
+    expect(res.status).toBe(429);
+    expect(svc.sendOrderToSupplier).not.toHaveBeenCalled();
+  });
+  it("a storage or database error while attaching a quote is a 500 that removes the stored file", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementRequest: true }));
+    reqSvc.setQuoteFile.mockRejectedValueOnce(new Error("pooler blip"));
+    const res = await uploadQuote(multipart(Buffer.from("%PDF-1.4 real")), qParams());
+    expect(res.status).toBe(500);
+    expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/procurement-quotes/org-1/q2-new.pdf", "/uploads/procurement-quotes/");
+  });
+  it("the quote file is served with nosniff and a content security policy", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    const res = await readQuote(get("/x"), qParams("q1"));
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+  });
+  it("raise and cancel hand the page the email outcome and where the request went", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    svc.raiseOrder.mockResolvedValueOnce({ ...okOrder, autoSend: { requested: true, sent: false, code: "SEND_FAILED" } });
+    expect(await (await raise(post("/api/procurement/requests/sr1/order"), { params: Promise.resolve({ requestId: "sr1" }) })).json()).toMatchObject({ autoSend: { sent: false, code: "SEND_FAILED" } });
+    svc.cancelOrder.mockResolvedValueOnce({ ...okOrder, reroute: { status: "PENDING_APPROVAL", approvalRequestId: "ar9", exception: false } });
+    expect(await (await cancel(post("/api/procurement/commitments/c1/cancel", { reason: "Late", expectedVersion: 1 }), cParams())).json()).toMatchObject({ reroute: { status: "PENDING_APPROVAL" } });
   });
 });

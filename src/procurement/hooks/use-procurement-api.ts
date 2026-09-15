@@ -492,11 +492,12 @@ export function useProposeSupplier() {
 }
 
 export function useDecideSupplier() {
-  const invalidate = useSupplierInvalidation();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ supplierId, ...input }: { supplierId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }) =>
-      send<{ supplier: SupplierRow }>(`/api/procurement/suppliers/${supplierId}/decide`, "POST", input, "Couldn't record the decision").then((r) => r.supplier),
-    onSuccess: invalidate,
+      send<{ supplier: SupplierRow; ordersIssued: number; ordersFailed: number; ordersEmailFailed: number }>(`/api/procurement/suppliers/${supplierId}/decide`, "POST", input, "Couldn't record the decision"),
+    // Approving a supplier issues the orders waiting on it and moves line figures: every procurement screen may have changed.
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["procurement"] }),
   });
 }
 
@@ -679,7 +680,7 @@ export function useDecideApproval() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ requestId, ...input }: { requestId: string; decision: "APPROVED" | "REJECTED"; note?: string | null }) =>
-      send<{ budget?: BudgetRow; spendRequest?: SpendRequestDetailRow }>(`/api/procurement/approvals/${requestId}/decide`, "POST", input, "Couldn't record the decision"),
+      send<{ budget?: BudgetRow; spendRequest?: SpendRequestDetailRow; autoSend?: AutoSendRow | null }>(`/api/procurement/approvals/${requestId}/decide`, "POST", input, "Couldn't record the decision"),
     onSuccess: (r) => {
       invalidate(r.budget?.id ?? r.spendRequest?.budgetId ?? undefined);
       void qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
@@ -897,6 +898,11 @@ export function useCommitments(filter: { status?: CommitmentStatusValue; budgetI
 }
 
 /** Every order mutation refreshes the request it belongs to, the lists, and the budget whose line it moved. */
+/** What became of the automatic supplier email an order was issued with. */
+export type AutoSendRow = { requested: false } | { requested: true; sent: true } | { requested: true; sent: false; code: string };
+/** Where a cancelled order's request went: back to its approver, or to draft when nobody can take it. */
+export type RerouteRow = { status: "PENDING_APPROVAL"; approvalRequestId: string; exception: boolean } | { status: "DRAFT"; reason: string } | { status: "UNCHANGED" };
+
 function useOrderInvalidation() {
   const qc = useQueryClient();
   return (c: { spendRequestId: string | null; budgetId: string | null }) => {
@@ -912,8 +918,8 @@ function useOrderInvalidation() {
 export function useRaiseOrder(requestId: string) {
   const invalidate = useOrderInvalidation();
   return useMutation({
-    mutationFn: () => send<{ commitment: CommitmentDetailRow }>(`/api/procurement/requests/${requestId}/order`, "POST", undefined, "Couldn't raise the purchase order").then((r) => r.commitment),
-    onSuccess: invalidate,
+    mutationFn: () => send<{ commitment: CommitmentDetailRow; autoSend: AutoSendRow | null }>(`/api/procurement/requests/${requestId}/order`, "POST", undefined, "Couldn't raise the purchase order"),
+    onSuccess: (r) => invalidate(r.commitment),
   });
 }
 
@@ -945,10 +951,15 @@ export function useConfirmReceipt(commitmentId: string) {
 
 export function useCancelOrder(commitmentId: string) {
   const invalidate = useOrderInvalidation();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { reason: string; expectedVersion: number }) =>
-      send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/cancel`, "POST", input, "Couldn't cancel the order").then((r) => r.commitment),
-    onSuccess: invalidate,
+      send<{ commitment: CommitmentDetailRow; reroute: RerouteRow | null }>(`/api/procurement/commitments/${commitmentId}/cancel`, "POST", input, "Couldn't cancel the order"),
+    onSuccess: (r) => {
+      invalidate(r.commitment);
+      // The request went back to an approver: their inbox changed too.
+      void qc.invalidateQueries({ queryKey: ["procurement", "approvals"] });
+    },
   });
 }
 

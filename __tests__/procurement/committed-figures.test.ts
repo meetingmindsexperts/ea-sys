@@ -16,7 +16,7 @@ const tx = vi.hoisted(() => ({
 const warn = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
-import { syncBudgetCommitted, syncLineCommitted } from "@/procurement/services/committed-figures";
+import { eventBudgetIds, syncBudgetCommitted, syncLineCommitted } from "@/procurement/services/committed-figures";
 
 const ORG = "org-1";
 const order = (amount: string, fxRateToReporting: string, status = "APPROVED", lineKey = "k") => ({ lineKey, amount, fxRateToReporting, status });
@@ -82,5 +82,15 @@ describe("syncBudgetCommitted", () => {
     expect(tx.commitment.findMany.mock.calls[0][0].where).toEqual({ organizationId: ORG, budgetId: { in: ["v1", "v2"] }, status: { not: "CANCELLED" } });
     expect(tx.budgetLine.update).toHaveBeenCalledTimes(1);
     expect(tx.budgetLine.update).toHaveBeenCalledWith({ where: { id: "b" }, data: { committedOpen: "0.0000", committedTotal: "0.0000" } });
+  });
+});
+
+describe("eventBudgetIds", () => {
+  it("reads every version of the event without taking the lock, or only the budget itself when it has no event", async () => {
+    tx.eventBudget.findMany.mockResolvedValue([{ id: "v1" }, { id: "v2" }]);
+    expect(await eventBudgetIds(tx as never, ORG, "v1")).toEqual(["v1", "v2"]);
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    tx.eventBudget.findFirst.mockResolvedValueOnce({ id: "b9", eventId: null });
+    expect(await eventBudgetIds(tx as never, ORG, "b9")).toEqual(["b9"]);
   });
 });

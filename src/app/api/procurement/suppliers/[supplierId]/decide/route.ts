@@ -17,6 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sup
   return runWithTenant(g.orgId, async () => {
     const result = await decideSupplier({ organizationId: g.orgId, actorUserId: g.user.id, source: "ui", supplierId, ...parsed.data });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, STATUS);
-    return NextResponse.json({ supplier: redactSupplier(result.supplier, true) });
+    // What the approval did to the requests waiting on this supplier, so the page can say it.
+    return NextResponse.json({ supplier: redactSupplier(result.supplier, true), ordersIssued: result.conversion?.issued ?? 0, ordersFailed: result.conversion?.failed ?? 0, ordersEmailFailed: result.conversion?.sendFailed ?? 0 });
   });
 }

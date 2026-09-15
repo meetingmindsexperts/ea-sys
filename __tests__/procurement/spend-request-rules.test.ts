@@ -5,6 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  holdsLineReservation,
+  reservedOnLine,
   amendmentEffect,
   budgetAcceptsRequests,
   budgetCheck,
@@ -98,5 +100,29 @@ describe("amendmentEffect", () => {
     expect(amendmentEffect("1000", "900").delta.toString()).toBe("-100");
     expect(amendmentEffect("1000", "900").direction).toBe("DECREASE");
     expect(amendmentEffect("1000", "1000.0000").direction).toBe("SAME");
+  });
+});
+
+describe("the line's other open requests (review M3)", () => {
+  const line = { planned: "10000", committedOpen: "2500", actual: "1000" };
+  it("takes what other open requests ask for off the remaining before this one", () => {
+    const r = budgetCheck({ budgetStatus: "ACTIVE", line, amountReporting: "4000", reservedByOthers: "3000" });
+    expect(r.remainingBefore.toString()).toBe("3500");
+    expect(r).toMatchObject({ status: "OVER_BUDGET", exception: true });
+    expect(r.reservedByOthers.toString()).toBe("3000");
+    expect(budgetCheck({ budgetStatus: "ACTIVE", line, amountReporting: "4000" }).status).toBe("WITHIN_BUDGET");
+  });
+  it("counts pending, awaiting-supplier and approved-without-order requests at their own rate, never an ordered one or one without a rate", () => {
+    const rows = [
+      { status: "PENDING_APPROVAL", linkedCommitmentId: null, amount: "1000", fxRateToReporting: "3.6725" },
+      { status: "AWAITING_SUPPLIER", linkedCommitmentId: null, amount: "500", fxRateToReporting: "1" },
+      { status: "APPROVED", linkedCommitmentId: null, amount: "200", fxRateToReporting: "1" },
+      { status: "APPROVED", linkedCommitmentId: "c1", amount: "9999", fxRateToReporting: "1" },
+      { status: "CONVERTED", linkedCommitmentId: "c2", amount: "9999", fxRateToReporting: "1" },
+      { status: "PENDING_APPROVAL", linkedCommitmentId: null, amount: "9999", fxRateToReporting: null },
+    ];
+    expect(reservedOnLine(rows).toString()).toBe("4372.5");
+    expect(holdsLineReservation({ status: "APPROVED", linkedCommitmentId: "c1" })).toBe(false);
+    expect(holdsLineReservation({ status: "AWAITING_SUPPLIER", linkedCommitmentId: null })).toBe(true);
   });
 });
