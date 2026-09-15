@@ -367,6 +367,8 @@ export interface SpendRequestDetailRow extends SpendRequestRow {
   line: SpendRequestLineRow | null;
   /** The purchase order this request became; null until approval issues it, and again after a cancel. */
   order: CommitmentRow | null;
+  /** Cancelled orders the request held before, newest first. */
+  previousOrders: CommitmentRow[];
   approvals: {
     id: string;
     status: string;

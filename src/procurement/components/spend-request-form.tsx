@@ -131,7 +131,8 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
       neededBy: f.neededBy || null,
       sourcingMethod: f.sourcingMethod || null,
       priority: f.priority,
-      emailSupplierOnIssue: f.emailSupplierOnIssue,
+      // Saved as it is SHOWN: the switch reads off when the chosen supplier has no email, so the stored flag must too.
+      emailSupplierOnIssue: f.emailSupplierOnIssue && supplierHasEmail,
     };
     try {
       const saved = request ? await update.mutateAsync({ ...payload, expectedVersion: request.version }) : await create.mutateAsync(payload);
@@ -212,7 +213,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="sr-supplier">Supplier</Label>
-              <Select value={f.supplierId || NONE} onValueChange={(v) => set("supplierId", v === NONE ? "" : v)}>
+              <Select value={f.supplierId || NONE} onValueChange={(v) => { set("supplierId", v === NONE ? "" : v); set("emailSupplierOnIssue", false); }}>
                 <SelectTrigger id="sr-supplier" className="w-full"><SelectValue placeholder="Pick a supplier" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE}>Not on the list yet</SelectItem>

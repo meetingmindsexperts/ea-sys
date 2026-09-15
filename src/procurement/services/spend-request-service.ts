@@ -258,6 +258,8 @@ export type SpendRequestDetail = SpendRequestView & {
   line: SpendRequestLineView | null;
   /** The purchase order this request became (slice 3); null until approval issues it, and again after a cancel. */
   order: CommitmentView | null;
+  /** Orders this request held before and that were cancelled, newest first; a cancel sends the request back to approved and a re-issue takes a new number. */
+  previousOrders: CommitmentView[];
   approvals: {
     id: string;
     status: string;
@@ -272,9 +274,10 @@ export type SpendRequestDetail = SpendRequestView & {
 export async function getSpendRequest(organizationId: string, requestId: string): Promise<SpendRequestResult<SpendRequestDetail>> {
   const r = await loadRequest(db, organizationId, requestId);
   if (!r) return fail("REQUEST_NOT_FOUND", "The spend request was not found.", { requestId });
-  const [line, order, approvals] = await Promise.all([
+  const [line, order, previousOrders, approvals] = await Promise.all([
     r.budgetId && r.lineKey ? loadLine(db, r.budgetId, r.lineKey) : null,
     r.linkedCommitmentId ? db.commitment.findFirst({ where: { id: r.linkedCommitmentId, organizationId }, select: COMMITMENT_SELECT }) : null,
+    db.commitment.findMany({ where: { organizationId, spendRequestId: r.id, status: "CANCELLED" }, select: COMMITMENT_SELECT, orderBy: { createdAt: "desc" }, take: 20 }),
     db.approvalRequest.findMany({
       where: { organizationId, subjectType: "SPEND_REQUEST", subjectId: r.id },
       select: { id: true, status: true, amountAed: true, payload: true, createdAt: true, decidedAt: true, steps: { select: { assigneeUserId: true, delegateUserId: true, status: true, decidedByUserId: true, decidedAt: true, note: true, dueAt: true }, orderBy: { sequence: "asc" } } },
@@ -291,6 +294,7 @@ export async function getSpendRequest(organizationId: string, requestId: string)
       decidedByName: r.decidedByUserId ? (names.get(r.decidedByUserId) ?? null) : null,
       line: line ? toLineView(line) : null,
       order: order ? toCommitmentView(order) : null,
+      previousOrders: previousOrders.map(toCommitmentView),
       approvals: approvals.map((a) => ({
         id: a.id,
         status: a.status,

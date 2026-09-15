@@ -36,6 +36,7 @@ import {
 } from "../lib/money";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
+import { lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
 
 export type BudgetErrorCode =
   | "EVENT_NOT_FOUND"
@@ -653,7 +654,11 @@ export async function decideBudget(input: { organizationId: string; decider: Pro
         return d;
       }
       // Activate: the previous active version of this event steps aside in
-      // the same transaction, so exactly one version is ever ACTIVE.
+      // the same transaction, so exactly one version is ever ACTIVE. The
+      // committed-figures lock comes first: an order issued or cancelled at
+      // this moment takes it before touching budget rows, so taking it after
+      // archiving could deadlock.
+      await lockEventCommitted(tx, input.organizationId, b.id);
       if (b.eventId) {
         await tx.eventBudget.updateMany({ where: { eventId: b.eventId, status: { in: ["ACTIVE", "FROZEN"] }, id: { not: b.id } }, data: { status: "ARCHIVED", version: { increment: 1 } } });
       }
@@ -666,6 +671,9 @@ export async function decideBudget(input: { organizationId: string; decider: Pro
       for (const l of lines) {
         await tx.budgetLine.update({ where: { id: l.id }, data: { approvedPlanned: storedString(l.planned), reallocatedOut: "0" } });
       }
+      // Orders issued on the previous version after this one was drafted, or cancelled since, are counted here.
+      await syncBudgetCommitted(tx, input.organizationId, b.id);
+      await recomputeBudgetTotals(tx, b.id);
       await audit(tx, { userId: input.decider.id, organizationId: input.organizationId, action: "APPROVE", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, note: input.note ?? null, versionNo: b.versionNo } });
       return d;
     });

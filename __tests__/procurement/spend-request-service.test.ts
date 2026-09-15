@@ -21,6 +21,7 @@ const ROWS: Record<string, Record<string, unknown>> = {
 
 const mockDb = vi.hoisted(() => ({
   spendRequest: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+  commitment: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
   spendRequestQuote: { create: vi.fn().mockResolvedValue({ id: "q1" }), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
   spendRequestCounter: { upsert: vi.fn().mockResolvedValue({ lastSerial: 7 }) },
   eventBudget: { findFirst: vi.fn() },

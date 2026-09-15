@@ -23,7 +23,7 @@ import { sendEmail } from "@/lib/email";
 import type { Prisma } from "@prisma/client";
 import type { Db } from "@/lib/approvals/approvals-service";
 import { nextDocumentNumber } from "../lib/document-numbers";
-import { money, storedString, toStored, type MoneyInput } from "../lib/money";
+import { money, storedString, type MoneyInput } from "../lib/money";
 import { budgetAcceptsRequests, toReporting } from "../lib/spend-request-rules";
 import {
   COMMITMENT_STATUS_LABEL,
@@ -35,6 +35,7 @@ import {
 } from "../lib/commitment-rules";
 import { generatePurchaseOrderPdf } from "../lib/commitment-pdf";
 import { recomputeBudgetTotals } from "./budget-service";
+import { syncLineCommitted } from "./committed-figures";
 
 export type CommitmentErrorCode =
   | "COMMITMENT_NOT_FOUND"
@@ -265,11 +266,9 @@ export async function issueOrderInTx(tx: Db, input: { organizationId: string; ac
     data: { status: "CONVERTED", linkedCommitmentId: created.id, version: { increment: 1 } },
   });
   if (res.count === 0) return fail("STALE_WRITE", "The request changed while the order was being issued. Reload.", ctx);
-  await tx.budgetLine.update({
-    where: { id: line.id },
-    data: { committedOpen: storedString(money(line.committedOpen).plus(amountReporting)), committedTotal: storedString(money(line.committedTotal).plus(amountReporting)) },
-  });
-  await recomputeBudgetTotals(tx, r.budgetId);
+  // Summed from the orders under the event's lock, never incremented: see committed-figures.ts.
+  const committedOn = await syncLineCommitted(tx, { organizationId: input.organizationId, budgetId: r.budgetId, lineKey: r.lineKey });
+  await recomputeBudgetTotals(tx, committedOn ?? r.budgetId);
   await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "CREATE", entityType: "Commitment", entityId: created.id, changes: { source: input.source, commitmentNo, requestNo: r.requestNo, requestId: r.id, budgetId: r.budgetId, lineKey: r.lineKey, supplierId: r.supplierId, amount: storedString(r.amount), taxAmount: storedString(r.taxAmount), currency: r.currency, amountReporting: storedString(amountReporting) } });
   await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "CONVERT", entityType: "SpendRequest", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, commitmentNo, commitmentId: created.id, budgetId: r.budgetId, from: r.status } });
   apiLogger.info({ msg: "procurement/commitments:issued", commitmentId: created.id, commitmentNo, ...ctx, organizationId: input.organizationId });
@@ -491,7 +490,9 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
  * Cancel is close-and-release (spec §6): the order is cancelled, the line's
  * committed figures fall by what it held, and the request goes back to
  * approved with no order, so it can be re-issued or cancelled in its turn.
- * The settle holder's or an admin's action, with a reason.
+ * The settle holder's or an admin's action, with a reason. Only an order
+ * with nothing received is cancelled: once goods or services have arrived,
+ * the money is owed and the order is closed against the supplier's invoice.
  */
 export async function cancelOrder(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; reason: string | null | undefined; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail>> {
   const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
@@ -499,20 +500,18 @@ export async function cancelOrder(input: { organizationId: string; actor: OrderA
   if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
   if (!(input.actor.canSettle || input.actor.isAdmin)) return fail("NOT_ALLOWED", "Only the settle holder or an admin cancels a purchase order.", ctx);
   if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order cannot be cancelled.`, ctx, { status: c.status });
+  if (c.fulfillmentStatus !== "OPEN") return fail("INVALID_STATUS", "Part or all of this order has been received, so it can no longer be cancelled. A received order is closed against the supplier's invoice.", ctx, { fulfillmentStatus: c.fulfillmentStatus });
   const reason = input.reason?.trim() || null;
   if (!reason) return fail("REASON_REQUIRED", "Give the reason for cancelling the order.", ctx);
   const amountReporting = toReporting(c.amount, money(c.fxRateToReporting));
   try {
     await tenantTransaction(async (tx) => {
-      const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", version: input.expectedVersion }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledByUserId: input.actor.id, cancelReason: reason, version: { increment: 1 } } });
+      const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "OPEN", version: input.expectedVersion }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledByUserId: input.actor.id, cancelReason: reason, version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
       if (c.budgetId) {
-        const line = await tx.budgetLine.findFirst({ where: { budgetId: c.budgetId, lineKey: c.lineKey, deletedAt: null }, select: { id: true, committedOpen: true, committedTotal: true } });
-        if (line) {
-          const floor = (v: MoneyInput) => { const d = toStored(money(v).minus(amountReporting)); return d.lt(0) ? "0.0000" : storedString(d); };
-          await tx.budgetLine.update({ where: { id: line.id }, data: { committedOpen: floor(line.committedOpen), committedTotal: floor(line.committedTotal) } });
-          await recomputeBudgetTotals(tx, c.budgetId);
-        }
+        // Released on the event's current version, summed from the orders that are left.
+        const committedOn = await syncLineCommitted(tx, { organizationId: input.organizationId, budgetId: c.budgetId, lineKey: c.lineKey });
+        await recomputeBudgetTotals(tx, committedOn ?? c.budgetId);
       }
       if (c.spendRequestId) {
         await tx.spendRequest.updateMany({ where: { id: c.spendRequestId, organizationId: input.organizationId, status: "CONVERTED", linkedCommitmentId: c.id }, data: { status: "APPROVED", linkedCommitmentId: null, version: { increment: 1 } } });

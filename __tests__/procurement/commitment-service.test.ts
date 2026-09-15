@@ -14,7 +14,8 @@ const mockDb = vi.hoisted(() => ({
   spendRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   commitment: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   commitmentCounter: { upsert: vi.fn().mockResolvedValue({ lastSerial: 3 }) },
-  eventBudget: { findFirst: vi.fn() },
+  eventBudget: { findFirst: vi.fn(), findMany: vi.fn() },
+  $queryRaw: vi.fn().mockResolvedValue([]),
   budgetLine: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   organization: { findUnique: vi.fn() },
   user: { findMany: vi.fn().mockResolvedValue([]) },
@@ -78,6 +79,9 @@ beforeEach(() => {
   mockDb.commitmentCounter.upsert.mockResolvedValue({ lastSerial: 3 });
   mockDb.eventBudget.findFirst.mockResolvedValue({ id: "b1", status: "ACTIVE", reportingCurrency: "AED" });
   mockDb.budgetLine.findFirst.mockResolvedValue(line());
+  mockDb.eventBudget.findMany.mockResolvedValue([{ id: "b1", status: "ACTIVE" }]);
+  mockDb.commitment.findMany.mockResolvedValue([]);
+  mockDb.$queryRaw.mockResolvedValue([]);
   mockDb.organization.findUnique.mockResolvedValue({ name: "MM Group", logo: null, companyName: "Meeting Minds FZ LLC", companyAddress: null, companyCity: null, companyState: null, companyZipCode: null, companyCountry: null, companyPhone: null, companyEmail: null, taxId: null });
   mockDb.user.findMany.mockResolvedValue([]);
   sendEmail.mockResolvedValue({ success: true, messageId: "m1" });
@@ -85,6 +89,11 @@ beforeEach(() => {
 
 describe("issueOrderInTx", () => {
   it("takes the PO number in the transaction, copies the request into one line, marks it ordered and raises the line's committed figures in the reporting currency", async () => {
+    // The line is summed from the event's orders under its lock: this one, 1,000 EUR at 4.2, and an earlier 500 AED.
+    mockDb.commitment.findMany.mockResolvedValueOnce([
+      { lineKey: "k-av", amount: "1000.0000", fxRateToReporting: "4.2", status: "APPROVED" },
+      { lineKey: "k-av", amount: "500.0000", fxRateToReporting: "1", status: "APPROVED" },
+    ]);
     const out = await issueOrderInTx(mockDb as never, { organizationId: ORG, actorUserId: "lina", source: "ui", requestId: "sr1" });
     expect(out).toMatchObject({ ok: true, commitmentId: "c1", commitmentNo: "PO-2026-0003" });
     expect(mockDb.commitmentCounter.upsert).toHaveBeenCalledTimes(1);
@@ -92,8 +101,8 @@ describe("issueOrderInTx", () => {
     expect(data).toMatchObject({ commitmentNo: "PO-2026-0003", spendRequestId: "sr1", budgetId: "b1", lineKey: "k-av", supplierId: "s1", eventCode: "HM2026", amount: "1000.0000", taxAmount: "50.0000", currency: "EUR", fxRateToReporting: "4.2", status: "APPROVED", fulfillmentStatus: "OPEN", accountingSyncStatus: "PENDING", approvedByUserId: "lina" });
     expect(data.lines.create[0]).toMatchObject({ lineKey: "k-av", categoryId: "c-av", description: "LED wall", qty: "1", unitCost: "1000.0000", amount: "1000.0000", taxAmount: "50.0000", taxRatePercent: "5" });
     expect(mockDb.spendRequest.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: "sr1", status: { in: ["APPROVED", "AWAITING_SUPPLIER"] }, linkedCommitmentId: null }, data: { status: "CONVERTED", linkedCommitmentId: "c1" } });
-    // 1,000 EUR at 4.2 = 4,200 AED on top of 500 open and 700 total.
-    expect(mockDb.budgetLine.update.mock.calls[0][0]).toMatchObject({ where: { id: "l1" }, data: { committedOpen: "4700.0000", committedTotal: "4900.0000" } });
+    expect(mockDb.$queryRaw).toHaveBeenCalled();
+    expect(mockDb.budgetLine.update.mock.calls[0][0]).toMatchObject({ where: { id: "l1" }, data: { committedOpen: "4700.0000", committedTotal: "4700.0000" } });
     expect(recompute).toHaveBeenCalledWith(mockDb, "b1");
     expect(audits().map((a) => [a.entityType, a.action])).toEqual([["Commitment", "CREATE"], ["SpendRequest", "CONVERT"]]);
     expect(audits()[0].changes).toMatchObject({ commitmentNo: "PO-2026-0003", requestNo: "PR-2026-0007", amountReporting: "4200.0000" });
@@ -251,12 +260,22 @@ describe("cancelOrder (close and release)", () => {
     expect(await cancel(settle)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
     expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
   });
-  it("cancels the order, releases what it held on the line (never below zero), returns the request to approved and audits both", async () => {
-    mockDb.budgetLine.findFirst.mockResolvedValue({ id: "l1", committedOpen: "4700.0000", committedTotal: "4000.0000" });
+  it("refuses once anything on the order has been received, partly or fully, and moves nothing", async () => {
+    for (const fulfillmentStatus of ["PARTIALLY_RECEIVED", "RECEIVED"]) {
+      mockDb.commitment.findFirst.mockResolvedValueOnce(commitment({ fulfillmentStatus, receivedByUserId: "req" }));
+      expect(await cancel(admin)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    }
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.budgetLine.update).not.toHaveBeenCalled();
+    expect(mockDb.spendRequest.updateMany).not.toHaveBeenCalled();
+  });
+  it("cancels the order, re-sums the line from the orders left on it, returns the request to approved and audits both", async () => {
+    mockDb.commitment.findMany.mockResolvedValueOnce([{ lineKey: "k-av", amount: "500.0000", fxRateToReporting: "1", status: "APPROVED" }]);
     const r = await cancel(admin);
     expect(r.ok).toBe(true);
-    expect(mockDb.commitment.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: "c1", status: "APPROVED", version: 1 }, data: { status: "CANCELLED", cancelledByUserId: "root", cancelReason: "Supplier withdrew" } });
-    expect(mockDb.budgetLine.update.mock.calls[0][0]).toMatchObject({ where: { id: "l1" }, data: { committedOpen: "500.0000", committedTotal: "0.0000" } });
+    expect(mockDb.commitment.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: "c1", status: "APPROVED", fulfillmentStatus: "OPEN", version: 1 }, data: { status: "CANCELLED", cancelledByUserId: "root", cancelReason: "Supplier withdrew" } });
+    expect(mockDb.budgetLine.update.mock.calls[0][0]).toMatchObject({ where: { id: "l1" }, data: { committedOpen: "500.0000", committedTotal: "500.0000" } });
+    expect(mockDb.commitment.findMany.mock.calls[0][0].where).toMatchObject({ budgetId: { in: ["b1"] }, lineKey: { in: ["k-av"] }, status: { not: "CANCELLED" } });
     expect(recompute).toHaveBeenCalledWith(mockDb, "b1");
     expect(mockDb.spendRequest.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: "sr1", status: "CONVERTED", linkedCommitmentId: "c1" }, data: { status: "APPROVED", linkedCommitmentId: null } });
     expect(audits().map((a) => [a.entityType, a.action])).toEqual([["SpendRequest", "ORDER_CANCELLED"], ["Commitment", "CANCEL"]]);

@@ -128,6 +128,8 @@ export default function SpendRequestPage() {
 
           {r.order && <OrderSection r={r} order={r.order} me={me} isAdmin={isAdmin} canRequest={canRequest} canSettle={canSettle} canApprove={canApprove} />}
 
+          {(r.previousOrders?.length ?? 0) > 0 && <PreviousOrders orders={r.previousOrders} />}
+
           <QuotesSection r={r} editable={canEditDraft} onAdd={() => setPrompt("quote")} />
 
           <ApprovalTrail r={r} />
@@ -214,6 +216,30 @@ function RaiseOrderDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: (
   );
 }
 
+function PreviousOrders({ orders }: { orders: CommitmentRow[] }) {
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h2 className="text-sm font-semibold">Earlier orders</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">Cancelled orders this request held before. What they held was released on the line when each was cancelled.</p>
+      <ul className="mt-3 divide-y rounded-md border text-sm">
+        {orders.map((o) => (
+          <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{o.commitmentNo}</span>
+                <OrderStatusBadge status={o.status} />
+                <span className="tabular-nums text-muted-foreground">{`${o.currency} ${money2(o.amount)} ex-VAT`}</span>
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{`Issued ${fmtWhen(o.approvedAt)}${o.cancelledAt ? ` · cancelled ${fmtWhen(o.cancelledAt)}` : ""}${o.cancelReason ? ` · ${o.cancelReason}` : ""}`}</div>
+            </div>
+            <Button asChild size="sm" variant="outline"><a href={`/api/procurement/commitments/${o.id}/pdf`} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /> PDF</a></Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canApprove }: { r: SpendRequestDetailRow; order: CommitmentRow; me: string | undefined; isAdmin: boolean; canRequest: boolean; canSettle: boolean; canApprove: boolean }) {
   const send = useSendOrder(o.id);
   const receive = useReceiveOrder(o.id);
@@ -228,7 +254,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
   const canReceive = live && actsOnOrder && o.fulfillmentStatus !== "RECEIVED";
   const awaitingSecond = live && o.fulfillmentStatus === "RECEIVED" && o.receiptNeedsSecondPerson && !o.receiptConfirmed;
   const canConfirm = awaitingSecond && (canSettle || canApprove) && me !== o.receivedByUserId;
-  const canCancelOrder = live && (canSettle || isAdmin);
+  const canCancelOrder = live && o.fulfillmentStatus === "OPEN" && (canSettle || isAdmin);
   const hasEmail = o.supplier.contactEmails.length > 0;
   const cur = o.currency;
   const rep = o.budget?.reportingCurrency ?? cur;
@@ -286,6 +312,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         {canConfirm && <Button size="sm" onClick={() => void run(confirm, { expectedVersion: o.version }, () => "Receipt confirmed.")} disabled={confirm.isPending}>{confirm.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Confirm receipt</Button>}
         {canCancelOrder && <Button size="sm" variant="outline" className="text-destructive" onClick={() => setPrompt("cancel")}><Ban className="h-4 w-4" /> Cancel order</Button>}
       </div>
+      {live && o.fulfillmentStatus !== "OPEN" && (canSettle || isAdmin) && <p className="mt-2 text-xs text-muted-foreground">Something on this order has been received, so it can no longer be cancelled. It is closed against the supplier&apos;s invoice.</p>}
       {awaitingSecond && !canConfirm && <p className="mt-2 text-xs text-muted-foreground">{me === o.receivedByUserId ? "You marked it received; a second person (the settle holder or an approver) confirms it." : "The settle holder or an approver confirms the receipt."}</p>}
 
       {prompt === "receive" && (
