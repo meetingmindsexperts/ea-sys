@@ -184,6 +184,10 @@ import {
   CRM_DP_B_ID,
   CRM_DOC_A_ID,
   CRM_DOC_B_ID,
+  CRM_QUOTE_A_ID,
+  CRM_QUOTE_B_ID,
+  CRM_QUOTE_LINE_A_ID,
+  CRM_QUOTE_LINE_B_ID,
   CRM_THREAD_A_ID,
   CRM_THREAD_B_ID,
   CRM_THREAD_A_TOKEN,
@@ -998,6 +1002,8 @@ async function seedCrmGroup1(
   });
   // PK is organizationId — one counter row per org, no separate id.
   await db.crmQuoteCounter.create({ data: { organizationId: orgId } });
+  // PK is (organizationId, year): one yearly sequence row per org.
+  await db.crmQuoteSequence.create({ data: { organizationId: orgId, year: 2026 } });
   await db.crmEmailSendClaim.create({
     data: { id: ids.sendClaimId, organizationId: orgId, dedupHash: "shared-dedup" },
   });
@@ -1032,6 +1038,8 @@ async function seedCrmGroup2(
     dealContactId: string;
     dealProductId: string;
     dealDocId: string;
+    quoteId: string;
+    quoteLineId: string;
     threadId: string;
     threadToken: string;
     messageId: string;
@@ -1062,6 +1070,38 @@ async function seedCrmGroup2(
       filename: "prospectus.pdf",
       mimeType: "application/pdf",
       size: 2048,
+    },
+  });
+  await db.crmQuote.create({
+    data: {
+      id: deps.quoteId,
+      organizationId: orgId,
+      dealId: deps.dealId,
+      // The SAME number in both orgs: @@unique([organizationId, number]) lets tenants coexist.
+      number: "Q-2026-0001",
+      year: 2026,
+      sequence: 1,
+      title: "Shared Quote",
+      currency: "USD",
+      quoteDate: new Date("2026-09-15T00:00:00.000Z"),
+      validUntil: new Date("2026-10-15T00:00:00.000Z"),
+      preparedFor: "Sponsor",
+      preparedByName: "Tenancy Seed",
+      subtotal: 100,
+      taxAmount: 0,
+      total: 100,
+    },
+  });
+  await db.crmQuoteLine.create({
+    data: {
+      id: deps.quoteLineId,
+      organizationId: orgId,
+      quoteId: deps.quoteId,
+      sortOrder: 0,
+      name: "Line",
+      quantity: 1,
+      unitPrice: 100,
+      amount: 100,
     },
   });
   await db.crmEmailThread.create({
@@ -1178,6 +1218,8 @@ async function main() {
   // (no FK), so the org cascade never reaches it — delete it explicitly or the
   // re-seed collides on the PK. A no-op on the first run.
   await db.crmQuoteCounter.deleteMany({ where: { organizationId: { in: [ORG_A_ID, ORG_B_ID] } } });
+  // Same for the yearly sequence (composite PK, no Organization relation).
+  await db.crmQuoteSequence.deleteMany({ where: { organizationId: { in: [ORG_A_ID, ORG_B_ID] } } });
   // Cascade wipes events + contacts + tenant domains + (via Event→Registration
   // →Invoice) the invoice fixtures of prior runs.
   await db.organization.deleteMany({ where: { id: { in: [ORG_A_ID, ORG_B_ID] } } });
@@ -1310,6 +1352,8 @@ async function main() {
     dealContactId: CRM_DC_A_ID,
     dealProductId: CRM_DP_A_ID,
     dealDocId: CRM_DOC_A_ID,
+    quoteId: CRM_QUOTE_A_ID,
+    quoteLineId: CRM_QUOTE_LINE_A_ID,
     threadId: CRM_THREAD_A_ID,
     threadToken: CRM_THREAD_A_TOKEN,
     messageId: CRM_MSG_A_ID,
@@ -1466,6 +1510,8 @@ async function main() {
     dealContactId: CRM_DC_B_ID,
     dealProductId: CRM_DP_B_ID,
     dealDocId: CRM_DOC_B_ID,
+    quoteId: CRM_QUOTE_B_ID,
+    quoteLineId: CRM_QUOTE_LINE_B_ID,
     threadId: CRM_THREAD_B_ID,
     threadToken: CRM_THREAD_B_TOKEN,
     messageId: CRM_MSG_B_ID,

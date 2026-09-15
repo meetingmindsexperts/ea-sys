@@ -1805,6 +1805,34 @@ CONFIRMED → PENDING, matching public-register semantics), L3 (hook response ty
   the row's `attendanceMode` is VIRTUAL. Trigger: hybrid event importing virtual
   attendees without types.
 
+### CRM quote editor review (September 15, 2026): 2 HIGH + M3/M4 + L1/L2 shipped, rest deferred
+
+Independent review of the saved, editable quotes (0 BLOCKER / 2 HIGH / 4 MED / 5 LOW).
+Shipped before commit: H1 (quote total readable by MEMBER through the activity feed),
+H2 (a currency switch relabelled filled prices), M3 (stale editor form), M4 (409 loop),
+L1 (archive/edit file race), L2 (edit orphaning its PDF), plus two owner rulings:
+deleting a quote needs the CRM delete permission, and saving empty default terms
+means none. Deferred:
+
+- **M1: an API POST with a currency but no lines relabels the draft's prices.**
+  `POST .../deals/[dealId]/quote` completes a partial body from the draft, which is
+  priced in the deal's currency, so `{ currency: "AED" }` with no `lines` takes USD
+  catalogue prices as AED. The dashboard always sends lines; only a direct API
+  caller reaches it. Fix: price the merged lines from `cataloguePrice` for the
+  requested currency (the draft now carries it), or refuse `currency` without `lines`.
+- **M2: unit prices are not limited to cents.** `quoteLineInputSchema.unitPrice`
+  accepts 10.005; the amount is computed from the unrounded price (10,005.00 for
+  1,000) while the column stores 10.01, so a later edit recomputes 10,010.00. Fix:
+  round `unitPrice` to cents in `prepareQuote` before totals, mirrored in the editor.
+- **L3: two number styles in the deploy window.** Vercel applies the migration about
+  40 s after the push and seeds this year's sequence from `CrmQuoteCounter`; the old
+  EC2 container keeps using that counter until the swap, so `Q-0006` and
+  `Q-2026-0006` can both exist. Different strings, no constraint violation. Accept,
+  or re-seed with GREATEST on the first new mint.
+- **L4: a pre-deploy browser tab can get a 400.** The old bundle posts the tax +
+  validity body with no lines; the merged draft uses the deal's currency, so a deal
+  whose products are in another currency returns 400 until the page is reloaded.
+
 ### CRM adversarial review (July 24, 2026) — 0 BLOCKER / 0 HIGH; actionable fixes shipped, edges deferred
 
 A 4-angle adversarial review of the whole CRM module (lifecycle · RBAC/PII/finance ·

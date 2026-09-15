@@ -627,6 +627,8 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   DOCUMENT_ADDED: "Added a document",
   DOCUMENT_REMOVED: "Removed a document",
   QUOTE_GENERATED: "Generated a quote",
+  QUOTE_UPDATED: "Edited a quote",
+  QUOTE_ARCHIVED: "Deleted a quote",
   EMAIL_RECEIVED: "Email reply received",
 };
 
@@ -661,6 +663,12 @@ export const CRM_FIELD_LABELS: Record<string, string> = {
   description: "Description",
   dueAt: "Due date",
   remindAt: "Reminder",
+  quoteDate: "Quote date",
+  validUntil: "Valid until",
+  preparedFor: "Prepared for",
+  attention: "Attention",
+  taxRate: "Tax rate",
+  quoteTotal: "Total",
 }
 
 export function activityActionLabel(action: string): string {

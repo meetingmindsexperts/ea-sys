@@ -1,35 +1,35 @@
 "use client";
 
 /**
- * Files held BY the deal — the sponsorship prospectus (one, upload replaces)
- * + supporting PDFs. What lives here is offered as an opt-in attachment in the
- * deal's Email dialog, so the prospectus is uploaded once and sent many times.
+ * Files held BY the deal: saved quotes, the sponsorship prospectus (one, upload
+ * replaces) and supporting PDFs. Everything here is offered as an opt-in
+ * attachment in the deal's Email dialog.
  *
- * PDF only, 10MB (server-enforced with magic bytes; checked here too so the
- * rep gets an instant answer instead of a round trip).
+ * Quotes (Sep 15 2026) are SAVED and editable: the list shows the quote rows
+ * with Open PDF / Edit / Delete, and the editor dialog holds every option.
+ * Deleting a quote needs the CRM delete permission (admin or CRM user), like
+ * archiving any other CRM record; editing needs write. Quote PDFs generated
+ * before that date have no saved row; they stay listed underneath as PDF-only
+ * files.
+ *
+ * PDF only, 10MB for uploads (server-enforced with magic bytes; checked here too
+ * so the rep gets an instant answer instead of a round trip).
  */
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, FileText, Loader2, ReceiptText, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Loader2, Pencil, Plus, ReceiptText, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
+  useArchiveCrmDealQuote,
   useCrmDealDocuments,
+  useCrmDealQuotes,
   useDeleteCrmDealDocument,
-  useGenerateCrmDealQuote,
   useUploadCrmDealDocument,
 } from "@/crm/hooks/use-crm-api";
+import { QuoteEditorDialog } from "@/crm/components/crm-quote-editor-dialog";
+import { formatQuoteDate, formatQuoteMoney, type CrmQuoteRow } from "@/crm/lib/quote-rules";
 import type { CrmDealDocumentRow } from "@/crm/lib/crm-types";
 
 const MAX_SIZE = 10 * 1024 * 1024;
@@ -56,7 +56,7 @@ function DocRow({
           {(doc.size / 1024).toFixed(0)} KB
         </span>
       </span>
-      {/* Files are private (blocked on the public /uploads route) — download via
+      {/* Files are private (blocked on the public /uploads route): download via
           the authed streaming endpoint, not the raw disk URL. */}
       <Button asChild variant="ghost" size="icon" className="h-7 w-7 shrink-0">
         <a
@@ -87,62 +87,111 @@ function DocRow({
   );
 }
 
+function QuoteRow({
+  quote,
+  dealId,
+  canWrite,
+  canDelete,
+  deleting,
+  onEdit,
+  onDelete,
+}: {
+  quote: CrmQuoteRow;
+  dealId: string;
+  canWrite: boolean;
+  canDelete: boolean;
+  deleting: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-sm">
+      <ReceiptText className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate">
+          <span className="font-medium tabular-nums">{quote.number}</span>
+          <span className="mx-1.5 text-muted-foreground">·</span>
+          {quote.title}
+        </p>
+        <p className="truncate text-xs tabular-nums text-muted-foreground">
+          {formatQuoteMoney(quote.total, quote.currency)} · valid till {formatQuoteDate(quote.validUntil)} ·{" "}
+          {quote.lines.length} {quote.lines.length === 1 ? "line" : "lines"}
+        </p>
+      </div>
+      {quote.documentId && (
+        <Button asChild variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+          <a
+            href={`/api/crm/deals/${dealId}/documents/${quote.documentId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open PDF"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      )}
+      {canWrite && (
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onEdit} title="Edit quote">
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {canDelete && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+          disabled={deleting}
+          onClick={() => {
+            if (!confirm(`Delete quote ${quote.number}? Its PDF is removed from this deal.`)) return;
+            onDelete();
+          }}
+          title="Delete quote"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </li>
+  );
+}
+
 export function CrmDealDocumentsCard({
   dealId,
   canWrite,
-  defaultTaxRate,
-  defaultTaxLabel,
+  canDelete,
 }: {
   dealId: string;
   canWrite: boolean;
-  /** Pre-fill for the quote dialog — the linked event's tax config, if any. */
-  defaultTaxRate?: string | number | null;
-  defaultTaxLabel?: string | null;
+  /** The CRM delete permission (admin or CRM user): deleting a quote needs it. */
+  canDelete: boolean;
 }) {
   const { data: documents = [], isLoading } = useCrmDealDocuments(dealId);
+  const { data: quotes = [] } = useCrmDealQuotes(dealId);
   const upload = useUploadCrmDealDocument(dealId);
   const remove = useDeleteCrmDealDocument(dealId);
-  const generateQuote = useGenerateCrmDealQuote(dealId);
+  const archiveQuote = useArchiveCrmDealQuote(dealId);
 
   const prospectusInput = useRef<HTMLInputElement>(null);
   const otherInput = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState("");
 
-  // Quote dialog state — tax pre-filled from the linked event.
-  const [quoteOpen, setQuoteOpen] = useState(false);
-  const [taxRate, setTaxRate] = useState(defaultTaxRate != null ? String(defaultTaxRate) : "");
-  const [taxLabel, setTaxLabel] = useState(defaultTaxLabel || "VAT");
-  const [validityDays, setValidityDays] = useState("30");
-  const [quoteNotes, setQuoteNotes] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<CrmQuoteRow | null>(null);
+  // Each open mounts a fresh editor. The dialog stays mounted between opens, and
+  // its form seeds its fields once, so without this a quick Edit on another quote
+  // could keep the previous quote's values under the new quote's version (review M3).
+  const [editorSession, setEditorSession] = useState(0);
 
   const prospectus = documents.find((d) => d.kind === "PROSPECTUS");
-  const quotes = documents.filter((d) => d.kind === "QUOTE");
   const others = documents.filter((d) => d.kind === "OTHER");
+  // A saved quote's PDF is shown on its quote row; only PDFs with no saved quote
+  // (generated before quotes became editable) are listed on their own.
+  const linkedDocumentIds = new Set(quotes.map((q) => q.documentId).filter(Boolean));
+  const earlierQuotePdfs = documents.filter((d) => d.kind === "QUOTE" && !linkedDocumentIds.has(d.id));
 
-  async function handleGenerateQuote() {
-    const rate = taxRate.trim() ? Number(taxRate) : null;
-    if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
-      toast.error("Tax rate must be between 0 and 100");
-      return;
-    }
-    const days = Number(validityDays);
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
-      toast.error("Validity must be between 1 and 365 days");
-      return;
-    }
-    try {
-      const res = await generateQuote.mutateAsync({
-        taxRate: rate,
-        taxLabel: taxLabel.trim() || undefined,
-        validityDays: days,
-        notes: quoteNotes.trim() || null,
-      });
-      toast.success(`Quote ${res.quoteNumber} generated`);
-      setQuoteOpen(false);
-      setQuoteNotes("");
-    } catch {
-      // Surfaced by the hook's onError toast (e.g. no products / mixed currencies).
-    }
+  function openEditor(quote: CrmQuoteRow | null) {
+    setEditingQuote(quote);
+    setEditorSession((n) => n + 1);
+    setEditorOpen(true);
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>, kind: "PROSPECTUS" | "OTHER") {
@@ -171,45 +220,62 @@ export function CrmDealDocumentsCard({
 
   return (
     <div className="space-y-4">
-      {/* ── Quotes (generated from the deal's Products — numbered, history kept) ── */}
+      {/* ── Quotes ─────────────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
           Quotes
           <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] font-normal normal-case text-emerald-700">
-            from the Products card
+            saved and editable
           </Badge>
         </p>
         {quotes.length > 0 ? (
           <ul className="space-y-1">
-            {quotes.map((d) => (
-              <DocRow
-                key={d.id}
+            {quotes.map((q) => (
+              <QuoteRow
+                key={q.id}
+                quote={q}
                 dealId={dealId}
-                doc={d}
                 canWrite={canWrite}
-                deleting={remove.isPending}
-                onDelete={() => remove.mutate(d.id)}
+                canDelete={canDelete}
+                deleting={archiveQuote.isPending}
+                onEdit={() => openEditor(q)}
+                onDelete={() =>
+                  archiveQuote.mutate(q.id, { onSuccess: () => toast.success(`Quote ${q.number} deleted`) })
+                }
               />
             ))}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No quotes yet — add products to the deal, then generate one.
+            No quotes yet. Start one from the deal&apos;s products or add lines by hand.
           </p>
         )}
+        {earlierQuotePdfs.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Earlier quote PDFs (not editable)</p>
+            <ul className="space-y-1">
+              {earlierQuotePdfs.map((d) => (
+                <DocRow
+                  key={d.id}
+                  dealId={dealId}
+                  doc={d}
+                  canWrite={canWrite}
+                  deleting={remove.isPending}
+                  onDelete={() => remove.mutate(d.id)}
+                />
+              ))}
+            </ul>
+          </div>
+        )}
         {canWrite && (
-          <Button size="sm" variant="outline" disabled={generateQuote.isPending} onClick={() => setQuoteOpen(true)}>
-            {generateQuote.isPending ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ReceiptText className="mr-2 h-3.5 w-3.5" />
-            )}
-            Generate quote
+          <Button size="sm" variant="outline" onClick={() => openEditor(null)}>
+            <Plus className="mr-2 h-3.5 w-3.5" />
+            New quote
           </Button>
         )}
       </div>
 
-      {/* ── The prospectus slot (one per deal — upload replaces) ──────────── */}
+      {/* ── The prospectus slot (one per deal, upload replaces) ────────────── */}
       <div className="space-y-2">
         <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
           Sponsorship prospectus
@@ -252,7 +318,7 @@ export function CrmDealDocumentsCard({
         )}
       </div>
 
-      {/* ── Other documents ───────────────────────────────────────────────── */}
+      {/* ── Other documents ─────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">Other documents</p>
         {others.length > 0 ? (
@@ -294,70 +360,13 @@ export function CrmDealDocumentsCard({
         )}
       </div>
 
-      {/* ── Generate-quote dialog ─────────────────────────────────────────── */}
-      <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Generate a quote</DialogTitle>
-            <DialogDescription asChild>
-              <span>
-                Line items come from the deal&apos;s Products card. The quote gets the next
-                number, lands under Documents, and can be attached in Email.
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="quote-tax-rate">Tax rate %</Label>
-                <Input
-                  id="quote-tax-rate"
-                  inputMode="decimal"
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(e.target.value)}
-                  placeholder="none"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="quote-tax-label">Tax label</Label>
-                <Input id="quote-tax-label" value={taxLabel} onChange={(e) => setTaxLabel(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="quote-validity">Valid for (days)</Label>
-              <Input
-                id="quote-validity"
-                inputMode="numeric"
-                value={validityDays}
-                onChange={(e) => setValidityDays(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="quote-notes">Notes (printed on the quote)</Label>
-              <Textarea
-                id="quote-notes"
-                rows={3}
-                value={quoteNotes}
-                onChange={(e) => setQuoteNotes(e.target.value)}
-                placeholder="Payment terms, inclusions…"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQuoteOpen(false)} disabled={generateQuote.isPending}>
-              Cancel
-            </Button>
-            <Button onClick={handleGenerateQuote} disabled={generateQuote.isPending}>
-              {generateQuote.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Generate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <QuoteEditorDialog
+        key={editorSession}
+        dealId={dealId}
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        quote={editingQuote}
+      />
     </div>
   );
 }

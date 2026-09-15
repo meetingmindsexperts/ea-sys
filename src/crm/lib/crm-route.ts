@@ -249,6 +249,12 @@ const STATUS_BY_CODE: Record<string, number> = {
   TEMPLATE_NOT_FOUND: 404,
   PRODUCT_NOT_FOUND: 404,
   LINE_NOT_FOUND: 404,
+  // saved quotes (Sep 15 2026): an edit carries the version it loaded, so a
+  // colleague's save in between is a conflict, not an overwrite
+  QUOTE_NOT_FOUND: 404,
+  QUOTE_ARCHIVED: 409,
+  STALE_WRITE: 409,
+  QUOTE_TOTAL_TOO_LARGE: 400,
   // forbidden — you may be in the CRM, but this row isn't yours to rewrite
   NOT_AUTHOR: 403,
   // conflict — someone else got there first, or the state moved under us

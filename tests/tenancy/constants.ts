@@ -437,6 +437,12 @@ export const CRM_DP_A_ID = "tenancy-crmdp-a";
 export const CRM_DP_B_ID = "tenancy-crmdp-b";
 export const CRM_DOC_A_ID = "tenancy-crmdoc-a";
 export const CRM_DOC_B_ID = "tenancy-crmdoc-b";
+// Saved quotes (Sep 15 2026) hang off the Group-2 deal; both orgs use the same
+// quote number to prove @@unique([organizationId, number]) lets tenants coexist.
+export const CRM_QUOTE_A_ID = "tenancy-crmquote-a";
+export const CRM_QUOTE_B_ID = "tenancy-crmquote-b";
+export const CRM_QUOTE_LINE_A_ID = "tenancy-crmquoteline-a";
+export const CRM_QUOTE_LINE_B_ID = "tenancy-crmquoteline-b";
 export const CRM_THREAD_A_ID = "tenancy-crmthread-a";
 export const CRM_THREAD_B_ID = "tenancy-crmthread-b";
 export const CRM_THREAD_A_TOKEN = "tenancy-thread-token-a";

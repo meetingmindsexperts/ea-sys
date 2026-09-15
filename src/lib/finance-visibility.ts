@@ -153,6 +153,11 @@ const FINANCIAL_KEYS = new Set<string>([
   // list everywhere it appears, and "sponsor" would blank a resolved name on
   // any payload that carries one. Same trap the `value` note above describes.
   "sponsorId",
+  // A CRM quote's total as recorded on the deal's History (Sep 15 2026). Named
+  // specifically, per the `value` note above: a bare "total" would blank every
+  // unrelated total in every payload. CRM callers strip it for anyone
+  // canViewDealValues refuses, the same set that cannot open the quote itself.
+  "quoteTotal",
 ]);
 
 /**

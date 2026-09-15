@@ -175,6 +175,20 @@ export function canExportCrm(role: string | null | undefined, isApiKey = false):
 }
 
 /**
+ * True when the caller may change the organisation's DEFAULT quote terms (CRM
+ * quote editor, Sep 15 2026). Those terms are the contract wording every future
+ * quote starts from, so changing them is an admin decision: the export set.
+ * Editing the terms on ONE quote needs only write access.
+ *
+ * API keys are REFUSED: contract wording is changed by a person in the editor,
+ * never by an integration. Fails closed.
+ */
+export function canManageCrmQuoteDefaults(role: string | null | undefined, isApiKey = false): boolean {
+  if (isApiKey) return false;
+  return !!role && CRM_EXPORT_ROLES.has(role);
+}
+
+/**
  * True when the caller may archive (soft-delete) or restore a CRM record.
  * Admin tier + CRM_USER only. API keys are admin-equivalent.
  */

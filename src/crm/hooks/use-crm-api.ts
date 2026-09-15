@@ -43,6 +43,7 @@ import type {
   CrmInboxThreadDetail,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
+import type { CrmQuoteDraft, CrmQuoteRow, QuoteInput } from "@/crm/lib/quote-rules";
 
 export interface CrmDealFilters {
   eventId?: string;
@@ -88,6 +89,8 @@ export const crmKeys = {
   products: (includeArchived: boolean) => ["crm", "products", includeArchived] as const,
   dealProducts: (dealId: string) => ["crm", "deal-products", dealId] as const,
   dealDocuments: (dealId: string) => ["crm", "deal-documents", dealId] as const,
+  dealQuotes: (dealId: string) => ["crm", "deal-quotes", dealId] as const,
+  quoteDraft: (dealId: string) => ["crm", "quote-draft", dealId] as const,
   notifications: ["crm", "notifications"] as const,
   inbox: (dealId?: string) => ["crm", "inbox", dealId ?? ""] as const,
   inboxThread: (threadId: string) => ["crm", "inbox-thread", threadId] as const,
@@ -987,16 +990,73 @@ export function useUploadCrmDealDocument(dealId: string) {
   });
 }
 
-export function useGenerateCrmDealQuote(dealId: string) {
+// ── Saved quotes (Sep 15 2026) ────────────────────────────────────────────────
+
+/** The draft a new quote starts from, plus whether the caller may save default terms. */
+export function useCrmQuoteDraft(dealId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: crmKeys.quoteDraft(dealId),
+    queryFn: () =>
+      apiFetch<{ draft: CrmQuoteDraft; canSaveDefaultTerms: boolean }>(`/api/crm/deals/${dealId}/quote`),
+    enabled: enabled && !!dealId,
+    // The draft carries today's date and the deal's current products: never reuse a stale one.
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useCrmDealQuotes(dealId: string | null | undefined) {
+  return useQuery({
+    queryKey: crmKeys.dealQuotes(dealId ?? ""),
+    queryFn: () => apiFetch<{ quotes: CrmQuoteRow[] }>(`/api/crm/deals/${dealId}/quotes`).then((r) => r.quotes),
+    enabled: !!dealId,
+  });
+}
+
+/** A quote write changes the quote list, the Documents card (its PDF) and the deal's History. */
+function useInvalidateDealQuotes(dealId: string) {
   const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: crmKeys.dealQuotes(dealId) });
+    qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });
+    qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
+  };
+}
+
+export function useCreateCrmDealQuote(dealId: string) {
+  const invalidate = useInvalidateDealQuotes(dealId);
   return useMutation({
-    mutationFn: (body: { taxRate?: number | null; taxLabel?: string; validityDays: number; notes?: string | null }) =>
-      apiPostJson<{ document: CrmDealDocumentRow; quoteNumber: string }>(`/api/crm/deals/${dealId}/quote`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });
-      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
+    mutationFn: (body: QuoteInput & { saveTermsAsDefault?: boolean }) =>
+      apiPostJson<{ quote: CrmQuoteRow; quoteNumber: string }>(`/api/crm/deals/${dealId}/quote`, body),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save the quote"),
+  });
+}
+
+export function useUpdateCrmDealQuote(dealId: string) {
+  const invalidate = useInvalidateDealQuotes(dealId);
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      ...body
+    }: QuoteInput & { quoteId: string; expectedVersion: number; saveTermsAsDefault?: boolean }) =>
+      apiPatchJson<{ quote: CrmQuoteRow }>(`/api/crm/deals/${dealId}/quotes/${quoteId}`, body),
+    onSuccess: invalidate,
+    onError: (err) => {
+      // A 409 (changed or deleted meanwhile) means the list holds an old version.
+      // Refetch it, or reopening the editor would send the same version and fail again.
+      if (err instanceof ApiError && err.status === 409) invalidate();
+      toast.error(err instanceof Error ? err.message : "Could not update the quote");
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not generate the quote"),
+  });
+}
+
+export function useArchiveCrmDealQuote(dealId: string) {
+  const invalidate = useInvalidateDealQuotes(dealId);
+  return useMutation({
+    mutationFn: (quoteId: string) => apiDelete<{ archived: true }>(`/api/crm/deals/${dealId}/quotes/${quoteId}`),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete the quote"),
   });
 }
 

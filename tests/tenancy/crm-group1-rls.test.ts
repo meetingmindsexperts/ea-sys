@@ -135,6 +135,20 @@ const CASES: CrmRlsCase[] = [
     deleteB: () => db.crmQuoteCounter.delete({ where: { organizationId: ORG_B_ID } }),
   },
   {
+    // PK is (organizationId, year): the same reason as the counter above, so the
+    // read + delete isolation subset only.
+    name: "CrmQuoteSequence",
+    scopedRead: () => db.crmQuoteSequence.findMany({ select: { organizationId: true } }),
+    findB: () =>
+      db.crmQuoteSequence.findUnique({
+        where: { organizationId_year: { organizationId: ORG_B_ID, year: 2026 } },
+        select: { organizationId: true },
+      }),
+    failClosed: () => db.crmQuoteSequence.findMany({ select: { organizationId: true } }),
+    deleteB: () =>
+      db.crmQuoteSequence.delete({ where: { organizationId_year: { organizationId: ORG_B_ID, year: 2026 } } }),
+  },
+  {
     name: "CrmEmailSendClaim",
     scopedRead: () => db.crmEmailSendClaim.findMany({ select: { organizationId: true } }),
     findB: () => db.crmEmailSendClaim.findUnique({ where: { id: CRM_CLAIM_B_ID }, select: { id: true } }),
