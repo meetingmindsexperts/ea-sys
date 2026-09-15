@@ -14,6 +14,8 @@ export interface CompletenessBudget {
 }
 export interface CompletenessLine {
   categoryId: string;
+  /** A line whose planned amount is zero (a blank template line) does not cover its category. */
+  planned: MoneyInput;
   isContingency: boolean;
   deletedAt: Date | string | null;
   transactionCurrency: string;
@@ -43,11 +45,14 @@ export function missingForSubmission(
   if (!budget.expectedAttendance || budget.expectedAttendance <= 0) missing.push("Expected attendance is required at submission.");
   const live = lines.filter((l) => !l.deletedAt);
   if (live.filter((l) => !l.isContingency).length === 0) missing.push("The budget has no lines.");
-  const covered = new Set(live.map((l) => l.categoryId));
+  // Owner ruling, 15 September 2026: only a line with a planned amount covers its
+  // category, so a budget seeded from a template cannot submit with nothing entered;
+  // a category with no cost is marked not applicable instead.
+  const covered = new Set(live.filter((l) => !l.isContingency && money(l.planned).gt(0)).map((l) => l.categoryId));
   const na = new Set(budget.naCategoryCodes);
   for (const c of categories) {
     if (!c.isActive || c.depth !== 0 || c.code === contingencyCode) continue;
-    if (!covered.has(c.id) && !na.has(c.code)) missing.push(`Category ${c.code} has no lines and is not marked not applicable.`);
+    if (!covered.has(c.id) && !na.has(c.code)) missing.push(`Category ${c.code} has no line with a planned amount and is not marked not applicable.`);
   }
   for (const l of live) {
     if (budget.reportingCurrency && l.transactionCurrency !== budget.reportingCurrency && money(l.fxRateToReporting).lte(0)) {

@@ -304,7 +304,8 @@ function Note({ children }: { children: React.ReactNode }) {
 /**
  * Spec §6a: every top-level expense category has lines or is marked not
  * applicable before the budget submits. One chip per category: covered
- * (has a line), not applicable (marked), or open (neither, so it blocks
+ * (has a line with a planned amount; a blank line does not count, the same
+ * rule the submit runs), not applicable (marked), or open (neither, so it blocks
  * submission). Marking goes through the header write with the version lock.
  */
 function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; categories: BudgetCategoryRow[]; editable: boolean; onFailed: (err: unknown) => void }) {
@@ -312,7 +313,7 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const cats = lineCategories(categories);
   if (cats.length === 0) return null;
-  const covered = new Set((b.lines ?? []).filter((l) => !l.isContingency).map((l) => l.categoryId));
+  const covered = new Set((b.lines ?? []).filter((l) => !l.isContingency && Number(l.planned) > 0).map((l) => l.categoryId));
   const na = new Set(b.naCategoryCodes);
   const open = cats.filter((c) => !covered.has(c.id) && !na.has(c.code) && c.code !== CONTINGENCY_CATEGORY_CODE);
 
@@ -335,8 +336,8 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
         <div className="text-xs text-muted-foreground">
           {editable
             ? open.length > 0
-              ? `${open.length} still need${open.length === 1 ? "s" : ""} a line or the not-applicable mark before submission.`
-              : "Every category has a line or is marked not applicable."
+              ? `${open.length} still need${open.length === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`
+              : "Every category has a planned amount or is marked not applicable."
             : "Grey chips were marked not applicable."}
         </div>
       </div>
@@ -349,7 +350,7 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
             : isCovered
               ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
               : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100";
-          const title = isNa ? "Marked not applicable" : isCovered ? "Has a line" : "No line yet and not marked not applicable";
+          const title = isNa ? "Marked not applicable" : isCovered ? "Has a line with a planned amount" : "No planned amount yet and not marked not applicable";
           return editable ? (
             <button
               key={c.id}

@@ -9,6 +9,7 @@ import {
   canAdminProcurement,
   canApproveProcurement,
   canAuthorBudgets,
+  canDecideSuppliers,
   canRequestProcurement,
   canSettleProcurement,
   canViewProcurement,
@@ -45,6 +46,16 @@ describe("procurement visibility", () => {
     expect(canSettleProcurement(requester)).toBe(false);
     expect(hasAnyProcurementGrant({ role: "MEMBER" })).toBe(false);
     expect(hasAnyProcurementGrant({ role: "MEMBER", procurementApproveCeilingAed: 0 })).toBe(false);
+  });
+
+  it("suppliers are decided by the settle holder, a super admin or the final approver, and nobody else", () => {
+    expect(canDecideSuppliers({ role: "MEMBER", procurementSettle: true })).toBe(true);
+    expect(canDecideSuppliers({ role: "SUPER_ADMIN" })).toBe(true);
+    expect(canDecideSuppliers({ role: "ORGANIZER", procurementApproveUnlimited: true })).toBe(true);
+    expect(canDecideSuppliers({ role: "ADMIN" })).toBe(false);
+    expect(canDecideSuppliers({ role: "ADMIN", procurementApproveCeilingAed: 1_000_000 })).toBe(false);
+    expect(canDecideSuppliers({ role: "MEMBER", procurementRequest: true })).toBe(false);
+    expect(canDecideSuppliers(null)).toBe(false);
   });
 
   it("approval authority is an inclusive AED ceiling; unlimited outranks it; zero is none", () => {

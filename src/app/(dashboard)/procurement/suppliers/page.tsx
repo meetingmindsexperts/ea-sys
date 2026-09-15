@@ -2,15 +2,15 @@
 /**
  * The supplier list with the proposed-supplier queue (spec §6, §9 "supplier
  * list with the proposed-supplier queue"). A request-grant holder proposes;
- * the settle holder approves or rejects from the queue, edits, deactivates
- * and restores. The two classified fields (tax number, bank details) arrive
+ * the settle holder, a super admin or the final approver approves or rejects
+ * from the queue; the settle holder edits, deactivates and restores. The two classified fields (tax number, bank details) arrive
  * redacted for a reader outside the boundary and the row says so.
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
+import { canDecideSuppliers, canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
 import { BUDGET_CURRENCIES } from "@/procurement/lib/budget-schemas";
 import { useDecideSupplier, useImportSuppliers, useProposeSupplier, useSuppliers, useUpdateSupplier, type SupplierRow } from "@/procurement/hooks/use-procurement-api";
 import { ProcurementCsvImportDialog } from "@/procurement/components/csv-import-dialog";
@@ -37,6 +37,8 @@ const STATUS_CLASS: Record<SupplierRow["approvalStatus"], string> = {
 export default function SuppliersPage() {
   const { data: session } = useSession();
   const canSettle = canSettleProcurement(session?.user);
+  const canDecide = canDecideSuppliers(session?.user);
+  const showActions = canSettle || canDecide;
   const canPropose = canSettle || canRequestProcurement(session?.user);
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [showInactive, setShowInactive] = useState(false);
@@ -110,12 +112,12 @@ export default function SuppliersPage() {
               <TableHead className="w-36">Country · currency</TableHead>
               <TableHead className="w-40">Tax registration</TableHead>
               <TableHead className="w-32">Status</TableHead>
-              {canSettle && <TableHead className="w-40 text-right">Actions</TableHead>}
+              {showActions && <TableHead className="w-40 text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
-              <TableRow><TableCell colSpan={canSettle ? 6 : 5} className="py-8 text-center text-sm text-muted-foreground">No supplier matches.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={showActions ? 6 : 5} className="py-8 text-center text-sm text-muted-foreground">No supplier matches.</TableCell></TableRow>
             ) : rows.map((s) => (
               <TableRow key={s.id} className={s.isActive ? undefined : "opacity-60"}>
                 <TableCell className="font-mono text-xs">{s.code}</TableCell>
@@ -130,12 +132,12 @@ export default function SuppliersPage() {
                   <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CLASS[s.approvalStatus]}`}>{STATUS_LABEL[s.approvalStatus]}</span>
                   {!s.isActive && <span className="ml-1 text-xs text-muted-foreground">deactivated</span>}
                 </TableCell>
-                {canSettle && (
+                {showActions && (
                   <TableCell className="text-right">
-                    {s.approvalStatus === "PROPOSED" && (
+                    {canDecide && s.approvalStatus === "PROPOSED" && (
                       <Button variant="outline" size="sm" className="mr-1" onClick={() => setDeciding(s)}><Check className="h-4 w-4" /> Decide</Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Edit ${s.code}`} onClick={() => setEditing(s)}><Pencil className="h-4 w-4" /></Button>
+                    {canSettle && <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Edit ${s.code}`} onClick={() => setEditing(s)}><Pencil className="h-4 w-4" /></Button>}
                   </TableCell>
                 )}
               </TableRow>
@@ -150,7 +152,7 @@ export default function SuppliersPage() {
           open={importing}
           onOpenChange={setImporting}
           title="Import suppliers"
-          description={canSettle ? "One row per supplier, created approved: you hold the settle grant. A row whose code or legal name already exists is skipped." : "One row per supplier, created as Proposed for the settle holder to approve. A row whose code or legal name already exists is skipped."}
+          description={canSettle ? "One row per supplier, created approved: you hold the settle grant. A row whose code or legal name already exists is skipped." : "One row per supplier, created as Proposed, waiting for approval. A row whose code or legal name already exists is skipped."}
           columns={SUPPLIER_IMPORT_COLUMNS}
           templateFilename="suppliers-template.csv"
           onImport={(csv) => importSuppliers.mutateAsync(csv)}
@@ -158,7 +160,7 @@ export default function SuppliersPage() {
           note="Bank details are never imported; the settle holder enters them per supplier."
         />
       )}
-      {canSettle && deciding && <DecideDialog key={deciding.id} supplier={deciding} onClose={() => setDeciding(null)} />}
+      {canDecide && deciding && <DecideDialog key={deciding.id} supplier={deciding} onClose={() => setDeciding(null)} />}
       {canSettle && editing && <EditDialog key={`${editing.id}-${editing.version}`} supplier={editing} onClose={() => setEditing(null)} />}
     </div>
   );
@@ -194,7 +196,7 @@ function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenCh
         contacts: f.contactName.trim() ? [{ name: f.contactName.trim(), ...(f.contactEmail.trim() ? { email: f.contactEmail.trim() } : {}), ...(f.contactPhone.trim() ? { phone: f.contactPhone.trim() } : {}) }] : [],
         notes: f.notes.trim() || null,
       });
-      toast.success(settle ? `${s.code} added and approved.` : `${s.code} proposed; it waits for the settle holder's approval.`);
+      toast.success(settle ? `${s.code} added and approved.` : `${s.code} proposed; it waits for approval.`);
       setF(empty);
       onOpenChange(false);
     } catch (err) {
@@ -206,7 +208,7 @@ function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenCh
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{settle ? "Add a supplier" : "Propose a supplier"}</DialogTitle>
-          <DialogDescription>{settle ? "Created approved: you hold the settle grant." : "The settle holder checks the tax number, the terms and the currency before the supplier can carry an order."}</DialogDescription>
+          <DialogDescription>{settle ? "Created approved: you hold the settle grant." : "The settle holder, a super admin or the final approver checks the tax number, the terms and the currency before the supplier can carry an order."}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2"><Label htmlFor="legalName">Legal name</Label><Input id="legalName" value={f.legalName} onChange={(e) => set("legalName", e.target.value)} placeholder="As on the trade licence" autoFocus /></div>

@@ -19,13 +19,14 @@ import {
   canAdminProcurement,
   canApproveProcurement,
   canAuthorBudgets,
+  canDecideSuppliers,
   canRequestProcurement,
   canSettleProcurement,
   canViewProcurement,
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
-export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose";
+export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier";
 
 export type ProcurementSession =
   | { user?: (ProcurementUserLike & { id?: string; organizationId?: string | null }) | null }
@@ -49,6 +50,8 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
       return canRequestProcurement(user) || canSettleProcurement(user);
     case "approve":
       return canApproveProcurement(user, amountAed ?? Number.NaN);
+    case "decide-supplier":
+      return canDecideSuppliers(user);
   }
 }
 

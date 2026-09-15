@@ -59,6 +59,17 @@ export function canSettleProcurement(user: ProcurementUserLike | null | undefine
   return user?.procurementSettle === true;
 }
 
+/**
+ * Who approves or rejects a proposed supplier: the settle holder, a super admin,
+ * or the final approver (owner ruling, 15 September 2026). Wider than the settle
+ * grant and narrower than admin: an ordinary admin or a banded approver does not
+ * decide suppliers. Editing a supplier stays the settle holder's.
+ */
+export function canDecideSuppliers(user: ProcurementUserLike | null | undefined): boolean {
+  if (!user) return false;
+  return user.procurementSettle === true || user.role === "SUPER_ADMIN" || user.procurementApproveUnlimited === true;
+}
+
 const SUPPLIER_FINANCIALS_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 /**

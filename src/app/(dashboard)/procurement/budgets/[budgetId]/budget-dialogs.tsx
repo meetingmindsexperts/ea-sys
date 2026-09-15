@@ -137,7 +137,7 @@ export function SubmitDialog({ b, categories, open, onOpenChange }: DialogProps 
   // The same rule the service runs, so the dialog can say what is missing before the click; the server's answer replaces it after.
   const localMissing = missingForSubmission(
     { reportingCurrency: b.reportingCurrency, expectedAttendance: b.expectedAttendance, contingencyPercent: b.contingencyPercent, naCategoryCodes: b.naCategoryCodes },
-    (b.lines ?? []).map((l) => ({ categoryId: l.categoryId, isContingency: l.isContingency, deletedAt: null, transactionCurrency: l.transactionCurrency, fxRateToReporting: l.fxRateToReporting })),
+    (b.lines ?? []).map((l) => ({ categoryId: l.categoryId, planned: l.planned, isContingency: l.isContingency, deletedAt: null, transactionCurrency: l.transactionCurrency, fxRateToReporting: l.fxRateToReporting })),
     categories.map((c) => ({ id: c.id, code: c.code, depth: c.depth, isActive: c.isActive })),
     CONTINGENCY_CATEGORY_CODE,
   );

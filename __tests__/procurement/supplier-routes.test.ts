@@ -99,10 +99,20 @@ describe("supplier routes: who writes", () => {
     await proposePost(req("/api/procurement/suppliers", "POST", body));
     expect(svc.proposeSupplier).toHaveBeenLastCalledWith(expect.objectContaining({ approveOnCreate: true }));
   });
-  it("only the settle holder decides and edits; an ADMIN without it is refused", async () => {
+  it("the settle holder, a super admin or the final approver decides; only the settle holder edits; an ADMIN is refused both", async () => {
     authMock.mockResolvedValue(user({ role: "ADMIN" }));
     expect((await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED" }), params)).status).toBe(403);
     expect((await patchOne(req("/api/procurement/suppliers/s1", "PATCH", { expectedVersion: 1, currency: "USD" }), params)).status).toBe(403);
+    authMock.mockResolvedValue(user({ role: "ADMIN", procurementApproveCeilingAed: 1000000 }));
+    expect((await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED" }), params)).status).toBe(403);
+    authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
+    expect((await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED" }), params)).status).toBe(200);
+    expect((await patchOne(req("/api/procurement/suppliers/s1", "PATCH", { expectedVersion: 1, currency: "USD" }), params)).status).toBe(403);
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementApproveUnlimited: true }));
+    const finalApprover = await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED" }), params);
+    expect(finalApprover.status).toBe(200);
+    // A final approver who is not in the financials boundary still sees the bank details blanked.
+    expect((await finalApprover.json()).supplier).toMatchObject({ financialsRedacted: true });
     authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
     expect((await decidePost(req("/api/procurement/suppliers/s1/decide", "POST", { decision: "APPROVED", note: "ok" }), params)).status).toBe(200);
     expect(svc.decideSupplier).toHaveBeenCalledWith(expect.objectContaining({ supplierId: "s1", decision: "APPROVED", note: "ok" }));

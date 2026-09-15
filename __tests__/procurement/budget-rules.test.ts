@@ -8,8 +8,8 @@ const cats = [
   { id: "c-old", code: "OLD", depth: 0, isActive: false },
   { id: "c-sub", code: "VENUE.AV", depth: 1, isActive: true },
 ];
-const line = (categoryId: string, over: Partial<{ isContingency: boolean; deletedAt: Date | null; transactionCurrency: string; fxRateToReporting: string }> = {}) => ({
-  categoryId, isContingency: false, deletedAt: null, transactionCurrency: "AED", fxRateToReporting: "1", ...over,
+const line = (categoryId: string, over: Partial<{ planned: string; isContingency: boolean; deletedAt: Date | null; transactionCurrency: string; fxRateToReporting: string }> = {}) => ({
+  categoryId, planned: "1000", isContingency: false, deletedAt: null, transactionCurrency: "AED", fxRateToReporting: "1", ...over,
 });
 const ok = { reportingCurrency: "AED", expectedAttendance: 120, contingencyPercent: 10, naCategoryCodes: ["FNB"] };
 
@@ -29,9 +29,15 @@ describe("missingForSubmission (spec §6a completeness)", () => {
       "Contingency percent is not set.",
       "Expected attendance is required at submission.",
       "The budget has no lines.",
-      "Category VENUE has no lines and is not marked not applicable.",
-      "Category FNB has no lines and is not marked not applicable.",
+      "Category VENUE has no line with a planned amount and is not marked not applicable.",
+      "Category FNB has no line with a planned amount and is not marked not applicable.",
     ]);
+  });
+  it("a line with no planned amount (a blank template line) does not cover its category", () => {
+    expect(missingForSubmission(ok, [line("c-venue", { planned: "0" }), line("c-cont", { isContingency: true })], cats, "CONTINGENCY")).toEqual([
+      "Category VENUE has no line with a planned amount and is not marked not applicable.",
+    ]);
+    expect(missingForSubmission(ok, [line("c-venue", { planned: "0" }), line("c-venue", { planned: "250" })], cats, "CONTINGENCY")).toEqual([]);
   });
   it("requires a rate on a foreign-currency line", () => {
     expect(missingForSubmission(ok, [line("c-venue", { transactionCurrency: "USD", fxRateToReporting: "0" })], cats, "CONTINGENCY")).toEqual(["A USD line has no exchange rate."]);
