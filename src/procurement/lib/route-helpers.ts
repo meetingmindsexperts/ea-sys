@@ -10,10 +10,11 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
-import { canAdminProcurement, canRequestProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
+import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
 import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
 import type { BudgetErrorCode } from "../services/budget-service";
 import type { SpendRequestErrorCode } from "../services/spend-request-service";
+import type { CommitmentErrorCode, OrderActor } from "../services/commitment-service";
 
 export type ProcurementActor = ProcurementUserLike & { id: string; organizationId: string };
 
@@ -60,6 +61,38 @@ export function denyUnlessRequestOrAdmin(route: string, user: ProcurementActor):
   apiLogger.warn({ msg: `${route}:procurement-forbidden`, need: "request-or-admin", role: user.role ?? null, userId: user.id });
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
+
+/**
+ * Who is acting on a purchase order, as the commitment service judges it: the
+ * guard admits "view" and the service decides per action (the requester with
+ * the grant, the settle holder, an approver, an admin).
+ */
+export function orderActorFrom(user: ProcurementActor): OrderActor {
+  return {
+    id: user.id,
+    isAdmin: canAdminProcurement(user),
+    canRequest: canRequestProcurement(user),
+    canSettle: canSettleProcurement(user),
+    canApprove: canApproveProcurement(user, 0),
+  };
+}
+
+export const HTTP_STATUS_FOR_COMMITMENT_ERROR: Record<CommitmentErrorCode, number> = {
+  COMMITMENT_NOT_FOUND: 404,
+  REQUEST_NOT_FOUND: 404,
+  LINE_NOT_FOUND: 404,
+  INVALID_STATUS: 409,
+  ALREADY_ORDERED: 409,
+  SUPPLIER_NOT_APPROVED: 409,
+  BUDGET_NOT_ACTIVE: 409,
+  NOT_ALLOWED: 403,
+  REASON_REQUIRED: 422,
+  NO_SUPPLIER_EMAIL: 422,
+  SEND_FAILED: 502,
+  STALE_WRITE: 409,
+  INVALID_FILTER: 400,
+  UNKNOWN: 500,
+};
 
 export const HTTP_STATUS_FOR_BUDGET_ERROR: Record<BudgetErrorCode, number> = {
   EVENT_NOT_FOUND: 404,

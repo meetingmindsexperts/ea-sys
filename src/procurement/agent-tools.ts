@@ -23,6 +23,10 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import { canViewProcurement } from "@/lib/procurement-visibility";
 import { getBudget, listBudgets, type BudgetLineView, type BudgetView } from "@/procurement/services/budget-service";
+import { invalidSpendRequestStatusFilter, listSpendRequests } from "@/procurement/services/spend-request-service";
+import { invalidCommitmentStatusFilter, listCommitments } from "@/procurement/services/commitment-service";
+import { SPEND_REQUEST_STATUS_LABEL } from "@/procurement/lib/spend-request-rules";
+import { COMMITMENT_STATUS_LABEL } from "@/procurement/lib/commitment-rules";
 
 export interface ProcurementMcpActor {
   /** Session role behind an OAuth grant; null for an API key. */
@@ -105,6 +109,55 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
         const b = r.budget;
         const lines = b.lines ?? [];
         return budgetLine(b) + `\n${lines.length} line(s):\n` + lines.map(lineLine).join("\n");
+      }),
+  );
+
+  // Reads only (slice 3): a spend request is raised by a person holding the
+  // request grant, and the MCP context carries a role, not a person, so
+  // create_spend_request waits until the grant can be resolved for a grant.
+  server.tool(
+    "list_spend_requests",
+    "List spend requests (Budget & Procurement module): number, title, event code, budget line, amount ex-VAT with its currency, budget check outcome, status (Draft, Pending approval, Approved, Awaiting supplier, Ordered, Rejected, Cancelled), the requester, and the purchase order number once issued. Optional status narrows; optional budgetId narrows to one budget version.",
+    {
+      status: z.enum(Object.keys(SPEND_REQUEST_STATUS_LABEL) as [string, ...string[]]).optional().describe("Narrow to one status."),
+      budgetId: z.string().optional().describe("Narrow to one budget version (from list_budgets)."),
+    },
+    async (input) =>
+      safeTool("list_spend_requests", async () => {
+        if (invalidSpendRequestStatusFilter(input.status)) return "Error: unknown status filter.";
+        const rows = await listSpendRequests(organizationId, { status: input.status, budgetId: input.budgetId });
+        if (rows.length === 0) return "No spend requests match.";
+        return `${rows.length} spend request(s):\n` + rows.map((r) =>
+          `${r.requestNo} [${r.statusLabel}] ${r.title}: ${r.currency} ${r.amount} ex-VAT (VAT ${r.taxAmount}), event ${r.eventCode}` +
+          (r.budget ? ` v${r.budget.versionNo}` : "") +
+          `, check ${r.budgetCheckStatus}, raised by ${r.requesterName ?? "unknown"}` +
+          (r.supplier ? `, supplier ${r.supplier.displayName}` : r.proposedVendorName ? `, proposed vendor ${r.proposedVendorName}` : "") +
+          (r.order ? `, order ${r.order.commitmentNo} (${r.order.fulfillmentLabel})` : "") +
+          `\n  ID: ${r.id}  lineKey: ${r.lineKey ?? "none"}`,
+        ).join("\n");
+      }),
+  );
+
+  server.tool(
+    "list_commitments",
+    "List purchase orders (Budget & Procurement module): order number, supplier, event code, amount ex-VAT with VAT beside it, status (Issued, Cancelled), whether it was sent to the supplier, receiving state (not received, partly received, received, and whether a second person has confirmed), and the request it came from. Optional status narrows; optional budgetId or supplierId narrows further.",
+    {
+      status: z.enum(Object.keys(COMMITMENT_STATUS_LABEL) as [string, ...string[]]).optional().describe("Narrow to one status."),
+      budgetId: z.string().optional().describe("Narrow to one budget version."),
+      supplierId: z.string().optional().describe("Narrow to one supplier."),
+    },
+    async (input) =>
+      safeTool("list_commitments", async () => {
+        if (invalidCommitmentStatusFilter(input.status)) return "Error: unknown status filter.";
+        const rows = await listCommitments(organizationId, { status: input.status, budgetId: input.budgetId, supplierId: input.supplierId });
+        if (rows.length === 0) return "No purchase orders match.";
+        return `${rows.length} purchase order(s):\n` + rows.map((c) =>
+          `${c.commitmentNo} [${c.statusLabel}] ${c.supplier.displayName}: ${c.currency} ${c.amount} ex-VAT (VAT ${c.taxAmount}), event ${c.eventCode}` +
+          `, ${c.fulfillmentLabel}${c.receiptNeedsSecondPerson && c.fulfillmentStatus === "RECEIVED" ? (c.receiptConfirmed ? ", receipt confirmed" : ", receipt awaiting a second person") : ""}` +
+          `, ${c.sentToSupplierAt ? "sent to supplier" : "not sent to supplier"}` +
+          (c.spendRequest ? `, from ${c.spendRequest.requestNo} raised by ${c.requesterName ?? "unknown"}` : "") +
+          `\n  ID: ${c.id}  lineKey: ${c.lineKey}`,
+        ).join("\n");
       }),
   );
 }

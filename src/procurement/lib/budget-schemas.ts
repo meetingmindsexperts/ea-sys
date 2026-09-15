@@ -197,6 +197,8 @@ const spendRequestFields = {
   neededBy: calendarDay.nullable().optional(),
   sourcingMethod: z.enum(SOURCING_METHODS).nullable().optional(),
   priority: z.enum(SPEND_REQUEST_PRIORITIES).optional(),
+  /** Email the purchase order PDF to the supplier when the order is issued (default off; the Send button is the manual path). */
+  emailSupplierOnIssue: z.boolean().optional(),
 };
 export const createSpendRequestSchema = z.object(spendRequestFields);
 export const updateSpendRequestSchema = z.object({ ...spendRequestFields, expectedVersion: z.number().int().min(1) }).partial({ budgetId: true, title: true, amount: true, currency: true });
@@ -228,6 +230,17 @@ export const createQuoteSchema = z.object({
   recommended: z.boolean().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
 });
+// ── purchase orders (slice 3) ────────────────────────────────────────────────
+export const receiveOrderSchema = z.object({
+  extent: z.enum(["PARTIAL", "FULL"]),
+  expectedVersion: z.number().int().min(1),
+});
+export const confirmReceiptSchema = z.object({ expectedVersion: z.number().int().min(1) });
+export const cancelOrderSchema = z.object({
+  reason: z.string().trim().min(1).max(2000),
+  expectedVersion: z.number().int().min(1),
+});
+
 /** The live side panel's question: this amount on this line, what does the check say and who would decide? */
 export const budgetCheckQuerySchema = z.object({
   budgetId: z.string().min(1).max(100),

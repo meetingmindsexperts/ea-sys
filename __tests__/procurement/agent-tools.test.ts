@@ -7,6 +7,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const svc = vi.hoisted(() => ({ listBudgets: vi.fn(), getBudget: vi.fn() }));
 vi.mock("@/procurement/services/budget-service", () => svc);
+const reqSvc = vi.hoisted(() => ({ listSpendRequests: vi.fn(), invalidSpendRequestStatusFilter: (s: string | undefined) => s !== undefined && !["DRAFT", "PENDING_APPROVAL", "APPROVED", "AWAITING_SUPPLIER", "CONVERTED", "REJECTED", "CANCELLED", "CLOSED", "SUBMITTED", "BUDGET_CHECKED"].includes(s) }));
+vi.mock("@/procurement/services/spend-request-service", () => reqSvc);
+const orderSvc = vi.hoisted(() => ({ listCommitments: vi.fn(), invalidCommitmentStatusFilter: (s: string | undefined) => s !== undefined && !["APPROVED", "SENT_TO_ACCOUNTING", "POSTED", "CLOSED", "CANCELLED"].includes(s) }));
+vi.mock("@/procurement/services/commitment-service", () => orderSvc);
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 
@@ -39,10 +43,10 @@ describe("registration gate", () => {
     registerProcurementMcpTools(server, "org-1", { role: "WEBINARS", fromApiKey: false });
     expect(tools.size).toBe(0);
   });
-  it("registers the two reads for a reading role", () => {
+  it("registers the four reads for a reading role", () => {
     const { tools, server } = fakeServer();
     registerProcurementMcpTools(server, "org-1", { role: "ORGANIZER", fromApiKey: false });
-    expect([...tools.keys()].sort()).toEqual(["get_budget", "list_budgets"]);
+    expect([...tools.keys()].sort()).toEqual(["get_budget", "list_budgets", "list_commitments", "list_spend_requests"]);
   });
 });
 
@@ -68,5 +72,29 @@ describe("the tools", () => {
     const miss = await tools.get("get_budget")!({ budgetId: "nope" });
     expect(miss.content[0].text).toContain("Error: The budget was not found.");
     expect(svc.getBudget).toHaveBeenLastCalledWith("org-1", "nope");
+  });
+});
+
+describe("the purchasing reads (slice 3)", () => {
+  it("list_spend_requests names the status, the figures, the requester and the order once issued", async () => {
+    reqSvc.listSpendRequests.mockResolvedValue([{ id: "sr1", requestNo: "PR-2026-0007", statusLabel: "Ordered", title: "LED wall", currency: "EUR", amount: "1000.0000", taxAmount: "50.0000", eventCode: "HM2026", budget: { versionNo: 1 }, budgetCheckStatus: "WITHIN_BUDGET", requesterName: "Dev Admin", supplier: { displayName: "Gulf AV" }, proposedVendorName: null, lineKey: "k-av", order: { commitmentNo: "PO-2026-0003", fulfillmentLabel: "Not received" } }]);
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    const out = await tools.get("list_spend_requests")!({ status: "CONVERTED" });
+    expect(reqSvc.listSpendRequests).toHaveBeenCalledWith("org-1", { status: "CONVERTED", budgetId: undefined });
+    expect(out.content[0].text).toContain("PR-2026-0007 [Ordered] LED wall: EUR 1000.0000 ex-VAT (VAT 50.0000), event HM2026 v1");
+    expect(out.content[0].text).toContain("order PO-2026-0003 (Not received)");
+    expect(out.content[0].text).toContain("ID: sr1  lineKey: k-av");
+    const bad = await tools.get("list_spend_requests")!({ status: "NOPE" });
+    expect(bad.content[0].text).toContain("Error: unknown status filter");
+    expect(reqSvc.listSpendRequests).toHaveBeenCalledTimes(1);
+  });
+  it("list_commitments names the supplier, the receiving state and the second-person wait", async () => {
+    orderSvc.listCommitments.mockResolvedValue([{ id: "c1", commitmentNo: "PO-2026-0003", statusLabel: "Issued", supplier: { displayName: "Gulf AV" }, currency: "EUR", amount: "1000.0000", taxAmount: "50.0000", eventCode: "HM2026", fulfillmentLabel: "Received", fulfillmentStatus: "RECEIVED", receiptNeedsSecondPerson: true, receiptConfirmed: false, sentToSupplierAt: "2026-09-15T08:00:00Z", spendRequest: { requestNo: "PR-2026-0007" }, requesterName: "Dev Admin", lineKey: "k-av" }]);
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
+    const out = await tools.get("list_commitments")!({ supplierId: "s1" });
+    expect(orderSvc.listCommitments).toHaveBeenCalledWith("org-1", { status: undefined, budgetId: undefined, supplierId: "s1" });
+    expect(out.content[0].text).toContain("PO-2026-0003 [Issued] Gulf AV: EUR 1000.0000 ex-VAT (VAT 50.0000), event HM2026, Received, receipt awaiting a second person, sent to supplier, from PR-2026-0007 raised by Dev Admin");
   });
 });

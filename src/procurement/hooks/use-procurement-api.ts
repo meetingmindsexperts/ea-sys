@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BudgetActivityItem } from "@/procurement/lib/budget-activity";
 import { ApiError, apiFetch } from "@/lib/api-fetch";
 import type { BudgetCheckStatusValue, SpendRequestStatusValue } from "@/procurement/lib/spend-request-rules";
+import type { CommitmentStatusValue, FulfillmentStatusValue } from "@/procurement/lib/commitment-rules";
 
 export type BudgetStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "FROZEN" | "CLOSED" | "ARCHIVED";
 export const BUDGET_STATUS_ORDER: BudgetStatus[] = ["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"];
@@ -224,7 +225,22 @@ export interface SpendRequestQuoteRow {
   validUntil: string | null;
   recommended: boolean;
   notes: string | null;
+  fileUrl: string | null;
+  fileName: string | null;
+  fileMimeType: string | null;
+  fileSize: number | null;
   createdAt: string;
+}
+
+/** What the requests list needs to know about a request's order; the detail carries the whole CommitmentRow. */
+export interface OrderSummaryRow {
+  id: string;
+  commitmentNo: string;
+  status: CommitmentStatusValue;
+  fulfillmentStatus: FulfillmentStatusValue;
+  fulfillmentLabel: string;
+  sentToSupplierAt: string | null;
+  receiptConfirmedAt: string | null;
 }
 
 export interface SpendRequestRow {
@@ -255,6 +271,8 @@ export interface SpendRequestRow {
   statusLabel: string;
   priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   linkedCommitmentId: string | null;
+  emailSupplierOnIssue: boolean;
+  order: OrderSummaryRow | null;
   approvalRequestId: string | null;
   submittedAt: string | null;
   decidedAt: string | null;
@@ -280,9 +298,73 @@ export interface SpendRequestLineRow {
   category: { id: string; code: string; name: string };
 }
 
+export interface CommitmentLineRow {
+  id: string;
+  lineKey: string;
+  categoryId: string | null;
+  description: string;
+  qty: string;
+  unitCost: string;
+  taxCode: string | null;
+  taxRatePercent: string | null;
+  amount: string;
+  taxAmount: string;
+  sortOrder: number;
+}
+
+export interface CommitmentRow {
+  id: string;
+  commitmentNo: string;
+  spendRequestId: string | null;
+  budgetId: string | null;
+  lineKey: string;
+  supplierId: string;
+  eventCode: string;
+  amount: string;
+  taxAmount: string;
+  currency: string;
+  fxRateToReporting: string;
+  amountReporting: string;
+  amountAed: string | null;
+  status: CommitmentStatusValue;
+  statusLabel: string;
+  fulfillmentStatus: FulfillmentStatusValue;
+  fulfillmentLabel: string;
+  accountingSyncStatus: string;
+  approvedAt: string;
+  approvedByUserId: string | null;
+  sentToSupplierAt: string | null;
+  receivedAt: string | null;
+  receivedByUserId: string | null;
+  receiptConfirmedAt: string | null;
+  receiptConfirmedByUserId: string | null;
+  receiptNeedsSecondPerson: boolean;
+  receiptConfirmed: boolean;
+  emailSupplierOnIssue: boolean;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+  cancelReason: string | null;
+  version: number;
+  createdAt: string;
+  supplier: { id: string; code: string; displayName: string; legalName: string; country: string | null; currency: string; paymentTerms: string | null; approvalStatus: string; isActive: boolean; contactEmails: { name: string; email: string }[] };
+  spendRequest: { id: string; requestNo: string; title: string; requesterUserId: string; amountAed: string | null; emailSupplierOnIssue: boolean } | null;
+  budget: { id: string; eventCode: string; versionNo: number; status: BudgetStatus; reportingCurrency: string; event: { name: string } | null } | null;
+  lines: CommitmentLineRow[];
+}
+
+export interface CommitmentDetailRow extends CommitmentRow {
+  requesterName: string | null;
+  approvedByName: string | null;
+  receivedByName: string | null;
+  receiptConfirmedByName: string | null;
+  cancelledByName: string | null;
+}
+
 export interface SpendRequestDetailRow extends SpendRequestRow {
   decidedByName: string | null;
   line: SpendRequestLineRow | null;
+  /** The purchase order this request became; null until approval issues it, and again after a cancel. */
+  order: CommitmentRow | null;
   approvals: {
     id: string;
     status: string;
@@ -339,6 +421,7 @@ export const procurementKeys = {
   requests: (filter: string) => ["procurement", "requests", filter] as const,
   request: (requestId: string) => ["procurement", "request", requestId] as const,
   budgetCheck: (key: string) => ["procurement", "budget-check", key] as const,
+  commitments: (filter: string) => ["procurement", "commitments", filter] as const,
 };
 
 export function useBudgets(filter: { eventId?: string; status?: string } = {}) {
@@ -720,6 +803,7 @@ export interface SpendRequestInput {
   neededBy?: string | null;
   sourcingMethod?: SpendRequestRow["sourcingMethod"];
   priority?: SpendRequestRow["priority"];
+  emailSupplierOnIssue?: boolean;
 }
 
 export function useCreateSpendRequest() {
@@ -790,6 +874,98 @@ export function useRemoveQuote(requestId: string) {
   const invalidate = useSpendRequestInvalidation();
   return useMutation({
     mutationFn: (quoteId: string) => send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/quotes/${quoteId}`, "DELETE", undefined, "Couldn't remove the quote").then((r) => r.request),
+    onSuccess: invalidate,
+  });
+}
+
+// ── purchase orders (slice 3) ────────────────────────────────────────────────
+
+export function useCommitments(filter: { status?: CommitmentStatusValue; budgetId?: string; supplierId?: string } = {}) {
+  const q = new URLSearchParams();
+  if (filter.status) q.set("status", filter.status);
+  if (filter.budgetId) q.set("budgetId", filter.budgetId);
+  if (filter.supplierId) q.set("supplierId", filter.supplierId);
+  const qs = q.toString();
+  return useQuery({
+    queryKey: procurementKeys.commitments(qs || "all"),
+    queryFn: () => get<{ commitments: (CommitmentRow & { requesterName: string | null })[] }>(`/api/procurement/commitments${qs ? `?${qs}` : ""}`).then((r) => r.commitments),
+  });
+}
+
+/** Every order mutation refreshes the request it belongs to, the lists, and the budget whose line it moved. */
+function useOrderInvalidation() {
+  const qc = useQueryClient();
+  return (c: { spendRequestId: string | null; budgetId: string | null }) => {
+    void qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
+    void qc.invalidateQueries({ queryKey: ["procurement", "commitments"] });
+    void qc.invalidateQueries({ queryKey: ["procurement", "budget-check"] });
+    if (c.spendRequestId) void qc.invalidateQueries({ queryKey: procurementKeys.request(c.spendRequestId) });
+    if (c.budgetId) void qc.invalidateQueries({ queryKey: procurementKeys.budget(c.budgetId) });
+  };
+}
+
+/** The manual raise, for recovery or re-issue; approval issues the order by itself. */
+export function useRaiseOrder(requestId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: () => send<{ commitment: CommitmentDetailRow }>(`/api/procurement/requests/${requestId}/order`, "POST", undefined, "Couldn't raise the purchase order").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSendOrder(commitmentId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: () => send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/send`, "POST", undefined, "Couldn't send the order").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+export function useReceiveOrder(commitmentId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: (input: { extent: "PARTIAL" | "FULL"; expectedVersion: number }) =>
+      send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/receive`, "POST", input, "Couldn't record the receipt").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+export function useConfirmReceipt(commitmentId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: (input: { expectedVersion: number }) =>
+      send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/confirm-receipt`, "POST", input, "Couldn't confirm the receipt").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCancelOrder(commitmentId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: (input: { reason: string; expectedVersion: number }) =>
+      send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/cancel`, "POST", input, "Couldn't cancel the order").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+/** The quote document: multipart, so it bypasses the JSON `send` helper on purpose. */
+export function useUploadQuoteFile(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: async ({ quoteId, file }: { quoteId: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await apiFetch<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/quotes/${quoteId}/file`, { method: "POST", body: form });
+      return r.request;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveQuoteFile(requestId: string) {
+  const invalidate = useSpendRequestInvalidation();
+  return useMutation({
+    mutationFn: (quoteId: string) => send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/quotes/${quoteId}/file`, "DELETE", undefined, "Couldn't remove the file").then((r) => r.request),
     onSuccess: invalidate,
   });
 }

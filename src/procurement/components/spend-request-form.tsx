@@ -27,6 +27,7 @@ import { BudgetCheckBadge, PRIORITY_LABEL, SOURCING_LABEL } from "@/procurement/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ShieldAlert, TriangleAlert } from "lucide-react";
@@ -49,6 +50,7 @@ interface FormState {
   sourcingMethod: Sourcing | "";
   priority: Priority;
   justification: string;
+  emailSupplierOnIssue: boolean;
 }
 
 function initial(r?: SpendRequestDetailRow): FormState {
@@ -66,6 +68,7 @@ function initial(r?: SpendRequestDetailRow): FormState {
     sourcingMethod: r?.sourcingMethod ?? "",
     priority: r?.priority ?? "NORMAL",
     justification: r?.justification ?? "",
+    emailSupplierOnIssue: r?.emailSupplierOnIssue ?? false,
   };
 }
 
@@ -90,6 +93,8 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
   const budgets = useBudgets();
   const suppliers = useSuppliers();
+  /** The automatic send needs somewhere to go: a contact with an email on the chosen supplier. */
+  const supplierHasEmail = !!(suppliers.data ?? []).find((s) => s.id === f.supplierId)?.contacts?.some((c) => !!c.email);
   const budget = useBudget(f.budgetId || null);
   const create = useCreateSpendRequest();
   const update = useUpdateSpendRequest(request?.id ?? "");
@@ -126,6 +131,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
       neededBy: f.neededBy || null,
       sourcingMethod: f.sourcingMethod || null,
       priority: f.priority,
+      emailSupplierOnIssue: f.emailSupplierOnIssue,
     };
     try {
       const saved = request ? await update.mutateAsync({ ...payload, expectedVersion: request.version }) : await create.mutateAsync(payload);
@@ -221,6 +227,19 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
                 <p className="text-xs text-muted-foreground">Propose them on the Suppliers page too; an order waits until the supplier is approved.</p>
               </div>
             )}
+          </div>
+          <div className="flex items-start gap-3 rounded-md border p-3">
+            <Switch id="sr-email" checked={f.emailSupplierOnIssue && supplierHasEmail} onCheckedChange={(v) => set("emailSupplierOnIssue", v)} disabled={!supplierHasEmail} />
+            <div className="space-y-0.5">
+              <Label htmlFor="sr-email">Email the purchase order to the supplier when it is issued</Label>
+              <p className="text-xs text-muted-foreground">
+                {supplierHasEmail
+                  ? "The PDF goes to the supplier's contact the moment the order is issued. Off, and someone sends it from the request page."
+                  : f.supplierId
+                    ? "This supplier has no contact email on the Suppliers page, so the order can only be sent by hand."
+                    : "Pick a supplier from the list to email the order automatically; a proposed vendor has no address yet."}
+              </p>
+            </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">

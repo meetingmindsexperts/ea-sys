@@ -12,6 +12,9 @@ const mockDb = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+// Slice 3: an approved supplier converts the requests waiting on it; the conversion's own mechanics are pinned in commitment-service.test.ts.
+const orderSvc = vi.hoisted(() => ({ convertRequestsAwaitingSupplier: vi.fn().mockResolvedValue({ issued: [], failed: [] }) }));
+vi.mock("@/procurement/services/commitment-service", () => orderSvc);
 
 import { decideSupplier, deriveSupplierCode, proposeSupplier, redactSupplier, updateSupplier, type SupplierRow } from "@/procurement/services/supplier-service";
 
@@ -77,6 +80,14 @@ describe("decideSupplier", () => {
     expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "APPROVE", changes: expect.objectContaining({ note: "TRN checked" }) });
     const second = await decideSupplier({ ...base, supplierId: "s1", decision: "REJECTED" });
     expect(second).toMatchObject({ ok: false, code: "ALREADY_DECIDED", meta: { approvalStatus: "APPROVED" } });
+  });
+  it("an approval converts the requests waiting on the supplier after the decision committed; a rejection converts nothing", async () => {
+    mockDb.supplier.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.supplier.findFirst.mockResolvedValue(row({ id: "s1", approvalStatus: "APPROVED" }));
+    await decideSupplier({ ...base, supplierId: "s1", decision: "APPROVED" });
+    expect(orderSvc.convertRequestsAwaitingSupplier).toHaveBeenCalledWith({ organizationId: base.organizationId, supplierId: "s1", actorUserId: base.actorUserId, source: base.source });
+    await decideSupplier({ ...base, supplierId: "s1", decision: "REJECTED" });
+    expect(orderSvc.convertRequestsAwaitingSupplier).toHaveBeenCalledTimes(1);
   });
   it("a foreign supplier is SUPPLIER_NOT_FOUND", async () => {
     mockDb.supplier.updateMany.mockResolvedValue({ count: 0 });

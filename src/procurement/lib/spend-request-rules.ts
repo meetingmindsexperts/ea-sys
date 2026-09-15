@@ -24,7 +24,8 @@ export const SPEND_REQUEST_STATUS_LABEL: Record<SpendRequestStatusValue, string>
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
   AWAITING_SUPPLIER: "Awaiting supplier",
-  CONVERTED: "Converted",
+  /** The request became a purchase order: what the person sees is the order (owner, 15 Sep 2026: "approved requests are purchase orders"). */
+  CONVERTED: "Ordered",
   CLOSED: "Closed",
 };
 /** The statuses that still sit on a line: they are shown beside the check as "already asked for" and are never counted in the stored figures. */

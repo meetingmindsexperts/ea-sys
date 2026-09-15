@@ -64,6 +64,12 @@ export const UPLOAD_SEGMENT = {
    * every path already in the database. Do not "tidy" this.
    */
   supportingDocuments: "resident-letters",
+  /**
+   * The quote documents attached to a spend request (Budget & Procurement,
+   * Sep 15, 2026): a supplier's prices, so private; streamed only through
+   * the request's quote-file route, which binds the file to the row.
+   */
+  procurementQuotes: "procurement-quotes",
 } as const;
 
 export type UploadSegment = (typeof UPLOAD_SEGMENT)[keyof typeof UPLOAD_SEGMENT];
@@ -85,6 +91,7 @@ export const UPLOAD_PREFIX = {
   crmEmailAttachments: uploadPrefix(UPLOAD_SEGMENT.crmEmailAttachments),
   emailAttachments: uploadPrefix(UPLOAD_SEGMENT.emailAttachments),
   supportingDocuments: uploadPrefix(UPLOAD_SEGMENT.supportingDocuments),
+  procurementQuotes: uploadPrefix(UPLOAD_SEGMENT.procurementQuotes),
 } as const;
 
 /**

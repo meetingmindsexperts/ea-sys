@@ -5649,6 +5649,10 @@ model SpendRequest {
   status              SpendRequestStatus   @default(DRAFT)
   priority            SpendRequestPriority @default(NORMAL)
   linkedCommitmentId  String?
+  /// The requester's choice at raise time (owner, 15 Sep 2026): email the purchase
+  /// order PDF to the supplier's contact the moment the order is issued. Off by
+  /// default; the Send button on the order covers the manual path either way.
+  emailSupplierOnIssue Boolean             @default(false)
   approvalRequestId   String?
   submittedAt         DateTime?
   decidedAt           DateTime?
@@ -5687,6 +5691,14 @@ model SpendRequestQuote {
   recommended    Boolean   @default(false)
   notes          String?   @db.Text
   mediaFileId    String?
+  /// The quote document itself (PDF or image), stored under the PRIVATE
+  /// procurement-quotes prefix and streamed only through the authed file
+  /// route: a quote carries a supplier's prices. Not a MediaFile row, which
+  /// would put it in the public media library.
+  fileUrl        String?
+  fileName       String?
+  fileMimeType   String?
+  fileSize       Int?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

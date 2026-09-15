@@ -16,6 +16,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { planSupplierImport, type SupplierImportRow } from "../lib/catalogue-import";
+import { convertRequestsAwaitingSupplier } from "./commitment-service";
 
 export const SUPPLIER_SELECT = {
   id: true, code: true, legalName: true, displayName: true, taxRegistrationNo: true, country: true, currency: true,
@@ -171,6 +172,13 @@ export async function decideSupplier(input: DecideSupplierInput): Promise<Suppli
     entityId: supplier.id,
     changes: { source: input.source, code: supplier.code, note: input.note?.trim() || null },
   });
+  // Spec §6: an approved request waiting on this supplier converts on approval.
+  // Each conversion runs in its own transaction after the decision committed, so
+  // a failure there never undoes the decision; it is logged and the request
+  // page offers "Raise the purchase order".
+  if (input.decision === "APPROVED") {
+    await convertRequestsAwaitingSupplier({ organizationId: input.organizationId, supplierId: supplier.id, actorUserId: input.actorUserId, source: input.source });
+  }
   return { ok: true, supplier };
 }
 

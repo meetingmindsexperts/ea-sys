@@ -2,6 +2,7 @@
 /** Presentational bits the spend-request pages and the inbox share, so no page imports another page. */
 import { Badge } from "@/components/ui/badge";
 import { BUDGET_CHECK_LABEL, SPEND_REQUEST_STATUS_LABEL, type BudgetCheckStatusValue, type SpendRequestStatusValue } from "@/procurement/lib/spend-request-rules";
+import { COMMITMENT_STATUS_LABEL, FULFILLMENT_LABEL, type CommitmentStatusValue, type FulfillmentStatusValue } from "@/procurement/lib/commitment-rules";
 
 const STATUS_CLASS: Record<SpendRequestStatusValue, string> = {
   DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
@@ -29,6 +30,28 @@ const CHECK_CLASS: Record<BudgetCheckStatusValue, string> = {
 
 export function BudgetCheckBadge({ status }: { status: BudgetCheckStatusValue }) {
   return <Badge variant="secondary" className={CHECK_CLASS[status] ?? ""}>{BUDGET_CHECK_LABEL[status] ?? status}</Badge>;
+}
+
+const ORDER_CLASS: Record<CommitmentStatusValue, string> = {
+  APPROVED: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  SENT_TO_ACCOUNTING: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  POSTED: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  CLOSED: "bg-muted text-muted-foreground",
+  CANCELLED: "bg-muted text-muted-foreground",
+};
+
+export function OrderStatusBadge({ status }: { status: CommitmentStatusValue }) {
+  return <Badge variant="secondary" className={ORDER_CLASS[status] ?? ""}>{COMMITMENT_STATUS_LABEL[status] ?? status}</Badge>;
+}
+
+const FULFILLMENT_CLASS: Record<FulfillmentStatusValue, string> = {
+  OPEN: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  PARTIALLY_RECEIVED: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+  RECEIVED: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
+};
+
+export function FulfillmentBadge({ status }: { status: FulfillmentStatusValue }) {
+  return <Badge variant="secondary" className={FULFILLMENT_CLASS[status] ?? ""}>{FULFILLMENT_LABEL[status] ?? status}</Badge>;
 }
 
 export const PRIORITY_LABEL: Record<"LOW" | "NORMAL" | "HIGH" | "URGENT", string> = { LOW: "Low", NORMAL: "Normal", HIGH: "High", URGENT: "Urgent" };

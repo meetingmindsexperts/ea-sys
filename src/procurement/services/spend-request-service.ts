@@ -8,8 +8,9 @@
  * with a reason demanded) and routed to the final approver only. Approval
  * lands it APPROVED, or AWAITING_SUPPLIER while its supplier is not yet
  * approved; a rise in an approved amount is routed on the new total and
- * approved for the difference; a fall applies at once. Converting an
- * approved request into a commitment is the next slice.
+ * approved for the difference; a fall applies at once. An approval whose
+ * supplier is approved issues the purchase order inside the same
+ * transaction (commitment-service), so approval and order commit together.
  *
  * ONE implementation for the routes, the pages and, later, the MCP tools.
  * Errors as values (src/services/README.md). Runs inside the caller's tenant
@@ -23,6 +24,8 @@ import type { Prisma } from "@prisma/client";
 import { cancelPendingApprovals, createApprovalRequest, decideApprovalRequest, resolveApprover, type Db } from "@/lib/approvals/approvals-service";
 import type { ProcurementUserLike } from "@/lib/procurement-visibility";
 import { nextDocumentNumber } from "../lib/document-numbers";
+import { afterOrderIssued, COMMITMENT_SELECT, issueOrderInTx, toCommitmentView, type CommitmentView } from "./commitment-service";
+import { FULFILLMENT_LABEL, type FulfillmentStatusValue } from "../lib/commitment-rules";
 import { AED_PEG_RATES, FLOATING_TO_AED_BAND, money, resolveReportingToAedRate, storedString, toAed, toStored, type MoneyInput, type RateResolution } from "../lib/money";
 import {
   amendmentEffect,
@@ -69,14 +72,15 @@ export interface Actor {
 }
 
 export const QUOTE_SELECT = {
-  id: true, vendorName: true, supplierId: true, amount: true, taxAmount: true, currency: true, quotedOn: true, validUntil: true, recommended: true, notes: true, mediaFileId: true, createdAt: true,
+  id: true, vendorName: true, supplierId: true, amount: true, taxAmount: true, currency: true, quotedOn: true, validUntil: true, recommended: true, notes: true, mediaFileId: true,
+  fileUrl: true, fileName: true, fileMimeType: true, fileSize: true, createdAt: true,
   supplier: { select: { id: true, code: true, displayName: true, approvalStatus: true } },
 } as const;
 
 export const SPEND_REQUEST_SELECT = {
   id: true, organizationId: true, requestNo: true, budgetId: true, lineKey: true, eventCode: true, requesterUserId: true, supplierId: true, proposedVendorName: true,
   title: true, justification: true, amount: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, neededBy: true,
-  sourcingMethod: true, budgetCheckStatus: true, status: true, priority: true, linkedCommitmentId: true, approvalRequestId: true, submittedAt: true, decidedAt: true,
+  sourcingMethod: true, budgetCheckStatus: true, status: true, priority: true, linkedCommitmentId: true, emailSupplierOnIssue: true, approvalRequestId: true, submittedAt: true, decidedAt: true,
   decidedByUserId: true, decisionNote: true, cancelledAt: true, cancelReason: true, version: true, createdAt: true, updatedAt: true,
   budget: { select: { id: true, eventCode: true, versionNo: true, status: true, reportingCurrency: true, event: { select: { name: true } } } },
   supplier: { select: { id: true, code: true, displayName: true, approvalStatus: true, isActive: true } },
@@ -230,8 +234,15 @@ export async function listSpendRequests(organizationId: string, filter: { status
     orderBy: { createdAt: "desc" },
     take: 500,
   });
-  const names = await userNames(db, organizationId, rows.map((r) => r.requesterUserId));
-  return rows.map((r) => ({ ...toSpendRequestView(r), requesterName: names.get(r.requesterUserId) ?? null }));
+  const orderIds = rows.map((r) => r.linkedCommitmentId).filter((id): id is string => !!id);
+  const [names, orders] = await Promise.all([
+    userNames(db, organizationId, rows.map((r) => r.requesterUserId)),
+    orderIds.length === 0
+      ? Promise.resolve([])
+      : db.commitment.findMany({ where: { id: { in: orderIds }, organizationId }, select: { id: true, commitmentNo: true, status: true, fulfillmentStatus: true, sentToSupplierAt: true, receiptConfirmedAt: true } }),
+  ]);
+  const orderById = new Map(orders.map((o) => [o.id, { ...o, fulfillmentLabel: FULFILLMENT_LABEL[o.fulfillmentStatus as FulfillmentStatusValue] ?? o.fulfillmentStatus }]));
+  return rows.map((r) => ({ ...toSpendRequestView(r), requesterName: names.get(r.requesterUserId) ?? null, order: r.linkedCommitmentId ? (orderById.get(r.linkedCommitmentId) ?? null) : null }));
 }
 
 async function userNames(client: Db, organizationId: string, ids: string[]): Promise<Map<string, string>> {
@@ -245,6 +256,8 @@ export type SpendRequestDetail = SpendRequestView & {
   requesterName: string | null;
   decidedByName: string | null;
   line: SpendRequestLineView | null;
+  /** The purchase order this request became (slice 3); null until approval issues it, and again after a cancel. */
+  order: CommitmentView | null;
   approvals: {
     id: string;
     status: string;
@@ -259,8 +272,9 @@ export type SpendRequestDetail = SpendRequestView & {
 export async function getSpendRequest(organizationId: string, requestId: string): Promise<SpendRequestResult<SpendRequestDetail>> {
   const r = await loadRequest(db, organizationId, requestId);
   if (!r) return fail("REQUEST_NOT_FOUND", "The spend request was not found.", { requestId });
-  const [line, approvals] = await Promise.all([
+  const [line, order, approvals] = await Promise.all([
     r.budgetId && r.lineKey ? loadLine(db, r.budgetId, r.lineKey) : null,
+    r.linkedCommitmentId ? db.commitment.findFirst({ where: { id: r.linkedCommitmentId, organizationId }, select: COMMITMENT_SELECT }) : null,
     db.approvalRequest.findMany({
       where: { organizationId, subjectType: "SPEND_REQUEST", subjectId: r.id },
       select: { id: true, status: true, amountAed: true, payload: true, createdAt: true, decidedAt: true, steps: { select: { assigneeUserId: true, status: true, decidedByUserId: true, decidedAt: true, note: true, dueAt: true }, orderBy: { sequence: "asc" } } },
@@ -276,6 +290,7 @@ export async function getSpendRequest(organizationId: string, requestId: string)
       requesterName: names.get(r.requesterUserId) ?? null,
       decidedByName: r.decidedByUserId ? (names.get(r.decidedByUserId) ?? null) : null,
       line: line ? toLineView(line) : null,
+      order: order ? toCommitmentView(order) : null,
       approvals: approvals.map((a) => ({
         id: a.id,
         status: a.status,
@@ -380,6 +395,8 @@ export interface SpendRequestFields {
   neededBy?: string | null;
   sourcingMethod?: "SINGLE_QUOTE" | "COMPETITIVE_QUOTES" | "EXISTING_CONTRACT" | "SOLE_SOURCE" | null;
   priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  /** Email the purchase order PDF to the supplier the moment it is issued (the requester's choice, default off). */
+  emailSupplierOnIssue?: boolean;
 }
 export interface CreateSpendRequestInput extends SpendRequestFields {
   organizationId: string;
@@ -439,6 +456,7 @@ export async function createSpendRequest(input: CreateSpendRequestInput): Promis
           neededBy: toDay(input.neededBy),
           sourcingMethod: input.sourcingMethod ?? null,
           priority: input.priority ?? "NORMAL",
+          emailSupplierOnIssue: input.emailSupplierOnIssue === true,
         },
         select: { id: true },
       });
@@ -496,6 +514,7 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
     ...(input.neededBy !== undefined ? { neededBy: toDay(input.neededBy) } : {}),
     ...(input.sourcingMethod !== undefined ? { sourcingMethod: input.sourcingMethod } : {}),
     ...(input.priority !== undefined ? { priority: input.priority } : {}),
+    ...(input.emailSupplierOnIssue !== undefined ? { emailSupplierOnIssue: input.emailSupplierOnIssue } : {}),
   };
   try {
     const res = await db.spendRequest.updateMany({ where: { id: r.id, organizationId: input.organizationId, status: "DRAFT", version: input.expectedVersion }, data: { ...data, version: { increment: 1 } } });
@@ -607,6 +626,8 @@ export async function decideSpendRequest(input: { organizationId: string; decide
   if (r.status !== "PENDING_APPROVAL") return fail("INVALID_STATUS", "This request is not awaiting a decision.", ctx, { status: r.status });
   const payload = readApprovalPayload(approval.payload);
   if (!payload) return fail("APPROVAL_FAILED", "The approval request carries no spend-request payload.", ctx);
+  // Set inside the transaction when the approval issued the order; read after the commit for the supplier email.
+  let issuedCommitmentId: string | null = null;
   try {
     const outcome = await tenantTransaction(async (tx) => {
       const d = await decideApprovalRequest(tx, { organizationId: input.organizationId, requestId: approval.id, decider: input.decider, decision: input.decision, note: input.note, source: input.source });
@@ -642,13 +663,24 @@ export async function decideSpendRequest(input: { organizationId: string; decide
         entityId: r.id,
         changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, note: input.note?.trim() || null, landing: input.decision === "APPROVED" ? landing : null, ...(payload.kind === "AMENDMENT" ? { previousAmount: payload.previousAmount, nextAmount: payload.nextAmount } : {}) },
       });
+      // Approval issues the order in the same transaction (spec §5: "approval
+      // creates the purchase order"), so the two commit together or not at all.
+      if (input.decision === "APPROVED" && landing === "APPROVED" && !r.linkedCommitmentId) {
+        const issued = await issueOrderInTx(tx, { organizationId: input.organizationId, actorUserId: input.decider.id, source: input.source, requestId: r.id });
+        if (!issued.ok) throw new Error(`ORDER:${issued.code}`);
+        issuedCommitmentId = issued.commitmentId;
+      }
       return d;
     });
     if (!outcome.ok) return fail("APPROVAL_FAILED", outcome.message, ctx, { code: outcome.code });
+    if (issuedCommitmentId) await afterOrderIssued({ organizationId: input.organizationId, actorUserId: input.decider.id, source: input.source, commitmentId: issuedCommitmentId });
     return getSpendRequest(input.organizationId, r.id);
   } catch (err) {
-    if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The request changed while it was being decided. Reload.", ctx);
-    if ((err as Error).message === "BUDGET_NOT_ACTIVE") return fail("BUDGET_NOT_ACTIVE", "The budget version this request was raised against no longer takes requests; the requester should raise it again on the current version.", ctx);
+    const message = (err as Error).message ?? "";
+    if (message === "STALE" || message === "ORDER:STALE_WRITE") return fail("STALE_WRITE", "The request changed while it was being decided. Reload.", ctx);
+    if (message === "BUDGET_NOT_ACTIVE" || message === "ORDER:BUDGET_NOT_ACTIVE") return fail("BUDGET_NOT_ACTIVE", "The budget version this request was raised against no longer takes requests; the requester should raise it again on the current version.", ctx);
+    if (message === "ORDER:LINE_NOT_FOUND") return fail("LINE_NOT_FOUND", "The request's line is no longer on the budget version; the order could not be issued and the decision was not recorded.", ctx);
+    if (message.startsWith("ORDER:")) return fail("APPROVAL_FAILED", "The purchase order could not be issued, so the decision was not recorded.", ctx, { code: message.slice(6) });
     apiLogger.error({ msg: "procurement/requests:decide-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not record the decision.", ctx);
   }
@@ -864,5 +896,35 @@ export async function removeQuote(input: { organizationId: string; actor: Actor;
   } catch (err) {
     apiLogger.error({ msg: "procurement/requests:quote-remove-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not remove the quote.", ctx);
+  }
+}
+
+/**
+ * The quote document itself (slice 3). The route stores the file under the
+ * private procurement-quotes prefix first, then records it here; on a
+ * refusal the route removes the file again. A draft's quote only, claimed
+ * in the same statement (the addQuote rule). Returns the path it replaced
+ * so the route can delete the old file after the row is updated.
+ */
+export async function setQuoteFile(input: { organizationId: string; actor: Actor; source: Source; requestId: string; quoteId: string; fileUrl: string | null; fileName: string | null; fileMimeType: string | null; fileSize: number | null }): Promise<SpendRequestResult<SpendRequestDetail> & { replacedFileUrl?: string | null }> {
+  const ctx = { requestId: input.requestId, quoteId: input.quoteId, userId: input.actor.id };
+  const r = await loadRequest(db, input.organizationId, input.requestId);
+  if (!r) return fail("REQUEST_NOT_FOUND", "The spend request was not found.", ctx);
+  if (r.status !== "DRAFT") return fail("INVALID_STATUS", "A quote's file changes on a draft only; withdraw the request first.", ctx, { status: r.status });
+  if (r.requesterUserId !== input.actor.id && !input.actor.isAdmin) return fail("NOT_REQUESTER", "Only the person who raised this request can change a quote's file.", ctx);
+  const quote = r.quotes.find((q) => q.id === input.quoteId);
+  if (!quote) return fail("QUOTE_NOT_FOUND", "That quote is not on this request.", ctx);
+  try {
+    const res = await db.spendRequestQuote.updateMany({
+      where: { id: quote.id, spendRequestId: r.id, organizationId: input.organizationId, spendRequest: { status: "DRAFT" } },
+      data: { fileUrl: input.fileUrl, fileName: input.fileName, fileMimeType: input.fileMimeType, fileSize: input.fileSize },
+    });
+    if (res.count === 0) return fail("STALE_WRITE", "The request was submitted while the file was being attached. Reload.", ctx);
+    await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: input.fileUrl ? "QUOTE_FILE_ATTACHED" : "QUOTE_FILE_REMOVED", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, quoteId: quote.id, fileName: input.fileName, fileSize: input.fileSize } });
+    const detail = await getSpendRequest(input.organizationId, r.id);
+    return { ...detail, replacedFileUrl: quote.fileUrl };
+  } catch (err) {
+    apiLogger.error({ msg: "procurement/requests:quote-file-failed", err, ...ctx });
+    return fail("UNKNOWN", "Could not record the quote's file.", ctx);
   }
 }

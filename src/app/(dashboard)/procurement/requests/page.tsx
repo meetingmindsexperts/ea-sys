@@ -104,6 +104,7 @@ export default function SpendRequestsPage() {
                 <TableHead className="text-right">Amount, ex-VAT</TableHead>
                 <TableHead>Budget check</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Order</TableHead>
                 <TableHead>Raised</TableHead>
               </TableRow>
             </TableHeader>
@@ -119,6 +120,16 @@ export default function SpendRequestsPage() {
                   <TableCell className="text-right tabular-nums">{`${r.currency} ${money2(r.amount)}`}</TableCell>
                   <TableCell>{r.budgetCheckStatus === "NOT_CHECKED" ? <span className="text-xs text-muted-foreground">Not yet</span> : <BudgetCheckBadge status={r.budgetCheckStatus} />}</TableCell>
                   <TableCell><RequestStatusBadge status={r.status} /></TableCell>
+                  <TableCell>
+                    {r.order ? (
+                      <div className="text-sm">
+                        <div className="font-medium tabular-nums">{r.order.commitmentNo}</div>
+                        <div className="text-xs text-muted-foreground">{r.order.status === "CANCELLED" ? "Cancelled" : r.order.fulfillmentLabel}{r.order.sentToSupplierAt ? " · sent" : ""}</div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{r.status === "APPROVED" ? "To be issued" : "None"}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{fmtWhen(r.createdAt)}</TableCell>
                 </TableRow>
               ))}

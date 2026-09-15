@@ -35,6 +35,9 @@ const mockDb = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+// The order is issued INSIDE the decision's transaction (slice 3); its own mechanics are pinned in commitment-service.test.ts.
+const orderSvc = vi.hoisted(() => ({ issueOrderInTx: vi.fn(), afterOrderIssued: vi.fn() }));
+vi.mock("@/procurement/services/commitment-service", () => ({ ...orderSvc, COMMITMENT_SELECT: {}, toCommitmentView: (x: unknown) => x }));
 
 import { addQuote, amendSpendRequest, createSpendRequest, decideSpendRequest, submitSpendRequest, transitionSpendRequest } from "@/procurement/services/spend-request-service";
 
@@ -76,6 +79,8 @@ beforeEach(() => {
   mockDb.auditLog.create.mockResolvedValue({});
   mockDb.spendRequest.findFirst.mockResolvedValue(request());
   mockDb.spendRequest.create.mockResolvedValue({ id: "sr1" });
+  orderSvc.issueOrderInTx.mockResolvedValue({ ok: true, commitmentId: "c1", commitmentNo: "PO-2026-0001" });
+  orderSvc.afterOrderIssued.mockResolvedValue(undefined);
 });
 
 describe("createSpendRequest", () => {
@@ -186,6 +191,24 @@ describe("decideSpendRequest", () => {
     mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "PROPOSED", isActive: true });
     await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
     expect(updated().data.status).toBe("AWAITING_SUPPLIER");
+  });
+  it("an approval whose supplier is approved issues the order in the same transaction; awaiting supplier does not; an order that cannot be issued fails the decision", async () => {
+    mockDb.approvalRequest.findFirst.mockResolvedValue(pendingApproval(submission));
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "PENDING_APPROVAL" }));
+    expect((await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" })).ok).toBe(true);
+    expect(orderSvc.issueOrderInTx).toHaveBeenCalledTimes(1);
+    expect(orderSvc.issueOrderInTx.mock.calls[0][0]).toBe(mockDb);
+    expect(orderSvc.issueOrderInTx.mock.calls[0][1]).toMatchObject({ organizationId: ORG, actorUserId: "lina", source: "ui", requestId: "sr1" });
+    expect(orderSvc.afterOrderIssued).toHaveBeenCalledWith({ organizationId: ORG, actorUserId: "lina", source: "ui", commitmentId: "c1" });
+    mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "PROPOSED", isActive: true });
+    await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
+    expect(orderSvc.issueOrderInTx).toHaveBeenCalledTimes(1);
+    mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "APPROVED", isActive: true });
+    orderSvc.issueOrderInTx.mockResolvedValueOnce({ ok: false, code: "LINE_NOT_FOUND", message: "gone" });
+    expect(await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" })).toMatchObject({ ok: false, code: "LINE_NOT_FOUND" });
+    expect(orderSvc.afterOrderIssued).toHaveBeenCalledTimes(1);
+    await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "REJECTED" });
+    expect(orderSvc.issueOrderInTx).toHaveBeenCalledTimes(2);
   });
   it("rejects to REJECTED and refuses the requester through the primitive", async () => {
     mockDb.approvalRequest.findFirst.mockResolvedValue(pendingApproval(submission));

@@ -609,15 +609,18 @@ export function drawTotals(
 
 // ── Region 5: Important Notes + VAT disclaimer ──
 
-const VAT_DISCLAIMER =
-  "All sums due under this quote are subject to applicable Value Added Tax (or any other sales tax) and if the supplies in respect of which such sums are payable shall be subject to the payment of value added tax or any other sales tax, the amount payable in respect of those supplies shall be increased by such tax thereon at the appropriate rate.";
+/** The disclaimer names the document it sits on: "quote" for the quote, invoice and credit note (the wording finance signed off), "purchase order" for the PO. */
+const vatDisclaimerFor = (documentWord: string) =>
+  `All sums due under this ${documentWord} are subject to applicable Value Added Tax (or any other sales tax) and if the supplies in respect of which such sums are payable shall be subject to the payment of value added tax or any other sales tax, the amount payable in respect of those supplies shall be increased by such tax thereon at the appropriate rate.`;
 
 export function drawNotesAndDisclaimer(
   doc: PDFKit.PDFDocument,
   y: number,
   notes: string[],
-  showVatDisclaimer: boolean
+  showVatDisclaimer: boolean,
+  documentWord = "quote"
 ): number {
+  const VAT_DISCLAIMER = vatDisclaimerFor(documentWord);
   const pageWidth = doc.page.width - PAGE_MARGIN * 2;
   const leftX = PAGE_MARGIN;
 

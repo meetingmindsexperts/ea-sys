@@ -6,28 +6,37 @@
  * draft; withdraw while a decision is pending; change the amount once
  * approved. Approving happens on the Approvals page, never here.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { canAdminProcurement, canRequestProcurement } from "@/lib/procurement-visibility";
+import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
 import { AED_PEG_RATES } from "@/procurement/lib/money";
 import { missingForSubmission } from "@/procurement/lib/spend-request-rules";
+import { orderReadiness } from "@/procurement/lib/commitment-rules";
 import {
   useAddQuote,
   useAmendSpendRequest,
+  useCancelOrder,
+  useConfirmReceipt,
+  useRaiseOrder,
+  useReceiveOrder,
   useRemoveQuote,
+  useRemoveQuoteFile,
+  useSendOrder,
   useSpendRequest,
   useSubmitSpendRequest,
   useSuppliers,
   useTransitionSpendRequest,
+  useUploadQuoteFile,
+  type CommitmentRow,
   type QuoteInput,
   type SpendRequestDetailRow,
 } from "@/procurement/hooks/use-procurement-api";
 import { SpendRequestForm } from "@/procurement/components/spend-request-form";
 import { ErrorState, LoadingState, StatusBadge, fmtWhen, money2, signed2 } from "@/procurement/components/budget-ui";
-import { BudgetCheckBadge, PRIORITY_LABEL, PriorityBadge, RequestStatusBadge, SOURCING_LABEL } from "@/procurement/components/spend-request-ui";
+import { BudgetCheckBadge, FulfillmentBadge, OrderStatusBadge, PRIORITY_LABEL, PriorityBadge, RequestStatusBadge, SOURCING_LABEL } from "@/procurement/components/spend-request-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +45,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Ban, FileText, Loader2, PencilLine, Plus, RotateCcw, Send, ShieldAlert, Star, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Ban, Download, FileText, Loader2, Mail, PackageCheck, Paperclip, PencilLine, Plus, RotateCcw, Send, ShieldAlert, ShoppingCart, Star, Trash2, TriangleAlert } from "lucide-react";
 
 const NONE = "__none__";
 
@@ -45,7 +54,7 @@ export default function SpendRequestPage() {
   const { data: session } = useSession();
   const request = useSpendRequest(requestId);
   const [editing, setEditing] = useState(false);
-  const [prompt, setPrompt] = useState<null | "submit" | "cancel" | "withdraw" | "amend" | "quote">(null);
+  const [prompt, setPrompt] = useState<null | "submit" | "cancel" | "withdraw" | "amend" | "quote" | "raise">(null);
 
   if (request.isPending) return <LoadingState label="Loading the request…" />;
   if (request.isError || !request.data) return <ErrorState title="Couldn't load the request" message={(request.error as Error)?.message ?? "It may have been removed."} backHref="/procurement/requests" backLabel="Spend requests" />;
@@ -55,6 +64,10 @@ export default function SpendRequestPage() {
   const isRequester = me === r.requesterUserId;
   const canRequest = canRequestProcurement(session?.user);
   const isAdmin = canAdminProcurement(session?.user);
+  const canSettle = canSettleProcurement(session?.user);
+  const canApprove = canApproveProcurement(session?.user, 0);
+  /** Approval issues the order by itself; this is the by-hand path after a failed conversion or a cancel. */
+  const canRaiseOrder = orderReadiness(r).ready && (isAdmin || (isRequester && canRequest));
   const canEditDraft = r.status === "DRAFT" && (isRequester || isAdmin) && (canRequest || isAdmin);
   const canSubmit = r.status === "DRAFT" && isRequester && canRequest;
   const canWithdraw = r.status === "PENDING_APPROVAL" && isRequester && canRequest;
@@ -113,6 +126,8 @@ export default function SpendRequestPage() {
             )}
           </section>
 
+          {r.order && <OrderSection r={r} order={r.order} me={me} isAdmin={isAdmin} canRequest={canRequest} canSettle={canSettle} canApprove={canApprove} />}
+
           <QuotesSection r={r} editable={canEditDraft} onAdd={() => setPrompt("quote")} />
 
           <ApprovalTrail r={r} />
@@ -141,8 +156,15 @@ export default function SpendRequestPage() {
                 {canWithdraw && <Button variant="outline" className="w-full" onClick={() => setPrompt("withdraw")}><RotateCcw className="h-4 w-4" /> Withdraw</Button>}
               </>
             )}
-            {r.status === "AWAITING_SUPPLIER" && <Note>Approved. The order waits until the supplier is approved on the Suppliers page.</Note>}
-            {r.status === "APPROVED" && <Note>Approved. Raising the purchase order is the next step.</Note>}
+            {r.status === "AWAITING_SUPPLIER" && !canRaiseOrder && <Note>Approved. The order is issued by itself the moment the supplier is approved on the Suppliers page.</Note>}
+            {r.status === "APPROVED" && !canRaiseOrder && <Note>Approved. The purchase order is issued on approval; if it is missing here, the person who raised the request or an admin can raise it.</Note>}
+            {canRaiseOrder && (
+              <>
+                <Note>{r.status === "AWAITING_SUPPLIER" ? "The supplier is approved now, but the order was not issued. Raise it here." : "Approved without an order (after a cancel, or a conversion that failed). Raise it here."}</Note>
+                <Button className="w-full" onClick={() => setPrompt("raise")}><ShoppingCart className="h-4 w-4" /> Raise the purchase order</Button>
+              </>
+            )}
+            {r.status === "CONVERTED" && r.order && <Note>{`Ordered as ${r.order.commitmentNo}. The order section shows where it stands; a change is cancel and re-issue.`}</Note>}
             {canAmend && <Button variant="outline" className="w-full" onClick={() => setPrompt("amend")}><PencilLine className="h-4 w-4" /> Change the amount</Button>}
             {canCancel && <Button variant="outline" className="w-full text-destructive" onClick={() => setPrompt("cancel")}><Ban className="h-4 w-4" /> Cancel request</Button>}
             {r.status === "REJECTED" && <Note>{`Rejected${r.decidedByName ? ` by ${r.decidedByName}` : ""}${r.decisionNote ? `: ${r.decisionNote}` : "."} Raise a new request if the need stands.`}</Note>}
@@ -160,7 +182,159 @@ export default function SpendRequestPage() {
       {(prompt === "cancel" || prompt === "withdraw") && <TransitionDialog r={r} action={prompt} onClose={() => setPrompt(null)} />}
       {prompt === "amend" && <AmendDialog r={r} onClose={() => setPrompt(null)} />}
       {prompt === "quote" && <QuoteDialog r={r} onClose={() => setPrompt(null)} />}
+      {prompt === "raise" && <RaiseOrderDialog r={r} onClose={() => setPrompt(null)} />}
     </div>
+  );
+}
+
+function RaiseOrderDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () => void }) {
+  const raise = useRaiseOrder(r.id);
+  async function go() {
+    try {
+      const c = await raise.mutateAsync();
+      toast.success(`Purchase order ${c.commitmentNo} issued.${c.sentToSupplierAt ? " Sent to the supplier." : ""}`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Raise the purchase order</DialogTitle>
+          <DialogDescription>{`A PO number is taken, ${r.currency} ${money2(r.amount)} ex-VAT is committed on the line, and the request becomes the order.${r.emailSupplierOnIssue ? " The PDF is emailed to the supplier's contact at once, as the request asked." : " The PDF is sent when someone clicks Send on the order."}`}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={raise.isPending}>Not yet</Button>
+          <Button onClick={() => void go()} disabled={raise.isPending}>{raise.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Raise the order</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canApprove }: { r: SpendRequestDetailRow; order: CommitmentRow; me: string | undefined; isAdmin: boolean; canRequest: boolean; canSettle: boolean; canApprove: boolean }) {
+  const send = useSendOrder(o.id);
+  const receive = useReceiveOrder(o.id);
+  const confirm = useConfirmReceipt(o.id);
+  const cancel = useCancelOrder(o.id);
+  const [prompt, setPrompt] = useState<null | "receive" | "cancel">(null);
+  const [extent, setExtent] = useState<"PARTIAL" | "FULL">("FULL");
+  const [reason, setReason] = useState("");
+  const isRequester = me === r.requesterUserId;
+  const actsOnOrder = isAdmin || canSettle || (isRequester && canRequest);
+  const live = o.status === "APPROVED";
+  const canReceive = live && actsOnOrder && o.fulfillmentStatus !== "RECEIVED";
+  const awaitingSecond = live && o.fulfillmentStatus === "RECEIVED" && o.receiptNeedsSecondPerson && !o.receiptConfirmed;
+  const canConfirm = awaitingSecond && (canSettle || canApprove) && me !== o.receivedByUserId;
+  const canCancelOrder = live && (canSettle || isAdmin);
+  const hasEmail = o.supplier.contactEmails.length > 0;
+  const cur = o.currency;
+  const rep = o.budget?.reportingCurrency ?? cur;
+
+  async function run<T>(m: { mutateAsync: () => Promise<T> } | { mutateAsync: (input: never) => Promise<T> }, input: unknown, ok: (v: T) => string, after?: () => void) {
+    try {
+      const v = await (m as { mutateAsync: (i: unknown) => Promise<T> }).mutateAsync(input);
+      toast.success(ok(v));
+      after?.();
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><ShoppingCart className="h-4 w-4 text-primary" /> {`Purchase order ${o.commitmentNo}`}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <OrderStatusBadge status={o.status} />
+          {live && <FulfillmentBadge status={o.fulfillmentStatus} />}
+          {awaitingSecond && <Badge variant="secondary" className="bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100">Needs a second person</Badge>}
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        <Field k="Amount, ex-VAT" v={`${cur} ${money2(o.amount)}`} strong />
+        <Field k="VAT" v={`${cur} ${money2(o.taxAmount)}`} />
+        {cur !== rep && <Field k={`Committed in ${rep}`} v={`${rep} ${money2(o.amountReporting)} at ${o.fxRateToReporting}`} />}
+        <Field k="Issued" v={`${fmtWhen(o.approvedAt)}`} />
+        <Field k="Supplier" v={`${o.supplier.displayName} (${o.supplier.code})`} />
+        <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
+        {o.receivedAt && <Field k="Received" v={fmtWhen(o.receivedAt)} />}
+        {o.fulfillmentStatus === "PARTIALLY_RECEIVED" && <Field k="Received" v="Partly" />}
+        {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}` : "Awaiting confirmation (above AED 50,000)"} />}
+        {o.status === "CANCELLED" && <Field k="Cancelled" v={`${o.cancelledAt ? fmtWhen(o.cancelledAt) : ""}${o.cancelReason ? ` · ${o.cancelReason}` : ""}`} />}
+      </dl>
+      {o.lines.length > 0 && (
+        <ul className="mt-3 divide-y rounded-md border text-sm">
+          {o.lines.map((l) => (
+            <li key={l.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+              <span>{l.description}{Number(l.qty) !== 1 ? ` · ${l.qty} × ${money2(l.unitCost)}` : ""}{l.taxRatePercent ? ` · VAT ${l.taxRatePercent}%` : ""}</span>
+              <span className="tabular-nums">{`${cur} ${money2(l.amount)}`}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button asChild size="sm" variant="outline"><a href={`/api/procurement/commitments/${o.id}/pdf`} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /> PDF</a></Button>
+        {live && actsOnOrder && (
+          <Button size="sm" variant="outline" disabled={!hasEmail || send.isPending} title={hasEmail ? undefined : "Add a contact email on the Suppliers page first"} onClick={() => void run(send, undefined, () => `Sent to ${o.supplier.contactEmails.map((c) => c.email).join(", ")}.`)}>
+            {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} {o.sentToSupplierAt ? "Send again" : "Send to supplier"}
+          </Button>
+        )}
+        {canReceive && <Button size="sm" variant="outline" onClick={() => { setExtent("FULL"); setPrompt("receive"); }}><PackageCheck className="h-4 w-4" /> Mark received</Button>}
+        {canConfirm && <Button size="sm" onClick={() => void run(confirm, { expectedVersion: o.version }, () => "Receipt confirmed.")} disabled={confirm.isPending}>{confirm.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Confirm receipt</Button>}
+        {canCancelOrder && <Button size="sm" variant="outline" className="text-destructive" onClick={() => setPrompt("cancel")}><Ban className="h-4 w-4" /> Cancel order</Button>}
+      </div>
+      {awaitingSecond && !canConfirm && <p className="mt-2 text-xs text-muted-foreground">{me === o.receivedByUserId ? "You marked it received; a second person (the settle holder or an approver) confirms it." : "The settle holder or an approver confirms the receipt."}</p>}
+
+      {prompt === "receive" && (
+        <Dialog open onOpenChange={(v) => !v && setPrompt(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Mark the order received</DialogTitle>
+              <DialogDescription>{o.receiptNeedsSecondPerson ? "Above AED 50,000 a full receipt is confirmed by a second person, the settle holder or an approver, before it counts." : "Below AED 50,000 your mark is the receipt."}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="rc-extent">How much arrived</Label>
+              <Select value={extent} onValueChange={(v) => setExtent(v as "PARTIAL" | "FULL")}>
+                <SelectTrigger id="rc-extent" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL">Everything</SelectItem>
+                  <SelectItem value="PARTIAL">Part of it</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPrompt(null)} disabled={receive.isPending}>Not yet</Button>
+              <Button onClick={() => void run(receive, { extent, expectedVersion: o.version }, (c) => (extent === "FULL" ? (c.receiptNeedsSecondPerson ? "Marked received; a second person confirms it." : "Marked received.") : "Marked partly received."), () => setPrompt(null))} disabled={receive.isPending}>
+                {receive.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Record
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {prompt === "cancel" && (
+        <Dialog open onOpenChange={(v) => !v && setPrompt(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel the purchase order</DialogTitle>
+              <DialogDescription>{`${rep} ${money2(o.amountReporting)} is released on the line and the request goes back to approved, so it can be re-issued or cancelled in its turn. Tell the supplier yourself; nothing is emailed.`}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1">
+              <Label htmlFor="oc-reason">Reason</Label>
+              <Textarea id="oc-reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPrompt(null)} disabled={cancel.isPending}>Keep it</Button>
+              <Button variant="destructive" onClick={() => void run(cancel, { reason: reason.trim(), expectedVersion: o.version }, () => "Order cancelled; the request is back to approved.", () => setPrompt(null))} disabled={cancel.isPending || !reason.trim()}>
+                {cancel.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Cancel order
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </section>
   );
 }
 
@@ -198,6 +372,10 @@ function Note({ children }: { children: React.ReactNode }) {
 
 function QuotesSection({ r, editable, onAdd }: { r: SpendRequestDetailRow; editable: boolean; onAdd: () => void }) {
   const remove = useRemoveQuote(r.id);
+  const upload = useUploadQuoteFile(r.id);
+  const removeFile = useRemoveQuoteFile(r.id);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [target, setTarget] = useState<string | null>(null);
   async function del(id: string) {
     try {
       await remove.mutateAsync(id);
@@ -206,8 +384,32 @@ function QuotesSection({ r, editable, onAdd }: { r: SpendRequestDetailRow; edita
       toast.error((err as Error).message);
     }
   }
+  function pickFile(quoteId: string) {
+    setTarget(quoteId);
+    fileInput.current?.click();
+  }
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !target) return;
+    try {
+      await upload.mutateAsync({ quoteId: target, file: f });
+      toast.success("File attached.");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
+  async function dropFile(quoteId: string) {
+    try {
+      await removeFile.mutateAsync(quoteId);
+      toast.success("File removed.");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
   return (
     <section className="rounded-lg border bg-card p-4">
+      <input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg" className="hidden" onChange={(e) => void onFile(e)} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{`Quotes (${r.quotes.length})`}</h2>
         {editable && <Button size="sm" variant="outline" onClick={onAdd}><Plus className="h-4 w-4" /> Attach a quote</Button>}
@@ -228,6 +430,18 @@ function QuotesSection({ r, editable, onAdd }: { r: SpendRequestDetailRow; edita
                   {`${q.currency} ${money2(q.amount)} ex-VAT${Number(q.taxAmount) > 0 ? ` · VAT ${money2(q.taxAmount)}` : ""}${q.quotedOn ? ` · quoted ${q.quotedOn}` : ""}${q.validUntil ? ` · valid until ${q.validUntil}` : ""}`}
                 </div>
                 {q.notes && <div className="mt-1 whitespace-pre-line text-xs">{q.notes}</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  {q.fileUrl ? (
+                    <>
+                      <a href={`/api/procurement/requests/${r.id}/quotes/${q.id}/file`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Paperclip className="h-3 w-3" /> {q.fileName ?? "Quote file"}{q.fileSize ? ` (${Math.max(1, Math.round(q.fileSize / 1024))} KB)` : ""}</a>
+                      {editable && <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => void dropFile(q.id)} disabled={removeFile.isPending}>remove file</button>}
+                    </>
+                  ) : editable ? (
+                    <button type="button" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground" onClick={() => pickFile(q.id)} disabled={upload.isPending}><Paperclip className="h-3 w-3" /> {upload.isPending && target === q.id ? "Uploading…" : "Attach the quote file (PDF, PNG or JPEG, 10 MB)"}</button>
+                  ) : (
+                    <span className="text-muted-foreground">No file attached</span>
+                  )}
+                </div>
               </div>
               {editable && (
                 <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void del(q.id)} disabled={remove.isPending}><Trash2 className="h-4 w-4" /></Button>
@@ -422,7 +636,7 @@ function QuoteDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () => 
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Attach a quote</DialogTitle>
-          <DialogDescription>{"The figures from the vendor's quote, ex-VAT with the VAT beside it. Attaching the file itself comes with the purchase order."}</DialogDescription>
+          <DialogDescription>{"The figures from the vendor's quote, ex-VAT with the VAT beside it. The quote file itself is attached on the row once this is saved."}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2">
