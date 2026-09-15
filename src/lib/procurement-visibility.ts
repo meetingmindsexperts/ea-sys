@@ -134,3 +134,54 @@ export function procurementGrantsFromRow(
     procurementSettle: row?.procurementSettle === true,
   };
 }
+
+/**
+ * The AuditLog `entityType` values the Budget & Procurement module writes.
+ * Anything in this set is governed by `canViewProcurement`, wherever it is
+ * read from.
+ *
+ * WHY THIS EXISTS (Sep 15, 2026, owner: "keep budget activity separate from
+ * event activity"). The module's services write their audit rows into the
+ * shared `AuditLog` like everything else, and the org Activity page's Changes
+ * tab rendered them between registrations and speakers as raw "CREATE
+ * EventBudget" rows. Money movements are a different subject from event
+ * operations, read by a different population, and they name their subject by
+ * id rather than by a person's name, so the general describer cannot make
+ * them readable. The HR module solved the same problem on Sep 3 with
+ * `HR_AUDIT_ENTITY_TYPES`; this is the same shape.
+ *
+ * The default Changes query EXCLUDES this set; the Budget tab's
+ * `?scope=procurement` query INCLUDES only it, behind the module flag and
+ * `canViewProcurement`. The exclusion is the load-bearing half.
+ *
+ * `ApprovalRequest` is written by the CORE approvals primitive
+ * (`src/lib/approvals/`), not by the module, but every subject it carries
+ * today is a procurement subject (BUDGET, BUDGET_REALLOCATION,
+ * SPEND_REQUEST). When a second consumer of the primitive arrives (HR leave
+ * is the planned one), the row will need a subject-based split rather than an
+ * entity-type one; until then it belongs here.
+ *
+ * KEPT IN SYNC BY A TEST: a source-level guard reads every `entityType: "..."`
+ * literal under the module's roots and `src/lib/approvals/` and fails if one
+ * is missing here.
+ */
+export const PROCUREMENT_AUDIT_ENTITY_TYPES = [
+  "EventBudget",
+  "BudgetLine",
+  "ApprovalRequest",
+  "SpendRequest",
+  "Commitment",
+  "Supplier",
+  "BudgetProduct",
+  "BudgetCategory",
+  "BudgetTemplate",
+] as const;
+
+export type ProcurementAuditEntityType = (typeof PROCUREMENT_AUDIT_ENTITY_TYPES)[number];
+
+const PROCUREMENT_AUDIT_ENTITY_TYPE_SET: ReadonlySet<string> = new Set(PROCUREMENT_AUDIT_ENTITY_TYPES);
+
+/** Is this AuditLog entityType one the procurement boundary governs? */
+export function isProcurementAuditEntityType(entityType: string): entityType is ProcurementAuditEntityType {
+  return PROCUREMENT_AUDIT_ENTITY_TYPE_SET.has(entityType);
+}

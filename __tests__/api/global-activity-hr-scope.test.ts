@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
+import { PROCUREMENT_AUDIT_ENTITY_TYPES } from "@/lib/procurement-visibility";
 
 const { mockDb, mockAuth, mockLogger, mockHrEnabled } = vi.hoisted(() => ({
   mockDb: {
@@ -38,11 +39,14 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: unknown, fn: () => unknown) => fn(),
 }));
-vi.mock("@/lib/module-flags", () => ({ isHrModuleEnabled: () => mockHrEnabled() }));
+vi.mock("@/lib/module-flags", () => ({ isHrModuleEnabled: () => mockHrEnabled(), isProcurementModuleEnabled: () => true }));
 
 import { GET } from "@/app/api/activity/route";
 
 const HR = [...HR_AUDIT_ENTITY_TYPES];
+// The default scope excludes BOTH module sets (the procurement split of Sep 15
+// followed the HR one); the HR walls below still reason about HR alone.
+const EXCLUDED = [...HR, ...PROCUREMENT_AUDIT_ENTITY_TYPES];
 
 const req = (qs = "") => new Request(`http://localhost/api/activity${qs}`);
 
@@ -80,14 +84,14 @@ describe("GET /api/activity — default scope excludes HR rows", () => {
     expect(res.status).toBe(200);
     expect(whereOf()).toMatchObject({
       organizationId: "org1",
-      entityType: { notIn: HR },
+      entityType: { notIn: EXCLUDED },
     });
   });
 
   it("SUPER_ADMIN also gets the exclusion by default: the HR tab is where HR lives", async () => {
     mockAuth.mockResolvedValue(user("SUPER_ADMIN"));
     await GET(req());
-    expect(whereOf().entityType).toEqual({ notIn: HR });
+    expect(whereOf().entityType).toEqual({ notIn: EXCLUDED });
   });
 
   it("an explicit entityType filter narrows WITHIN the exclusion; it cannot lift it", async () => {
@@ -95,7 +99,7 @@ describe("GET /api/activity — default scope excludes HR rows", () => {
     await GET(req("?entityType=Employee"));
     // Both predicates present: {equals: Employee, notIn: [...Employee...]} is
     // the empty set, which is exactly right.
-    expect(whereOf().entityType).toEqual({ notIn: HR, equals: "Employee" });
+    expect(whereOf().entityType).toEqual({ notIn: EXCLUDED, equals: "Employee" });
   });
 
   it("a non-HR entityType filter still works", async () => {
@@ -103,7 +107,7 @@ describe("GET /api/activity — default scope excludes HR rows", () => {
     await GET(req("?entityType=Registration&eventId=ev1"));
     expect(whereOf()).toMatchObject({
       eventId: "ev1",
-      entityType: { notIn: HR, equals: "Registration" },
+      entityType: { notIn: EXCLUDED, equals: "Registration" },
     });
   });
 
@@ -176,7 +180,7 @@ describe("GET /api/activity?scope=hr — the two HR walls", () => {
     mockAuth.mockResolvedValue(user("ADMIN"));
     const res = await GET(req("?scope=changes"));
     expect(res.status).toBe(200);
-    expect(whereOf().entityType).toEqual({ notIn: HR });
+    expect(whereOf().entityType).toEqual({ notIn: EXCLUDED });
   });
 });
 

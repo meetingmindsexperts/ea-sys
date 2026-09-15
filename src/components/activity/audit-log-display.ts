@@ -24,9 +24,20 @@ import {
   CalendarPlus,
   Flag,
   FileDown,
+  Wallet,
+  Rows3,
+  ClipboardCheck,
+  ReceiptText,
+  PackageCheck,
+  Handshake,
+  Package,
+  FolderTree,
+  LayoutTemplate,
   type LucideIcon,
 } from "lucide-react";
 import { isHrAuditEntityType, type HrAuditEntityType } from "@/lib/hr-visibility";
+import { isProcurementAuditEntityType, type ProcurementAuditEntityType } from "@/lib/procurement-visibility";
+import { describeProcurementActivity } from "@/lib/procurement-activity";
 
 /** Minimal AuditLog shape both feeds satisfy (global adds an `event` field). */
 export interface AuditLogLike {
@@ -61,6 +72,35 @@ const HR_ENTITY_ICONS: Record<HrAuditEntityType, LucideIcon> = {
   HrAttendance: FileDown,
 };
 
+/**
+ * Labels for the Budget & Procurement entity types, exhaustive for the same
+ * reason as the HR Record above. The Budget tab's type filter is built from
+ * this.
+ */
+export const PROCUREMENT_AUDIT_ENTITY_LABELS: Record<ProcurementAuditEntityType, string> = {
+  EventBudget: "Budget",
+  BudgetLine: "Budget line",
+  ApprovalRequest: "Approval",
+  SpendRequest: "Spend request",
+  Commitment: "Purchase order",
+  Supplier: "Supplier",
+  BudgetProduct: "Product",
+  BudgetCategory: "Category",
+  BudgetTemplate: "Template",
+};
+
+const PROCUREMENT_ENTITY_ICONS: Record<ProcurementAuditEntityType, LucideIcon> = {
+  EventBudget: Wallet,
+  BudgetLine: Rows3,
+  ApprovalRequest: ClipboardCheck,
+  SpendRequest: ReceiptText,
+  Commitment: PackageCheck,
+  Supplier: Handshake,
+  BudgetProduct: Package,
+  BudgetCategory: FolderTree,
+  BudgetTemplate: LayoutTemplate,
+};
+
 const ENTITY_ICONS: Record<string, LucideIcon> = {
   Registration: UserPlus,
   Speaker: Mic,
@@ -71,6 +111,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
   User: Users,
   Track: Tag,
   ...HR_ENTITY_ICONS,
+  ...PROCUREMENT_ENTITY_ICONS,
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -200,10 +241,32 @@ export function describeHrAuditAction(log: AuditLogLike): string | null {
   }
 }
 
+/**
+ * Descriptions for the Budget & Procurement module's audit rows: the same
+ * describer the per-budget activity card uses, run with an empty context
+ * (no line names, no user names). The Budget tab normally renders the
+ * server-resolved title instead, so this is the fallback for a reader that
+ * meets one of these rows without the resolution, and it keeps the two
+ * readers on one set of words. Returns null for any other entity type.
+ */
+export function describeProcurementAuditAction(log: AuditLogLike): string | null {
+  if (!isProcurementAuditEntityType(log.entityType)) return null;
+  return describeProcurementActivity({
+    id: log.entityId,
+    at: "",
+    entityType: log.entityType,
+    action: log.action,
+    changes: (log.changes || {}) as Record<string, unknown>,
+    actor: null,
+  }).title;
+}
+
 /** Human-readable description of an audit row. */
 export function describeAuditAction(log: AuditLogLike): string {
   const hr = describeHrAuditAction(log);
   if (hr) return hr;
+  const procurement = describeProcurementAuditAction(log);
+  if (procurement) return procurement;
 
   const changes = log.changes || {};
   const source = changes.source as string | undefined;

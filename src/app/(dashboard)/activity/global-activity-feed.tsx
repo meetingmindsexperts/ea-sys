@@ -12,6 +12,7 @@ import {
   auditActorLabel,
   auditSubjectName,
   HR_AUDIT_ENTITY_LABELS,
+  PROCUREMENT_AUDIT_ENTITY_LABELS,
 } from "@/components/activity/audit-log-display";
 import { computeAuditDiffs } from "@/lib/activity-diff";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -32,8 +33,11 @@ interface GlobalActivityLog {
   id: string;
   action: string;
   entityType: string;
-  /** Resolved server-side for the HR scope (employee name); absent otherwise. */
+  /** Resolved server-side for the HR and procurement scopes (employee name, budget or request label); absent otherwise. */
   subjectName?: string | null;
+  /** The procurement scope's sentence, written server-side by the module's describer; absent otherwise. */
+  title?: string | null;
+  detail?: string | null;
   entityId: string;
   changes: Record<string, unknown>;
   createdAt: string;
@@ -85,13 +89,40 @@ const HR_ENTITY_TYPES = [
   ...Object.entries(HR_AUDIT_ENTITY_LABELS).map(([value, label]) => ({ label, value })),
 ];
 
+// Same construction for the Budget tab.
+const PROCUREMENT_ENTITY_TYPES = [
+  { label: "All types", value: ANY },
+  ...Object.entries(PROCUREMENT_AUDIT_ENTITY_LABELS).map(([value, label]) => ({ label, value })),
+];
+
+// The budget module's actions are its own vocabulary (submit, approve,
+// convert, receive), so the Budget tab offers those rather than the events
+// business's create/update/delete set. Each value is an audit action literal
+// the module's services write; the describer tests pin the wording.
+const PROCUREMENT_ACTION_TYPES = [
+  { label: "All actions", value: ANY },
+  { label: "Created", value: "CREATE" },
+  { label: "Edited", value: "UPDATE" },
+  { label: "Deleted", value: "DELETE" },
+  { label: "Submitted", value: "SUBMIT" },
+  { label: "Approved", value: "APPROVE" },
+  { label: "Rejected", value: "REJECT" },
+  { label: "Moved between lines", value: "REALLOCATE" },
+  { label: "Order issued", value: "CONVERT" },
+  { label: "Received", value: "RECEIVE" },
+  { label: "Cancelled", value: "CANCEL" },
+  { label: "Exported", value: "EXPORT" },
+  { label: "Imported", value: "IMPORT" },
+];
+
 /**
  * Which slice of the AuditLog this instance shows. "changes" is the events
- * business (the default, HR rows excluded server-side); "hr" is the HR module
- * only, behind `canViewHr`. Each tab mounts its own instance, so filter state
- * never bleeds between scopes.
+ * business (the default, HR and procurement rows excluded server-side); "hr"
+ * is the HR module only, behind `canViewHr`; "procurement" is the Budget &
+ * Procurement module only, behind `canViewProcurement`. Each tab mounts its
+ * own instance, so filter state never bleeds between scopes.
  */
-export type ActivityScope = "changes" | "hr";
+export type ActivityScope = "changes" | "hr" | "procurement";
 
 /** "Today" / "Yesterday" / "Mon, 12 Jul 2026" — the grouping key AND its label. */
 function dayLabel(d: Date): string {
@@ -102,6 +133,10 @@ function dayLabel(d: Date): string {
 
 export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScope } = {}) {
   const isHr = scope === "hr";
+  const isProcurement = scope === "procurement";
+  // Module rows belong to no event, so the event filter would only ever empty
+  // the list in those scopes.
+  const hasEventFilter = !isHr && !isProcurement;
   const { data: session } = useSession();
   // The page is ADMIN/SUPER_ADMIN-only and both are finance roles, so this is
   // effectively always true — but it is derived rather than hardcoded, so the
@@ -120,7 +155,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
 
   const params = new URLSearchParams();
   params.set("limit", String(limit));
-  if (isHr) params.set("scope", "hr");
+  if (scope !== "changes") params.set("scope", scope);
   if (set(eventId)) params.set("eventId", eventId);
   if (set(userId)) params.set("userId", userId);
   if (set(action)) params.set("action", action);
@@ -181,9 +216,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
               Filter
             </span>
 
-            {/* HR rows belong to no event, so the event filter would only ever
-                empty the list in that scope. */}
-            {!isHr && (
+            {hasEventFilter && (
               <Select value={eventId} onValueChange={setEventId}>
                 <SelectTrigger className="h-9 w-[190px]" aria-label="Filter by event">
                   <SelectValue placeholder="All events" />
@@ -220,7 +253,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                 <SelectValue placeholder="All actions" />
               </SelectTrigger>
               <SelectContent>
-                {actionTypes.map((a) => (
+                {(isProcurement ? PROCUREMENT_ACTION_TYPES : actionTypes).map((a) => (
                   <SelectItem key={a.value} value={a.value}>
                     {a.label}
                   </SelectItem>
@@ -233,7 +266,7 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                {(isHr ? HR_ENTITY_TYPES : CHANGES_ENTITY_TYPES).map((e) => (
+                {(isProcurement ? PROCUREMENT_ENTITY_TYPES : isHr ? HR_ENTITY_TYPES : CHANGES_ENTITY_TYPES).map((e) => (
                   <SelectItem key={e.value} value={e.value}>
                     {e.label}
                   </SelectItem>
@@ -299,7 +332,9 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                   ? "Try widening the time range or clearing a filter."
                   : isHr
                     ? "Employee, attendance, standing-rule and leave-year changes will appear here as they happen."
-                    : "Actions across your events will appear here as they happen."}
+                    : isProcurement
+                      ? "Budgets, lines, spend requests, purchase orders, suppliers and catalogue changes will appear here as they happen."
+                      : "Actions across your events will appear here as they happen."}
               </p>
               {activeFilters > 0 && (
                 <Button variant="outline" size="sm" onClick={clearAll} className="mt-4">
@@ -349,7 +384,10 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-3">
                               <p className="text-sm leading-snug">
-                                <span className="font-medium">{describeAuditAction(log)}</span>
+                                {/* The procurement scope's sentence is written server-side,
+                                    with line and user names resolved; every other scope
+                                    describes the row here. */}
+                                <span className="font-medium">{log.title ?? describeAuditAction(log)}</span>
                                 {/* WHO the row is about — "Speaker updated" alone
                                     is unreadable at 50 rows. */}
                                 {subject && (
@@ -364,6 +402,12 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
                                 {formatDistanceToNow(at, { addSuffix: true })}
                               </time>
                             </div>
+
+                            {/* The describer's second line: the amount, the note, the
+                                reason, the fields touched. */}
+                            {log.detail && (
+                              <p className="mt-0.5 text-xs text-muted-foreground">{log.detail}</p>
+                            )}
 
                             {/* WHAT changed. An UPDATE row without this is just a
                                 claim that something happened. */}
