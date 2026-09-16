@@ -5,7 +5,8 @@
  *   row. Only while the form is PENDING (a submitted form is locked).
  *
  * PDF / JPG / PNG only, magic-byte validated, 10MB, max 15 documents per
- * reimbursement. Files land under public/uploads/reimbursements/{eventId}/
+ * reimbursement. Files are stored under the reimbursements prefix by the
+ * storage layer (S3 in production, local disk in development)
  * — which the public /uploads catch-all BLOCKS; staff read them via the
  * authed documents route, and the speaker only ever sees filename metadata.
  */

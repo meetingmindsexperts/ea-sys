@@ -9,7 +9,7 @@
  *   locked (the organizer reopens from the speaker page).
  *
  * PDF / JPG / PNG, magic-byte validated, 10MB. Files land under
- * public/uploads/speaker-docs/{eventId}/ — which the public /uploads
+ * the speaker-docs prefix in whichever store STORAGE_PROVIDER names — which the public /uploads
  * catch-all BLOCKS (passport = sensitive PII); staff stream them via the
  * authed documents file route.
  */

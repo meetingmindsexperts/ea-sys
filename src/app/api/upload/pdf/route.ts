@@ -19,7 +19,7 @@
  * is discarded after the wrap.
  *
  * 10MB cap on the upload (PNG cert designs can be 5-8MB at full res).
- * Stored at `public/uploads/certificates/{eventId}/{uuid}.pdf` via the
+ * Stored under the certificates prefix as `{eventId}/{uuid}.pdf` via the
  * existing storage provider. Same auth + rate-limit envelope as photo
  * upload (denyReviewer + 50/hr per user).
  */

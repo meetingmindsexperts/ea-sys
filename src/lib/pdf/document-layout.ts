@@ -88,9 +88,11 @@ export function formatFooterTimestamp(date: Date): string {
  * Loads an org logo for embedding in a PDF.
  *
  * Accepts the raw `Organization.logo` value (any scheme). Only `/uploads/...`
- * paths can be embedded — they're read directly from `public/uploads/` on the
- * EC2 host. Supabase URLs and `https://` URLs are skipped (we'd have to fetch
- * them, which adds latency and a failure mode we don't want in PDF generation).
+ * paths can be embedded; they are read through `readStoredFile`, so they come
+ * from whichever store `STORAGE_PROVIDER` names (S3 in production since Sep 7,
+ * 2026, the local disk in development). Supabase URLs and `https://` URLs are
+ * skipped (we'd have to fetch them, which adds latency and a failure mode we
+ * don't want in PDF generation).
  *
  * Never throws. Logs a structured warn for every reason a logo was skipped so
  * support can grep `/logs` when an org admin asks "why isn't my logo on the
