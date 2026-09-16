@@ -111,7 +111,7 @@ last run succeed?"*, to which the answer was always yes. Three guards now exist:
 (`INSERT … ON CONFLICT DO UPDATE … WHERE` free-or-expired), so it is atomic
 wherever it runs and "which connection" stops being able to affect correctness.
 Pinned by real-Postgres tests in
-[tests/crm-db/job-lease.db.test.ts](../tests/crm-db/job-lease.db.test.ts),
+[tests/integration-db/job-lease.db.test.ts](../tests/integration-db/job-lease.db.test.ts),
 including the connection-split case the old lock failed — a mocked Prisma has
 one fake connection, so that bug was not even *expressible* in the unit suite,
 which is exactly why it survived a year of green tests.

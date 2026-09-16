@@ -134,7 +134,7 @@ green, because nothing failed. Same rule for any new "only one of these at a tim
 
 The corollary for tests: **a mocked Prisma has one fake connection, so this class of bug is not
 expressible in the unit suite.** Anything whose correctness is about concurrency or connection identity
-needs the real-Postgres harness (`tests/crm-db/`). See `docs/BACKGROUND_JOBS.md`.
+needs the real-Postgres harness (`tests/integration-db/`). See `docs/BACKGROUND_JOBS.md`.
 
 ### 8. Every file operation goes through `storage.ts`
 Four primitives — `uploadFile` / `readStoredFile` / `deleteStoredFile` / `listStoredFiles` — and **no

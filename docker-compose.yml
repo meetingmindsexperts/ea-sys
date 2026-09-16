@@ -53,7 +53,7 @@ services:
   # profile):
   #   - `tenancy`  — the RLS harness DB (role split + pgbouncer, app_user). See
   #     the tenancy-pgbouncer service below.
-  #   - `crm_test` — the CRM integration DB, created by the crm-db global-setup,
+  #   - `crm_test` — the real-Postgres integration harness DB (tests/integration-db),
   #     connected owner-direct (55432, no pgbouncer, no RLS) so constraints +
   #     transactions apply as the app runs them.
   # Different databases on the same server → isolated, no second container.

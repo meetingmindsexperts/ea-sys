@@ -43,7 +43,7 @@ profile-gated test DBs on the same box:
 | DB | Port | Purpose | Persistent? |
 |---|---|---|---|
 | `ea-sys-prod-local` | 54322 | **daily dev** (this doc) | yes |
-| `ea-sys-tenancy-db` (`tenancy`, `crm_test`) | 55432 | RLS harness + CRM integration tests | no (torn down after tests) |
+| `ea-sys-tenancy-db` (`tenancy`, `crm_test`) | 55432 | RLS harness + real-Postgres integration tests | no (torn down after tests) |
 | Homebrew Postgres (`ea_sys_test`) | 5432 | e2e (`test:e2e`) | yes |
 
 ---

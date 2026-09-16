@@ -6,7 +6,7 @@
  * Prisma has one fake connection, so neither can be shown there.
  *
  * Run: docker compose --profile crm-test up -d
- *      CRM_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test npm run test:crm-db
+ *      INTEGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test npm run test:integration-db
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/lib/db";

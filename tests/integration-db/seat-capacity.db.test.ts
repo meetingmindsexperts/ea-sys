@@ -1,9 +1,9 @@
 /**
  * Event-wide seat capacity (Option B) — REAL-Postgres integration tests.
  *
- * Lives in the shared real-Postgres harness project (tests/crm-db — the name
- * predates non-CRM suites; it is the general "mocks can't verify this" DB
- * harness). These pin the things the mocked unit suite structurally cannot:
+ * Lives in the shared real-Postgres harness project (tests/integration-db),
+ * the general "mocks cannot verify this" DB harness, shared by the CRM,
+ * procurement, worker and registration suites. These pin the things the mocked unit suite structurally cannot:
  *
  *  - `claimEventSeats` is a RAW conditional UPDATE comparing two columns
  *    (`seatCount + n <= maxAttendees`) — the SQL itself never executes under
@@ -16,7 +16,7 @@
  *    the real TicketType.soldCount inside one committed transaction.
  *
  * Run: docker compose --profile crm-test up -d
- *      CRM_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test npm run test:crm-db
+ *      INTEGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test npm run test:integration-db
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/lib/db";

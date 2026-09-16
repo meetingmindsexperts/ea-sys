@@ -192,7 +192,7 @@ expected, `crm-inbound-email` 4 of 4, `cert-issue` 2 — full cadence, up from
 ~23%, with every lease row reading released seconds after its tick.
 
 Pinned by real-Postgres tests
-([tests/crm-db/job-lease.db.test.ts](../tests/crm-db/job-lease.db.test.ts)),
+([tests/integration-db/job-lease.db.test.ts](../tests/integration-db/job-lease.db.test.ts)),
 including the connection-split case the lock failed. Those have to hit a real
 database: a mocked Prisma has exactly one fake connection, so the bug was not
 even *expressible* in the unit suite — which is precisely how it survived a year

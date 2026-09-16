@@ -1,5 +1,5 @@
 /**
- * CRM integration harness provisioning (mirrors tests/tenancy/global-setup.ts):
+ * Integration harness provisioning (mirrors tests/tenancy/global-setup.ts):
  * ensure the `crm_test` database exists on the SHARED test-Postgres container
  * (the same server the tenancy harness uses — different database, owner-direct,
  * no RLS/pgbouncer), then push the Prisma schema to it once. Per-test isolation
@@ -14,11 +14,11 @@ export default async function globalSetup() {
   dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
   dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-  const url = process.env.CRM_TEST_DATABASE_URL;
+  const url = process.env.INTEGRATION_TEST_DATABASE_URL;
   if (!url) {
     throw new Error(
-      "CRM_TEST_DATABASE_URL must be set. Locally: `docker compose --profile crm-test up -d`, then " +
-        "CRM_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test (see .env.example).",
+      "INTEGRATION_TEST_DATABASE_URL must be set. Locally: `docker compose --profile crm-test up -d`, then " +
+        "INTEGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/crm_test (see .env.example).",
     );
   }
 
@@ -29,7 +29,7 @@ export default async function globalSetup() {
   const admin = new PrismaClient({ datasourceUrl: adminUrl });
   try {
     await admin.$executeRawUnsafe(`CREATE DATABASE "${dbName}"`);
-    console.log(`[crm-db:setup] created database ${dbName}`);
+    console.log(`[integration-db:setup] created database ${dbName}`);
   } catch (err) {
     // 42P04 = database already exists — expected on re-runs.
     if (!(err instanceof Error && /already exists|42P04/.test(err.message))) throw err;
@@ -38,6 +38,6 @@ export default async function globalSetup() {
   }
 
   const env = { ...process.env, DATABASE_URL: url, DIRECT_URL: url };
-  console.log("[crm-db:setup] pushing schema to the crm_test DB");
+  console.log("[integration-db:setup] pushing schema to the crm_test DB");
   execSync("npx prisma db push --skip-generate --accept-data-loss", { env, stdio: "inherit" });
 }

@@ -2,7 +2,7 @@
  * Per-worker env bridge (mirrors tests/tenancy/setup-env.ts). vitest's
  * globalSetup runs in the runner process — its env doesn't reach test workers —
  * so this setupFile (which runs in each worker BEFORE the test file's imports)
- * points `@/lib/db` at the CRM harness DB. Every test then shares the same
+ * points `@/lib/db` at the integration harness DB. Every test then shares the same
  * `db` singleton for both seeding and asserting, against real Postgres.
  */
 import path from "node:path";
@@ -11,10 +11,10 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-const url = process.env.CRM_TEST_DATABASE_URL;
+const url = process.env.INTEGRATION_TEST_DATABASE_URL;
 if (!url) {
   throw new Error(
-    "CRM_TEST_DATABASE_URL must be set (see .env.example / docker compose --profile crm-test). " +
+    "INTEGRATION_TEST_DATABASE_URL must be set (see .env.example / docker compose --profile crm-test). " +
       "Default: postgres://postgres:postgres@localhost:55432/crm_test.",
   );
 }

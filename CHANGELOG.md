@@ -123,10 +123,10 @@ review-fix follow-up.
   pre-existing deferred M6 soldCount inflation). LOWs 1–4 tracked in ROADMAP.
 - **Tests:** +28 unit (eventDelta truth table, helpers, transition EVENT_FULL,
   event-PUT recompute/reject, cross-event bulk grouping) and **+10 REAL-
-  Postgres integration tests** (`tests/crm-db/seat-capacity.db.test.ts`) —
+  Postgres integration tests** (`tests/integration-db/seat-capacity.db.test.ts`) —
   raw-SQL boundary exactness, a 10-concurrent-claims-vs-cap-5 race admitting
   exactly 5, guarded-release floor, and tx-rollback conservation. Suite 3753 +
-  15 crm-db.
+  15 integration-db.
 
 
 ### Added — Seat capacity settable from the UI (type + tier limits, seats-left opt-in) (July 24)

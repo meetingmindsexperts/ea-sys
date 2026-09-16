@@ -3,7 +3,7 @@
  * advisory lock and written to the event's current version (review of
  * 15 September 2026: the old read-add-write lost updates, and a new version
  * kept figures copied at draft time). The race itself is in
- * tests/crm-db/committed-figures.db.test.ts; this pins the shape.
+ * tests/integration-db/committed-figures.db.test.ts; this pins the shape.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 

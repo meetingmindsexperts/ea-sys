@@ -2,7 +2,7 @@
  * Document numbers: the format the owner chose, the Dubai-year boundary (a
  * request raised at 23:30 on 31 December in Dubai belongs to that year even
  * though UTC has not turned), and the upsert shape that makes the sequence
- * safe under concurrency (the real-Postgres case lives in tests/crm-db).
+ * safe under concurrency (the real-Postgres case lives in tests/integration-db).
  */
 import { describe, it, expect, vi } from "vitest";
 import { documentYear, formatDocumentNumber, nextDocumentNumber } from "@/procurement/lib/document-numbers";

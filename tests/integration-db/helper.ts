@@ -1,10 +1,12 @@
 /**
- * CRM harness fixtures — real rows in the real DB, plus a per-test reset.
+ * Integration harness fixtures — real rows in the real DB, plus a per-test reset.
  *
  * `db` is the app's own singleton (@/lib/db), pointed at the harness DB by
  * setup-env, so the SAME connection seeds and asserts — no mock, no second
- * client. `resetCrm()` truncates the org graph (CASCADE clears every Crm*
- * table) and seeds one org + one admin, returning their ids.
+ * client. `resetCrm()` truncates Organization + User CASCADE, which
+ * clears EVERY org-scoped table, not just Crm*, and seeds one org + one admin.
+ * Five of the six suites here call it, CRM and non-CRM alike; the name of the
+ * function is historical.
  */
 import { db } from "@/lib/db";
 
