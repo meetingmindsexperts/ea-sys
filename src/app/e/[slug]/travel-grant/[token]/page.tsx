@@ -36,6 +36,7 @@ interface LoadedGrant {
   closed?: boolean;
   signedName: string | null;
   submittedAt: string | null;
+  /** Title-prefixed, e.g. "Dr. Jane Doe" — the page addresses the author. */
   recipientName: string;
   termsHtml: string;
   event: {

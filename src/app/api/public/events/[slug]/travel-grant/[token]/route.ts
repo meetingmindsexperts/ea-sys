@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { formatPersonName } from "@/lib/utils";
 import { runWithTenant } from "@/lib/tenant-context";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
@@ -97,7 +98,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           ? formatTravelGrantDeadline(grantSettings.deadline, row.event.timezone)
           : null,
         closed: deadlinePassed && row.status === "PENDING",
-        recipientName: [row.speaker.firstName, row.speaker.lastName].filter(Boolean).join(" "),
+        // The page renders this as "For <name>", i.e. a form of address, so it
+        // carries the honorific. public.ts selects `title`, so this resolves;
+        // a bare join dropped it for every Dr./Prof. author.
+        recipientName: formatPersonName(row.speaker.title, row.speaker.firstName, row.speaker.lastName),
         termsHtml: row.event.travelGrantTermsHtml?.trim() || DEFAULT_TRAVEL_GRANT_TERMS_HTML,
         event: {
           name: row.event.name,

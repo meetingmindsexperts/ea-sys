@@ -10,6 +10,7 @@
 
 import { Prisma, type CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatPersonName } from "@/lib/utils";
 import type { CertificateData, AccreditationEntry } from "./types";
 
 /**
@@ -128,11 +129,22 @@ export async function loadRecipient(
   return null;
 }
 
-export function formatRecipientName(title: string | null, first: string, last: string): string {
-  const map: Record<string, string> = { DR: "Dr.", MR: "Mr.", MRS: "Mrs.", MS: "Ms.", PROF: "Prof." };
-  const t = title ? `${map[title] ?? ""} ` : "";
-  return `${t}${first} ${last}`.trim();
-}
+/**
+ * Title-prefixed recipient name for a certificate (Sep 16, 2026).
+ *
+ * This carried its own inline { DR: "Dr.", … } map, a third copy of a mapping
+ * that already lives once as TITLE_LABELS in @/lib/utils. Identical behaviour,
+ * so nothing changes today, but three copies is how a new Title enum value
+ * gets added to one and silently dropped from certificates.
+ *
+ * Kept as a named re-export rather than sweeping the three call sites: the
+ * failure mode of a missed call site is a SILENTLY dropped honorific on a
+ * certificate, which no reviewer notices. Not the same function as
+ * pdf/document-layout's formatRecipientName, which is deliberately tolerant of
+ * an already-formatted "Dr." because its callers disagree on the shape. Every
+ * caller here passes the raw Prisma enum, so the strict one is correct.
+ */
+export const formatRecipientName = formatPersonName;
 
 export async function allocateSerial(
   eventId: string,
