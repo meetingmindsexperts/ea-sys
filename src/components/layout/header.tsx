@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { signOut } from "next-auth/react";
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
@@ -32,6 +33,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
 import { signOutCallbackUrl } from "@/lib/sign-out-target";
@@ -201,6 +212,12 @@ export function Header() {
   const initials = session?.user
     ? `${session.user.firstName?.[0] || ""}${session.user.lastName?.[0] || ""}`
     : "U";
+
+  // Sign out asks first (owner, Sep 16 2026). The dialog is a SIBLING of the
+  // dropdown, never a child: a menu unmounts the moment an item is clicked and
+  // would take a nested dialog with it, which is the same portal trap that made
+  // a Radix Select inside a popover silently do nothing (no error, no request).
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   const role = session?.user?.role ?? "ORGANIZER";
   const roleMeta = ROLE_META[role] ?? ROLE_META.ORGANIZER;
@@ -399,7 +416,29 @@ export function Header() {
               </>
             )}
             <DropdownMenuItem
-              className="text-red-600 focus:text-red-600"
+              className="text-amber-600 focus:text-amber-600"
+              onClick={() => setConfirmSignOut(true)}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <AlertDialog open={confirmSignOut} onOpenChange={setConfirmSignOut}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be signed out on this device and need to sign in again.
+              Nothing you have entered is lost, and your role does not change.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 text-white hover:bg-amber-700 focus:ring-amber-600"
               // Attendee-side roles land on their EVENT sign-in, staff on
               // /login — see signOutCallbackUrl (owner report Aug 5, 2026).
               onClick={() =>
@@ -411,12 +450,11 @@ export function Header() {
                 })
               }
             >
-              <LogOut className="mr-2 h-4 w-4" />
               Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 }

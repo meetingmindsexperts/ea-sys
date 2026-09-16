@@ -387,16 +387,13 @@ export default function SettingsPage() {
    * the ONLY thing an admin could reach for when a laptop went missing or a
    * token leaked, and it also stopped the legitimate owner signing back in.
    */
-  const handleRevokeSessions = async (user: User) => {
+  const [revokeTarget, setRevokeTarget] = useState<User | null>(null);
+
+  const handleRevokeSessions = async (user: User, skipConfirm = false) => {
     const isSelf = user.id === session?.user?.id;
     const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
-    if (
-      !confirm(
-        isSelf
-          ? `Sign yourself out everywhere?\n\nThis device included — you will need to sign in again. Your password and role do not change.`
-          : `Sign ${name} out everywhere?\n\nEvery browser session ends and they can sign straight back in with the same password. Use this if a laptop went missing or a session was left open somewhere.\n\nTo stop them signing in at all, deactivate the account instead. A mobile app already signed in can keep working for up to 24 hours.`,
-      )
-    ) {
+    if (!skipConfirm) {
+      setRevokeTarget(user);
       return;
     }
     try {
@@ -448,16 +445,20 @@ export default function SettingsPage() {
     }
   };
 
-  const handleToggleDeactivated = async (user: User) => {
+  /**
+   * Deactivation asks in a styled dialog rather than window.confirm (owner,
+   * Sep 16 2026), because a native confirm cannot carry the red that marks it
+   * as the destructive one of the three controls on this row. The wording is
+   * carried across unchanged: it was already the clearest part of this action.
+   * Reactivating is not destructive, so it still goes straight through.
+   */
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null);
+
+  const handleToggleDeactivated = async (user: User, skipConfirm = false) => {
     const deactivating = !user.deactivatedAt;
     const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
-    if (
-      !confirm(
-        deactivating
-          ? `Deactivate ${name}?\n\nThey are signed out immediately and cannot sign back in. Everything assigned to them (deals, sent emails, audit history) stays assigned to them, and their role is kept so you can reactivate at any time.`
-          : `Reactivate ${name}?\n\nThey get their previous role back and can sign in again.`,
-      )
-    ) {
+    if (deactivating && !skipConfirm) {
+      setDeactivateTarget(user);
       return;
     }
     try {
@@ -1180,7 +1181,7 @@ export default function SettingsPage() {
                               }
                               onClick={() => handleRevokeSessions(user)}
                             >
-                              <LogOut className="h-4 w-4" />
+                              <LogOut className="h-4 w-4 text-amber-600" />
                             </Button>
                             {/* Only a super admin decides who reads colleagues'
                                 sick leave: HR is deliberately not implied by
@@ -1230,7 +1231,7 @@ export default function SettingsPage() {
                                 {user.deactivatedAt ? (
                                   <UserCheck className="h-4 w-4" />
                                 ) : (
-                                  <UserX className="h-4 w-4" />
+                                  <UserX className="h-4 w-4 text-red-600" />
                                 )}
                               </Button>
                             )}
@@ -1325,6 +1326,93 @@ export default function SettingsPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      {/*
+        Sign-out-everywhere confirms here too (owner, Sep 16 2026), amber rather
+        than red: it ends sessions but the person can sign straight back in,
+        where Deactivate below locks them out. Same sibling placement, same
+        reason — the row re-renders on every fetchUsers().
+      */}
+      <AlertDialog
+        open={!!revokeTarget}
+        onOpenChange={(o) => !o && setRevokeTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {revokeTarget && revokeTarget.id === session?.user?.id
+                ? "Sign yourself out everywhere?"
+                : `Sign ${
+                    revokeTarget
+                      ? `${revokeTarget.firstName} ${revokeTarget.lastName}`.trim() ||
+                        revokeTarget.email
+                      : "this user"
+                  } out everywhere?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {revokeTarget && revokeTarget.id === session?.user?.id
+                ? "This device included — you will need to sign in again. Your password and role do not change."
+                : "Every browser session ends and they can sign straight back in with the same password. Use this if a laptop went missing or a session was left open somewhere. To stop them signing in at all, deactivate the account instead. A mobile app already signed in can keep working for up to 24 hours."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 text-white hover:bg-amber-700 focus:ring-amber-600"
+              onClick={() => {
+                const target = revokeTarget;
+                setRevokeTarget(null);
+                if (target) void handleRevokeSessions(target, true);
+              }}
+            >
+              Sign out everywhere
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        Deactivate confirms here rather than in a window.confirm, so the action
+        can carry the red that marks it as the destructive one of the three
+        controls on a user row. Mounted as a SIBLING of the tabs, never inside
+        the row: the row re-renders on every fetchUsers() and would unmount a
+        dialog nested in it mid-decision.
+      */}
+      <AlertDialog
+        open={!!deactivateTarget}
+        onOpenChange={(o) => !o && setDeactivateTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Deactivate{" "}
+              {deactivateTarget
+                ? `${deactivateTarget.firstName} ${deactivateTarget.lastName}`.trim() ||
+                  deactivateTarget.email
+                : "this user"}
+              ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They are signed out immediately and cannot sign back in. Everything
+              assigned to them (deals, sent emails, audit history) stays assigned
+              to them, and their role is kept so you can reactivate at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep active</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+              onClick={() => {
+                const target = deactivateTarget;
+                setDeactivateTarget(null);
+                if (target) void handleToggleDeactivated(target, true);
+              }}
+            >
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
