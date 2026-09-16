@@ -7,13 +7,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, mockLogger } = vi.hoisted(() => ({
+const { mockDb, mockAuth, mockLogger, mockReadPermissions, mockRunWithTenant } = vi.hoisted(() => ({
   mockDb: {
     user: { findFirst: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  // The route reads the person's custom-role permissions to judge the
+  // separation rules on the RESULTING picture (plan §4).
+  mockReadPermissions: vi.fn(),
+  mockRunWithTenant: vi.fn((_org: string, fn: () => unknown) => fn()),
 }));
 
 vi.mock("next/server", () => ({
@@ -26,6 +30,10 @@ vi.mock("@/lib/security", () => ({ getClientIp: () => "127.0.0.1" }));
 vi.mock("@/lib/auth-guards", () => ({ ASSIGNABLE_USER_ROLES: ["ADMIN", "ORGANIZER", "MEMBER"] }));
 vi.mock("@/lib/module-flags", () => ({ isHrModuleEnabled: () => true, isProcurementModuleEnabled: () => true }));
 vi.mock("@/lib/event-settings", () => ({ removeUserFromEventSettings: vi.fn() }));
+vi.mock("@/lib/tenant-context", () => ({ runWithTenant: mockRunWithTenant }));
+vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: mockReadPermissions }));
+// `@/lib/permissions/separation` is deliberately REAL: it is pure, and it is
+// the rule under test.
 
 import { PUT } from "@/app/api/organization/users/[userId]/route";
 
@@ -48,6 +56,7 @@ beforeEach(() => {
   mockDb.user.findFirst.mockImplementation(async (args: { where: { id: string } }) => ROWS[args.where.id] ?? null);
   mockDb.user.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ id: "x", ...args.data }));
   mockDb.auditLog.create.mockResolvedValue({});
+  mockReadPermissions.mockResolvedValue([]);
 });
 
 describe("setting a delegate", () => {
@@ -195,5 +204,53 @@ describe("a role change clears the module duties", () => {
     expect(res.status).toBe(200);
     expect(mockLogger.info).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "organization/users:module-access-cleared-on-role-change" }));
     expect(mockDb.user.update.mock.calls[0][0].data.hrAccess).toBeUndefined();
+  });
+});
+
+describe("the separation rules reach the custom roles too", () => {
+  it("refuses promoting someone to final approver while a ROLE lets them raise requests", async () => {
+    // The two older checks read only the legacy columns, so this combination
+    // could be stored by going through the roles screen first and the limit
+    // second. Judged on the resulting authority plus the roles already held.
+    mockReadPermissions.mockResolvedValue(["procurement.requests.create"]);
+    const res = await put("owner", { procurementApproveUnlimited: true });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "FINAL_APPROVER_CANNOT_REQUEST" });
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("A CEILING ALONE IS NOT AUTHORITY, so it does not conflict with a sign-off role", async () => {
+    // D3 splits the two deliberately: `approvals.decide` says WHETHER somebody
+    // decides, the AED amount says HOW MUCH. Deciding needs both, so a ceiling
+    // on a person who holds no deciding permission grants nothing and is not
+    // the forbidden pair. Refusing here would make a legitimate setup —
+    // giving the finance signer an amount ahead of a future role — impossible.
+    mockReadPermissions.mockResolvedValue(["procurement.budgets.signoff"]);
+    expect((await put("owner", { procurementApproveCeilingAed: 50000 })).status).toBe(200);
+  });
+
+  it("refuses switching the old settle grant on for someone whose ROLE approves", async () => {
+    // The pair that IS forbidden, and it is only reachable through this route:
+    // the role was given on the Roles screen, the switch is flipped here.
+    mockReadPermissions.mockResolvedValue(["procurement.approvals.decide"]);
+    const res = await put("owner", { procurementSettle: true });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "SETTLE_CANNOT_DECIDE" });
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("READS THE PERMISSIONS INSIDE A TENANT LANE", async () => {
+    // `UserPermissionSet` is policied, so an unwrapped read returns zero rows
+    // on the platform — which reads as "holds no role" and lets exactly the
+    // combination above through. A security rule that fails open is worse
+    // than none, so the lane is pinned here.
+    await put("owner", { procurementApproveUnlimited: true });
+    expect(mockRunWithTenant).toHaveBeenCalledWith("org1", expect.any(Function));
+    expect(mockReadPermissions).toHaveBeenCalledWith("org1", "owner");
+  });
+
+  it("lets an ordinary grant change through when no role conflicts", async () => {
+    mockReadPermissions.mockResolvedValue(["procurement.budgets.view"]);
+    expect((await put("owner", { procurementRequest: true })).status).toBe(200);
   });
 });

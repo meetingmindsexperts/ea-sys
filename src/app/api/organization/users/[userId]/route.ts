@@ -9,6 +9,9 @@ import { isTeamRole } from "@/lib/team-roles";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
+import { runWithTenant } from "@/lib/tenant-context";
+import { readUserPermissions } from "@/lib/permissions/permission-set-service";
+import { separationConflicts } from "@/lib/permissions/separation";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -303,6 +306,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
+      // THE SAME SEPARATION RULES, REACHED FROM THE OTHER SIDE (plan §4).
+      // The two checks above read only the legacy columns, so a person could
+      // be given a role carrying "raise requests" and then be promoted to
+      // final approver here without anything noticing. Judged on the RESULTING
+      // authority combined with the roles they already hold.
+      //
+      // The permission read takes a LANE: `UserPermissionSet` is policied, so
+      // an unwrapped read on the platform returns zero rows, which would read
+      // as "holds no role" and let exactly this combination through. A
+      // security rule that fails open is worse than none.
+      const heldPermissions = await runWithTenant(session.user.organizationId!, () =>
+        readUserPermissions(session.user.organizationId!, userId),
+      );
+      const combined = separationConflicts({
+        permissions: heldPermissions,
+        approvalUnlimited: grants.procurementApproveUnlimited,
+        legacyRequest: grants.procurementRequest,
+        legacySettle: grants.procurementSettle,
+      });
+      if (combined.length > 0) {
+        apiLogger.warn({
+          msg: "organization/users:separation-conflict-with-custom-role",
+          code: combined[0].code,
+          targetUserId: userId,
+        });
+        return NextResponse.json({ error: combined[0].message, code: combined[0].code }, { status: 400 });
+      }
+
       // The delegate, judged on the RESULTING row like the pairs above.
       const delegateId =
         validated.data.procurementDelegateUserId !== undefined ? validated.data.procurementDelegateUserId : user.procurementDelegateUserId;

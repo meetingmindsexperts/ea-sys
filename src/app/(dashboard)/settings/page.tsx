@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasAnyGrant } from "@/components/settings/procurement-grants-dialog";
+import { PermissionSetsCard } from "@/components/settings/permission-sets-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -61,6 +62,7 @@ import {
   UserCheck,
   LogOut,
   Wallet,
+  ShieldCheck,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -592,6 +594,15 @@ export default function SettingsPage() {
             <Users className="h-4 w-4" />
             Team
           </TabsTrigger>
+          {/* Custom roles are a super-admin surface and only mean anything
+              where Budget & Procurement is switched on, so the tab is absent
+              rather than disabled for everyone else. */}
+          {isSuperAdmin && procurementEnabled && (
+            <TabsTrigger value="roles" className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              Roles
+            </TabsTrigger>
+          )}
           {isOrganizerOrAbove && (
             <TabsTrigger value="onsite" className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
@@ -1254,6 +1265,12 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {isSuperAdmin && procurementEnabled && (
+          <TabsContent value="roles">
+            <PermissionSetsCard />
+          </TabsContent>
+        )}
 
         {/* Onsite / Temp Staff (per-event registration-desk staff) */}
         {isOrganizerOrAbove && (

@@ -33,6 +33,7 @@ import {
   Package,
   FolderTree,
   LayoutTemplate,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { isHrAuditEntityType, type HrAuditEntityType } from "@/lib/hr-visibility";
@@ -110,6 +111,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
   Abstract: FileText,
   User: Users,
   Track: Tag,
+  PermissionSet: ShieldCheck,
   ...HR_ENTITY_ICONS,
   ...PROCUREMENT_ENTITY_ICONS,
 };
@@ -307,6 +309,38 @@ export function describeAuditAction(log: AuditLogLike): string {
     const after = (changes.after as { claimItems?: string[] } | undefined)?.claimItems;
     return after?.length ? `Reimbursement types offered: ${after.join(", ")}` : "Reimbursement types updated";
   }
+  // Custom roles (plan §6). Without these a role change reads as
+  // "CREATE PermissionSet", which is the internal name of a table rather than
+  // a sentence an administrator can act on.
+  if (log.entityType === "PermissionSet") {
+    const name = str(changes.name) ?? "role";
+    if (log.action === "CREATE") return `Role created: ${name}`;
+    if (log.action === "UPDATE") {
+      // `archived` is only present on an archive/restore, so `=== true` and
+      // `=== false` are different events and absence is an ordinary edit.
+      if (changes.archived === true) return `Role archived: ${name}`;
+      if (changes.archived === false) return `Role restored: ${name}`;
+      const after = Array.isArray(changes.permissionsAfter) ? changes.permissionsAfter.length : null;
+      if (after !== null) {
+        return `Role permissions changed: ${name} (${after} ${after === 1 ? "permission" : "permissions"})`;
+      }
+      return `Role updated: ${name}`;
+    }
+  }
+  // A role ASSIGNMENT is recorded on the person, so it arrives here as a User
+  // update. Guarded on the payload rather than the action, so ordinary user
+  // edits keep their own wording.
+  if (log.entityType === "User" && Array.isArray(changes.permissionSetsAfter)) {
+    const added = Array.isArray(changes.permissionSetsAdded) ? changes.permissionSetsAdded.length : 0;
+    const removed = Array.isArray(changes.permissionSetsRemoved) ? changes.permissionSetsRemoved.length : 0;
+    const held = (changes.permissionSetsAfter as unknown[]).length;
+    if (added === 0 && removed === 0) return "Roles reviewed, no change";
+    const parts: string[] = [];
+    if (added > 0) parts.push(`${added} added`);
+    if (removed > 0) parts.push(`${removed} removed`);
+    return `Roles changed: ${parts.join(", ")} (now holds ${held})`;
+  }
+
   if (log.action === "DELETE") return `${log.entityType} deleted`;
   if (log.action === "UPDATE") return `${log.entityType} updated`;
   if (log.action === "BULK_UPDATE") return `Bulk update on ${log.entityType}`;

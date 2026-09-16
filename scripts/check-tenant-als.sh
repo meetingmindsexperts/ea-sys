@@ -294,6 +294,13 @@ SWEPT_ROUTE_FILES=(
   # queries/route.ts reader is DELIBERATELY unlisted — operator-global,
   # privileged-lane (owner decision; see prisma/rls/helpchatquery.sql).
   "src/app/api/help-chat/route.ts"                                                     # HelpChatQuery sweep (Aug 4, 2026)
+  # Custom roles (Sep 16, 2026): the three org-level permission-set routes.
+  # Their DIR cannot be swept wholesale — src/app/api/organization holds
+  # credential and user routes that read only unswept models and would be
+  # made to carry a pointless wrap.
+  "src/app/api/organization/permission-sets/route.ts"                                  # Custom roles (Sep 16, 2026)
+  "src/app/api/organization/permission-sets/[permissionSetId]/route.ts"                # Custom roles (Sep 16, 2026)
+  "src/app/api/organization/users/[userId]/permission-sets/route.ts"                   # Custom roles (Sep 16, 2026)
 )
 SWEPT_MODULES=(
   # Analytics (Aug 20, 2026). The INGEST ROUTE is deliberately NOT listed: it

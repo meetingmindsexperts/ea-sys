@@ -2862,8 +2862,46 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       switched on for your organisation yet, or your account cannot read it: ask a super-admin.
       Org staff can <b>read</b> every budget. Only some people can <b>author</b> one (organisers and
       above), <b>approve</b> one (a person given an approval ceiling), or <b>sign off</b> a closed one
-      (a person given the settle grant). Those three are granted one person at a time under
-      <b>Settings &rsaquo; Users</b>, by a super-admin.</p>
+      (a person given the settle grant). A super-admin gives those under
+      <b>Settings &rsaquo; Users</b> &mdash; either by tagging the person with a <b>role</b> (below),
+      or, for the approval amount, by setting it on their account.</p>
+
+      <h3>Roles: giving someone exactly what they need</h3>
+      <p>A <b>role</b> is a name over a list of tick boxes &mdash; &ldquo;PO Author&rdquo;, &ldquo;PO Approver&rdquo;
+      &mdash; that you tag onto a person on top of whatever they already are. Someone can hold more
+      than one, and can then do everything their roles allow added together. Create and edit them
+      under <b>Settings &rsaquo; Roles</b>; tag them onto a person under <b>Settings &rsaquo; Users</b>,
+      using the wallet icon beside their name. Both screens are super-admin only.</p>
+
+      <p>Four roles are waiting the first time you open the screen. <b>PO Author</b> runs an event&rsquo;s
+      budget and buys against it &mdash; this is the one for project managers, who are Members and so
+      can author nothing by title. <b>PO Approver</b> decides, up to the amount set on the person.
+      <b>Requester</b> raises purchase requests without reaching the Budgets screen at all.
+      <b>Finance Settle</b> signs off closed budgets and manages suppliers and their bank details.
+      Edit any of them, or build your own.</p>
+
+      <p><b>The amount lives on the person, not on the role.</b> Ticking &ldquo;Approve or reject&rdquo;
+      says <i>whether</i> somebody decides; the <b>Approve up to (AED)</b> box on their account says
+      <i>how much</i>. Two people holding the same approving role can have different limits, which is
+      exactly why the limit is not part of the role. A role that grants approving does nothing until
+      an amount is set.</p>
+
+      <p><b>Two combinations are refused, deliberately.</b> The final approver cannot also raise
+      purchase requests, because their own request would have nobody above them to decide it. And
+      signing off a closed budget cannot sit beside approving, because that puts the approval and the
+      check in one pair of hands. The screen warns you before you save, and the server refuses it
+      anyway &mdash; including when the two halves arrive separately, such as a role given today and an
+      approval limit raised next week.</p>
+
+      <p><b>Archiving a role takes it away from everyone holding it</b>, at once. Roles are archived
+      rather than deleted so that past approvals and purchases still explain themselves; restore one
+      and it works again. A change reaches people within five minutes, and anything that moves money
+      is re-checked at the moment they act &mdash; so taking a role away stops an approval or an order
+      cancellation straight away, not five minutes later.</p>
+
+      <p>The older <b>Request</b> and <b>Settle</b> switches are still on the same dialog, collapsed
+      under <b>Earlier grants</b>. They still work, so nobody loses anything; give a role instead and
+      switch them off.</p>
 
       <h3>What a budget is here</h3>
       <p>A budget belongs to <b>one event</b> (the event needs a code first, set under the event&rsquo;s

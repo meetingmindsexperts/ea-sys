@@ -297,6 +297,58 @@ The lane is borrowed from the row just read, and a failure never blocks sign-in.
 `approvals-service` and `commitment-service` each re-read the row at decision
 time, so archiving a role stops an approval or an order cancel at once.
 
+**Step 4 is BUILT (Sep 16, 2026), unpushed.** The two Settings screens, the
+audit wording, and the rules that keep two sensible roles from combining into
+one unsafe person.
+
+| File | What it is |
+|---|---|
+| `src/lib/permissions/separation.ts` | The §4 rules as ONE pure, client-safe function. The role editor warns with it live and the routes refuse with it, so the screen and the boundary cannot disagree about what is allowed. |
+| `src/lib/permissions/permission-set-service.ts` | Grew the managing half: list with holder counts, create, edit under an optimistic lock, archive and restore, read and replace a person's roles. Errors-as-values, so a future MCP tool reuses it unchanged. |
+| `src/lib/permissions/route-guard.ts` | Super-admin gate plus an exhaustive status Record over the service's error union, shared by all three routes: a new code fails the BUILD rather than defaulting to 500. |
+| `src/app/api/organization/permission-sets/**`, `.../users/[userId]/permission-sets/route.ts` | Three routes, each in a tenant lane, all three added to `check-tenant-als.sh`. |
+| `src/components/settings/permission-sets-card.tsx` | Settings → Roles: grouped checkboxes with a plain-words label and sentence per permission. |
+| `src/components/settings/procurement-grants-dialog.tsx` | Rebuilt around the role picker; the AED limit and delegate stay, the two old switches move under "Earlier grants". |
+| `src/components/activity/audit-log-display.ts` | Role changes read as sentences instead of "CREATE PermissionSet". |
+
+**THE RULE IS CHECKED AT THREE DOORS, AND §4 NAMED ONLY TWO.** Assigning roles
+to a person and editing a role that people already hold were both in the plan.
+The third is **changing someone's AED authority**: give a person the Requester
+role today, promote them to final approver tomorrow through the users PUT, and
+the forbidden pair is stored with nothing noticing. That check now runs there
+too, and its permission read takes a tenant lane on purpose — `UserPermissionSet`
+is policied, so an unwrapped read returns zero rows on the platform, which reads
+as "holds no role" and lets exactly that combination through. **A security rule
+that fails open is worse than none.**
+
+**THE TWO OLD SWITCHES STAY, DELIBERATELY.** Until §10a's flip,
+`procurementRequest` and `procurementSettle` still grant access on their own, so
+hiding them would leave the four people who hold them today with access nobody
+can see or withdraw. They are collapsed under "Earlier grants", and the
+separation rules read them alongside the permission keys, so an old switch plus
+a new role is exactly as conflicted as two roles. They go when the columns do
+(step 5).
+
+**SAVING IS TWO CALLS, AND NEITHER ORDER IS SAFE FOR EVERY CHANGE.** Lowering
+someone's authority while giving them a raising role only passes grants-first;
+raising it while removing that role only passes roles-first. The dialog settles
+the whole combination client-side with the same pure function before either
+request goes out, and the server stays the backstop. A refusal on the second
+call says plainly that the limit saved and the roles did not, rather than
+letting the admin believe nothing changed.
+
+**A test of mine was wrong, and the code was right.** It asserted that an AED
+ceiling beside a sign-off role is the forbidden pair. It is not: D3 splits
+*whether* somebody decides (the permission) from *how much* (the amount on the
+person), and deciding needs both, so a ceiling alone grants nothing. Refusing it
+would have made a legitimate setup unexpressible. The case now pins the
+distinction instead.
+
+**Also worth remembering:** adding the permission read to the users PUT widened
+that route's import graph and broke fifteen tests in a suite whose mock named a
+narrow set — the same class as the `dbLogger` breakage in step 2. Production
+behaviour was correct both times; the mock was the thing that had to catch up.
+
 Remaining steps:
 
 1. Catalogue in code, the three tables, migration, RLS package, seeded
@@ -306,7 +358,7 @@ Remaining steps:
    every existing grant holder keeps exactly today's access after the seed.
 3. Session plumbing, sidebar, layout, MCP actor (today it passes only the role,
    so a role holder would get no MCP tools).
-4. The two Settings screens, audit, user guide.
+4. ~~The two Settings screens, audit~~ BUILT. User guide still to write.
 5. Retire `procurementRequest` / `procurementSettle` columns in a later deploy
    (expand, then contract).
 
