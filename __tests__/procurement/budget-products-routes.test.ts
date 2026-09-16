@@ -9,7 +9,22 @@ import { NextRequest } from "next/server";
 
 const authMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }));
-vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+// All four real loggers, not just the one this file uses. `route-helpers.ts`
+// now imports `@/lib/db` (the guard reads custom-role permissions), and `db`
+// imports `dbLogger`, so a mock naming a single export breaks the moment the
+// import graph widens — which is exactly what happened on Sep 16 2026.
+// Hoisted WITH the vi.mock factories, which run above every plain top-level
+// const in the file. A bare `const` here is read before it exists and the
+// whole suite fails to load rather than failing an assertion.
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+vi.mock("@/lib/logger", () => ({
+  apiLogger: loggerMock, dbLogger: loggerMock, authLogger: loggerMock, eventLogger: loggerMock,
+}));
+// The guard resolves permissions on every procurement request; these suites
+// exercise the LEGACY arm, so an empty set keeps today's behaviour exactly.
+vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "127.0.0.1" }));
 

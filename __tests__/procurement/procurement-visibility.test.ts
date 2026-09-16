@@ -29,11 +29,55 @@ describe("procurement visibility", () => {
     expect(canViewProcurement({ role: "NEW_ROLE_NOBODY_CLASSIFIED" })).toBe(false);
   });
 
-  it("authoring and admin are role-based, not grant-based", () => {
+  it("authoring and admin stay role-based for anyone holding no custom role", () => {
     expect(canAuthorBudgets({ role: "ORGANIZER" })).toBe(true);
+    // The three GRANTS still do not confer authoring: only a custom role does.
     expect(canAuthorBudgets({ role: "MEMBER", procurementRequest: true, procurementSettle: true })).toBe(false);
     expect(canAdminProcurement({ role: "ADMIN" })).toBe(true);
     expect(canAdminProcurement({ role: "ORGANIZER" })).toBe(false);
+  });
+
+  it("a custom role grants budget authoring to a MEMBER, which no role does", () => {
+    // THE ASSERTION THIS FEATURE EXISTS TO CHANGE. Every project manager is a
+    // MEMBER (owner, Sep 16 2026) and a MEMBER authors nothing by role, so
+    // before custom roles the requirement was inexpressible.
+    const pm = { role: "MEMBER", procurementPermissions: ["procurement.budgets.create"] };
+    expect(canAuthorBudgets(pm)).toBe(true);
+    expect(canViewProcurement(pm)).toBe(true);
+    // And the other direction: the key does not leak into unrelated authority.
+    expect(canApproveProcurement(pm, 1)).toBe(false);
+    expect(canSettleProcurement(pm)).toBe(false);
+    expect(canAdminProcurement(pm)).toBe(false);
+  });
+
+  it("each key unlocks only its own predicate, never a neighbour", () => {
+    expect(canRequestProcurement({ role: "ONSITE", procurementPermissions: ["procurement.requests.create"] })).toBe(true);
+    expect(canSettleProcurement({ role: "ONSITE", procurementPermissions: ["procurement.requests.create"] })).toBe(false);
+    expect(canSettleProcurement({ role: "MEMBER", procurementPermissions: ["procurement.budgets.signoff"] })).toBe(true);
+    expect(canDecideSuppliers({ role: "MEMBER", procurementPermissions: ["procurement.suppliers.decide"] })).toBe(true);
+    expect(canDecideSuppliers({ role: "MEMBER", procurementPermissions: ["procurement.suppliers.view"] })).toBe(false);
+    expect(canAdminProcurement({ role: "MEMBER", procurementPermissions: ["procurement.requests.manage"] })).toBe(true);
+  });
+
+  it("holding a permission is never authority to approve an amount (D3)", () => {
+    // `approvals.decide` says WHETHER; the AED ceiling on the person says HOW
+    // MUCH. A key with no ceiling approves nothing.
+    const keyOnly = { role: "MEMBER", procurementPermissions: ["procurement.approvals.decide"] };
+    expect(approvalCeilingAed(keyOnly)).toBeNull();
+    expect(canApproveProcurement(keyOnly, 1)).toBe(false);
+    const withCeiling = { ...keyOnly, procurementApproveCeilingAed: 5_000 };
+    expect(canApproveProcurement(withCeiling, 5_000)).toBe(true);
+    expect(canApproveProcurement(withCeiling, 5_001)).toBe(false);
+  });
+
+  it("an empty or absent permission list changes nothing at all", () => {
+    // The transition contract: absent means "not resolved here", never
+    // "holds nothing", so every un-taught caller behaves exactly as before.
+    expect(canViewProcurement({ role: "ONSITE", procurementPermissions: [] })).toBe(false);
+    expect(canViewProcurement({ role: "ONSITE" })).toBe(false);
+    expect(canAuthorBudgets({ role: "ORGANIZER", procurementPermissions: [] })).toBe(true);
+    expect(canAuthorBudgets({ role: "MEMBER", procurementPermissions: [] })).toBe(false);
+    expect(canViewProcurement({ role: "ONSITE", procurementPermissions: ["procurement.orders.view"] })).toBe(true);
   });
 
   it("keeps the three grants apart", () => {

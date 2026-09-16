@@ -9,6 +9,8 @@ import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
+import { runWithTenant } from "@/lib/tenant-context";
+import { readUserPermissions } from "@/lib/permissions/permission-set-service";
 import { checkRateLimit } from "@/lib/security";
 import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
 import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
@@ -28,14 +30,55 @@ export async function procurementGuard(opts: { route: string; need: ProcurementN
     apiLogger.warn({ msg: `${opts.route}:unauthorized` });
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
-  const denied = denyNonProcurement(session, { route: opts.route, need: opts.need, amountAed: opts.amountAed });
-  if (denied) return { ok: false, response: denied };
+  // ORDER MATTERS, and getting it wrong makes the whole feature unreachable.
+  // The org is resolved and the permissions are read BEFORE the need check,
+  // because `denyNonProcurement` is what judges the need: with permissions
+  // still unread it sees `undefined`, falls through to the legacy arm, and
+  // refuses the MEMBER project manager whose custom role was about to admit
+  // them. The permission must be in hand before anything asks the question.
+  //
+  // Reordering `requireOrgId` above the need check is safe: it is pure, reads
+  // only `session.user.organizationId`, and assumes nothing about the flag or
+  // the grant. The one visible change is which 403 an org-null caller gets —
+  // the same status and body either way, logged as `require-org:no-org` rather
+  // than `procurement-no-org`.
   const org = requireOrgId(session, { route: opts.route });
   if ("error" in org) return { ok: false, response: org.error };
+
+  // Resolved ONCE here so the eight inline `isAdmin: canAdminProcurement(g.user)`
+  // literals on the request routes pick them up unchanged. Adding a field to
+  // those literals instead would have been eight chances to omit it silently,
+  // since an optional field never fails to compile when left out.
+  //
+  // Read inside the caller's tenant lane, borrowed from the resolved org: under
+  // RLS an unwrapped read returns zero rows, which would read as "holds no
+  // custom role" and quietly withhold access rather than erroring.
+  //
+  // A DATABASE READ ON EVERY PROCUREMENT REQUEST, reads included, and that is
+  // the deliberate trade (owner, Sep 16 2026): correct now, cheap later. Step 3
+  // puts the keys in the JWT, refreshed on the existing five-minute cycle, at
+  // which point this read stays only where staleness would cost money — the two
+  // decision-time refreshes in approvals-service and commitment-service.
+  let permissions: string[] = [];
+  try {
+    permissions = await runWithTenant(org.orgId, () => readUserPermissions(org.orgId, session.user.id));
+  } catch (err) {
+    // Never fail the request on this: the legacy arm of every predicate still
+    // decides, so the worst case is the access somebody had yesterday.
+    apiLogger.error({ msg: `${opts.route}:permissions-read-failed`, err, userId: session.user.id });
+  }
+
+  const denied = denyNonProcurement(
+    { user: { ...session.user, procurementPermissions: permissions } },
+    { route: opts.route, need: opts.need, amountAed: opts.amountAed },
+  );
+  if (denied) return { ok: false, response: denied };
+
   if (opts.write) {
     const rl = checkRateLimit({ key: `procurement-write:${session.user.id}`, limit: 300, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) return { ok: false, response: rateLimited(rl, { route: opts.route, userId: session.user.id, limit: 300, windowSeconds: 3600 }) };
   }
+
   return {
     ok: true,
     orgId: org.orgId,
@@ -47,6 +90,7 @@ export async function procurementGuard(opts: { route: string; need: ProcurementN
       procurementApproveCeilingAed: session.user.procurementApproveCeilingAed ?? null,
       procurementApproveUnlimited: session.user.procurementApproveUnlimited ?? false,
       procurementSettle: session.user.procurementSettle ?? false,
+      procurementPermissions: permissions,
     },
   };
 }

@@ -256,7 +256,13 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
   // the JWT's five-minute re-validation. The session only says who is asking.
   const row = await db.user.findFirst({
     where: { id: input.decider.id, organizationId: input.organizationId, deactivatedAt: null },
-    select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+    select: {
+      role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true,
+      // Custom-role permissions are read HERE for the same reason the grants
+      // are: archiving a role must bite now, not after the JWT's five-minute
+      // re-validation. Archived roles grant nothing.
+      permissionSets: { where: { permissionSet: { archivedAt: null } }, select: { permissionSet: { select: { permissions: { select: { permission: true } } } } } },
+    },
   });
   if (!row) return fail("NOT_ASSIGNEE", "This request is assigned to someone else.", input);
   const decider: ProcurementUserLike = { role: row.role, ...procurementGrantsFromRow(row) };

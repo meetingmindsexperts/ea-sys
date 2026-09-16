@@ -23,6 +23,7 @@ import {
   canRequestProcurement,
   canSettleProcurement,
   canViewProcurement,
+  hasAnyProcurementGrant,
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
@@ -33,6 +34,12 @@ export type ProcurementSession =
   | null
   | undefined;
 
+/** Does the person hold this permission through a custom role? */
+function holdsKey(user: ProcurementUserLike | null | undefined, key: string): boolean {
+  const keys = user?.procurementPermissions;
+  return Array.isArray(keys) && keys.includes(key);
+}
+
 function allowed(user: ProcurementUserLike | null | undefined, need: ProcurementNeed, amountAed?: number): boolean {
   switch (need) {
     case "view":
@@ -40,15 +47,23 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
     case "author":
       return canAuthorBudgets(user);
     case "admin":
-      return canAdminProcurement(user);
+      // THE CATALOGUE, and nothing else: the only routes taking this need are
+      // products POST / [productId] / import. D16 makes it permission-only, so
+      // the key stands beside the role rather than behind `canAdminProcurement`,
+      // whose eight other call sites mean "act on someone else's request".
+      return holdsKey(user, "procurement.catalogue.manage") || canAdminProcurement(user);
     case "request":
       return canRequestProcurement(user);
     case "settle":
       return canSettleProcurement(user);
     case "propose":
       // A supplier is proposed by a requester or created by the settle holder (spec §4.3).
-      return canRequestProcurement(user) || canSettleProcurement(user);
+      return holdsKey(user, "procurement.suppliers.propose") || canRequestProcurement(user) || canSettleProcurement(user);
     case "approve":
+      // Two independent questions: MAY they decide (the key or a legacy
+      // ceiling), and HOW MUCH (the AED ceiling on the person, D3). Holding
+      // the key alone is not authority; a ceiling is still required.
+      if (!holdsKey(user, "procurement.approvals.decide") && !hasAnyProcurementGrant(user)) return false;
       return canApproveProcurement(user, amountAed ?? Number.NaN);
     case "decide-supplier":
       return canDecideSuppliers(user);
@@ -73,6 +88,13 @@ export function denyNonProcurement(
   if (!session.user.organizationId) {
     // Org-null roles (reviewer, submitter, registrant) have no organisation to
     // budget for; a grant on such an account is a misconfiguration, not access.
+    //
+    // UNREACHABLE FROM `procurementGuard` since Sep 16 2026: that caller now
+    // resolves the org first (it must, to read custom-role permissions in the
+    // right tenant lane before the need is judged), so an org-null caller is
+    // refused there with the same 403. Kept because this function is exported
+    // and a future direct caller would need it, and because a guard that is
+    // correct only by virtue of its callers is one deletion from being wrong.
     apiLogger.warn({
       msg: `${context.route}:procurement-no-org`,
       userId: session.user.id,

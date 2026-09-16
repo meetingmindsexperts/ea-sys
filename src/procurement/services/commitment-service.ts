@@ -204,7 +204,12 @@ export async function getCommitment(organizationId: string, commitmentId: string
 async function actorFromRow(organizationId: string, actor: OrderActor): Promise<OrderActor> {
   const row = await db.user.findFirst({
     where: { id: actor.id, organizationId, deactivatedAt: null },
-    select: { role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true },
+    select: {
+      role: true, procurementRequest: true, procurementApproveCeilingAed: true, procurementApproveUnlimited: true, procurementSettle: true,
+      // Same reason as the grants above: read fresh so a role archived a
+      // minute ago cannot still act on an order.
+      permissionSets: { where: { permissionSet: { archivedAt: null } }, select: { permissionSet: { select: { permissions: { select: { permission: true } } } } } },
+    },
   });
   if (!row) {
     apiLogger.warn({ msg: "procurement/commitments:actor-row-missing", userId: actor.id, organizationId });

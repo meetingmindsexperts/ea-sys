@@ -244,6 +244,38 @@ nobody can use differently), and **`readUserPermissions` drops keys this build n
 longer enforces**, so a row outliving its capability cannot satisfy a later check
 that reuses the name.
 
+**Step 2 is BUILT (Sep 16, 2026), unpushed.** The predicates read
+`permission OR today's rule`, so **nobody's access changes**; dropping the
+legacy arm is the separate flip §10a says must follow assignment.
+
+| File | What changed |
+|---|---|
+| `src/lib/procurement-visibility.ts` | `ProcurementUserLike` gains optional `procurementPermissions`; every predicate gains a permission arm; `procurementGrantsFromRow` flattens the nested rows, so the ONE shared mapper serves both decision-time callers. |
+| `src/procurement/lib/procurement-roles.ts` | `allowed()` maps each need to its own key: `admin` to `catalogue.manage` (D16), `propose` to `suppliers.propose`, `approve` to `approvals.decide` **plus** a ceiling. |
+| `src/procurement/lib/route-helpers.ts` | `procurementGuard` resolves permissions once, in the caller's tenant lane, **before** the need check. |
+| `src/lib/approvals/approvals-service.ts`, `src/procurement/services/commitment-service.ts` | Both decision-time row reads load permissions, so archiving a role bites at once rather than after five minutes. |
+
+**THE TRAP, and it shipped green once before it was caught.** The first cut
+resolved permissions *after* `denyNonProcurement`. Everything compiled, every
+existing test passed, and the feature was **entirely unreachable**: the need
+check saw `undefined`, fell through to the legacy arm, and refused the very
+MEMBER the custom role was about to admit. Nothing in the suite could see it,
+because every existing test exercises the legacy arm. Order is load-bearing:
+**resolve the permission before anything asks the question.** A route-level test
+now pins it.
+
+Two more decisions recorded in the code: `canApproveProcurement` has **no**
+permission arm (the key says whether, the AED ceiling on the person says how
+much, D3 — an arm here would read as unlimited authority), and
+`canAdminProcurement` means **"act on someone else's request"** only, since
+that is all its eight call sites want; the catalogue and reopen went to their
+own keys.
+
+**Known gap: MCP.** `ProcurementMcpActor` carries a role string and no user id,
+so `readUserPermissions` has nothing to key on and a custom-role holder gets no
+procurement tools through the agent. Invisible today because grants are equally
+role-invisible there; it becomes a real gap once roles are assigned.
+
 Remaining steps:
 
 1. Catalogue in code, the three tables, migration, RLS package, seeded

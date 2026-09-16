@@ -9,7 +9,10 @@ import { NextRequest } from "next/server";
 const authMock = vi.hoisted(() => vi.fn());
 const logMock = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }));
-vi.mock("@/lib/logger", () => ({ apiLogger: logMock }));
+vi.mock("@/lib/logger", () => ({
+  apiLogger: logMock, dbLogger: logMock, authLogger: logMock, eventLogger: logMock,
+}));
+vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "127.0.0.1" }));
 

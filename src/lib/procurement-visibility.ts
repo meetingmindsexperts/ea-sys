@@ -12,12 +12,32 @@
  * predicate fails CLOSED on an unknown role or a missing grant.
  */
 
+import type { PermissionKey } from "@/lib/permissions/catalogue";
+
 export interface ProcurementUserLike {
   role?: string | null;
   procurementRequest?: boolean | null;
   procurementApproveCeilingAed?: number | null;
   procurementApproveUnlimited?: boolean | null;
   procurementSettle?: boolean | null;
+  /**
+   * Permission keys from the person's custom roles, the UNION across all of
+   * them (docs/PROCUREMENT_ROLES_PLAN.md D2). OPTIONAL and additive: absent
+   * means "not resolved here", never "holds nothing", so every caller that has
+   * not been taught to load them keeps behaving exactly as it did.
+   *
+   * Every predicate below reads `permission OR today's rule`. That is the
+   * transition shape on purpose: nobody's access changes when this ships, and
+   * dropping the legacy arm is the separate, deliberate flip that §10a says
+   * must come AFTER people have been assigned roles.
+   */
+  procurementPermissions?: readonly string[] | null;
+}
+
+/** Does this person hold `key` through one of their custom roles? */
+function holds(user: ProcurementUserLike | null | undefined, key: PermissionKey): boolean {
+  const keys = user?.procurementPermissions;
+  return Array.isArray(keys) && keys.includes(key);
 }
 
 /** Org staff who read procurement data without any grant (spec §4: MEMBER is read-only). */
@@ -38,24 +58,44 @@ export function hasAnyProcurementGrant(user: ProcurementUserLike | null | undefi
 }
 
 export function canViewProcurement(user: ProcurementUserLike | null | undefined): boolean {
+  // Any procurement permission at all is enough to enter the module: the
+  // per-screen keys decide what is visible once inside.
+  if (Array.isArray(user?.procurementPermissions) && user.procurementPermissions.length > 0) return true;
   if (!user?.role) return false;
   if (PROCUREMENT_READ_ROLES.has(user.role)) return true;
   return hasAnyProcurementGrant(user);
 }
 
 export function canAuthorBudgets(user: ProcurementUserLike | null | undefined): boolean {
+  // The gap this whole feature exists to close: every project manager is a
+  // MEMBER, and a MEMBER authors nothing by role.
+  if (holds(user, "procurement.budgets.create") || holds(user, "procurement.budgets.edit")) return true;
   return !!user?.role && BUDGET_AUTHOR_ROLES.has(user.role);
 }
 
+/**
+ * MAY THIS PERSON ACT ON SOMEBODY ELSE'S SPEND REQUEST? That is the only thing
+ * the name means at its eight call sites (edit, submit, amend, transition and
+ * the quote writes all pass it as `isAdmin` to the service), so the permission
+ * arm is `requests.manage` rather than a general "is an admin" key.
+ *
+ * The CATALOGUE is deliberately NOT this predicate. `denyNonProcurement`'s
+ * `admin` need is the catalogue's alone and maps to `catalogue.manage` (D16);
+ * reopening and unfreezing a budget went to `budgets.edit` (D15). One old
+ * predicate, three meanings, now three keys.
+ */
 export function canAdminProcurement(user: ProcurementUserLike | null | undefined): boolean {
+  if (holds(user, "procurement.requests.manage")) return true;
   return !!user?.role && PROCUREMENT_ADMIN_ROLES.has(user.role);
 }
 
 export function canRequestProcurement(user: ProcurementUserLike | null | undefined): boolean {
+  if (holds(user, "procurement.requests.create")) return true;
   return user?.procurementRequest === true;
 }
 
 export function canSettleProcurement(user: ProcurementUserLike | null | undefined): boolean {
+  if (holds(user, "procurement.budgets.signoff")) return true;
   return user?.procurementSettle === true;
 }
 
@@ -67,6 +107,7 @@ export function canSettleProcurement(user: ProcurementUserLike | null | undefine
  */
 export function canDecideSuppliers(user: ProcurementUserLike | null | undefined): boolean {
   if (!user) return false;
+  if (holds(user, "procurement.suppliers.decide")) return true;
   return user.procurementSettle === true || user.role === "SUPER_ADMIN" || user.procurementApproveUnlimited === true;
 }
 
@@ -80,6 +121,7 @@ const SUPPLIER_FINANCIALS_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"])
  */
 export function canViewSupplierFinancials(user: ProcurementUserLike | null | undefined): boolean {
   if (!user) return false;
+  if (holds(user, "procurement.suppliers.financials.view")) return true;
   if (user.procurementSettle === true) return true;
   return !!user.role && SUPPLIER_FINANCIALS_ROLES.has(user.role);
 }
@@ -96,7 +138,17 @@ export function approvalCeilingAed(user: ProcurementUserLike | null | undefined)
   return typeof c === "number" && Number.isFinite(c) && c > 0 ? c : null;
 }
 
-/** May this person decide a subject worth `amountAed`? Inclusive at the ceiling. */
+/**
+ * May this person decide a subject worth `amountAed`? Inclusive at the ceiling.
+ *
+ * DELIBERATELY NO PERMISSION ARM, and this is a decision rather than an
+ * oversight. `approvals.decide` says WHETHER somebody decides; the AED ceiling
+ * says HOW MUCH, and D3 keeps the amount on the PERSON because two holders of
+ * "PO Approver" approve to different limits. A permission arm here would read
+ * as unlimited authority for anyone holding the key, which is exactly the
+ * separation spec §4 forbids. The key is checked where the route asks for the
+ * `approve` need; the ceiling is checked here.
+ */
 export function canApproveProcurement(
   user: ProcurementUserLike | null | undefined,
   amountAed: number,
@@ -123,15 +175,44 @@ export interface ProcurementGrants {
   procurementApproveCeilingAed: number | null;
   procurementApproveUnlimited: boolean;
   procurementSettle: boolean;
+  /** Undefined when the caller did not select the person's custom roles. */
+  procurementPermissions?: string[];
+}
+
+/**
+ * The nested shape the two decision-time reads select: a person's live custom
+ * roles, already filtered to the un-archived ones by the query.
+ */
+interface HeldPermissionSets {
+  permissionSets?: ReadonlyArray<{ permissionSet: { permissions: ReadonlyArray<{ permission: string }> } }> | null;
+}
+
+/**
+ * Flattens the nested rows into the union of permission keys.
+ *
+ * Returns `undefined` when the caller did not select them, which is the whole
+ * transition contract: absent means "not resolved here", never "holds
+ * nothing", so a caller that has not been taught to load permissions keeps
+ * deciding exactly as it did.
+ */
+function permissionsFromRow(row: HeldPermissionSets | null | undefined): string[] | undefined {
+  const held = row?.permissionSets;
+  if (!Array.isArray(held)) return undefined;
+  const keys = new Set<string>();
+  for (const h of held) for (const { permission } of h.permissionSet.permissions) keys.add(permission);
+  return [...keys];
 }
 
 export function procurementGrantsFromRow(
-  row: {
-    procurementRequest?: boolean | null;
-    procurementApproveCeilingAed?: unknown;
-    procurementApproveUnlimited?: boolean | null;
-    procurementSettle?: boolean | null;
-  } | null | undefined,
+  row:
+    | ({
+        procurementRequest?: boolean | null;
+        procurementApproveCeilingAed?: unknown;
+        procurementApproveUnlimited?: boolean | null;
+        procurementSettle?: boolean | null;
+      } & HeldPermissionSets)
+    | null
+    | undefined,
 ): ProcurementGrants {
   const raw = row?.procurementApproveCeilingAed;
   const ceiling =
@@ -143,6 +224,12 @@ export function procurementGrantsFromRow(
     procurementApproveCeilingAed: ceiling !== null && Number.isFinite(ceiling) ? ceiling : null,
     procurementApproveUnlimited: row?.procurementApproveUnlimited === true,
     procurementSettle: row?.procurementSettle === true,
+    // THE ONE FUNNEL. Both decision-time reads (approvals-service and
+    // commitment-service) already call this mapper, so flattening here is what
+    // makes the `permissionSets` select they now carry actually decide
+    // something. Extending the two call sites separately would have been two
+    // chances to drift.
+    procurementPermissions: permissionsFromRow(row),
   };
 }
 
