@@ -1,7 +1,11 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status: PLANNED, NOT BUILT. Revision 2 (Sep 15, 2026), after an independent
-> review verified against the code (§12).** Do not start without owner go-ahead
+> **Status: PLANNED, NOT BUILT. Revision 3 (Sep 16, 2026).** Owner rulings this
+> revision: roles are **several and additive**, unioned over whole
+> (permission, scope) pairs, which reverses revision 2's D3 (§7.3 explains why
+> that section argued for scope-on-the-grant, not for one role); and the build
+> starts with **Phase 0 alone**. Revision 2 (Sep 15, 2026) followed an
+> independent review verified against the code (§12).** Do not start without owner go-ahead
 > on the decisions in §10. Every phase before Phase 5 is designed to change
 > nothing a user can see, because production is live, and §6 says how each one
 > proves that.
@@ -55,7 +59,6 @@ roles an admin composes from the same permission catalogue.
 - **Per-person grants** (§3.4): `hrAccess`, procurement request, settle and the
   approval ceiling stay on the person, beside the role.
 - **Per-record ACLs** ("may edit these 12 registrations"). Scope is per event.
-- **Several roles per user.** One role per user (§7.3).
 
 ---
 
@@ -152,13 +155,16 @@ Fourteen files hold role sets. The findings that shape this plan:
 
 A **permission** is a key naming one operation on one resource. A **role** is a
 named set of **grants**; a grant is a permission plus, for event-bound
-permissions, a **scope**. A user holds exactly one role. A few permissions also
-require a **person grant** (§3.4).
+permissions, a **scope**. A user keeps a **base role** and may hold **any number
+of further roles** on top; their access is the **union of every held role's
+grants, taken pair by pair** (§7.3). A few permissions also require a **person
+grant** (§3.4).
 
 ```
 permission  = "registrations.checkin"
 scope       = ALL | ASSIGNED | WEBINAR      (event-bound permissions only)
 role        = { key, name, organizationId, isSystem, grants: [(permission, scope)] }
+access      = union over every held role's grants, whole pairs only
 check       = can(principal, "registrations.checkin", { eventId })
 ```
 
@@ -203,7 +209,7 @@ model Role {
   version        Int      @default(1)     // bumped on every grant change
   archivedAt     DateTime?
   grants         RoleGrant[]              // EMPTY for system roles (grants live in code)
-  users          User[]
+  holders        UserRoleAssignment[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   @@unique([organizationId, key])
@@ -231,18 +237,36 @@ model EventStaffAssignment {               // replaces settings.onsiteUserIds (P
   @@unique([eventId, userId])
 }
 
-// User gains:  roleId String?  (FK Restrict; null for REVIEWER / SUBMITTER / REGISTRANT)
+model UserRoleAssignment {                 // additive (D3): any number per person
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  assignedById   String?
+  createdAt      DateTime @default(now())
+  role           Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  @@unique([userId, roleId])
+}
+
+// User keeps `role` (the enum) as its BASE role. Further roles are rows above.
 ```
 
-**What `User.role` holds.** A system-role user keeps today's value (ADMIN,
-MEMBER, ...). A custom-role user holds the new **`CUSTOM`** value plus
-`roleId`. `CUSTOM` joins `TEAM_ROLES`, so the eleven `isTeamRole` decisions
-treat the person as staff, and the compile guard at `auth-guards.ts:112` then
-requires it in `ASSIGNABLE_USER_ROLES`, which is correct: the role picker must
-set `roleId` with it. After Phase 0, every predicate a route still uses is an
-allow-list, so `CUSTOM` fails closed on anything not yet swept. That is what
-makes "custom roles stay off until the sweep is complete" structural rather
-than a promise.
+**What `User.role` holds (revised for D3).** Because roles are additive, the
+enum keeps its job: it is the person's **base** role, and the 121 files that
+read the role string, plus the eleven `isTeamRole` decisions, carry on reading
+it unchanged. Custom roles are `UserRoleAssignment` rows **on top**, so nobody's
+`User.role` changes when they gain one.
+
+`UserRole.CUSTOM` is therefore needed only for a person who should hold **no**
+base access at all (a pure "PO Author" with nothing else). Two ways to express
+that, and it is open (§10 D15): add `CUSTOM` as planned, or seed a system role
+named "No base access" with an empty grant set, which avoids touching
+`TEAM_ROLES`, `ASSIGNABLE_USER_ROLES` and the compile guard entirely. The
+second is smaller; the first is what revision 1 assumed.
+
+After Phase 0 every predicate a route still uses is an allow-list, so a role
+that grants something not yet swept fails closed. That is what makes "custom
+roles stay off until the sweep is complete" structural rather than a promise.
 
 **System roles resolve their grants from code.** `src/lib/permissions/system-roles.ts`
 is the only definition. A system `Role` row exists per org for identity and the
@@ -287,20 +311,23 @@ that would break separation of duties (§7.7).
 The JWT does **not** carry the permission list (100 keys push an encrypted
 cookie toward the 4 KB limit and go stale on the next edit).
 
-- **Token carries:** `roleId`, `roleVersion`, and a short `modules` array for
-  the Edge middleware and the sidebar, which cannot query the database.
-- **System-role users:** grants come from code. **No database read** beyond
-  today's per-request staff revalidation.
-- **Custom-role users:** the revalidation read of `User` (which carries no
-  policy) returns `organizationId` and `roleId`; the role's `version` and grants
+- **Token carries:** the base role, `roleIds` for any additional roles, a
+  **composite version** over them, and a short `modules` array for the Edge
+  middleware and the sidebar, which cannot query the database.
+- **Base role only (the common case, and every account on prod today):** grants
+  come from code. **No database read** beyond today's per-request staff
+  revalidation.
+- **Holding one or more custom roles:** the revalidation read of `User` (which
+  carries no policy) returns `organizationId`; the assignments, their `version`s and grants
   are then read **inside `runWithTenant(user.organizationId)`**. Reading `Role`
   outside a lane would return nothing under platform RLS (the tenant extension
   passes through with no store, and the policy compares against an unset
   setting), and every custom-role user would silently hold zero permissions.
   Borrowing the lane from the row keeps RLS on tenant-authored configuration.
   The RLS coverage test forces this decision either way.
-- **Cache:** grants per process keyed on `roleId:version`. Cost: one indexed
-  read per request for custom-role staff (version), grants from cache.
+- **Cache:** grants per process keyed on `roleId:version`; the union is
+  recomputed from cached per-role grant sets, so N roles cost no extra reads.
+  Cost: one indexed read per request for staff holding any custom role.
 - **Mobile:** access tokens stay signature-only (§2.3). `mobile-refresh`
   checks the role version, so a role edit bites within the access token's life,
   the same bound deactivation has today.
@@ -531,12 +558,29 @@ scope cannot be separated from the permission.
 
 ### 7.3 Unions pair the wrong halves
 
-Today's code asks *may this role do X* and *which events* separately. A user
-with two roles, answered role by role then OR'd, would take MEMBER's scope (all
-events) and WEBINARS' capability (full control) and hold full control on
-conferences, which neither role grants. The same happens inside one role if
-permission and scope are stored apart. Scope belongs to the grant, and a user
-holds one role.
+Today's code asks *may this role do X* and *which events* separately. Answered
+role by role and then OR'd, a user holding MEMBER and WEBINARS would take
+MEMBER's scope (all events) and WEBINARS' capability (full control) and hold
+full control on conferences, which neither role grants.
+
+**The trap is the recombination, not the second role.** Once scope belongs to
+the grant, the unit of union is the whole pair, and that same user holds
+`sessions.write @ WEBINAR` beside `registrations.checkin @ ALL`: full control on
+webinars, desk on conferences, which is exactly what holding both should mean.
+So this section argues for scope-on-the-grant (§3.1) and for `can()` taking the
+pair. It is **not** an argument for one role per user, and was read as one in
+revision 1 (D3, reversed Sep 16 2026).
+
+The general class: **never union two answers that were computed as separate
+questions.** Make the unit of union the complete decision. The tell that a
+permission is safe to union naively is a guard that takes only a principal;
+procurement's does (`denyNonProcurement(session, { need })`, no event, and no
+procurement route imports `buildEventAccessWhere`), which is why the flat
+module can adopt additive roles ahead of the sweep.
+
+Two things must then hold, and both are already required elsewhere (§7.7,
+§7.4): separation-of-duties rules are checked on the **union**, not per role,
+and the editor's "grant only what you hold" bound reads the grantor's union.
 
 ### 7.4 Privilege escalation through the editor
 
@@ -629,7 +673,7 @@ Before save, the editor flags:
 |---|---|---|
 | D1 | System roles editable, or clone-only? | Clone-only; their grants live in code (§3.3) |
 | D2 | Scopes `ALL`, `ASSIGNED`, `WEBINAR`: enough? | Yes; generalize to any event type only when a tenant asks |
-| D3 | One role per user, or several? | One (§7.3) |
+| D3 | One role per user, or several? | **Several** (owner, Sep 16 2026). Additive on top of a base role, unioned over (permission, scope) pairs (§7.3) |
 | D4 | API keys hold a role? | Yes, defaulting to "API key (full)" (§8.1) |
 | D5 | Who manages roles: SUPER_ADMIN only, or ADMIN too? | ADMIN too, under §7.4 |
 | D6 | Procurement approval ceiling: user attribute or role parameter? | User attribute (§3.4) |
@@ -640,6 +684,9 @@ Before save, the editor flags:
 | D11 | Start with Phase 0 alone and decide on the rest after? | Yes |
 | D12 | A custom-role user's `User.role` holds a new `CUSTOM` value? | Yes (§3.3) |
 | D13 | Custom-role grants read in a lane borrowed from the user row, or exempt the role tables from RLS? | Borrow the lane (§3.5) |
+| D17 | Checkboxes on a named role or directly on the person? | **Named role** (owner, Sep 16 2026); see PROCUREMENT_ROLES_PLAN §8a |
+| D15 | A person with no base access: add `UserRole.CUSTOM`, or seed a "No base access" system role? | Open; the seeded role is smaller (§3.3) |
+| D16 | Build order | **Reversed the same day.** Procurement roles first (PROCUREMENT_ROLES_PLAN §0: three staff are blocked or over-permissioned today and Phase 0 fixes none of it). Phase 0 step 1 shipped on its own; the rest follows |
 | D14 | Should the org-wide ORGANIZER scope be recorded as intended, since the docs say "assigned events only"? | Owner call; the migration preserves the code either way |
 
 ---

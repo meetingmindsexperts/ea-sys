@@ -53,8 +53,22 @@ describe("RBAC Layer 1: API guard (denyReviewer)", () => {
       expect(denyReviewer({ user: {} }, { route: "test" })).toBeNull();
     });
 
-    it("unknown role returns null (not blocked)", () => {
-      expect(denyReviewer({ user: { role: "UNKNOWN" } }, { route: "test" })).toBeNull();
+    // REVERSED Sep 16, 2026 (custom-roles plan, Phase 0 step 1, gap G1).
+    //
+    // This asserted `toBeNull()`: an unrecognised role was NOT blocked. That was
+    // true, because the guard read a DENY-list, so any role absent from it could
+    // write to every non-HR, non-CRM route. So this test was the codified form of
+    // the gap rather than a check on it — the strongest kind of stale test, since
+    // it passes while describing a defect as intended behaviour.
+    //
+    // The tell was the asymmetry: every other role predicate's suite in this repo
+    // says "fails closed on an unknown role" (crm-visibility, hr-rbac,
+    // supporting-document-visibility, registration-export-visibility). This was
+    // the lone outlier because it guarded the lone deny-list. With `WRITE_ROLES`
+    // it now fails closed like its siblings, which is what will keep a future
+    // custom role off every route the permission sweep has not yet reached.
+    it("unknown role is blocked (fails closed since the allow-list inversion)", () => {
+      expect(denyReviewer({ user: { role: "UNKNOWN" } }, { route: "test" })).not.toBeNull();
     });
   });
 

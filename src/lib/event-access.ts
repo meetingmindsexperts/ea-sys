@@ -137,7 +137,7 @@ export function buildEventAccessWhere(
   // can see all events ... as they are internal users but they see limited
   // data"). The model is now "MEMBER + full control on webinars", and it costs
   // almost nothing to express because the two roles' write guards are ALREADY
-  // identical: both sit in RESTRICTED_WRITE_ROLES (writes blocked by default),
+  // identical: both sit OUTSIDE WRITE_ROLES (writes blocked by default),
   // both in REGISTRATION_DESK_ALLOW (add registration / check-in / badge /
   // record payment), both in FINANCE_ROLES. Event scope was the only thing
   // separating them, so widening it here is the whole change.

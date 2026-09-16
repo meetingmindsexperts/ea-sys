@@ -1,13 +1,47 @@
 # Custom roles for Budget & Procurement: PLANNED, NOT BUILT
 
-**Status:** planning, Sep 15, 2026. Owner direction: "a custom role with custom
-access for the procurement module, eventually for other roles too". Do not
-start building without owner go-ahead.
+**Status:** planning, revised Sep 16, 2026. Owner direction: "a custom role with
+custom access for the procurement module, eventually for other roles too". Do
+not start building without owner go-ahead on §10.
+
+**Build order (owner, Sep 16 2026): this work comes FIRST**, ahead of the
+org-wide plan's Phase 0, on the evidence in §0. Phase 0 step 1 (the write
+allow-list inversion) shipped separately on Sep 16 and stands on its own.
 
 The idea: the super admin creates named roles such as **PO Author** or **PO
 Approver**, each a set of checkboxes (view budgets, create budgets, edit
 budgets, and so on), and tags one or more of them onto a person. The person
 keeps their base role (Organizer, Member, Webinars) for everything else.
+
+## 0. The use case that set the priority (owner, Sep 16 2026)
+
+Four real people, traced end to end against the code the same day:
+
+| Person | Wants | Today | Gap |
+|---|---|---|---|
+| Bassem, **Webinars** | Create budgets, raise requests | Requests work with the grant | **Cannot author budgets and no switch exists.** `canAuthorBudgets` is role-only (Super Admin, Admin, Organizer) |
+| Richard, **Organizer** | Raise requests, NOT author or browse budgets | Requests work | **Authoring and viewing come with his base role and cannot be withheld** |
+| Fabian, sometimes **Onsite** | Raise requests, nothing else | Reaches `/procurement` and can raise | No Budgets entry in the Onsite sidebar branch, so he needs the URL |
+| Muthu, **HR** | HR only, granted per person | Correct already | None; `hrAccess` is already a per-person grant, super admin only |
+
+**Bassem and Richard are one missing capability seen from both sides.** Budget
+authoring is granted by role with no per-person switch, so it can neither be
+given to a non-organizer nor withheld from an organizer. The only workaround
+today is to make Bassem an Organizer, which also hands him every event's
+registrations, speakers, invoices and settings. That is the cost being paid
+now, and it is what `budgets.create` / `budgets.edit` as checkboxes fixes.
+
+Two things checked and found NOT to be blockers: `/procurement` is deliberately
+outside the middleware matcher (the page layout is the gate), so no base role's
+path confinement blocks the module; and Fabian's case needs one sidebar line of
+the same shape as the Webinars fix already shipped.
+
+**Richard's view rule (owner, Sep 16 2026):** "does not need to view budgets"
+means **no Budgets screen and no editing, but he still sees the line he is
+spending against** and what remains on it, because the budget check is
+meaningless to a requester who cannot see it. So `requests.create` implies
+reading the target line, and `budgets.view` governs the Budgets list. Keep them
+separate keys.
 
 ## 1. Decisions taken
 
@@ -18,6 +52,9 @@ keeps their base role (Organizer, Member, Webinars) for everything else.
 | D3 | The approval amount lives on the **person**: the role says "can approve", the super admin types that person's AED limit when assigning it. | Sep 15 |
 | D4 | Only the **super admin** creates, edits and assigns custom roles (the `hrAccess` reasoning: an admin kept out must not be able to tick their own box). | Sep 15 |
 | D5 | Start with procurement; the same tables later carry CRM, HR and others. | Sep 15 |
+| D6 | This work goes **before** the org-wide Phase 0 (§0: people are blocked or over-permissioned today). | Sep 16 |
+| D7 | `requests.create` implies seeing the target budget line; `budgets.view` governs the Budgets list. | Sep 16 |
+| D8 | The checkboxes live on a **named role**, not directly on the person. Define "PO Author" once, tag it on people. | Sep 16 |
 
 Carried over from the grant discussion earlier the same day, **to confirm**
 before building, since they were answered for the grant model:
@@ -161,13 +198,52 @@ holder would silently hold nothing.
 5. Retire `procurementRequest` / `procurementSettle` columns in a later deploy
    (expand, then contract).
 
-## 8. Relation to the org-wide plan
+## 8. Relation to the org-wide plan (SETTLED Sep 16, 2026)
 
-`docs/CUSTOM_ROLES_PLAN.md` gives each user **one** role that replaces the base
-role. This plan adds **several** roles on top of the base role. They can
-converge (the org-wide plan could adopt additive sets for modules), but they
-should not both be built as written. Decide which shape the org-wide plan takes
-before building step 1 here, so the tables are not built twice.
+Revision 1 of this plan and revision 2 of `docs/CUSTOM_ROLES_PLAN.md`
+disagreed: that plan gave each user **one** role replacing the base role, this
+one adds **several** on top. **The owner settled it on the additive shape**, and
+the org-wide plan is now revision 3 to match (its D3, §3, §3.3, §3.5, §7.3).
+
+Why the disagreement was narrower than it looked. The org-wide plan's only
+argument for one role was §7.3: a user holding MEMBER and WEBINARS, asked *may
+they write sessions* and *which events* as two separate questions and then OR'd,
+ends up writing sessions on conferences, which neither role grants. That is a
+recombination bug, not a second-role bug. With scope on the grant, the unit of
+union is the whole `(permission, scope)` pair and the same user correctly gets
+full control on webinars and desk on conferences.
+
+**Procurement cannot hit it at all**, verified against the code on Sep 16:
+`denyNonProcurement` takes `{ route, need }` with no event, every predicate in
+`procurement-visibility.ts` takes only a user, and **no** procurement route
+imports `buildEventAccessWhere`. The module has no scope dimension, so there are
+no halves to mis-pair.
+
+**Consequence for the tables.** §5's three tables are the org-wide plan's
+`Role` / `RoleGrant` / `UserRoleAssignment` under their generic names, so build
+them once, from that plan's §3.3, whichever module lands first.
+
+**Current build order (owner, Sep 16 2026): Phase 0 of the org-wide plan
+first** (it closes nine gaps that exist today regardless of roles, two of which
+give a newly added role more access than intended). This plan resumes after
+that, and only on the shared tables.
+
+## 8a. Why the checkboxes live on a role, not on the person (D8)
+
+Both shapes are "tick the capabilities you want". The choice is whether the
+ticks are stored against a person or against a reusable named set.
+
+Per person is cheaper (one join table, no new screen, about a week) and is how
+today's four procurement switches already work. It was rejected because two of
+the three people in §0 need an identical set today, so the pattern is already
+repeating at a roster of twelve; because "these five are PO Authors" is not
+expressible, which is what the owner asked for in the original direction; and
+because a second tenant on the platform instance will define its own roles
+regardless, so the layer gets built either way.
+
+The catalogue in §3 is identical under both shapes, so none of that work is
+contingent on this choice. The difference is one join table plus the role
+editor screen, roughly three to four days.
 
 ## 9. Open questions
 

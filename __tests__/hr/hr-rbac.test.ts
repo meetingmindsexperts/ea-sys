@@ -127,12 +127,17 @@ describe("denyNonHr", () => {
 
 describe("HR_USER is confined everywhere else", () => {
   /**
-   * THE HIGHEST-CONSEQUENCE LINE IN THE RBAC SURFACE.
+   * This WAS the highest-consequence line in the RBAC surface.
    *
-   * `RESTRICTED_WRITE_ROLES` is the only DENY-list among the role predicates;
-   * every other one is an allow-list that excludes a new role for free. A role
-   * absent from this list can write to every non-HR route in the application,
-   * and nothing else fails loudly if you forget it.
+   * Until Sep 16, 2026 the list was `RESTRICTED_WRITE_ROLES`, the only DENY-list
+   * among the role predicates: a role absent from it could write to every
+   * non-HR route in the application, and nothing failed loudly if you forgot
+   * to add it. HR_USER's own addition in Aug 2026 was exactly that risk.
+   *
+   * It is now `WRITE_ROLES`, an allow-list like every other role predicate, so
+   * a new role is refused for free and this assertion holds by construction
+   * rather than by vigilance. Kept because it pins the outcome for HR_USER
+   * specifically, and because the inversion must not quietly re-admit it.
    */
   it("is blocked from every non-HR write", () => {
     const denied = denyReviewer({ user: { id: "u1", role: "HR_USER" } }, { route: "hr:rbac-test" });

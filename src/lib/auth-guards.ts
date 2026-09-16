@@ -4,24 +4,30 @@ import { canViewFinance } from "@/lib/finance-visibility";
 import { apiLogger } from "@/lib/logger";
 
 /**
- * Roles with no general write access. By default every POST/PUT/DELETE on a
- * non-abstract resource is blocked for these. ONSITE (registration-desk staff)
- * is in this set too — it is allowed ONLY on the specific create-registration,
- * check-in, and badge-print routes, which opt it back in via `opts.allow`.
+ * Roles with general write access. Every POST/PUT/DELETE on a non-abstract
+ * resource is blocked for anything NOT in this list, unless the route opts a
+ * role back in via `opts.allow` (ONSITE on create-registration / check-in /
+ * badge-print, WEBINARS on its module set, and so on).
+ *
+ * INVERTED Sep 16, 2026 (custom-roles plan, Phase 0 step 1, gap G1). This was
+ * `RESTRICTED_WRITE_ROLES`, a DENY-list, and the only one among the role
+ * predicates: every other (finance, barcode, contacts, login, export, operator,
+ * hr) is an allow-list, so a new role is excluded from them for free. Here a
+ * role that was ABSENT could write to every non-HR, non-CRM route in the
+ * application, and nothing failed loudly if you forgot the line.
+ *
+ * The answer is unchanged for all eleven roles in `UserRole` and for the
+ * role-less caller; `auth-guards-write-allowlist.test.ts` pins the whole
+ * matrix. What deliberately CHANGED: a role string the list does not recognise
+ * now fails closed instead of open. That is the point of the inversion, and it
+ * is what lets a future custom role be refused on every route not yet swept.
+ *
+ * The role-less passthrough is load-bearing and must survive any edit here:
+ * API-key auth reaches this as `role: undefined` (`getOrgContext` returns
+ * `ctx.role === null`), and a key is org admin-equivalent. MEMBER cannot mint
+ * one, so this is not a hole.
  */
-// CRM_USER is restricted from writes on the general (non-CRM) routes — it can only
-// write inside /api/crm/* (which gate via requireCrmWrite → canOwnDeals, not this).
-// WEBINARS (webinar team, Aug 3 2026) is restricted by DEFAULT too — its full
-// control of WEBINAR-type events is opt-in per route via WEBINAR_STAFF_ALLOW,
-// always paired with a buildEventAccessWhere lookup (which resolves ONLY
-// webinar events for this role), so a missed route fails closed.
-// ⚠ THIS IS THE ONLY DENY-LIST AMONG THE ROLE PREDICATES. Every other one
-// (finance, barcode, contacts, login, export, operator, hr) is an allow-list, so
-// a new role is excluded from them for free. Here, a role that is ABSENT can
-// write to every non-HR, non-CRM route in the application. Adding a confined
-// role and forgetting this line is the single highest-consequence omission in
-// the RBAC surface, and nothing else fails loudly if you make it.
-const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS", "HR_USER"];
+export const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
@@ -118,11 +124,12 @@ void _assignableCoversTeamRoles;
 
 
 /**
- * Returns a 403 Forbidden response if the user has a restricted role
- * (REVIEWER, SUBMITTER, REGISTRANT, MEMBER, or ONSITE).
- * These roles are only allowed limited operations — all other
- * write operations (POST, PUT, DELETE) on non-abstract resources must
- * call this guard before proceeding.
+ * Returns a 403 Forbidden response unless the user's role carries general
+ * write access (`WRITE_ROLES`: SUPER_ADMIN, ADMIN, ORGANIZER). Every other
+ * role — MEMBER, ONSITE, WEBINARS, CRM_USER, HR_USER, REVIEWER, SUBMITTER,
+ * REGISTRANT, and anything unrecognised — is refused here and must be opted
+ * back in per route via `opts.allow`. All write operations (POST, PUT, DELETE)
+ * on non-abstract resources must call this guard before proceeding.
  *
  * Pass `opts.allow` to let a specific restricted role through on a route it is
  * permitted to write (e.g. ONSITE on registration-create / check-in / badges).
@@ -164,7 +171,7 @@ export function denyReviewer(
   opts: { allow?: readonly string[]; route: string; eventId?: string },
 ) {
   const role = session?.user?.role;
-  if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {
+  if (role && !(WRITE_ROLES as readonly string[]).includes(role) && !opts?.allow?.includes(role)) {
     // Logged HERE so no call site can forget (payments review M12): a
     // restricted role probing write endpoints must be visible in /logs.
     apiLogger.warn({

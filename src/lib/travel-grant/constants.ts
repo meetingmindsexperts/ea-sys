@@ -142,9 +142,9 @@ export function isOrganizerDecided(decidedBy: string | null | undefined): boolea
  *
  * Mirrors the server's `denyReviewer` gate on the console routes, and lives
  * here as a NAMED predicate rather than an inline Set in each component: when a
- * role is added to RESTRICTED_WRITE_ROLES (as WEBINARS was in Aug 2026) an
- * inline copy drifts from the server silently, with no test and no type error
- * to catch it.
+ * confined role is added (as WEBINARS was in Aug 2026) — which since the Sep 16
+ * inversion means leaving it OUT of `WRITE_ROLES` — an inline copy drifts from
+ * the server silently, with no test and no type error to catch it.
  *
  * MEMBER is excluded deliberately, even though MEMBER is internal read-only
  * staff: this is a list of who has asked to have their travel paid for, which
