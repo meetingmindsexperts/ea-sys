@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrafficCard } from "@/components/infra/traffic-card";
 import type { UploadsStorage, DrArtifact } from "@/lib/infra/aws-ops";
+import { describeDrStaleness } from "@/lib/infra/dr-staleness";
 import { UploadsStorageBody } from "@/components/infra/uploads-storage-body";
 import { ago, fmtTime, num } from "@/components/infra/format";
 
@@ -134,9 +135,14 @@ function deriveIssues(s: Snapshot): Issue[] {
   }
 
   for (const d of s.dr.rows) {
-    if (d.stale) {
-      out.push({ severity: "critical", label: `DR: ${d.label} is stale`, detail: `Last landed ${d.ageHours == null ? "never" : `${d.ageHours.toFixed(1)}h ago`} (expected within ${d.staleAfterHours}h). A restore needs ALL three streams.`, anchor: "dr" });
-    }
+    const staleness = describeDrStaleness(d);
+    if (!staleness) continue;
+    out.push({
+      severity: "critical",
+      label: staleness.kind === "sync-failing" ? `DR: ${d.label} sync is failing` : `DR: ${d.label} is stale`,
+      detail: staleness.detail,
+      anchor: "dr",
+    });
   }
   // Product heartbeat: a live event with zero registrations in 24h is an outage
   // that no infra metric on this page would ever notice.

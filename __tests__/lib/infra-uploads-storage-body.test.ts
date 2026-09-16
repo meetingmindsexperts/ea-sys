@@ -43,6 +43,7 @@ function healthy(): UploadsStorage {
 }
 const mirror = (objectCount: number, listingTruncated = false): DrArtifact => ({
   label: "Uploads mirror", prefix: "uploads/", latestAt: "x", ageHours: 0.5, staleAfterHours: 3, stale: false, objectCount, listingTruncated,
+  heartbeatAt: "x", newestObjectAt: "x",
 });
 const render = (u: UploadsStorage, m: DrArtifact | null = mirror(542)) =>
   renderToStaticMarkup(createElement(UploadsStorageBody, { u, mirror: m }));

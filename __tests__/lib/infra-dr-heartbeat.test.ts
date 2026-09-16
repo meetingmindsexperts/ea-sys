@@ -5,10 +5,16 @@
  * row off the newest object under uploads/, but the hourly `aws s3 sync`
  * only writes objects when a local file CHANGED — so a quiet stretch > 3h
  * tripped the alert while the cron was healthy. The fix: the cron writes
- * heartbeats/uploads-mirror after every successful sync, and the row uses
- * whichever is newer — heartbeat or newest uploads/ object (the fallback IS
- * the pre-fix behavior, so the card keeps working until the crontab change
- * lands). This suite pins:
+ * heartbeats/uploads-mirror after every successful sync, and the row ages off
+ * the HEARTBEAT when one exists, falling back to the newest uploads/ object
+ * only when there is none (the fallback IS the pre-fix behavior, so the card
+ * keeps working until the crontab change lands).
+ *
+ * That rule was "whichever is newer" until Sep 16, 2026, which had a hole: one
+ * recent upload made the row look fresh while no sync had COMPLETED for 40h
+ * (a single 9.5MB object failing on s3:GetObjectTagging made `aws s3 sync`
+ * exit non-zero every hour, so the `&&` never wrote the heartbeat). The
+ * heartbeat answers "did it finish"; a landed object cannot. This suite pins:
  *
  * 1. Heartbeat missing (404) → fall back to newest-object age, no warn log
  *    (pre-crontab-change is an expected state, not an error).
@@ -81,7 +87,16 @@ function routeSend(opts: {
   });
 }
 
-function uploadsRow(rows: { label: string; latestAt: string | null; stale: boolean; ageHours: number | null }[]) {
+function uploadsRow(
+  rows: {
+    label: string;
+    latestAt: string | null;
+    stale: boolean;
+    ageHours: number | null;
+    heartbeatAt: string | null;
+    newestObjectAt: string | null;
+  }[],
+) {
   const row = rows.find((r) => r.label === "Uploads mirror");
   expect(row).toBeDefined();
   return row!;
@@ -188,5 +203,30 @@ describe("fetchDr uploads-mirror row", () => {
     expect(row.latestAt).toBeNull();
     expect(row.ageHours).toBeNull();
     expect(row.stale).toBe(true);
+    expect(row.heartbeatAt).toBeNull();
+    expect(row.newestObjectAt).toBeNull();
+  });
+
+  // The Sep 16, 2026 hole. Under the old "whichever is newer" rule this row
+  // read as FRESH, so a partial sync failure was invisible on any day somebody
+  // uploaded a file — which is every working day.
+  it("stays stale when the heartbeat has frozen even though a file landed minutes ago", async () => {
+    const heartbeatAt = new Date(now - 40.6 * HOUR); // last clean completion
+    const objectAt = new Date(now - 0.5 * HOUR); // a smaller file mirrored fine
+    routeSend({ objects: { "uploads/": [objectAt] }, heartbeat: heartbeatAt });
+    const dr = await fetchDr();
+    const row = uploadsRow(dr.rows);
+    expect(row.stale).toBe(true);
+    // The honest timestamp is the heartbeat, NOT the newer object.
+    expect(row.latestAt).toBe(heartbeatAt.toISOString());
+  });
+
+  it("carries both timestamps so the alert can say WHICH of the two is wrong", async () => {
+    const heartbeatAt = new Date(now - 30 * 60_000);
+    const objectAt = new Date(now - 15.3 * HOUR);
+    routeSend({ objects: { "uploads/": [objectAt] }, heartbeat: heartbeatAt });
+    const row = uploadsRow((await fetchDr()).rows);
+    expect(row.heartbeatAt).toBe(heartbeatAt.toISOString());
+    expect(row.newestObjectAt).toBe(objectAt.toISOString());
   });
 });

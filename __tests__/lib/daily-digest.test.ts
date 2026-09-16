@@ -112,6 +112,8 @@ function healthySnapshot(): InfraSnapshot {
           stale: false,
           objectCount: 240,
           listingTruncated: false,
+          heartbeatAt: null,
+          newestObjectAt: "x",
         },
         {
           label: "Uploads mirror",
@@ -122,6 +124,8 @@ function healthySnapshot(): InfraSnapshot {
           stale: false,
           objectCount: 540,
           listingTruncated: false,
+          heartbeatAt: "x",
+          newestObjectAt: "x",
         },
       ],
     },

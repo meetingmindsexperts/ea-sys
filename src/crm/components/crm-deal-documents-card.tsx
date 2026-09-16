@@ -31,6 +31,7 @@ import {
 import { QuoteEditorDialog } from "@/crm/components/crm-quote-editor-dialog";
 import { formatQuoteDate, formatQuoteMoney, type CrmQuoteRow } from "@/crm/lib/quote-rules";
 import type { CrmDealDocumentRow } from "@/crm/lib/crm-types";
+import { uploadSizeHint } from "@/lib/utils";
 
 const MAX_SIZE = 10 * 1024 * 1024;
 
@@ -210,6 +211,9 @@ export function CrmDealDocumentsCard({
     await upload.mutateAsync({ file, kind, label: kind === "OTHER" ? label.trim() || undefined : undefined });
     toast.success(
       kind === "PROSPECTUS" ? (replacing ? "Prospectus replaced" : "Prospectus uploaded") : "Document added",
+      // Said after the upload succeeds, not before: the file is already saved,
+      // this is only a nudge for next time.
+      { description: uploadSizeHint(file.size) ?? undefined },
     );
     setLabel("");
   }

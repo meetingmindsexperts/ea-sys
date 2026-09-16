@@ -284,6 +284,10 @@ export interface DrArtifact {
   objectCount: number;
   /** True when the listing hit its page cap, so objectCount is a floor, not a count. */
   listingTruncated: boolean;
+  /** Last time the sync COMPLETED cleanly; null for streams that write no heartbeat. */
+  heartbeatAt: string | null;
+  /** Last time anything actually LANDED. Differs from the heartbeat on a partial failure. */
+  newestObjectAt: string | null;
 }
 
 // ── Uploads storage (the S3 bucket behind /uploads, live since Sep 7, 2026) ──
@@ -1181,9 +1185,19 @@ async function fetchAbuse(scope: InfraScope): Promise<InfraSnapshot["abuse"]> {
  * not "time since the sync last ran", and a quiet stretch > staleAfterHours
  * false-alarmed while the cron was healthy (2026-07-17). The cron therefore
  * also writes a heartbeat object after every successful sync, and the uploads
- * row uses whichever is newer: heartbeat (post-crontab-change) or newest
- * uploads/ object (pre-change fallback = exactly the old behavior). Triage
- * runbook: infra/dr/README.md §"Triage: Uploads mirror stale".
+ * row ages off the HEARTBEAT when one exists, falling back to the newest
+ * uploads/ object only when there is none (pre-crontab-change = exactly the
+ * old behavior).
+ *
+ * That fallback used to be "whichever is newer", which had a hole: a single
+ * recent upload made the row look fresh while no run had completed cleanly for
+ * 40 hours (2026-09-16 — one 9.5MB object failing on s3:GetObjectTagging made
+ * `aws s3 sync` exit non-zero every hour, so the `&&` never wrote the
+ * heartbeat, while every smaller file kept mirroring). The heartbeat answers
+ * "did it finish", which is the question; a landed object cannot. Both
+ * timestamps are returned so the alert can say WHICH of the two is wrong —
+ * see describeDrStaleness() in ./dr-staleness.ts. Triage runbook:
+ * infra/dr/README.md §"Triage: Uploads mirror stale".
  *
  * Exported for tests only — production callers go through getInfraSnapshot().
  */
@@ -1205,11 +1219,12 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
         const newestObjectAt = objects.length
           ? (objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b)).LastModified as Date)
           : null;
-        const at = [newestObjectAt, heartbeatAt]
-          .filter((d): d is Date => d !== null)
-          .reduce<Date | null>((a, b) => (a === null || b > a ? b : a), null);
+        // The heartbeat wins WHEN IT EXISTS: it says the sync completed, which
+        // a newly-landed object cannot. Taking the newer of the two let one
+        // recent upload mask a sync that had been failing for 40h (Sep 16).
+        const at = heartbeatAt ?? newestObjectAt;
         if (!at) {
-          return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true, objectCount: contents.length, listingTruncated: listed.truncated };
+          return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true, objectCount: contents.length, listingTruncated: listed.truncated, heartbeatAt: null, newestObjectAt: null };
         }
         const ageHours = (Date.now() - at.getTime()) / 3600_000;
         return {
@@ -1221,6 +1236,8 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
           stale: ageHours > st.staleAfterHours,
           objectCount: contents.length,
           listingTruncated: listed.truncated,
+          heartbeatAt: heartbeatAt ? heartbeatAt.toISOString() : null,
+          newestObjectAt: newestObjectAt ? newestObjectAt.toISOString() : null,
         };
       }),
     );

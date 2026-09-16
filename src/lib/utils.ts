@@ -142,3 +142,21 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** Above this we say the size out loud. Well under every 10MB upload cap, so it nudges rather than blocks. */
+export const UPLOAD_SIZE_HINT_BYTES = 5 * 1024 * 1024;
+
+/**
+ * A nudge, never a block, when someone attaches a large file.
+ *
+ * Sep 16, 2026: a 9.5MB scanned PDF on a CRM deal was ~1,100x the size of the
+ * quote we generate ourselves (8.7KB of vector text). Compressing it is a good
+ * idea but a LOSSY one, and only the uploader knows whether the file is a
+ * throwaway scan or a signed contract that has to stay byte-faithful — so this
+ * states the size and leaves the judgement with them. Returns null when there
+ * is nothing worth saying.
+ */
+export function uploadSizeHint(bytes: number): string | null {
+  if (bytes < UPLOAD_SIZE_HINT_BYTES) return null;
+  return `This file is ${formatFileSize(bytes)}. If it is a scan, compressing it before uploading makes it quicker to open and to email.`;
+}

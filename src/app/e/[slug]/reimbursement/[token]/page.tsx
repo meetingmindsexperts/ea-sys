@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { CountrySelect } from "@/components/ui/country-select";
+import { uploadSizeHint } from "@/lib/utils";
 import {
   CLAIM_ITEMS,
   CLAIM_ITEM_KEYS,
@@ -326,7 +327,10 @@ export default function ReimbursementFormPage() {
           return;
         }
         setDocuments((prev) => [...prev, json.document]);
-        toast.success("Uploaded");
+        // Phone photos of receipts and passport pages are the likeliest large
+        // uploads on this form, and the speaker is the one who can judge
+        // whether a smaller copy is still legible. Never blocks the upload.
+        toast.success("Uploaded", { description: uploadSizeHint(file.size) ?? undefined });
       } catch (err) {
         console.error("reimbursement-form:upload-error", err);
         toast.error("Upload failed. Please try again.");

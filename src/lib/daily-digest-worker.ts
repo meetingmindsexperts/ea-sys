@@ -37,6 +37,7 @@
  */
 
 import { getInfraSnapshot, type InfraSnapshot } from "@/lib/infra/aws-ops";
+import { describeDrStaleness } from "@/lib/infra/dr-staleness";
 import { EXPECTED_JOBS, JOB_UNDERRUN_RATIO } from "@/lib/worker-jobs";
 import { apiLogger } from "@/lib/logger";
 
@@ -302,15 +303,15 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
 
   note("dr", snap.dr);
   for (const d of snap.dr.rows) {
-    if (d.stale) {
-      findings.push({
-        severity: "critical",
-        label: `DR stream stale: ${d.label}`,
-        detail: `Expected within ${d.staleAfterHours}h; newest is ${
-          d.ageHours == null ? "missing" : `${d.ageHours.toFixed(0)}h old`
-        }.`,
-      });
-    }
+    const staleness = describeDrStaleness(d);
+    if (!staleness) continue;
+    findings.push({
+      severity: "critical",
+      // "stale" alone reads as "nothing is arriving", which sends the reader to
+      // the wrong place when the sync is running and failing on one object.
+      label: staleness.kind === "sync-failing" ? `DR sync failing: ${d.label}` : `DR stream stale: ${d.label}`,
+      detail: staleness.detail,
+    });
   }
 
   // ── Uploads storage (the S3 bucket behind /uploads) ────────────────────
