@@ -252,7 +252,7 @@ legacy arm is the separate flip §10a says must follow assignment.
 |---|---|
 | `src/lib/procurement-visibility.ts` | `ProcurementUserLike` gains optional `procurementPermissions`; every predicate gains a permission arm; `procurementGrantsFromRow` flattens the nested rows, so the ONE shared mapper serves both decision-time callers. |
 | `src/procurement/lib/procurement-roles.ts` | `allowed()` maps each need to its own key: `admin` to `catalogue.manage` (D16), `propose` to `suppliers.propose`, `approve` to `approvals.decide` **plus** a ceiling. |
-| `src/procurement/lib/route-helpers.ts` | `procurementGuard` resolves permissions once, in the caller's tenant lane, **before** the need check. |
+| `src/procurement/lib/route-helpers.ts` | `procurementGuard` resolves permissions **before** the need check. Step 2 read them from the database per request; step 3 moved that to the session, so the guard now costs nothing extra. |
 | `src/lib/approvals/approvals-service.ts`, `src/procurement/services/commitment-service.ts` | Both decision-time row reads load permissions, so archiving a role bites at once rather than after five minutes. |
 
 **THE TRAP, and it shipped green once before it was caught.** The first cut
@@ -275,6 +275,27 @@ own keys.
 so `readUserPermissions` has nothing to key on and a custom-role holder gets no
 procurement tools through the agent. Invisible today because grants are equally
 role-invisible there; it becomes a real gap once roles are assigned.
+
+**Step 3 is BUILT (Sep 16, 2026), unpushed.** The keys ride the JWT and refresh
+on the same five-minute cycle as the role and the grants, so the per-request
+database read step 2 introduced is gone.
+
+| File | What changed |
+|---|---|
+| `src/lib/auth.ts` | `permissionsForToken` reads the person's keys after each user row and stamps the token, at sign-in, on an explicit session update, and on the five-minute re-validation. |
+| `src/lib/auth.config.ts` | ONE line in the shared `mapTokenToSessionUser`, so the Node and Edge instances cannot disagree (the Aug 17 session-lifetime incident was exactly that shape). |
+| `src/types/next-auth.d.ts` | Declared on `Session.user`, `User` and `JWT`. |
+| `src/procurement/lib/route-helpers.ts` | Reads `session.user.procurementPermissions` instead of querying. |
+
+**A SECOND READ, not a nested include.** `User` is read to ESTABLISH identity,
+so it cannot be protected by identity and carries no policy; `UserPermissionSet`
+does. Nesting the relation into the auth query would return zero rows under RLS
+and read as "holds no custom role" — access silently withheld, nothing logged.
+The lane is borrowed from the row just read, and a failure never blocks sign-in.
+
+**Five minutes of staleness is accepted HERE and nowhere that moves money.**
+`approvals-service` and `commitment-service` each re-read the row at decision
+time, so archiving a role stops an approval or an order cancel at once.
 
 Remaining steps:
 

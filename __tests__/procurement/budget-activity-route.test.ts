@@ -12,7 +12,6 @@ vi.mock("@/lib/auth", () => ({ auth: () => authMock() }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: logMock, dbLogger: logMock, authLogger: logMock, eventLogger: logMock,
 }));
-vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "127.0.0.1" }));
 

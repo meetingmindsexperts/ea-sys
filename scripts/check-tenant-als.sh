@@ -49,7 +49,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWEPT_ROUTE_DIRS=(
   "src/app/api/hr"                # HR module (Aug 27, 2026) — born swept, master-silo only
   "src/app/api/procurement"       # Budget & Procurement module (Sep 14, 2026), born swept, ships dark
-  "src/procurement/lib"           # procurementGuard reads UserPermissionSet in the caller's lane (Sep 16, 2026)
   "src/app/api/registrant"        # Registrant portal — lane taken from the HOST (item 6 follow-on, Aug 21, 2026)
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
@@ -302,6 +301,11 @@ SWEPT_MODULES=(
   # lane is entered by the store when the buffer flushes, which is the only
   # place a row is written, and it groups by organisation first because one
   # container's buffer can hold hits for several tenants.
+  # Custom-role permissions on the AUTH path (Sep 16, 2026). `User` carries no
+  # policy (it is read to ESTABLISH identity) but `UserPermissionSet` does, so
+  # dropping this wrap returns zero permissions for every custom-role holder
+  # under RLS — access silently withheld, nothing logged, nothing failing.
+  "src/lib/auth.ts"                       # permissionsForToken borrows the lane from the user row
   "src/analytics/store/prisma-store.ts"   # buffered analytics writer (Aug 20, 2026)
   "src/analytics/store/event-traffic.ts"  # dashboard traffic read (Aug 20, 2026)
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors

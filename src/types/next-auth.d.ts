@@ -19,6 +19,8 @@ declare module "next-auth" {
       procurementApproveCeilingAed?: number | null;
       procurementApproveUnlimited?: boolean;
       procurementSettle?: boolean;
+      /** Permission keys from this person's custom roles, the union across all of them. */
+      procurementPermissions?: string[];
     } & DefaultSession["user"];
   }
 
@@ -38,6 +40,8 @@ declare module "next-auth" {
     procurementApproveCeilingAed?: number | null;
     procurementApproveUnlimited?: boolean;
     procurementSettle?: boolean;
+    /** Permission keys from this person's custom roles, read at sign-in. */
+    procurementPermissions?: string[];
   }
 }
 
@@ -70,5 +74,7 @@ declare module "next-auth/jwt" {
     procurementApproveCeilingAed?: number | null;
     procurementApproveUnlimited?: boolean;
     procurementSettle?: boolean;
+    /** Permission keys from this person's custom roles, refreshed on the same five-minute cycle as the role. */
+    procurementPermissions?: string[];
   }
 }

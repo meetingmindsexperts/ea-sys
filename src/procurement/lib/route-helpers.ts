@@ -9,8 +9,6 @@ import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
-import { runWithTenant } from "@/lib/tenant-context";
-import { readUserPermissions } from "@/lib/permissions/permission-set-service";
 import { checkRateLimit } from "@/lib/security";
 import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
 import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
@@ -45,28 +43,15 @@ export async function procurementGuard(opts: { route: string; need: ProcurementN
   const org = requireOrgId(session, { route: opts.route });
   if ("error" in org) return { ok: false, response: org.error };
 
-  // Resolved ONCE here so the eight inline `isAdmin: canAdminProcurement(g.user)`
-  // literals on the request routes pick them up unchanged. Adding a field to
-  // those literals instead would have been eight chances to omit it silently,
-  // since an optional field never fails to compile when left out.
+  // FROM THE SESSION since step 3 (Sep 16 2026), not a query per request. The
+  // keys ride the JWT and refresh on the same five-minute cycle as the role and
+  // the grants, so the guard costs nothing extra.
   //
-  // Read inside the caller's tenant lane, borrowed from the resolved org: under
-  // RLS an unwrapped read returns zero rows, which would read as "holds no
-  // custom role" and quietly withhold access rather than erroring.
-  //
-  // A DATABASE READ ON EVERY PROCUREMENT REQUEST, reads included, and that is
-  // the deliberate trade (owner, Sep 16 2026): correct now, cheap later. Step 3
-  // puts the keys in the JWT, refreshed on the existing five-minute cycle, at
-  // which point this read stays only where staleness would cost money — the two
-  // decision-time refreshes in approvals-service and commitment-service.
-  let permissions: string[] = [];
-  try {
-    permissions = await runWithTenant(org.orgId, () => readUserPermissions(org.orgId, session.user.id));
-  } catch (err) {
-    // Never fail the request on this: the legacy arm of every predicate still
-    // decides, so the worst case is the access somebody had yesterday.
-    apiLogger.error({ msg: `${opts.route}:permissions-read-failed`, err, userId: session.user.id });
-  }
+  // Five minutes of staleness is acceptable HERE and nowhere that moves money:
+  // `approvals-service` and `commitment-service` each re-read the row at
+  // decision time, so archiving a role stops an approval or an order cancel at
+  // once rather than at the end of the window.
+  const permissions = session.user.procurementPermissions ?? [];
 
   const denied = denyNonProcurement(
     { user: { ...session.user, procurementPermissions: permissions } },

@@ -18,6 +18,33 @@ import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup"
 import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 import { procurementGrantsFromRow } from "@/lib/procurement-visibility";
+import { runWithTenant } from "@/lib/tenant-context";
+import { readUserPermissions } from "@/lib/permissions/permission-set-service";
+
+/**
+ * The person's custom-role permission keys, for the JWT.
+ *
+ * A SECOND READ, deliberately, rather than nesting `permissionSets` into the
+ * User selects above. `UserPermissionSet` is policied and `User` is not (it is
+ * read to ESTABLISH identity, so it cannot be protected by identity), and the
+ * authentication path has no tenant lane yet. A nested include would therefore
+ * return zero rows under RLS and read as "holds no custom role" — access
+ * silently withheld, with nothing logged. The lane is borrowed from the row we
+ * just read.
+ *
+ * Never throws: a failure here must not stop anyone signing in. An empty set
+ * leaves every predicate on its legacy arm, so the worst case is the access the
+ * person had before custom roles existed.
+ */
+async function permissionsForToken(userId: string, organizationId: string | null | undefined): Promise<string[]> {
+  if (!organizationId) return [];
+  try {
+    return await runWithTenant(organizationId, () => readUserPermissions(organizationId, userId));
+  } catch (err) {
+    authLogger.warn({ err, msg: "auth:permissions-read-failed", userId });
+    return [];
+  }
+}
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -284,6 +311,7 @@ export const {
           tokenVersion: user.tokenVersion,
           hrAccess: user.hrAccess,
           ...procurementGrantsFromRow(user),
+          procurementPermissions: await permissionsForToken(user.id, user.organizationId),
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
           organizationLogo: user.organization?.logo ?? null,
@@ -313,6 +341,7 @@ export const {
         token.tokenVersion = user.tokenVersion ?? 0;
         token.hrAccess = user.hrAccess ?? false;
         Object.assign(token, procurementGrantsFromRow(user));
+        token.procurementPermissions = user.procurementPermissions ?? [];
         token.roleCheckedAt = Date.now();
       }
 
@@ -331,6 +360,7 @@ export const {
           token.role = dbUser.role;
           token.hrAccess = dbUser.hrAccess;
           Object.assign(token, procurementGrantsFromRow(dbUser));
+          token.procurementPermissions = await permissionsForToken(dbUser.id, dbUser.organizationId);
           token.roleCheckedAt = Date.now();
         }
       }
@@ -413,6 +443,11 @@ export const {
           if (dbUser) {
             token.hrAccess = dbUser.hrAccess;
             Object.assign(token, procurementGrantsFromRow(dbUser));
+            // Refreshed on the SAME five-minute cycle as the role and the
+            // grants: archiving a role takes effect within five minutes here,
+            // and immediately at the two decision-time reads where staleness
+            // would cost money.
+            token.procurementPermissions = await permissionsForToken(token.id as string, token.organizationId as string | null);
           }
           // Only the periodic pass moves the clock. If a staff per-request
           // check refreshed it, `dueForPeriodicCheck` would never come true

@@ -26,6 +26,11 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
     session.user.procurementApproveCeilingAed = (token.procurementApproveCeilingAed as number | null | undefined) ?? null;
     session.user.procurementApproveUnlimited = (token.procurementApproveUnlimited as boolean | undefined) ?? false;
     session.user.procurementSettle = (token.procurementSettle as boolean | undefined) ?? false;
+    // ONE line, in the ONE mapper both NextAuth instances share. The Aug 17
+    // session-lifetime incident was two configs disagreeing about the same
+    // cookie; adding this to each call site separately would invite the same
+    // shape, where middleware and the routes decide access differently.
+    session.user.procurementPermissions = (token.procurementPermissions as string[] | undefined) ?? [];
   }
   return session;
 }

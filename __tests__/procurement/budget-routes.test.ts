@@ -23,8 +23,6 @@ vi.mock("@/lib/logger", () => ({
 }));
 // The guard resolves permissions on every procurement request; these suites
 // exercise the LEGACY arm, so an empty set keeps today's behaviour exactly.
-const { permsMock } = vi.hoisted(() => ({ permsMock: vi.fn().mockResolvedValue([] as string[]) }));
-vi.mock("@/lib/permissions/permission-set-service", () => ({ readUserPermissions: permsMock }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true }), getClientIp: () => "127.0.0.1" }));
 
@@ -54,7 +52,6 @@ const params = { params: Promise.resolve({ budgetId: "b1" }) };
 const post = (url: string, body: unknown) => new NextRequest(`http://localhost${url}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 
 beforeEach(() => {
-    permsMock.mockResolvedValue([]);
   process.env.PROCUREMENT_MODULE_ENABLED = "true";
   vi.clearAllMocks();
   svc.createBudget.mockResolvedValue({ ok: true, budget: { id: "b1" } });
@@ -96,8 +93,7 @@ describe("procurement routes: reading and authoring", () => {
     // everything compiled, the whole suite passed, and the feature was
     // unreachable because the need check saw `undefined` and fell through to
     // the legacy arm. Move that call back above the read and this test fails.
-    permsMock.mockResolvedValue(["procurement.budgets.create"]);
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.create"] }));
     expect((await listGet(new NextRequest("http://localhost/api/procurement/budgets"))).status).toBe(200);
     const res = await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }));
     expect(res.status).toBe(201);
@@ -105,8 +101,7 @@ describe("procurement routes: reading and authoring", () => {
   });
 
   it("a custom role unlocks only its own key: budgets.create is not authority to decide", async () => {
-    permsMock.mockResolvedValue(["procurement.budgets.create"]);
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.create"] }));
     // `approve` needs the key AND a ceiling on the person (D3); this person has neither.
     expect((await decidePost(post("/api/procurement/budgets/b1/decide", { decision: "APPROVED" }), { params: Promise.resolve({ budgetId: "b1" }) })).status).toBe(403);
   });
