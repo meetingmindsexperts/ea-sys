@@ -23,6 +23,7 @@ Four real people, traced end to end against the code the same day:
 | Richard, **Organizer** | Raise requests, NOT author or browse budgets | Requests work | **Authoring and viewing come with his base role and cannot be withheld** |
 | Fabian, sometimes **Onsite** | Raise requests, nothing else | Reaches `/procurement` and can raise | No Budgets entry in the Onsite sidebar branch, so he needs the URL |
 | Muthu, **HR** | HR only, granted per person | Correct already | None; `hrAccess` is already a per-person grant, super admin only |
+| Project managers (Zaid, Salah), **Member** | Create budgets, raise purchase requests | Can read the Budgets list, author nothing | **Same missing capability as Bassem.** `canAuthorBudgets` is role-only and excludes Member |
 
 **Bassem and Richard are one missing capability seen from both sides.** Budget
 authoring is granted by role with no per-person switch, so it can neither be
@@ -43,6 +44,35 @@ meaningless to a requester who cannot see it. So `requests.create` implies
 reading the target line, and `budgets.view` governs the Budgets list. Keep them
 separate keys.
 
+### The project managers, and the contradiction their role exposes (owner, Sep 16 2026)
+
+Owner: "ALL Project Managers are by default MEMBERS but they create budgets and
+purchase requests, because they should not access event financials and so on,
+but they can register and what not."
+
+Two of the three claims hold against the code. The third does not.
+
+- **Project managers are Members.** True on prod: Zaid Ghanem and Mohammad
+  Salah are the only two Member accounts.
+- **They must create budgets and raise requests.** Not possible today.
+  `BUDGET_AUTHOR_ROLES` is `{SUPER_ADMIN, ADMIN, ORGANIZER}`, so a Member reads
+  the Budgets list and authors nothing. This is Bassem's gap seen from a third
+  population, and it settles the design: `budgets.create` and `budgets.edit`
+  must be grantable to a Member, which the checkbox model gives for free.
+- **They do not reach event financials. FALSE.** `FINANCE_ROLES` in
+  `src/lib/finance-visibility.ts` is
+  `{SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER, ONSITE, WEBINARS}`. Member has been
+  finance-capable since the June 17 2026 "desk staff record payments"
+  decision, so both project managers currently see amounts, prices, quotes,
+  invoice totals and the Record Payment flow on every event. **The role was
+  chosen for a property it no longer has.**
+
+That last point is a different boundary from anything in this plan: procurement
+permissions never read `canViewFinance`, so this build neither causes nor fixes
+it, and reversing it would also remove Record Payment from the registration
+desk, which is what the June 17 decision bought. Owner call, recorded in §9.
+
+
 ## 1. Decisions taken
 
 | # | Decision | Recorded |
@@ -55,11 +85,19 @@ separate keys.
 | D6 | This work goes **before** the org-wide Phase 0 (§0: people are blocked or over-permissioned today). | Sep 16 |
 | D7 | `requests.create` implies seeing the target budget line; `budgets.view` governs the Budgets list. | Sep 16 |
 | D8 | The checkboxes live on a **named role**, not directly on the person. Define "PO Author" once, tag it on people. | Sep 16 |
+| D9 | **Switches now, build next.** The owner ticks the existing grants this week to unblock people; the roles build follows without anyone waiting on it. | Sep 16 |
+| D10 | **No role grants budget access.** Only the super admin reaches Budgets by role; everyone else needs a permission. Confirms the first carried-over item; see §10a for the cost. | Sep 16 |
+| D11 | Seed **four starter roles** per org, editable and archivable: PO Author, PO Approver, Requester, Finance Settle. | Sep 16 |
+| D12 | `budgets.create` / `budgets.edit` must be grantable to a **Member**: every project manager is a Member and authors budgets. A third population confirming the checkbox model. | Sep 16 |
+| D13 | **Member keeps event financial access.** Owner, Sep 16: "it's fine if member can access payments". The §0 finding stands as an accepted decision, not a defect: project managers see event money, and the desk keeps Record Payment. | Sep 16 |
+| D14 | Seed **the four starter roles of D11 only**. No Project Manager role and no Budget Viewer; project managers hold **PO Author**, which therefore carries budget authoring as well as raising requests. | Sep 16 |
+| D15 | **Reopening a closed budget and unfreezing sit with budget authoring** (`budgets.edit`), not with module admins. A budget author unblocks themselves. | Sep 16 |
+| D16 | **The catalogue is permission-only** (`catalogue.manage`). No base role manages products, templates or categories; the super admin reaches them under D10, and the three admins need the permission assigned. | Sep 16 |
 
-Carried over from the grant discussion earlier the same day, **to confirm**
-before building, since they were answered for the grant model:
+Carried over from the grant discussion earlier the same day. The first is now
+**CONFIRMED** as D10; the rest are still **to confirm** before building:
 
-- Only the super admin reaches Budgets by role; everyone else needs a custom role.
+- ~~Only the super admin reaches Budgets by role; everyone else needs a custom role.~~ **Confirmed Sep 16 (D10).**
 - Admins manage the product catalogue, templates and categories by role, and reach nothing else in the module without a custom role.
 - Reopening a closed budget and unfreezing belong with budget authoring; cancelling orders and confirming receipts stay with the settle permission.
 - No separate read-only role was wanted; that was before roles made one free to define.
@@ -90,7 +128,7 @@ Each is a checkbox on a custom role.
 | | `budgets.create` | `canAuthorBudgets` on create |
 | | `budgets.edit` (lines, submit, reallocate, new version, freeze, close) | `canAuthorBudgets` |
 | | `budgets.discard` (discard a draft; budgets are never deleted) | `canAuthorBudgets` |
-| | `budgets.reopen` (reopen a closed budget, unfreeze) | `canAdminProcurement` on transitions |
+| | `budgets.reopen` (reopen a closed budget, unfreeze) | `canAdminProcurement` on transitions. **D15: folded into budget authoring, granted with `budgets.edit`** |
 | | `budgets.signoff` | `procurementSettle` |
 | Approvals | `approvals.decide` (budgets, reallocations, requests, up to the person's AED limit) | ceiling / unlimited columns |
 | Requests | `requests.view` | `view` |
@@ -101,7 +139,7 @@ Each is a checkbox on a custom role.
 | | `orders.cancel`, `orders.confirmReceipt`, `orders.send` | settle / admin |
 | Suppliers | `suppliers.view`, `suppliers.propose`, `suppliers.decide`, `suppliers.edit` | request / settle / super admin / final approver |
 | | `suppliers.financials.view` (tax number, bank details) | `canViewSupplierFinancials` |
-| Catalogue | `catalogue.manage` (products, templates, categories) | `canAdminProcurement` on catalogue routes |
+| Catalogue | `catalogue.manage` (products, templates, categories) | `canAdminProcurement` on catalogue routes. **D16: permission-only, no base role below super admin** |
 
 Module entry (sidebar, `/procurement` layout) = super admin, or any custom role
 holding at least one procurement permission, or `catalogue.manage` by role if
@@ -187,6 +225,27 @@ holder would silently hold nothing.
 
 ## 7. Build order (about 1.5 to 2 weeks)
 
+**Step 1 is BUILT (Sep 16, 2026), unpushed.** What landed:
+
+| File | What it is |
+|---|---|
+| `src/lib/permissions/catalogue.ts` | The 20 permission keys, their labels and descriptions, and the four starter roles. Client-safe: no db, no Node imports, so the role editor and the sidebar can import it. |
+| `src/lib/permissions/permission-set-service.ts` | Server-only. `ensureStarterPermissionSets` (seed-once, all-four-or-none in one `tenantTransaction`) and `readUserPermissions` (the union across a person's roles). |
+| `prisma/schema.prisma` | `PermissionSet`, `PermissionSetGrant`, `UserPermissionSet`, plus the back-relations on `Organization` and `User`. |
+| `prisma/migrations/20260916120000_add_permission_sets/` | Additive and idempotent; applied to the local prod copy and re-applied to prove it. |
+| `prisma/rls/permissionset.sql` | Flat policy on all three tables, born with them. |
+| `tests/tenancy/permissionset-rls.test.ts` | 9 assertions. **Written, not yet run** (the harness needs docker). |
+| `scripts/check-tenant-als.sh` | The three models added to `SWEPT_MODELS`, arming the guard before any route exists. |
+| `__tests__/lib/permission-catalogue.test.ts` + `permission-set-service.test.ts` | 19 tests: catalogue drift both ways, the two separation rules on the seeded sets, seed-once incl. the archived case, and the union read. |
+
+Decisions taken while building, both recorded in the code: **no `budgets.reopen` key**
+(D15 folds it into `budgets.edit`, and a key always ticked beside another is one
+nobody can use differently), and **`readUserPermissions` drops keys this build no
+longer enforces**, so a row outliving its capability cannot satisfy a later check
+that reuses the name.
+
+Remaining steps:
+
 1. Catalogue in code, the three tables, migration, RLS package, seeded
    "Requester" and "Settle" from today's grants.
 2. `procurement-visibility.ts` predicates read permissions; `denyNonProcurement`
@@ -245,11 +304,50 @@ The catalogue in §3 is identical under both shapes, so none of that work is
 contingent on this choice. The difference is one join table plus the role
 editor screen, roughly three to four days.
 
-## 9. Open questions
+## 10a. What D10 costs, and the question it reopens
 
-1. The carried-over decisions in §1 (super admin only by role; admins keep the
-   catalogue; who reopens).
-2. Does a custom role ever apply to API keys? Today procurement refuses keys
-   entirely; recommended: keep refusing.
-3. Seed a few starter roles ("PO Author", "PO Approver", "Finance settle",
-   "Viewer") or start with none?
+`PROCUREMENT_READ_ROLES` is today `{SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER}`.
+Measured on prod, Sep 16: **13 org staff, of whom 9 can read budgets by role**
+(1 super admin, 3 admins, 3 organizers, 2 members). Under D10 that becomes **1**,
+and the other 8 see the module's refusal card until someone grants them a
+permission. This is a visible change on a LIVE module, so it needs a migration
+step of its own, not just a predicate edit:
+
+1. Seed the four starter roles (D11).
+2. Decide who among the 8 keeps reading, and assign before the predicate flips.
+3. Flip `canViewProcurement`, and only then retire the role list.
+
+Ordering it the other way makes the module go dark for most of the staff between
+two deploys.
+
+**The question D10 reopens.** The carried-over note says "no separate read-only
+role was wanted", but that was answered when org staff read budgets for free. Once
+no role grants access, a person who should only LOOK at budgets has no way to be
+expressed except a role whose single tick is `budgets.view`. So either a fifth
+starter role ("Budget Viewer") joins D11, or the 8 people above are each given one
+of the four existing roles, which grants them more than looking. Owner call, and
+it belongs with the §9 questions.
+
+## 9. Questions, all resolved Sep 16 2026
+
+| # | Question | Answer |
+|---|---|---|
+| Q1 | Do admins keep the catalogue by role? | **No.** Permission-only (D16). |
+| Q2 | Who reopens and unfreezes? | **Budget authoring** (D15). |
+| Q3 | A fifth "Budget Viewer" starter role? | **No** (D14). |
+| Q4 | A "Project Manager" starter role? | **No**; PMs hold PO Author (D14). |
+| Q5 | Does Member stop seeing event financials? | **No**, accepted as designed (D13). |
+| Q6 | Do custom roles ever apply to API keys? | **No.** Procurement refuses keys by construction and keeps refusing. |
+
+**Consequences carried into the build.**
+
+- **PO Author is the project-manager role** (D14), so its ticks are
+  `budgets.view`, `budgets.create`, `budgets.edit`, `budgets.discard`,
+  `requests.view`, `requests.create`, `orders.view`, `orders.receive`,
+  `suppliers.view`, `suppliers.propose`. Reopen and unfreeze ride on
+  `budgets.edit` per D15.
+- **§10a's migration step still applies.** D10 plus D14 means the 8 staff who
+  read budgets by role today keep it only if assigned a role before the
+  predicate flips, and no seeded role is look-only. Assign first, flip second.
+- **D16 needs an assignment before the flip too**, or the three admins lose the
+  product catalogue, 203 rows they use today.

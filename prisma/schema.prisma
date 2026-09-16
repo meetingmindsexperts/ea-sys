@@ -83,6 +83,13 @@ model Organization {
   commitments                 Commitment[]
   commitmentLines             CommitmentLine[]
   paymentRecords              PaymentRecord[]
+
+  // Custom roles (docs/PROCUREMENT_ROLES_PLAN.md §5). Named generically, not
+  // `procurement*`: D5 reuses these three tables for CRM and HR, so a future
+  // module adds permission KEYS rather than tables.
+  permissionSets      PermissionSet[]
+  permissionSetGrants PermissionSetGrant[]
+  userPermissionSets  UserPermissionSet[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -256,6 +263,11 @@ model User {
   /// Fine at this size, but it means there is no separation of duties, which is
   /// exactly why every attendance write is audited with the actor.
   employeeRecord           Employee?           @relation("EmployeeUser")
+  /// Custom roles this person holds. Their procurement capability is the UNION
+  /// of these on top of whatever their base role already grants (D2).
+  permissionSets           UserPermissionSet[] @relation("PermissionSetHolder")
+  /// Assignments this person made, kept for the audit trail.
+  assignedPermissionSets   UserPermissionSet[] @relation("PermissionSetAssigner")
 
   @@index([organizationId])
   @@index([email])
@@ -5495,29 +5507,29 @@ model ApprovalWorkflowDefinition {
 }
 
 model ApprovalRequest {
-  id              String                @id @default(cuid())
-  organizationId  String
-  subjectType     ApprovalSubjectType
-  subjectId       String
+  id                 String                @id @default(cuid())
+  organizationId     String
+  subjectType        ApprovalSubjectType
+  subjectId          String
   /// The amount the ceiling is checked against, converted to AED at the
   /// subject's snapshot rates (spec §4).
-  amountAed       Decimal               @db.Decimal(18, 4)
-  amount          Decimal?              @db.Decimal(18, 4)
-  currency        String?
-  status          ApprovalRequestStatus @default(PENDING)
-  requesterUserId String
-  reason          String?               @db.Text
+  amountAed          Decimal               @db.Decimal(18, 4)
+  amount             Decimal?              @db.Decimal(18, 4)
+  currency           String?
+  status             ApprovalRequestStatus @default(PENDING)
+  requesterUserId    String
+  reason             String?               @db.Text
   /// What to apply on approval when the subject is an action rather than a
   /// row (a reallocation: from, to, amount). Null for a budget approval.
-  payload         Json?
+  payload            Json?
   /// Set on the OLD request when an amount edit supersedes it (spec §8.1).
-  supersededById  String?
-  decidedAt       DateTime?
+  supersededById     String?
+  decidedAt          DateTime?
   /// The requester was emailed the decision (the worker's decision pass).
   decisionNotifiedAt DateTime?
-  version         Int                   @default(0)
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  version            Int                   @default(0)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   steps        ApprovalStep[]
@@ -5947,4 +5959,85 @@ model CommitmentCounter {
   lastSerial     Int    @default(0)
 
   @@id([organizationId, year])
+}
+
+/// A CUSTOM ROLE: a named set of permission keys, tagged onto people (D8).
+///
+/// Named `PermissionSet` rather than `Role` on purpose. `UserRole` is already
+/// the base-role enum, and a second thing called a role in the same schema is
+/// how somebody eventually writes `user.role` meaning this. A person keeps
+/// exactly one `UserRole` and holds zero or more PermissionSets on top (D2).
+///
+/// ARCHIVED, NEVER DELETED. A set that was held by somebody is part of the
+/// answer to "who could approve this, and when", so `archivedAt` hides it from
+/// the picker and keeps the history readable.
+///
+/// `version` is bumped on every permission change so a session carrying a
+/// stale set can be detected on the 5-minute revalidation rather than trusted
+/// until sign-out.
+model PermissionSet {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?   @db.Text
+  version        Int       @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  PermissionSetGrant[]
+  holders      UserPermissionSet[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// One ticked checkbox on one custom role.
+///
+/// `permission` is a plain string validated against the code catalogue
+/// (`src/lib/permissions/catalogue.ts`) on every write, NOT a Postgres enum: a
+/// module that adds a capability would otherwise need a migration to express
+/// it, and an enum value that no route enforces reads as access while granting
+/// none. The code is the authority; this column is storage.
+model PermissionSetGrant {
+  id              String   @id @default(cuid())
+  organizationId  String
+  permissionSetId String
+  permission      String
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissionSet PermissionSet @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([permissionSetId, permission])
+  @@index([organizationId])
+}
+
+/// One person holding one custom role.
+///
+/// Cascades on the holder so removing a team member removes their access, and
+/// SetNull on the assigner so the assignment survives the assigner leaving:
+/// the same asymmetry the CRM tables use, for the same reason.
+///
+/// The APPROVAL AMOUNT is deliberately not here. It stays on `User`
+/// (`procurementApproveCeilingAed` / `procurementApproveUnlimited`) because it
+/// is a property of the PERSON, not of the role (D3): two people holding "PO
+/// Approver" approve to different limits.
+model UserPermissionSet {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  permissionSetId String
+  assignedById    String?
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User          @relation("PermissionSetHolder", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy    User?         @relation("PermissionSetAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  permissionSet PermissionSet @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionSetId])
+  @@index([organizationId])
+  @@index([permissionSetId])
 }
