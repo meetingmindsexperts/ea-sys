@@ -139,3 +139,61 @@ describe("a delegate gone stale", () => {
     }
   });
 });
+
+/**
+ * A role change takes the person's module duties with it (owner, Sep 16 2026):
+ * HR access and the four procurement grants are per-person authority that
+ * nothing else revoked, so a demoted admin kept it until someone noticed.
+ */
+describe("a role change clears the module duties", () => {
+  it("clears HR access and every procurement grant, logs it, and records what was held", async () => {
+    const res = await put("muthu", { role: "ORGANIZER" });
+    expect(res.status).toBe(200);
+    expect(mockDb.user.update.mock.calls[0][0].data).toMatchObject({
+      role: "ORGANIZER",
+      hrAccess: false,
+      procurementRequest: false,
+      procurementApproveCeilingAed: null,
+      procurementApproveUnlimited: false,
+      procurementSettle: false,
+      procurementDelegateUserId: null,
+    });
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "organization/users:module-access-cleared-on-role-change", fromRole: "MEMBER", toRole: "ORGANIZER" }),
+    );
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({
+      moduleAccessCleared: true,
+      previousProcurementSettle: true,
+      previousRole: "MEMBER",
+    });
+  });
+
+  it("clears on a promotion too, not only a demotion", async () => {
+    // MEMBER holding the settle grant, promoted to ADMIN.
+    const res = await put("muthu", { role: "ADMIN" });
+    expect(res.status).toBe(200);
+    expect(mockDb.user.update.mock.calls[0][0].data).toMatchObject({ role: "ADMIN", procurementSettle: false, hrAccess: false });
+  });
+
+  it("leaves the grants alone when the role is unchanged", async () => {
+    const res = await put("lina", { role: "ADMIN", firstName: "Lina" });
+    expect(res.status).toBe(200);
+    const data = mockDb.user.update.mock.calls[0][0].data;
+    expect(data.procurementApproveCeilingAed).toBeUndefined();
+    expect(data.hrAccess).toBeUndefined();
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.moduleAccessCleared).toBeUndefined();
+  });
+
+  it("a grant set in the same request as the role change still applies", async () => {
+    const res = await put("muthu", { role: "ORGANIZER", procurementRequest: true });
+    expect(res.status).toBe(200);
+    expect(mockDb.user.update.mock.calls[0][0].data).toMatchObject({ procurementRequest: true, procurementSettle: false, hrAccess: false });
+  });
+
+  it("says nothing when the person held no module access", async () => {
+    const res = await put("owner", { role: "MEMBER" });
+    expect(res.status).toBe(200);
+    expect(mockLogger.info).not.toHaveBeenCalledWith(expect.objectContaining({ msg: "organization/users:module-access-cleared-on-role-change" }));
+    expect(mockDb.user.update.mock.calls[0][0].data.hrAccess).toBeUndefined();
+  });
+});

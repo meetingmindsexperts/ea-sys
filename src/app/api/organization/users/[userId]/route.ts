@@ -8,7 +8,7 @@ import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isTeamRole } from "@/lib/team-roles";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
-import { approvalCeilingAed, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
+import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -347,12 +347,45 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const { deactivated, ...rest } = validated.data;
 
+    // A ROLE CHANGE CLEARS THE PER-PERSON MODULE DUTIES (owner, Sep 16 2026).
+    // HR access and the four procurement grants belong to the job the person
+    // held, and nothing else revokes them: a demoted admin kept authority over
+    // money until a super admin happened to notice. Cleared on ANY role change,
+    // promotion included, so a new role starts with none and each duty is given
+    // again deliberately. Written BEFORE `...rest`, so a super admin who changes
+    // the role and sets a grant in the same request still gets the grant.
+    const roleChanged = !!validated.data.role && validated.data.role !== user.role;
+    const heldModuleAccess =
+      user.hrAccess === true || hasAnyProcurementGrant(procurementGrantsFromRow(user)) || !!user.procurementDelegateUserId;
+    const clearModuleAccess = roleChanged && heldModuleAccess;
+    if (clearModuleAccess) {
+      apiLogger.info({
+        msg: "organization/users:module-access-cleared-on-role-change",
+        targetUserId: userId,
+        fromRole: user.role,
+        toRole: validated.data.role,
+        hadHrAccess: user.hrAccess === true,
+        hadProcurementGrant: hasAnyProcurementGrant(procurementGrantsFromRow(user)),
+        byUserId: session.user.id,
+      });
+    }
+
     const updatedUser = await db.user.update({
       // Org-bound on the WRITE, not only on the read above — the house
       // invariant, so a future refactor that drops the lookup can't turn this
       // into a cross-org role change.
       where: { id: userId, organizationId: session.user.organizationId! },
       data: {
+        ...(clearModuleAccess
+          ? {
+              hrAccess: false,
+              procurementRequest: false,
+              procurementApproveCeilingAed: null,
+              procurementApproveUnlimited: false,
+              procurementSettle: false,
+              procurementDelegateUserId: null,
+            }
+          : {}),
         ...rest,
         ...(clearStaleDelegate ? { procurementDelegateUserId: null } : {}),
         // `deactivated` is the API's boolean; the column is a timestamp, so
@@ -397,6 +430,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           ...validated.data,
           ...(clearStaleDelegate ? { procurementDelegateUserId: null, delegateCleared: true } : {}),
+          // Security-relevant like the role change itself: record that the move
+          // took the person's module duties with it, and what they held.
+          ...(clearModuleAccess
+            ? {
+                moduleAccessCleared: true,
+                previousHrAccess: user.hrAccess === true,
+                previousProcurementRequest: user.procurementRequest === true,
+                previousProcurementSettle: user.procurementSettle === true,
+                previousProcurementApproveUnlimited: user.procurementApproveUnlimited === true,
+                previousProcurementCeilingAed: procurementGrantsFromRow(user).procurementApproveCeilingAed,
+              }
+            : {}),
           // A role change is security-relevant, so record what it was BEFORE.
           // Without this the trail says someone is now an Admin but not what
           // they were promoted from.

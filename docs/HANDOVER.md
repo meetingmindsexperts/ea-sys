@@ -1208,7 +1208,7 @@ Two connection URLs:
 
 **Critical rule:** All migrations must be **idempotent** (safe to run multiple times).
 
-Both AWS and Vercel run migrations against the same database. If a migration runs on one and then the other tries to run it again, it must not fail.
+AWS runs migrations against the database; Vercel stopped on 16 September 2026 (its build command dropped `prisma migrate deploy`). Idempotency stays mandatory anyway: a migration can be re-applied by a re-run or a rollback. If a migration runs on one and then the other tries to run it again, it must not fail.
 
 Pattern:
 ```sql

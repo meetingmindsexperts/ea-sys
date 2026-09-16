@@ -232,6 +232,8 @@ Full details in `docs/VERCEL_COMPATIBILITY.md`.
 
 **Fix:** Updated to `prisma generate && prisma migrate deploy && next build`. Added `DIRECT_URL` (non-pooled, port 5432) to Vercel env vars.
 
+**Superseded 16 September 2026:** the migrate step was removed from `vercel.json` (owner decision). Vercel still builds every push with production credentials, but no longer changes the schema; the EC2 deploy applies migrations. Before this, a migration landed about 30 seconds after a push and roughly ten minutes before the new containers, so the schema changed under the old code.
+
 ---
 
 ### V2 — Photo storage defaults to local filesystem

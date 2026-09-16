@@ -232,7 +232,20 @@ export async function POST(req: Request) {
       // without the global-email check blocking the invite.
       const promoted = await db.user.update({
         where: { id: existingUser.id },
-        data: { organizationId: session.user.organizationId!, role },
+        // A promoted account starts the new role with no module duties, the
+        // same rule the users PUT applies on a role change (owner, Sep 16 2026).
+        // Defensive here: this path only promotes org-null or non-team accounts,
+        // which cannot hold grants today (both are team-only to set).
+        data: {
+          organizationId: session.user.organizationId!,
+          role,
+          hrAccess: false,
+          procurementRequest: false,
+          procurementApproveCeilingAed: null,
+          procurementApproveUnlimited: false,
+          procurementSettle: false,
+          procurementDelegateUserId: null,
+        },
         select: { id: true, email: true, firstName: true, lastName: true, role: true, createdAt: true },
       });
 
