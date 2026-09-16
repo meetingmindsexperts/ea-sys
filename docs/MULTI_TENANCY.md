@@ -223,7 +223,14 @@ PostgreSQL  ── RLS policy filters every row by current_org
 
 ### 3.5 Where MM Group fits
 
-**DECIDED (§0):** MM Group is **tenant zero and stays on the master instance** — its own box + DB, physically siloed from every external tenant. Master runs the same image as platform with a real `TenantDomain` row (`events.meetingmindsgroup.com` → MMG's org), so the tenancy code paths are exercised identically and never fork. Whether MM Group ever merges into the platform Pool+ DB is deliberately deferred to the §0 re-evaluation trigger (~6 months of stable platform operation, or the first two-environment ops incident); if it happens it is its own risk-managed data migration, last, long after the isolation suite is proven. **Silo-forever is an acceptable end state** — keeping your own biggest customer on dedicated infrastructure is a defensible pattern.
+**DECIDED (§0):** MM Group is **tenant zero and stays on the master instance** — its own box + DB, physically siloed from every external tenant. Master runs the same image as platform with a real `TenantDomain` row (`events.meetingmindsgroup.com` → MMG's org), so the tenancy code paths are exercised identically and never fork. **THE END GOAL IS THE MERGE (owner, Sep 16 2026), and this supersedes the "silo-forever" reading below.** One platform with tenant-scoped features, master migrated into it and retired. What is deferred is the TIMING, not the destination: the trigger is **two or three tenants running on platform**, which the owner places in the distant future. Until then MM Group stays a single silo on master and the near-term posture in this document is unchanged.
+
+What the decision does change is the weight of three things, each recorded elsewhere as a "platform-only" concern and now a MASTER concern deferred rather than avoided:
+  * **Identity (§open decision 6) stops being a greenfield choice.** MMG's 129 users hold globally-unique emails today, plus org-null externals; per-tenant uniqueness becomes a migration of live auth on a payments system, the one change already flagged as impossible to make non-breaking in one step.
+  * **Every platform-only precondition becomes an MMG blocker at merge.** MediaMTX is a global singleton and MMG streams HLS webinars; the CRM reply-forward targets one global mailbox; `qrCode` / `dtcmBarcode` / `stripePaymentId` are global namespaces; `AuditLog` carries no flat `organizationId`, so it cannot hold a policy.
+  * **RLS goes from never-applied to governing MMG's own production rows.** Each sweep's "route wiring is a follow-on before the platform turns the flag on" lands on live data, and `check-tenant-als.sh` becomes load-bearing for MM Group rather than for a hypothetical tenant.
+
+The merge remains its own risk-managed data migration, last, long after the isolation suite is proven against real tenants.
 
 ---
 
@@ -533,7 +540,7 @@ Also from the pilot: org-blind cross-tenant features (e.g. `contacts-central-syn
 
 **Phase 3 — Platform features.** Custom-domain TLS automation + verification; **Stripe Connect** (onboarding, destination charges, Connect webhooks, refunds); per-tenant email sender-domain verification; self-serve onboarding pipeline; per-tenant quotas + the **Redis** rate limiter (platform-instance concern; master's single-container in-memory limiter is fine as-is); zero-downtime deploys; impersonation + suspension/lifecycle. **Dogfood gate (§0 guardrail 3): one real/shadow MM Group event runs on platform before customer #1.**
 
-**Phase 4 — Scale & consolidate.** Per-tenant cost attribution + usage billing; capacity planning for concurrent big webinars; promote heavy tenants to DB-per-tenant silo *within platform*; **the §0 re-evaluation trigger fires here** — decide merge-MMG-into-platform vs silo-forever. DR fan-out; the worker session-mode (`DIRECT_URL`) lock fix before any second worker shares a DB.
+**Phase 4 — Scale & consolidate.** Per-tenant cost attribution + usage billing; capacity planning for concurrent big webinars; promote heavy tenants to DB-per-tenant silo *within platform*; **the §0 trigger fires here** — the merge itself is DECIDED (owner, Sep 16 2026); what Phase 4 judges is readiness and timing, once two or three tenants run on platform. DR fan-out; the worker session-mode (`DIRECT_URL`) lock fix before any second worker shares a DB.
 
 ---
 
