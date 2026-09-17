@@ -214,7 +214,7 @@ export function ProcurementGrantsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Procurement access</DialogTitle>
           <DialogDescription>
@@ -232,7 +232,7 @@ export function ProcurementGrantsDialog({
                 No roles yet. Create one under Settings → Roles, then tag it here.
               </p>
             ) : (
-              <div className="space-y-2 rounded-lg border p-3">
+              <div className="grid gap-x-6 gap-y-3 rounded-lg border p-3 sm:grid-cols-2">
                 {allSets.map((set) => (
                   <label key={set.id} className="flex items-start gap-3 cursor-pointer">
                     <Checkbox
@@ -260,44 +260,46 @@ export function ProcurementGrantsDialog({
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="ceiling">Approve up to (AED)</Label>
-            <Input id="ceiling" type="number" min={1} step="1" value={form.ceiling} disabled={form.unlimited || form.settle} placeholder="No approval authority" onChange={(e) => setForm((f) => ({ ...f, ceiling: e.target.value }))} />
-            <p className="text-xs text-muted-foreground">
-              How much this person may decide. A role that grants approving does nothing until an amount is set here.
-            </p>
-          </div>
-
-          <label className="flex items-start justify-between gap-4">
-            <span>
-              <span className="font-medium">Unlimited approver</span>
-              <span className="block text-xs text-muted-foreground">The final tier. Cannot also raise requests.</span>
-            </span>
-            <Switch checked={form.unlimited} disabled={form.settle} onCheckedChange={(v) => setForm((f) => ({ ...f, unlimited: v, ...(v ? { request: false, ceiling: "" } : {}) }))} />
-          </label>
-
-          {bandedApprover && (
+          <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="delegate">Stands in after 48 hours</Label>
-              <Select value={form.delegate} onValueChange={(v) => setForm((f) => ({ ...f, delegate: v }))}>
-                <SelectTrigger id="delegate" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NEXT_TIER}>The next tier (default)</SelectItem>
-                  {storedNotListed && <SelectItem value={form.delegate}>Someone who can no longer approve</SelectItem>}
-                  {candidates.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {`${personName(a)} · ${a.procurementApproveUnlimited ? "final approver" : `up to AED ${Number(a.procurementApproveCeilingAed ?? 0).toLocaleString("en-US")}`}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="ceiling">Approve up to (AED)</Label>
+              <Input id="ceiling" type="number" min={1} step="1" value={form.ceiling} disabled={form.unlimited || form.settle} placeholder="No approval authority" onChange={(e) => setForm((f) => ({ ...f, ceiling: e.target.value }))} />
               <p className="text-xs text-muted-foreground">
-                When this person has not decided a request for 48 hours, the delegate can decide it too; at 96 hours it moves to the next tier. A request above the delegate&apos;s ceiling goes to the next tier instead.
+                How much this person may decide. A role that grants approving does nothing until an amount is set here.
               </p>
             </div>
-          )}
+
+            <label className="flex items-start justify-between gap-4">
+              <span>
+                <span className="font-medium">Unlimited approver</span>
+                <span className="block text-xs text-muted-foreground">The final tier. Cannot also raise requests.</span>
+              </span>
+              <Switch checked={form.unlimited} disabled={form.settle} onCheckedChange={(v) => setForm((f) => ({ ...f, unlimited: v, ...(v ? { request: false, ceiling: "" } : {}) }))} />
+            </label>
+
+            {bandedApprover && (
+              <div className="space-y-2">
+                <Label htmlFor="delegate">Stands in after 48 hours</Label>
+                <Select value={form.delegate} onValueChange={(v) => setForm((f) => ({ ...f, delegate: v }))}>
+                  <SelectTrigger id="delegate" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NEXT_TIER}>The next tier (default)</SelectItem>
+                    {storedNotListed && <SelectItem value={form.delegate}>Someone who can no longer approve</SelectItem>}
+                    {candidates.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {`${personName(a)} · ${a.procurementApproveUnlimited ? "final approver" : `up to AED ${Number(a.procurementApproveCeilingAed ?? 0).toLocaleString("en-US")}`}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  When this person has not decided a request for 48 hours, the delegate can decide it too; at 96 hours it moves to the next tier. A request above the delegate&apos;s ceiling goes to the next tier instead.
+                </p>
+              </div>
+            )}
+          </div>
 
           <details open={legacyHeld} className="rounded-lg border p-3">
             <summary className="cursor-pointer text-sm font-medium">
@@ -307,7 +309,7 @@ export function ProcurementGrantsDialog({
               The switches used before roles existed. They still work, so anyone holding one keeps their access; give a
               role instead and switch these off.
             </p>
-            <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex items-start justify-between gap-4">
                 <span>
                   <span className="font-medium text-sm">Request</span>
