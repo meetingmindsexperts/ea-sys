@@ -62,9 +62,9 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/events/[eventId]/rsvp-campaigns"           # RSVP sweep — campaigns + items + roster/add/delete/send (Aug 3, 2026; re-scoped to campaigns Aug 14, 2026)
   # Survey sweep (Domain #16, Aug 3, 2026) — the responses reporting pair
   # (list/aggregate + CSV export), RESOURCE-org wraps (buildEventAccessWhere
-  # serves org-null SUPER_ADMIN). The sibling survey/share-link route touches
-  # only unswept Event and is deliberately not swept; the public submit route
-  # is already gated under the Reg-core SWEPT_ROUTE_FILES entry.
+  # serves org-null SUPER_ADMIN). The public submit route is already gated
+  # under the Reg-core SWEPT_ROUTE_FILES entry. (The sibling survey/share-link
+  # route was deleted Sep 17, 2026 when the shareable link was retired.)
   "src/app/api/events/[eventId]/survey/responses"         # Survey sweep — reporting + export (Aug 3, 2026)
   # Reimbursement sweep (Domain #17, Aug 3, 2026) — the dashboard console
   # (list/add + detail/reopen/delete + doc stream + send) wraps in the

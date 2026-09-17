@@ -28,7 +28,8 @@ import {
   DAY_MS,
   surveyExpiryDaysSchema,
   type SurveyExpiryDays,
-} from "./survey/share-link";
+} from "./survey/expiry";
+import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
@@ -205,7 +206,8 @@ export interface BulkEmailFilters {
   sessionRole?: SessionRole;
   /**
    * survey-invitation email type only — TTL (days) for the minted
-   * survey link token (3/5/7/10, default 7). Rides inside `filters`
+   * survey link token (a whole number of days, 1 to 365, default 7; see
+   * `survey/expiry.ts`). Rides inside `filters`
    * rather than a top-level param so it survives the schedule→worker
    * round trip (the worker reconstructs the send from the persisted
    * ScheduledEmail.filters JSON; a top-level param would silently fall
@@ -1440,16 +1442,34 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // inactive or missing custom slug must hard-fail (don't blast a batch with
   // an empty body). getEventTemplate already returns null for an inactive or
   // missing row; the explicit `null` makes the no-fallback intent clear.
-  const tpl =
+  const loadedTpl =
     (await getEventTemplate(eventId, templateSlug)) ||
     (isCustomTemplate ? null : getDefaultTemplate(templateSlug));
-  if (!tpl) {
+  if (!loadedTpl) {
     throw new BulkEmailError(
       isCustomTemplate
         ? `Saved template "${templateSlug}" was not found or is inactive — activate it under Communications → Email Templates`
         : `Email template not found for slug: ${templateSlug}`,
       isCustomTemplate ? 400 : 500
     );
+  }
+
+  // Survey Invitation: the email must carry each recipient's PERSONAL link,
+  // whatever the saved template says. A pasted shareable URL becomes
+  // {{surveyLink}}, and a template with no {{surveyLink}} gains a button
+  // (src/lib/survey/invitation-link.ts has the incident behind this).
+  let tpl = loadedTpl;
+  if (emailType === "survey-invitation") {
+    const { template: repaired, repair } = ensurePersonalSurveyLink(loadedTpl);
+    tpl = repaired;
+    if (surveyLinkWasRepaired(repair)) {
+      apiLogger.warn({
+        msg: "bulk-email:survey-invitation-link-repaired",
+        eventId,
+        ...repair,
+        hint: "The saved Survey Invitation template has no {{surveyLink}} (or holds a retired shareable link). Each email still carries the recipient's personal link; fix the template under Communications → Email Templates.",
+      });
+    }
   }
 
   // Agreement tokens ({{agreementBlock}} / {{agreementLink}}): minted
@@ -1863,7 +1883,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // the same registration are removed first so a re-send produces
       // exactly one live link (no resend confusion if the operator
       // clicks the tile twice on the same audience). TTL is operator-
-      // configurable (3/5/7/10 days) via filters.surveyExpiryDays,
+      // configurable (1 to 365 days) via filters.surveyExpiryDays,
       // defaulting to 7. It rides inside `filters` so scheduled sends
       // honor it too (the worker rebuilds the send from the persisted
       // ScheduledEmail.filters JSON).

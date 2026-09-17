@@ -334,3 +334,34 @@ describe("travel-grant invitation preview renders the REAL block (Sep 9, 2026)",
     expect(body.htmlContent).not.toContain("realtok");
   });
 });
+
+describe("email-preview for the Survey Invitation (Sep 17, 2026)", () => {
+  it("shows the personal survey link where the saved template holds a retired shareable URL, like the send", async () => {
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      subject: "Your Insights Matter",
+      htmlContent:
+        '<p><a href="https://events.meetingmindsgroup.com/e/OOPVF2026/survey?share=9f2c1b7e4d">Take the survey</a></p>',
+      textContent: "",
+      branding: { eventName: "Ev" },
+    });
+
+    const res = await POST(req({ slug: "survey-invitation" }), params);
+    expect(res.status).toBe(200);
+    // What was rendered is the repaired template: the sample {{surveyLink}}
+    // took the pasted URL's place.
+    const renderedTemplate = mockRender.mock.calls[0][0] as string;
+    expect(renderedTemplate).toContain('href="{{surveyLink}}"');
+    expect(renderedTemplate).not.toContain("share=");
+  });
+
+  it("leaves other templates alone", async () => {
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      subject: "Invitation",
+      htmlContent: '<p><a href="https://x.example/e/conf/survey?share=abc">link</a></p>',
+      textContent: "",
+      branding: { eventName: "Ev" },
+    });
+    await POST(req({ slug: "speaker-invitation" }), params);
+    expect(mockRender.mock.calls[0][0] as string).toContain("share=abc");
+  });
+});

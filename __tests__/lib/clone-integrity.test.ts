@@ -39,6 +39,7 @@ const CLONED_EVENT_FIELDS = [
   "abstractConfirmationHtml",
   "speakerAgreementHtml",
   "surveyIntroHtml",
+  "surveyThankYouHtml",
   "surveyConfig",
   "taxRate",
   "taxLabel",
@@ -248,7 +249,7 @@ describe("clone data completeness", () => {
       "registrationTermsHtml", "registrationWelcomeHtml", "registrationConfirmationHtml",
       "abstractWelcomeHtml", "abstractTermsHtml", "abstractConfirmationHtml",
       "speakerAgreementHtml", "speakerAgreementTemplate",
-      "surveyIntroHtml", "surveyConfig", "surveyShareLink",
+      "surveyIntroHtml", "surveyThankYouHtml", "surveyConfig", "surveyShareLink",
       "taxRate", "taxLabel", "bankDetails", "badgeVerticalOffset", "cmeHours",
       "externalId", "externalSource", "createdAt", "updatedAt",
     ];

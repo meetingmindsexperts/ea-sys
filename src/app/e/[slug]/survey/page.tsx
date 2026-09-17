@@ -3,9 +3,11 @@
 /**
  * Public survey form — tokenized post-event feedback collection.
  *
- *   /e/[slug]/survey?token=<raw>        per-registration (prefilled)
- *   /e/[slug]/survey?share=<token>      shareable link (self-identify by email)
+ *   /e/[slug]/survey?token=<raw>        personal link from the Survey Invitation
+ *                                        email; name + email shown locked
  *   /e/[slug]/survey?preview=1          builder preview (non-saving)
+ *   /e/[slug]/survey?share=<token>      RETIRED Sep 17, 2026 — the API answers
+ *                                        410 and the page shows its message
  *
  * Lifecycle:
  *   1. On mount, GET /api/public/events/[slug]/survey?<mode-qs>
@@ -19,10 +21,10 @@
  * around the API. Tampering with the DOM is rejected at submit.
  */
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { AlertCircle, Check, Loader2, Mail, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Loader2, Lock, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,7 +44,7 @@ import { sanitizeHtml } from "@/lib/sanitize";
 
 // ── Loaded payload types ───────────────────────────────────────────────
 
-type SurveyMode = "token" | "share" | "preview";
+type SurveyMode = "token" | "preview";
 
 interface EventLite {
   id?: string;
@@ -63,20 +65,22 @@ interface Attendee {
 type ApiPayload =
   | {
       alreadyCompleted?: false;
-      mode?: "share" | "preview";
+      mode?: "preview";
       registration?: { id: string };
       attendee?: Attendee;
       event: EventLite;
       config: SurveyConfig;
       introHtml?: string | null;
+      thankYouHtml?: string | null;
     }
-  | { alreadyCompleted: true; event: EventLite };
+  | { alreadyCompleted: true; event: EventLite; thankYouHtml?: string | null };
 
 interface ReadyData {
   event: EventLite;
   config: SurveyConfig;
   attendee: Attendee | null; // token mode only
   introHtml: string | null; // organizer-authored rich-text intro
+  thankYouHtml: string | null; // organizer-authored rich-text thank-you
 }
 
 // ── Page shell ─────────────────────────────────────────────────────────
@@ -97,42 +101,42 @@ function CenteredSpinner() {
   );
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 // ── Main client ────────────────────────────────────────────────────────
 
 function PublicSurveyClient() {
   const params = useParams<{ slug: string }>();
   const search = useSearchParams();
   const token = search.get("token") ?? "";
-  const shareToken = search.get("share") ?? "";
+  // A retired shareable link. Still sent to the API so the server logs it and
+  // answers with the one "use your personal link" message.
+  const retiredShareToken = search.get("share") ?? "";
   const isPreview = search.get("preview") === "1";
   const slug = params.slug;
 
-  const mode: SurveyMode = isPreview ? "preview" : shareToken ? "share" : "token";
+  const mode: SurveyMode = isPreview ? "preview" : "token";
 
   const [state, setState] = useState<
     | { kind: "loading" }
     | { kind: "error"; message: string }
     | { kind: "ready"; data: ReadyData }
-    | { kind: "thank-you"; eventName: string; bannerImage: string | null }
-    // Share mode only: we've asked the server to email this person their
-    // personal survey link. Deliberately shows the SAME copy whether or not
-    // the address matched a registration (the server won't say, by design).
-    | { kind: "link-sent"; message: string; event: EventLite }
+    | {
+        kind: "thank-you";
+        eventName: string;
+        bannerImage: string | null;
+        thankYouHtml: string | null;
+      }
   >({ kind: "loading" });
 
   // questionId → raw value (string). Ratings stored as the string number;
   // skipped optionals are empty string (server treats as absent).
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [shareEmail, setShareEmail] = useState(""); // share mode self-identify
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
 
-  // ── Load config (token / share / preview) ───────────────────────────
+  // ── Load config (token / preview) ───────────────────────────
 
   useEffect(() => {
-    if (mode === "token" && !token) {
+    if (mode === "token" && !token && !retiredShareToken) {
       setState({
         kind: "error",
         message: "No survey token provided. Please use the link from your email.",
@@ -142,9 +146,9 @@ function PublicSurveyClient() {
     const qs =
       mode === "preview"
         ? "preview=1"
-        : mode === "share"
-          ? `share=${encodeURIComponent(shareToken)}`
-          : `token=${encodeURIComponent(token)}`;
+        : token
+          ? `token=${encodeURIComponent(token)}`
+          : `share=${encodeURIComponent(retiredShareToken)}`;
     let cancelled = false;
     (async () => {
       try {
@@ -166,6 +170,7 @@ function PublicSurveyClient() {
             kind: "thank-you",
             eventName: data.event.name,
             bannerImage: data.event.bannerImage,
+            thankYouHtml: data.thankYouHtml ?? null,
           });
           return;
         }
@@ -176,6 +181,7 @@ function PublicSurveyClient() {
             config: data.config,
             attendee: data.attendee ?? null,
             introHtml: data.introHtml ?? null,
+            thankYouHtml: data.thankYouHtml ?? null,
           },
         });
       } catch (err) {
@@ -190,62 +196,13 @@ function PublicSurveyClient() {
     return () => {
       cancelled = true;
     };
-  }, [slug, token, shareToken, mode]);
+  }, [slug, token, retiredShareToken, mode]);
 
   // ── Submit ──────────────────────────────────────────────────────────
-
-  /**
-   * Share mode: ask the server to EMAIL this person their personal survey
-   * link. It no longer submits answers (review B1 — a typed email is an
-   * assertion, and completing a survey mints a CME certificate), so the share
-   * page is a gateway into the same secure `?token=` flow the invitation
-   * emails use.
-   */
-  const handleRequestLink = useCallback(
-    async (loaded: ReadyData) => {
-      if (!EMAIL_RE.test(shareEmail.trim())) {
-        toast.error("Please enter the email address you registered with.");
-        return;
-      }
-      setSubmitting(true);
-      try {
-        const res = await fetch(
-          `/api/public/events/${encodeURIComponent(slug)}/survey`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ share: shareToken, email: shareEmail.trim() }),
-          },
-        );
-        const data: { ok?: boolean; message?: string; error?: string } = await res
-          .json()
-          .catch(() => ({}));
-        if (!res.ok || !data.ok) {
-          toast.error(data.error ?? "We couldn't send your survey link. Please try again.");
-          return;
-        }
-        setState({
-          kind: "link-sent",
-          message:
-            data.message ??
-            "If that email is registered for this event, we've sent your personal survey link to it.",
-          event: loaded.event,
-        });
-      } catch (err) {
-        console.error("survey:request-link-failed", err);
-        toast.error("We couldn't send your survey link. Please check your connection and try again.");
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [slug, shareToken, shareEmail],
-  );
 
   const handleSubmit = useCallback(
     async (loaded: ReadyData) => {
       if (mode === "preview") return; // preview never submits
-      // Share mode never submits answers — it requests a link instead.
-      if (mode === "share") return;
 
       // Client-side required check — server re-validates. Highlight all
       // failing fields at once rather than one-at-a-time.
@@ -291,6 +248,7 @@ function PublicSurveyClient() {
           kind: "thank-you",
           eventName: loaded.event.name,
           bannerImage: loaded.event.bannerImage,
+          thankYouHtml: loaded.thankYouHtml,
         });
       } catch (err) {
         console.error("survey:submit-failed", err);
@@ -307,11 +265,13 @@ function PublicSurveyClient() {
   if (state.kind === "loading") return <CenteredSpinner />;
   if (state.kind === "error") return <ErrorPanel message={state.message} />;
   if (state.kind === "thank-you") {
-    return <ThankYouPanel eventName={state.eventName} bannerImage={state.bannerImage} />;
-  }
-
-  if (state.kind === "link-sent") {
-    return <LinkSentPanel message={state.message} event={state.event} />;
+    return (
+      <ThankYouPanel
+        eventName={state.eventName}
+        bannerImage={state.bannerImage}
+        thankYouHtml={state.thankYouHtml}
+      />
+    );
   }
 
   const { data } = state;
@@ -323,7 +283,7 @@ function PublicSurveyClient() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Shared public-page header (banner + event info strip) */}
-      <PublicHeader event={data.event} attendee={data.attendee} />
+      <PublicHeader event={data.event} />
 
       {/* Body */}
       <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-primary/[0.06] via-background to-muted/40">
@@ -371,44 +331,33 @@ function PublicSurveyClient() {
           {isPreviewMode ? (
             <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900 animate-in fade-in duration-500">
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <p>
-                <span className="font-semibold">Preview</span> — this is exactly how the survey
-                looks to recipients. Responses are <span className="font-semibold">not saved</span>.
-              </p>
+              <div>
+                <p>
+                  <span className="font-semibold">Preview</span> — this is exactly how the survey
+                  looks to recipients. Responses are <span className="font-semibold">not saved</span>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setState({
+                      kind: "thank-you",
+                      eventName: data.event.name,
+                      bannerImage: data.event.bannerImage,
+                      thankYouHtml: data.thankYouHtml,
+                    })
+                  }
+                  className="mt-1 font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-700"
+                >
+                  Show the thank-you page
+                </button>
+              </div>
             </div>
           ) : null}
 
-          {/* Share mode is a GATEWAY, not a form: we email the person their
-              own per-registration link rather than trusting a typed address
-              (review B1). Questions + submit are deliberately not rendered. */}
-          {mode === "share" ? (
-            <>
-              <ShareEmailStep value={shareEmail} onChange={setShareEmail} />
-              <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-700">
-                <Button
-                  onClick={() => void handleRequestLink(data)}
-                  disabled={submitting}
-                  className="btn-gradient h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/20 disabled:opacity-60 disabled:shadow-none sm:w-auto sm:px-10"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Sending…
-                    </>
-                  ) : (
-                    "Email me my survey link"
-                  )}
-                </Button>
-                <p className="max-w-md text-center text-xs text-muted-foreground">
-                  For your security we send the survey to your registered inbox, so
-                  your feedback — and any certificate — can only be recorded by you.
-                </p>
-              </div>
-            </>
-          ) : null}
+          {/* Personal link: who is answering, locked. The identity comes from
+              the token, so there is nothing for the respondent to type. */}
+          {data.attendee ? <RespondingAsCard attendee={data.attendee} /> : null}
 
-          {/* Questions — token/preview modes only */}
-          {mode !== "share" ? (
           <div className="mt-6 space-y-4">
             {data.config.map((q, i) => (
               <QuestionCard
@@ -431,10 +380,7 @@ function PublicSurveyClient() {
               />
             ))}
           </div>
-          ) : null}
 
-          {/* Submit — token/preview modes only (share requests a link above) */}
-          {mode !== "share" ? (
           <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-700">
             <Button
               onClick={() => void handleSubmit(data)}
@@ -460,7 +406,6 @@ function PublicSurveyClient() {
               </p>
             ) : null}
           </div>
-          ) : null}
         </div>
       </div>
     </div>
@@ -470,23 +415,9 @@ function PublicSurveyClient() {
 // ── Sub-components ─────────────────────────────────────────────────────
 
 // Mirrors the header used across the public event pages (register /
-// confirmation): full-width banner shown whole (w-full, natural height), or a
-// thin gradient accent line when there's no banner, followed by a white
-// event-info strip. Survey-specific: the strip carries the respondent's
-// identity (token mode) on the right.
-function PublicHeader({
-  event,
-  attendee,
-}: {
-  event: EventLite;
-  attendee: Attendee | null;
-}) {
-  const displayName = useMemo(() => {
-    if (!attendee) return "";
-    const title = attendee.title ? getTitleLabel(attendee.title) : "";
-    return [title, attendee.firstName, attendee.lastName].filter(Boolean).join(" ");
-  }, [attendee]);
-
+// confirmation): the banner band, or a thin gradient accent line when there's
+// no banner, followed by a white event-info strip.
+function PublicHeader({ event }: { event: EventLite }) {
   return (
     <>
       {event.bannerImage ? (
@@ -496,17 +427,10 @@ function PublicHeader({
           <div className="h-1 bg-gradient-primary" />
         </div>
       )}
-
       <div className="border-b border-slate-200/60 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
         <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
-            <h2 className="mr-auto text-base font-semibold text-slate-800">{event.name}</h2>
-            {attendee ? (
-              <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                <span className="font-medium text-slate-700">{displayName}</span>
-                <span className="text-slate-400">· {attendee.email}</span>
-              </div>
-            ) : null}
+          <div className="py-3">
+            <h2 className="text-base font-semibold text-slate-800">{event.name}</h2>
           </div>
         </div>
       </div>
@@ -514,38 +438,55 @@ function PublicHeader({
   );
 }
 
-function ShareEmailStep({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+/**
+ * Who this personal link belongs to. Read-only by design (Sep 17, 2026 owner
+ * decision): the survey is tied to the registration the link was minted for,
+ * so the name and email are shown for reassurance and cannot be changed.
+ */
+function RespondingAsCard({ attendee }: { attendee: Attendee }) {
+  const displayName = [
+    attendee.title ? getTitleLabel(attendee.title) : "",
+    attendee.firstName,
+    attendee.lastName,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <div className="mt-6 rounded-2xl border bg-card p-5 shadow-sm animate-in fade-in slide-in-from-bottom-3 duration-500 sm:p-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Mail className="h-4 w-4" />
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <Lock className="h-3.5 w-3.5" />
+        Responding as
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="survey-respondent-name" className="text-xs text-muted-foreground">
+            Name
+          </Label>
+          <Input
+            id="survey-respondent-name"
+            value={displayName}
+            readOnly
+            tabIndex={-1}
+            className="mt-1 h-11 cursor-default rounded-xl bg-muted/50 focus-visible:ring-0"
+          />
         </div>
         <div>
-          <Label htmlFor="share-email" className="text-sm font-semibold">
-            Your registered email <span className="text-destructive">*</span>
+          <Label htmlFor="survey-respondent-email" className="text-xs text-muted-foreground">
+            Email
           </Label>
-          <p className="text-xs text-muted-foreground">
-            We&apos;ll email you your personal survey link.
-          </p>
+          <Input
+            id="survey-respondent-email"
+            type="email"
+            value={attendee.email}
+            readOnly
+            tabIndex={-1}
+            className="mt-1 h-11 cursor-default rounded-xl bg-muted/50 focus-visible:ring-0"
+          />
         </div>
       </div>
-      <Input
-        id="share-email"
-        type="email"
-        inputMode="email"
-        autoComplete="email"
-        placeholder="you@example.com"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-4 h-11 rounded-xl"
-      />
+      <p className="mt-3 text-xs text-muted-foreground">
+        This survey link is personal to your registration.
+      </p>
     </div>
   );
 }
@@ -732,58 +673,20 @@ function ErrorPanel({ message }: { message: string }) {
   );
 }
 
-/**
- * Share mode's terminal state: "we've emailed you your link".
- *
- * The copy is deliberately conditional-voice ("if that email is registered")
- * and IDENTICAL whether or not the address matched — the server refuses to say,
- * so that this page can't be used to test whether a named person attended
- * (review M1, the enumeration oracle).
- */
-function LinkSentPanel({ message, event }: { message: string; event: EventLite }) {
-  return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.07] via-background to-muted/40 px-4">
-      <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-0 -left-20 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
-
-      <div className="relative w-full max-w-md rounded-3xl border bg-card/90 p-8 text-center shadow-xl shadow-primary/10 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-500 sm:p-10">
-        {event.bannerImage ? (
-          <div className="mx-auto mb-6 flex h-16 items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={event.bannerImage}
-              alt={event.name}
-              className="max-h-full w-auto max-w-[70%] object-contain"
-            />
-          </div>
-        ) : null}
-
-        <div className="relative mx-auto mb-5 flex h-16 w-16 items-center justify-center">
-          <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-20 blur-md" />
-          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-white shadow-lg shadow-primary/30 animate-in zoom-in-50 duration-700">
-            <Mail className="h-8 w-8" strokeWidth={2.2} />
-          </span>
-        </div>
-
-        <h1 className="text-2xl font-bold tracking-tight">Check your inbox</h1>
-        <p className="mt-3 text-muted-foreground">{message}</p>
-        <p className="mt-4 text-xs text-muted-foreground">
-          The link is personal to your registration and expires in 7 days. If it
-          doesn&apos;t arrive within a few minutes, check your spam folder or ask the
-          organizer.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function ThankYouPanel({
   eventName,
   bannerImage,
+  thankYouHtml,
 }: {
   eventName: string;
   bannerImage: string | null;
+  /** The organizer's own message; null or blank shows the default copy. */
+  thankYouHtml: string | null;
 }) {
+  const customHtml =
+    thankYouHtml && thankYouHtml.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() !== ""
+      ? thankYouHtml
+      : null;
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.07] via-background to-muted/40 px-4">
       <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
@@ -808,14 +711,23 @@ function ThankYouPanel({
           </span>
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight">Thank you for completing the form!</h1>
-        <p className="mt-3 text-muted-foreground">
-          Your feedback for <span className="font-medium text-foreground">{eventName}</span> has
-          been recorded.
-        </p>
-        <p className="mt-2 text-muted-foreground">
-          Your attendance certificate will be received on your registered email&nbsp;ID.
-        </p>
+        {customHtml ? (
+          <div
+            className="prose prose-slate max-w-none text-muted-foreground [&_a]:text-primary [&>*:last-child]:mb-0 [&>*]:mb-3"
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(customHtml) }}
+          />
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight">Thank you for completing the form!</h1>
+            <p className="mt-3 text-muted-foreground">
+              Your feedback for <span className="font-medium text-foreground">{eventName}</span> has
+              been recorded.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              Your attendance certificate will be received on your registered email&nbsp;ID.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

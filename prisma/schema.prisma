@@ -452,6 +452,10 @@ model Event {
   /// survey form (Tiptap WYSIWYG, sanitized on render). Null = use the
   /// default intro copy.
   surveyIntroHtml                  String?     @db.Text
+  /// Organizer-authored rich-text thank-you shown on the public survey page
+  /// once the respondent submits (and on a later invitation after answering). Edited
+  /// beside the intro message. Null = the default thank-you copy.
+  surveyThankYouHtml               String?     @db.Text
   speakerAgreementTemplate         Json?
   /// Letterhead images for the generated agreement PDFs (the inline
   /// HTML→PDF paths only — an uploaded .docx speaker template carries its
@@ -472,14 +476,11 @@ model Event {
   /// allowed but care must be taken not to invalidate in-flight
   /// responses (answer linkage is by question.id, not array index).
   surveyConfig                     Json?
-  /// Organizer-generated reusable shareable survey link. Null when no
-  /// link is active. Shape: `{ token, expiresAt, createdAt,
-  /// createdByUserId }` — see `src/lib/survey/share-link.ts` for the
-  /// Zod-validated shape. Token is stored PLAINTEXT (like
-  /// Abstract.managementToken) so the dashboard can re-display the URL;
-  /// a valid registrant email is still required to submit, so this only
-  /// gates reaching the form. Lookup is slug-scoped (the public URL
-  /// carries the slug), so no global token index is needed.
+  /// RETIRED Sep 17, 2026 and no longer read or written. Was the
+  /// organizer-generated shareable survey link (`{ token, expiresAt, ... }`);
+  /// surveys are now reached only through the personal `?token=` link in the
+  /// Survey Invitation email, and an old `?share=` URL answers 410. Kept
+  /// because dropping a column is destructive and not blue/green safe.
   surveyShareLink                  Json?
   taxRate                          Decimal?    @db.Decimal(5, 2)
   taxLabel                         String?     @default("VAT")

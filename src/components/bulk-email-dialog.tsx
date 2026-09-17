@@ -26,6 +26,11 @@ import { Calendar, Eye, Loader2, Mail, Send } from "lucide-react";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { toast } from "sonner";
+import {
+  MAX_SURVEY_EXPIRY_DAYS,
+  MIN_SURVEY_EXPIRY_DAYS,
+  parseSurveyExpiryInput,
+} from "@/lib/survey/expiry";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TagInput } from "@/components/ui/tag-input";
 import {
@@ -649,6 +654,16 @@ export function BulkEmailDialog({
     const useFixedList = effectiveSelectionMode === "selected" && !resolvesToMatching;
 
     const parsedBcc = bccInput.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+    // Survey Invitation: the expiry is typed, so check it before anything is
+    // queued. The server re-validates the same bounds (survey/expiry.ts).
+    const parsedSurveyExpiry =
+      emailType === "survey-invitation" ? parseSurveyExpiryInput(surveyExpiryDays) : null;
+    if (emailType === "survey-invitation" && parsedSurveyExpiry === null) {
+      toast.error(
+        `Enter how many days the survey link stays valid: a whole number from ${MIN_SURVEY_EXPIRY_DAYS} to ${MAX_SURVEY_EXPIRY_DAYS}.`,
+      );
+      return;
+    }
     const invalidBcc = parsedBcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
     if (invalidBcc.length) {
       toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
@@ -715,8 +730,8 @@ export function BulkEmailDialog({
           ? { sessionRole: sessionRoleFilter }
           : {}),
         // survey-invitation only — TTL (days) for the minted survey link.
-        ...(emailType === "survey-invitation"
-          ? { surveyExpiryDays: Number(surveyExpiryDays) }
+        ...(emailType === "survey-invitation" && parsedSurveyExpiry !== null
+          ? { surveyExpiryDays: parsedSurveyExpiry }
           : {}),
         // Saved custom template — slug rides in filters so scheduled sends
         // reconstruct it from the persisted ScheduledEmail.filters JSON.
@@ -1286,24 +1301,28 @@ export function BulkEmailDialog({
             </div>
           )}
 
-          {/* survey-invitation only — link expiry (days). Mirrors the
-              dashboard shareable-link expiry control; default 7. */}
+          {/* survey-invitation only — link expiry, typed as a whole number of
+              days (Sep 17, 2026; was a 3/5/7/10 dropdown). Default 7. */}
           {emailType === "survey-invitation" && (
             <div className="space-y-2">
-              <Label htmlFor="bulk-email-survey-expiry">Survey link expires in</Label>
-              <Select value={surveyExpiryDays} onValueChange={setSurveyExpiryDays}>
-                <SelectTrigger id="bulk-email-survey-expiry" aria-label="Survey link expiry">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3 days</SelectItem>
-                  <SelectItem value="5">5 days</SelectItem>
-                  <SelectItem value="7">7 days</SelectItem>
-                  <SelectItem value="10">10 days</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="bulk-email-survey-expiry">Survey link valid for (days)</Label>
+              <Input
+                id="bulk-email-survey-expiry"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={3}
+                className="w-32"
+                value={surveyExpiryDays}
+                // Digits only: anything else is dropped as it is typed, so
+                // the box can never hold "3.5", "-2" or "30 days".
+                onChange={(e) => setSurveyExpiryDays(e.target.value.replace(/\D/g, ""))}
+                aria-invalid={parseSurveyExpiryInput(surveyExpiryDays) === null}
+              />
               <p className="text-xs text-muted-foreground">
-                Each recipient gets a unique link that stops working after this many days.
+                Each recipient gets their own personal link that stops working after this many
+                days (for example 10, 15, 30 or 45). Whole numbers from {MIN_SURVEY_EXPIRY_DAYS} to{" "}
+                {MAX_SURVEY_EXPIRY_DAYS}.
               </p>
             </div>
           )}

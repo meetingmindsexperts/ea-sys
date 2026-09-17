@@ -525,6 +525,8 @@ describe("POST /api/events/[eventId]/clone", () => {
         registrationWelcomeHtml: "<p>Welcome</p>",
         speakerAgreementHtml: "<p>Agreement</p>",
         surveyConfig: [{ id: "q1", type: "text", label: "Q", required: false }],
+        surveyIntroHtml: "<p>Tell us</p>",
+        surveyThankYouHtml: "<p>Thank you!</p>",
         taxRate: 5,
         taxLabel: "VAT",
         bankDetails: "IBAN 123",
@@ -561,6 +563,9 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(data.registrationWelcomeHtml).toBe("<p>Welcome</p>");
       expect(data.speakerAgreementHtml).toBe("<p>Agreement</p>");
       expect(data.surveyConfig).toEqual([{ id: "q1", type: "text", label: "Q", required: false }]);
+      // Both survey messages travel with a clone (thank-you added Sep 17, 2026).
+      expect(data.surveyIntroHtml).toBe("<p>Tell us</p>");
+      expect(data.surveyThankYouHtml).toBe("<p>Thank you!</p>");
       expect(data.taxRate).toBe(5);
       expect(data.taxLabel).toBe("VAT");
       expect(data.bankDetails).toBe("IBAN 123");

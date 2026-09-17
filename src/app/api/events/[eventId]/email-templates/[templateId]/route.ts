@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
@@ -239,8 +240,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       realOverrides,
     );
 
-    const renderedBody = renderTemplate(template.htmlContent, sampleVars);
-    const renderedSubject = renderTemplatePlain(template.subject, sampleVars);
+    // Preview == send for the Survey Invitation: the send guarantees each
+    // recipient's personal link (src/lib/survey/invitation-link.ts).
+    const previewTemplate =
+      template.slug === "survey-invitation" ? ensurePersonalSurveyLink(template).template : template;
+    const renderedBody = renderTemplate(previewTemplate.htmlContent, sampleVars);
+    const renderedSubject = renderTemplatePlain(previewTemplate.subject, sampleVars);
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, branding));
 
     if (action === "test") {

@@ -6,6 +6,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import {
   getEventTemplate,
   renderTemplate,
@@ -313,12 +314,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // getEventTemplate loads DB template with fallback to default, plus event branding
-    const eventTemplate = await getEventTemplate(eventId, slug);
+    const loadedTemplate = await getEventTemplate(eventId, slug);
 
-    if (!eventTemplate) {
+    if (!loadedTemplate) {
       apiLogger.warn({ msg: "Email preview template not found", slug, eventId });
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
+    // Preview == send: the Survey Invitation send guarantees a personal link
+    // (a pasted shareable URL becomes it, a missing one gains a button), so
+    // the preview shows the same body. See src/lib/survey/invitation-link.ts.
+    const eventTemplate =
+      slug === "survey-invitation"
+        ? ensurePersonalSurveyLink(loadedTemplate).template
+        : loadedTemplate;
 
     const sampleVars = buildEventPreviewVariables(
       event,

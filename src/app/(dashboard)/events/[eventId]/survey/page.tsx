@@ -34,15 +34,11 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
-  Check,
   ChevronDown,
   ChevronUp,
-  Copy,
   ExternalLink,
-  Link2,
   Loader2,
   Plus,
-  RefreshCw,
   Save,
   Trash2,
 } from "lucide-react";
@@ -90,8 +86,9 @@ const QUESTION_TYPE_LABELS: Record<SurveyQuestion["type"], string> = {
 };
 
 // Tiptap emits "<p></p>" (and similar) for an empty document — treat that
-// as "no intro" so the public form falls back to its default copy.
-function introIsEmpty(html: string): boolean {
+// as empty so the public form falls back to its default copy. Used for both
+// the intro and the thank-you message.
+function richTextIsEmpty(html: string): boolean {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() === "";
 }
 
@@ -117,12 +114,8 @@ export default function SurveyBuilderPage() {
   const [saving, setSaving] = useState(false);
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Shareable link — { url, expiresAt } when active, null when none.
   const [introHtml, setIntroHtml] = useState<string>("");
-  const [shareLink, setShareLink] = useState<{ url: string; expiresAt: string } | null>(null);
-  const [shareExpiry, setShareExpiry] = useState<string>("7");
-  const [shareBusy, setShareBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [thankYouHtml, setThankYouHtml] = useState<string>("");
 
   // ── Load ─────────────────────────────────────────────────────────────
 
@@ -141,18 +134,7 @@ export default function SurveyBuilderPage() {
         setEventName(data.name ?? "");
         setEventSlug(data.slug ?? "");
         setIntroHtml(data.surveyIntroHtml ?? "");
-        // Reconstruct the shareable URL client-side from the stored
-        // plaintext token + the current origin (avoids round-tripping
-        // the full URL through the event GET).
-        const sl = data.surveyShareLink;
-        if (sl && typeof sl.token === "string" && typeof sl.expiresAt === "string" && data.slug) {
-          setShareLink({
-            url: `${window.location.origin}/e/${data.slug}/survey?share=${sl.token}`,
-            expiresAt: sl.expiresAt,
-          });
-        } else {
-          setShareLink(null);
-        }
+        setThankYouHtml(data.surveyThankYouHtml ?? "");
         const stored = data.surveyConfig;
         if (Array.isArray(stored)) {
           // Validate against the current Zod schema before adopting —
@@ -289,7 +271,9 @@ export default function SurveyBuilderPage() {
             // Persist the intro alongside the questions. Empty editor
             // (only whitespace / empty <p>) saves as null so the public
             // form falls back to its default intro copy.
-            surveyIntroHtml: introIsEmpty(introHtml) ? null : introHtml,
+            surveyIntroHtml: richTextIsEmpty(introHtml) ? null : introHtml,
+            // Same rule for the thank-you shown after submitting.
+            surveyThankYouHtml: richTextIsEmpty(thankYouHtml) ? null : thankYouHtml,
           }),
         });
         if (!res.ok) {
@@ -310,7 +294,7 @@ export default function SurveyBuilderPage() {
         setSaving(false);
       }
     },
-    [eventId, questions, introHtml],
+    [eventId, questions, introHtml, thankYouHtml],
   );
 
   const dirtyCount = questions.length;
@@ -318,63 +302,6 @@ export default function SurveyBuilderPage() {
     if (!eventSlug) return null;
     return `/e/${encodeURIComponent(eventSlug)}/survey`;
   }, [eventSlug]);
-
-  // ── Shareable link handlers ──────────────────────────────────────────
-
-  const generateShareLink = useCallback(async () => {
-    setShareBusy(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/survey/share-link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expiresInDays: Number(shareExpiry) }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data?.error ?? "Could not create the shareable link.");
-        return;
-      }
-      setShareLink({ url: data.url, expiresAt: data.expiresAt });
-      toast.success(shareLink ? "Shareable link regenerated." : "Shareable link created.");
-    } catch (err) {
-      console.error("survey:share-link-generate-failed", err);
-      toast.error("Failed to create the shareable link.");
-    } finally {
-      setShareBusy(false);
-    }
-  }, [eventId, shareExpiry, shareLink]);
-
-  const disableShareLink = useCallback(async () => {
-    setShareBusy(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/survey/share-link`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data?.error ?? "Could not disable the link.");
-        return;
-      }
-      setShareLink(null);
-      toast.success("Shareable link disabled.");
-    } catch (err) {
-      console.error("survey:share-link-disable-failed", err);
-      toast.error("Failed to disable the link.");
-    } finally {
-      setShareBusy(false);
-    }
-  }, [eventId]);
-
-  const copyShareUrl = useCallback(async () => {
-    if (!shareLink) return;
-    try {
-      await navigator.clipboard.writeText(shareLink.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Couldn't copy — select the link and copy manually.");
-    }
-  }, [shareLink]);
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -451,144 +378,60 @@ export default function SurveyBuilderPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">How surveys work</CardTitle>
           <CardDescription className="text-xs">
-            Send personalized invitations from the Communications page (each registrant gets a
-            unique link), or share the single link below for anyone to self-identify by email.
-            You choose how long links stay valid. Completing the survey adds the{" "}
+            Send the survey from{" "}
+            <Link href={`/events/${eventId}/communications`} className="font-medium text-primary hover:underline">
+              Communications
+            </Link>{" "}
+            with the <span className="font-medium">Survey Invitation</span> email. Each registrant
+            gets their own personal link, already tied to their name and email, and you choose
+            how many days it stays valid. Completing the survey adds the{" "}
             <code className="text-xs">survey-completed</code> tag to their record — useful as
             a filter when issuing CME certificates.
           </CardDescription>
         </CardHeader>
       </Card>
 
-      {/* Shareable link — one reusable link the organizer can post anywhere.
-          It is a GATEWAY: the respondent enters their registered email and we
-          email them their own per-registration survey link (review B1 — a
-          typed email is an assertion, and completing a survey issues a
-          certificate, so the survey itself is only reachable from the inbox). */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-1.5">
-            <Link2 className="h-4 w-4" />
-            Shareable link
-          </CardTitle>
-          <CardDescription className="text-xs">
-            One link you can post anywhere (email signature, WhatsApp, a slide). Whoever opens it
-            enters their registered email and we send <span className="font-medium">their own
-            personal survey link</span> to that inbox — they answer from there. This keeps feedback
-            (and any certificate) attributable to the real attendee, so nobody can complete the
-            survey on someone else&apos;s behalf.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {shareLink ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Input readOnly value={shareLink.url} className="text-xs font-mono" />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void copyShareUrl()}
-                  className="shrink-0"
-                >
-                  {copied ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Expires{" "}
-                {new Date(shareLink.expiresAt).toLocaleDateString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-                .
-              </p>
-              <div className="flex items-center gap-2">
-                <Select value={shareExpiry} onValueChange={setShareExpiry}>
-                  <SelectTrigger className="w-32" aria-label="Link expiry">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="3">3 days</SelectItem>
-                    <SelectItem value="5">5 days</SelectItem>
-                    <SelectItem value="7">7 days</SelectItem>
-                    <SelectItem value="10">10 days</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void generateShareLink()}
-                  disabled={shareBusy}
-                >
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                  Regenerate
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void disableShareLink()}
-                  disabled={shareBusy}
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Disable
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Regenerating changes the URL and resets the expiry — the old link stops working.
-              </p>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Select value={shareExpiry} onValueChange={setShareExpiry}>
-                <SelectTrigger className="w-32" aria-label="Link expiry">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3 days</SelectItem>
-                  <SelectItem value="5">5 days</SelectItem>
-                  <SelectItem value="7">7 days</SelectItem>
-                  <SelectItem value="10">10 days</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button size="sm" onClick={() => void generateShareLink()} disabled={shareBusy}>
-                {shareBusy ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <Link2 className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                Generate link
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Intro message — organizer-authored rich text shown at the top of
-          the public survey form. Optional; falls back to default copy. */}
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Intro message</CardTitle>
-          <CardDescription className="text-xs">
-            Optional rich text shown at the top of the survey, above the questions — a thank-you
-            note, context, or instructions. Leave blank to use the default intro.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <TiptapEditor
-            content={introHtml}
-            onChange={setIntroHtml}
-            placeholder="Thank you for attending! Your feedback helps us improve future events…"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            Saved with the survey when you click <span className="font-medium">Save survey</span>.
-          </p>
-        </CardContent>
-      </Card>
+      {/* Intro + thank-you messages — organizer-authored rich text around the
+          public form. Both optional; each falls back to default copy. Side by
+          side on wide screens because they are the two ends of one page. */}
+      <div className="mb-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Intro message</CardTitle>
+            <CardDescription className="text-xs">
+              Shown at the top of the survey, above the questions: context or instructions.
+              Leave blank to use the default intro.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TiptapEditor
+              content={introHtml}
+              onChange={setIntroHtml}
+              placeholder="Your feedback helps us improve future events…"
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Thank-you message</CardTitle>
+            <CardDescription className="text-xs">
+              Shown once someone submits the survey, and if they open a later invitation
+              after already answering. Leave blank to use the default thank-you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TiptapEditor
+              content={thankYouHtml}
+              onChange={setThankYouHtml}
+              placeholder="Thank you for your feedback! Your certificate will follow by email…"
+            />
+          </CardContent>
+        </Card>
+        <p className="text-xs text-muted-foreground lg:col-span-2">
+          Both are saved with the survey when you click{" "}
+          <span className="font-medium">Save survey</span>.
+        </p>
+      </div>
 
       {questions.length === 0 ? (
         <Card>

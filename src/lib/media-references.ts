@@ -44,6 +44,7 @@ const CONTENT_FIELDS = [
   ["registrationTermsHtml", "registration terms"],
   ["abstractGuidelinesHtml", "abstract guidelines"],
   ["surveyIntroHtml", "survey intro"],
+  ["surveyThankYouHtml", "survey thank-you message"],
   ["emailFooterHtml", "email footer content"],
 ] as const;
 
@@ -78,6 +79,7 @@ export async function findMediaReferences(
         registrationTermsHtml: true,
         abstractGuidelinesHtml: true,
         surveyIntroHtml: true,
+        surveyThankYouHtml: true,
         emailFooterHtml: true,
       },
     }),
