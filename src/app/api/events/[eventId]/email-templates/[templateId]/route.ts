@@ -193,6 +193,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
           country: true,
           timezone: true, supportEmail: true,
+          // {{surveyLink}} previews as this event's survey preview page.
+          slug: true,
           organization: { select: { name: true } },
           ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
           // One real registration so {{registrationId}} shows a real

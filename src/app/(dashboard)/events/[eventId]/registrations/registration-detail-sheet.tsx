@@ -6,6 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DEFAULT_SURVEY_EXPIRY_DAYS,
+  MAX_SURVEY_EXPIRY_DAYS,
+  MIN_SURVEY_EXPIRY_DAYS,
+  parseSurveyExpiryInput,
+} from "@/lib/survey/expiry";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
@@ -128,6 +134,7 @@ const EMAIL_TYPE_LABELS: Record<string, string> = {
   reminder: "Event Reminder",
   "payment-reminder": "Payment Reminder",
   custom: "Custom Notification",
+  "survey-invitation": "Survey Invitation",
 };
 
 const EMAIL_TYPE_TO_SLUG: Record<string, string> = {
@@ -135,6 +142,7 @@ const EMAIL_TYPE_TO_SLUG: Record<string, string> = {
   reminder: "event-reminder",
   "payment-reminder": "payment-reminder",
   custom: "custom-notification",
+  "survey-invitation": "survey-invitation",
 };
 
 interface RegistrationDetailSheetProps {
@@ -436,6 +444,9 @@ export function RegistrationDetailSheet({
 
   const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
   const [selectedEmailType, setSelectedEmailType] = useState("");
+  // Survey Invitation to this one person: link lifetime in days, typed like
+  // the Communications send (digits only, 1 to 365).
+  const [surveyExpiryInput, setSurveyExpiryInput] = useState(String(DEFAULT_SURVEY_EXPIRY_DAYS));
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
@@ -466,6 +477,9 @@ export function RegistrationDetailSheet({
     isBaseDeskOperator ||
     (userSession?.user?.role === "WEBINARS" && eventForMode?.eventType !== "WEBINAR");
   const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
+  // The Survey Invitation is offered only when the event has a survey built.
+  const surveyConfig = (eventForMode as { surveyConfig?: unknown } | undefined)?.surveyConfig;
+  const eventHasSurvey = Array.isArray(surveyConfig) && surveyConfig.length > 0;
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -502,6 +516,7 @@ export function RegistrationDetailSheet({
 
   const openEmailDialog = (type: string) => {
     setSelectedEmailType(type);
+    if (type === "survey-invitation") setSurveyExpiryInput(String(DEFAULT_SURVEY_EXPIRY_DAYS));
     setEmailConfirmOpen(true);
   };
 
@@ -516,6 +531,15 @@ export function RegistrationDetailSheet({
           id: selectedRegistration.id,
           templateSlug: selectedEmailType.slice(SAVED_TEMPLATE_PREFIX.length),
         });
+      } else if (selectedEmailType === "survey-invitation") {
+        const days = parseSurveyExpiryInput(surveyExpiryInput);
+        if (days === null) {
+          toast.error(
+            `Enter how many days the survey link stays valid: a whole number from ${MIN_SURVEY_EXPIRY_DAYS} to ${MAX_SURVEY_EXPIRY_DAYS}.`,
+          );
+          return;
+        }
+        sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType, surveyExpiryDays: days });
       } else {
         sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
       }
@@ -714,8 +738,21 @@ export function RegistrationDetailSheet({
   };
 
   const sendEmail = useMutation({
-    mutationFn: ({ id, type, templateSlug }: { id: string; type?: string; templateSlug?: string }) =>
-      apiPostJson(`/api/events/${eventId}/registrations/${id}/email`, templateSlug ? { templateSlug } : { type }),
+    mutationFn: ({
+      id,
+      type,
+      templateSlug,
+      surveyExpiryDays,
+    }: {
+      id: string;
+      type?: string;
+      templateSlug?: string;
+      surveyExpiryDays?: number;
+    }) =>
+      apiPostJson(
+        `/api/events/${eventId}/registrations/${id}/email`,
+        templateSlug ? { templateSlug } : { type, ...(surveyExpiryDays ? { surveyExpiryDays } : {}) },
+      ),
     onSuccess: () => {
       toast.success("Email sent");
     },
@@ -2909,6 +2946,20 @@ export function RegistrationDetailSheet({
                       <DropdownMenuItem onClick={() => openEmailDialog("custom")}>
                         Custom Notification
                       </DropdownMenuItem>
+                      {/* The personal survey link for this one person. Hidden
+                          without a built survey or on a cancelled registration
+                          (the server refuses both too); shown disabled once
+                          they have answered. */}
+                      {eventHasSurvey && selectedRegistration.status !== "CANCELLED" && (
+                        <DropdownMenuItem
+                          disabled={!!selectedRegistration.surveyCompletedAt}
+                          onClick={() => openEmailDialog("survey-invitation")}
+                        >
+                          {selectedRegistration.surveyCompletedAt
+                            ? "Survey Invitation (already completed)"
+                            : "Survey Invitation"}
+                        </DropdownMenuItem>
+                      )}
                       {/* Active saved custom templates — sendable to this one
                           registration via templateSlug (encoded as
                           "template:<slug>" so handleConfirmSendEmail can route
@@ -3328,6 +3379,26 @@ export function RegistrationDetailSheet({
             </span>
           </DialogDescription>
         </DialogHeader>
+        {selectedEmailType === "survey-invitation" && (
+          <div className="space-y-2">
+            <Label htmlFor="registration-email-survey-expiry">Survey link valid for (days)</Label>
+            <Input
+              id="registration-email-survey-expiry"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={3}
+              className="w-32"
+              value={surveyExpiryInput}
+              onChange={(e) => setSurveyExpiryInput(e.target.value.replace(/\D/g, ""))}
+              aria-invalid={parseSurveyExpiryInput(surveyExpiryInput) === null}
+            />
+            <p className="text-xs text-muted-foreground">
+              Their personal link stops working after this many days. Whole numbers from{" "}
+              {MIN_SURVEY_EXPIRY_DAYS} to {MAX_SURVEY_EXPIRY_DAYS}.
+            </p>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setEmailConfirmOpen(false)}>
             Cancel

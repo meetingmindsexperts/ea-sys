@@ -3384,6 +3384,13 @@ export interface PreviewEventData {
    * static "9999" placeholder.
    */
   registrations?: { id: string; serialId: number | null }[] | null;
+  /**
+   * When present, {{surveyLink}} previews as this event's non-saving survey
+   * preview page instead of "#", so the button and the "copy this link" line
+   * in a preview or test email open the real survey (Sep 17, 2026: organizers
+   * read the "#" as the variable not resolving). Nothing is minted.
+   */
+  slug?: string | null;
 }
 
 interface PreviewUserData {
@@ -3484,6 +3491,14 @@ export function buildEventPreviewVariables(
       : {}),
     // First real registration type, if the event has one.
     ...(event.ticketTypes?.[0]?.name ? { ticketType: event.ticketTypes[0].name } : {}),
+    // A real send puts each person's own token link here. A preview must not
+    // mint one, so it opens the survey's preview mode, which shows the real
+    // questions and saves nothing.
+    ...(event.slug
+      ? {
+          surveyLink: `${process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com"}/e/${event.slug}/survey?preview=1`,
+        }
+      : {}),
   };
 
   return getSamplePreviewVariables({ ...realOverrides, ...extra });

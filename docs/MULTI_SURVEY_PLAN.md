@@ -1,117 +1,98 @@
-# Multiple surveys per event
+# Several surveys per event, one of them the certificate survey
 
-**Status: PARKED.** Planned August 7, 2026, decisions locked, build deferred the
-same day. Owner: "I think we might not need it." Agreed. Revisit when a real
-tenant describes a real second survey; their description is what tells us
-whether `allowMultiple` (§4, the only decision adding meaningful work) is needed
-at all. Do not start without an explicit go-ahead.
+**Status: PLANNED, NOT BUILT.** Revived September 17, 2026 (owner: "scale the
+surveys without affecting the CME survey, same personalized links but for
+something else"). First planned August 7, 2026 and parked the same day; this
+revision replaces that plan, because the shareable survey link it designed
+around was retired on September 17 and the owner has since named real uses.
+Do not start building without an explicit go-ahead on §9.
 
-**Why it was parked.** Nobody has asked for it. Three of thirty-five events have
-a survey at all and the feature has collected two responses in its lifetime, so
-a more configurable version of it optimises a cold path. There is no platform
-instance yet, and the named next build is per-tenant Stripe / Zoom / AI keys
-([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) item 7), which is a prerequisite
-for onboarding anyone. Most "we need more surveys" turns out to be "we need more
-questions", which today's model already does; the genuine need is when the
-*audience* differs (exhibitors vs delegates) or the *timing* does (per-day), and
-neither is on the table. And the restructure sits one field away from the CME
-certificate trigger (§2), which is not a reason never to do it, but is a reason
-not to do it for a hypothetical.
-
-**The argument NOT to trust.** The first draft of this plan argued "this is the
-cheapest moment the change will ever be", on the strength of a five-row backfill.
-That does not hold up: a backfill is one `UPDATE` whether it touches 5 rows or
-5,000. The only cost that genuinely grows is the blue-green nullable window in
-§6, and that is solved by a two-deploy sequence whenever volume makes it matter.
-Recorded here so the argument is not recycled as a reason to build.
-
-**What the change is.** Today a survey is a set of columns on `Event`, so an
-event structurally cannot have two. A second tenant plausibly needs several: a
-day-1 poll and a day-2 evaluation, an exhibitor survey alongside the delegate
-one, a per-track feedback form.
-
-**Live state at planning time** (verified read-only against the prod copy):
-
-| | |
-|---|---|
-| Events with a survey configured | 3 of 35 (10 / 10 / 3 questions) |
-| Share links generated | 1 |
-| `SurveyResponse` rows, all time | **2** |
-| Registrations with `surveyCompletedAt` | 2 |
-| Outstanding invite tokens | 2, both expired 2026-07-18 |
-| Certificate templates with `autoIssueOnSurvey` | 4 |
-
-Nothing is in flight. The backfill is five rows. This is the cheapest this
-change will ever be.
+**Who this is for.** The owner, to confirm the open decisions in §9, and
+whoever builds it.
 
 ---
 
-## 1. Decisions (locked)
+## 1. What changes, in one paragraph
+
+Today a survey is four columns on `Event` (`surveyConfig`, `surveyIntroHtml`,
+`surveyThankYouHtml`, and the retired `surveyShareLink`), so an event can hold
+exactly one. The plan moves surveys into their own table so an event can run
+several: a pre-event needs survey, a faculty feedback survey, session ratings, an
+exhibitor survey. Exactly one survey per event is the **certificate survey**, and
+only it can mark a registration as having completed "the survey", which is what
+mints CME certificates. Every other survey stores its answers and nothing else.
+Links stay personal (`/e/{slug}/survey?token=…`, the `{{surveyLink}}` variable),
+sent from Communications as today.
+
+## 2. Decisions
+
+Locked in conversation on September 17, 2026:
 
 | # | Question | Decision |
 |---|---|---|
-| D1 | Which survey earns a certificate? | **One flagged survey per event.** `Survey.gatesCertificates`, at most one per event. Only that survey stamps `Registration.surveyCompletedAt` and writes the `survey-completed` tag. Today's single survey becomes it, so certificate behaviour is byte-identical. A per-template pointer (`CertificateTemplate.autoIssueSurveyId`) is the natural later refinement and is deliberately not in v1. |
-| D2 | Can one person answer the same survey twice? | **Configurable per survey.** `Survey.allowMultiple`, default false. Default preserves today's one-response-per-person rule, scoped per survey. See §4 for the mechanics, which are the non-obvious part of this plan. |
-| D3 | Does a non-gating survey mark the registrant? | **Optional per-survey tag.** Nullable `Survey.completionTag`, merged into `Attendee.tags` on submit. Nothing by default. Lets a tenant build an email cohort from "answered the day-2 poll" without going near the certificate trigger. |
-| D4 | Public URL shape | **Unchanged.** `/e/{slug}/survey?token=` and `?share=`. The token itself identifies the survey (§3), so no new route and no change to any link already delivered. |
+| D1 | What are the other surveys for? | All four: pre-event needs survey, speaker / faculty feedback, per-session rating, sponsor / exhibitor feedback. |
+| D2 | Who receives personal links? | **Registrations only**, as today. Speakers answer through their companion registration, exhibitors through theirs. No new token kind. |
+| D3 | Can one person answer a survey more than once? | **Configurable per survey** (§5). |
+| D4 | Which survey earns a certificate? | **One certificate survey per event** (carried from the August plan). Only it stamps `Registration.surveyCompletedAt` and adds the `survey-completed` tag. |
+| D5 | Link and variable | Unchanged: `/e/{slug}/survey?token=` and `{{surveyLink}}`. The token identifies the survey as well as the person. |
 
----
+Still open, with a recommendation each: §9.
 
-## 2. The coupling that makes this delicate
+## 3. Why the certificate survey is not affected
 
-`Registration.surveyCompletedAt` is not a feedback flag.
-[certificates/auto-issue.ts](../src/lib/certificates/auto-issue.ts) polls exactly
-it and mints a serialized, audited CME certificate. That is the same coupling
-behind the B1 blocker closed on August 7, 2026, whose lesson was: *when a field
-becomes a credential trigger, re-audit every writer of that field.*
+`Registration.surveyCompletedAt` is not a feedback flag. The certificate worker
+([auto-issue.ts](../src/lib/certificates/auto-issue.ts)) sweeps exactly that
+column and mints a serialized, audited CME certificate, and the thank-you sweep
+([survey-thankyou-sweep.ts](../src/lib/certificates/survey-thankyou-sweep.ts))
+emails that certificate. The August 7 blocker (B1) taught the rule: when a field
+triggers a credential, every writer of that field is part of the credential
+path.
 
-This change adds writers. D1 is what keeps that safe: the flag keeps its exact
-current meaning ("the certificate-gating survey was completed") and only one
-survey per event may set it. The consequence is that the entire credential path
-is **zero-change**:
+This plan adds no writer. The one submit path that sets the column today keeps
+setting it, and only when the survey being answered is the certificate survey. A
+non-certificate survey writes a `SurveyResponse` row and returns. So these stay
+**zero-change**:
 
-- `src/lib/certificates/auto-issue.ts`
+- `src/lib/certificates/auto-issue.ts` and its analytics route
 - `src/lib/certificates/survey-thankyou-sweep.ts`
-- `src/lib/bulk-email-audience.ts`
-- the registration detail sheet, the speaker pages, my-details, the
-  auto-issue analytics route, `registrations/types.ts`
+- `src/lib/bulk-email-audience.ts` (cancelled registrants stay excluded)
+- the registration detail sheet, both speaker surfaces, My Details and
+  `registrations/types.ts`, which read `surveyCompletedAt`, not the response
+  relation (checked: nothing in `src/` reads `registration.surveyResponse`)
 
-Roughly nine of the twenty-eight survey-touching files never move, and none of
-the money or credential paths do.
+The tests in §8 pin this in both directions, and two of them are
+mutation-verified.
 
----
+## 4. Schema
 
-## 3. Schema
-
-New table, born multi-tenant compliant (org scalar, no FK, indexed, per the
-convention every Phase-2 domain sweep established):
+New table, born tenancy-compliant (org scalar, index, RLS policy in the same
+change):
 
 ```prisma
+enum SurveyResponseMode {
+  ONCE              // one response per registration (Phase 1)
+  ONCE_PER_SESSION  // one per registration per session (Phase 3)
+  REPEATABLE        // any number until the link expires (Phase 4)
+}
+
 model Survey {
   id                String   @id @default(cuid())
   eventId           String
-  /// Denormalized tenant key, backfilled 1-hop from Event. Backs the flat
-  /// RLS policy in prisma/rls/survey.sql (platform-only).
+  /// Denormalized tenant key, stamped from the event at create.
   organizationId    String?
 
-  name              String              // "Post-event evaluation", "Day 1 poll"
-  config            Json                // the question array, unchanged shape
+  name              String               // "Pre-event needs survey"
+  config            Json                 // the question array, today's shape
   introHtml         String?  @db.Text
-  isActive          Boolean  @default(true)
+  thankYouHtml      String?  @db.Text
+  isActive          Boolean  @default(true) // closed = the link says so
   sortOrder         Int      @default(0)
 
-  /// Real columns, replacing the Event.surveyShareLink JSON blob and its
-  /// defensive parse. One share link per survey.
-  shareToken        String?
-  shareTokenExpires DateTime?
-
-  /// D1. At most one per event, enforced in the write path (see below).
-  /// A survey with allowMultiple = true may never set this.
+  /// D4. At most one per event, enforced in the write path (see below).
   gatesCertificates Boolean  @default(false)
-  /// D2. See §4.
-  allowMultiple     Boolean  @default(false)
-  /// D3. Merged into Attendee.tags on submit. Null = mark nothing.
-  completionTag     String?
+  responseMode      SurveyResponseMode @default(ONCE)
+  /// Phase 3 only. Empty = every program session of the event.
+  sessionIds        String[] @default([])
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -121,151 +102,178 @@ model Survey {
 
   @@index([eventId, sortOrder])
   @@index([organizationId])
-  @@index([shareToken])
 }
 ```
 
-`SurveyResponse` changes:
+`SurveyResponse` gains three columns and loses its global unique:
 
 ```prisma
-  surveyId             String
-  /// D2 dedup key. Equals registrationId on single-submission surveys, NULL
-  /// on repeatable ones. See §4 for why this exists.
-  dedupRegistrationId  String?
+  surveyId     String?   // nullable through the blue-green window, §7
+  /// The duplicate gate. ONCE: registrationId. ONCE_PER_SESSION:
+  /// "registrationId:sessionId". REPEATABLE: NULL, which Postgres treats as
+  /// distinct, so repeats never collide while the other modes keep a real
+  /// database race gate.
+  dedupKey     String?
+  sessionId    String?   // Phase 3, FK SetNull, plus a sessionName snapshot
 
-  @@unique([surveyId, dedupRegistrationId])
+  @@unique([surveyId, dedupKey])
+  @@index([registrationId])
 ```
 
-and loses the global `registrationId @unique`. `Registration.surveyResponse`
-becomes `surveyResponses SurveyResponse[]`.
+`registrationId @unique` is dropped and `Registration.surveyResponse` becomes
+`surveyResponses SurveyResponse[]`.
 
-**"At most one gating survey per event" is enforced in the write path, not by a
-partial unique index.** Prisma cannot represent partial indexes, and the
-`migration-replay` CI job asserts `prisma migrate diff --exit-code` is clean
-against `schema.prisma`, so a partial index would fail CI. The repo already hit
-this once and swapped a partial index for a full composite unique for the same
-reason. Setting `gatesCertificates` on survey B clears it on A inside the same
-transaction, which is better UX than a 409 anyway. A DB `CHECK` for the
-`gatesCertificates AND allowMultiple` combination is optional and must be
-verified against the replay job before being added; the write-path refusal is
-the requirement.
+**One certificate survey per event is enforced in the write path, not by a
+partial unique index.** Prisma cannot represent a partial index and the
+`migration-replay` CI job fails on any difference from `schema.prisma` (the
+repo hit this once already). Marking survey B clears survey A in the same
+transaction, and a certificate survey must use `ONCE` (a credential trigger that
+can fire twice is the wrong shape).
 
-Session-scoped surveys ("rate this talk") would later need only a nullable
-`Survey.sessionId`. Responses key on `surveyId`, so the response model would not
-change. Worth preserving even though it is out of scope.
+## 5. How the modes behave
 
----
+| | ONCE | ONCE_PER_SESSION | REPEATABLE |
+|---|---|---|---|
+| Used for | needs survey, faculty feedback, exhibitor feedback, the certificate survey | session ratings | nothing named yet |
+| Personal link after submit | deleted (today's single-use rule) | kept until it expires | kept until it expires |
+| Already answered | "already completed" page | that session shows as rated; others stay open | always open |
+| Duplicate gate | `dedupKey = registrationId` | `dedupKey = registrationId:sessionId` | none |
+| Can be the certificate survey | yes | no | no |
 
-## 4. Repeatable surveys (D2), the fiddly part
+**Keeping the link alive is a real relaxation of a security property**, limited
+to surveys an organizer switches out of ONCE. It lets the holder of the email add
+more answers (ratings for other sessions, or repeats); it never lets them change
+an answer already given. The builder states this next to the mode setting.
 
-`allowMultiple` lives on `Survey` and the uniqueness constraint lives on
-`SurveyResponse`, and Postgres cannot reference another table in an index
-predicate. Hence the denormalized `dedupRegistrationId`: the submit path writes
-`registrationId` on a single-submission survey and `null` on a repeatable one.
-Postgres treats NULLs as distinct, so:
+**Session ratings (Phase 3).** One survey covers many sessions. The person's link
+opens a page listing the sessions (program sessions only: no breaks, nothing
+cancelled, ordered by time), already-rated ones ticked. They pick a session,
+answer the same questions, submit, and can come back for the next one until the
+link expires. There is no per-session attendance data for conferences, so the
+list is every program session, or the ones the organizer ticked (`sessionIds`).
+The responses page shows each session's results separately and the CSV carries a
+session column. The response keeps the session name as a snapshot so a deleted
+session's ratings still read.
 
-- single-submission surveys keep a real DB race gate, and the existing P2002
-  `survey:submit-race-dedup` branch survives untouched;
-- repeatable surveys simply never collide.
+## 6. Sending: `{{surveyLink}}` and templates
 
-Three behaviours branch on the flag:
+- **The token names the survey.** The identifier becomes
+  `survey:{surveyId}:{registrationId}`. Minting survey B's link then leaves the
+  person's survey A link alive; with today's `survey:{registrationId}` the mint's
+  `deleteMany` would kill it. A legacy two-part identifier still resolves, to the
+  certificate survey, and logs `survey:legacy-token` at info. Production holds one
+  live legacy token today and sends made before the deploy can mint more with up
+  to 365 days of life, so the fallback stays (it is three lines).
+- **The send picks the survey.** The Survey Invitation dialog gets a survey
+  picker. The choice rides as `filters.surveyId`, inside `filters` like
+  `surveyExpiryDays`, so scheduled sends rebuild it with no new column and no
+  worker change. A queued send with no `surveyId` (created before this ships)
+  goes to the certificate survey, which is today's behaviour.
+- **The send can use a saved template.** The default Survey Invitation wording
+  says "Thank you for attending", which is wrong for a pre-event needs survey, and
+  a saved custom template sent as a normal template is refused today because no
+  link is minted for it. The survey send gains the RSVP console's pattern: pick
+  the Survey Invitation template or one of your saved templates; a deactivated
+  saved template is refused rather than swapped. `{{surveyName}}` joins the
+  variables and the preview samples.
+- **The repair stays.** A template with no `{{surveyLink}}`, or a pasted retired
+  share URL, still gets the person's own link (`ensurePersonalSurveyLink`,
+  shipped September 17). Preview equals send.
+- **Precheck.** "The event has a survey built" becomes "the chosen survey exists,
+  is active, has questions and belongs to this event", checked at both enqueue
+  doors and at fire time. Cancelled registrations stay excluded for every survey.
+- **Thank-you email.** Only the certificate survey sends one (the existing
+  sweep). Other surveys show their on-page thank-you only (§9, O4).
 
-1. **Token lifetime.** The finalizer deletes the invite token on submit today,
-   which is a deliberate single-use property. A repeatable survey must keep the
-   token alive until its TTL, otherwise the second submission is impossible.
-   **This is a real relaxation of a security property**, scoped to surveys an
-   organizer explicitly marks repeatable, and it must be stated in the builder
-   UI next to the toggle rather than buried here.
-2. **The already-completed short-circuit.** Currently keyed on
-   `registration.surveyCompletedAt`. It becomes "a response exists for this
-   (survey, registration)" and is skipped entirely for repeatable surveys.
-3. **Reads.** The responses list and CSV export get several rows per person.
-   That is correct, but the export consumer has to know: add a submission
-   ordinal column. `aggregate.ts` needs no change, since it already operates
-   over a list of responses and does not care who submitted them.
+## 7. Rollout
 
-`gatesCertificates` and `allowMultiple` are mutually exclusive: a credential
-trigger that can fire twice is the wrong shape by construction.
+Additive and idempotent, one deploy per phase. Phase 1's schema, public route and
+builder land together because the public form must keep working throughout.
 
----
+1. Create `SurveyResponseMode` (values added in the phase that builds them) and
+   `Survey`; extend `prisma/rls/survey.sql` with a Survey policy, add harness
+   fixtures and assertions, and add the new routes to `check-tenant-als.sh`.
+2. Backfill one `Survey` per event with a configured survey (four on production):
+   `gatesCertificates = true`, `responseMode = ONCE`, name "Post-event survey",
+   copying `surveyConfig`, `surveyIntroHtml` and `surveyThankYouHtml`.
+3. Add `SurveyResponse.surveyId` and `dedupKey`, backfill both (two rows), drop
+   the `registrationId` unique, add the composite.
+4. Leave the four `Event` survey columns in place and unread. Dropping a column
+   is not blue/green safe; a cleanup migration comes later.
 
-## 5. Invite tokens and bulk email
+**Accepted gap.** During the swap the old container writes responses with no
+`surveyId` and no longer has the `registrationId` unique behind it, so for a few
+minutes a double submit could store two rows. Its own `surveyCompletedAt` check
+still runs first. At two responses in the feature's lifetime this is not worth a
+two-deploy sequence; recorded rather than hidden.
 
-The `VerificationToken` identifier becomes `survey:{surveyId}:{regId}`. Without
-that, minting an invite for survey B deletes the live token for survey A, since
-the mint does a `deleteMany` on the identifier first. There are zero live tokens
-(both outstanding ones expired 2026-07-18), so the format can change freely; a
-legacy two-part parse is three lines and worth keeping for one release anyway.
+## 8. Tests that pin the certificate path
 
-Bulk email carries `filters.surveyId`, riding **inside** `filters` exactly like
-`surveyExpiryDays` does, so persisted `ScheduledEmail` rows reconstruct it at
-fire time with no new column and no worker change. Absent (a row queued before
-this ships) resolves to the event's gating survey, preserving today's behaviour.
+1. Submitting a non-certificate survey writes the response and never sets
+   `surveyCompletedAt`, never adds `survey-completed`, and is never a thank-you
+   sweep candidate. **Mutation-verified** (removing the certificate check must
+   fail it).
+2. Submitting the certificate survey behaves as today: the existing public
+   survey route tests pass with only the survey lookup added to their mocks.
+3. A legacy `survey:{registrationId}` token opens the certificate survey.
+4. Minting survey B's link leaves survey A's live link intact.
+   **Mutation-verified** (reverting to the two-part identifier must fail it).
+5. Only one certificate survey per event; marking another clears the first.
+6. A scheduled send with no `filters.surveyId` resolves to the certificate survey.
+7. Phase 3: a second rating for the same session is refused, a rating for another
+   session is accepted, and the link survives the submit.
 
-`precheckBulkEmailViability`'s "the event must actually have a survey built"
-check becomes "the chosen survey exists, is active, and belongs to this event",
-and fails synchronously at both enqueue doors as it does now.
+## 9. Open decisions (recommendation first)
 
----
+| # | Question | Recommendation | Why |
+|---|---|---|---|
+| O1 | How do we record "answered survey X" for filtering? | **Derive it from the response rows: a "Responded / Not responded to <survey>" filter on the registrations list and in the bulk email dialog. No new field.** | The response row already is the fact. A JSON yes/no on the registration is a second copy that must be written in the same place and can drift from it (and JSON is slow to filter). A tag is an organizer-editable label: it can be deleted or renamed, and tags also route certificate sends, so a survey tag sits one typo away from certificate eligibility. The filter answers the real question ("chase who hasn't answered") with nothing to keep in sync. Tags stay available by hand for anyone who wants a cohort in other tools. |
+| O2 | Can the certificate flag move to another survey after the certificate survey has responses? | **No, refuse it (409) once it has responses.** | People already stamped keep `surveyCompletedAt`, so moving the flag would mix two surveys under one credential. Before any response, moving is free. |
+| O3 | Session ratings: which sessions appear? | **Every program session by default; the organizer can narrow the list.** | No attendance data exists to do better, and narrowing covers "only rate day 2". |
+| O4 | Do non-certificate surveys send a thank-you email? | **No, on-page thank-you only.** | The existing email exists to carry the certificate; a second thank-you email per survey is noise and a new sender to maintain. |
+| O5 | Build REPEATABLE now? | **Last, as Phase 4.** | None of the four named uses needs it (session ratings are ONCE_PER_SESSION). It stays in the plan per D3 and costs about half a day when a use appears. |
 
-## 6. Rollout
+## 10. Phases and effort
 
-Additive and idempotent, one deploy:
+| Phase | What ships | Effort |
+|---|---|---|
+| 1. Several surveys | `Survey` table and backfill, surveys list plus per-survey builder (questions, intro, thank-you, active, certificate flag), public route by token, legacy token fallback, survey picker and saved-template picker on the send, `{{surveyName}}`, per-survey responses and CSV, clone copies surveys (never responses or tokens), media references, tenancy package. ONCE only. | 2.5 days |
+| 2. Responded filter (O1) | Registrations list filter and bulk email audience filter, with the dialog count matching the send (list rows carry the survey ids each registration answered). | 0.5 to 1 day |
+| 3. Session ratings | ONCE_PER_SESSION: session picker on the public page, session column and per-session results, session list setting. | 1 to 1.5 days |
+| 4. Repeatable | REPEATABLE mode and the ordinal column in the CSV. | 0.5 day |
 
-1. Create `Survey`, plus `prisma/rls/survey.sql` extended with a Survey policy,
-   harness fixtures and assertions, and `check-tenant-als.sh` entries. This is
-   the born-compliant tenancy package a new domain ships with.
-2. Backfill one `Survey` row per configured event (`gatesCertificates = true`,
-   `allowMultiple = false`, copying `surveyConfig`, `surveyIntroHtml` and the
-   share token). Three rows.
-3. Add `SurveyResponse.surveyId` and `dedupRegistrationId`, backfill both (two
-   rows), drop the global `registrationId` unique, add the composite.
-4. **Leave `Event.surveyConfig`, `surveyIntroHtml` and `surveyShareLink` in
-   place**, unread. Migrations are keep-don't-touch; a cleanup migration can
-   come later once no old container can write.
+About 4.5 to 5.5 days for all four, including tests, a local browser pass per
+phase, and docs. Phase 1 alone gives the needs survey, faculty feedback and
+exhibitor feedback.
 
-**Known gap, accepted deliberately.** `surveyId` stays nullable, because during
-the blue-green window the old container still writes rows without it and a NOT
-NULL would fail those writes. For that window the dedup gate is weaker on a
-feature with two lifetime responses. The alternative is a two-deploy sequence,
-which is not worth it at this volume. Named here rather than hidden.
+## 11. Cost and the alternative
 
----
+**Performance.** Surveys are a cold path. The heaviest realistic case is session
+ratings: 50 sessions times 500 people is 25,000 rows for one survey, which the
+in-memory aggregation and CSV already handle at that size. The responded filter
+is one indexed `EXISTS` per registration; the registrations list gains one small
+relation select. No worker job, no new cron.
 
-## 7. Work breakdown
+**Not building it.** A Google or Microsoft Form link in a Custom bulk email with
+`{{firstName}}` works today. It loses: answers tied to the registration (so no
+"chase who hasn't answered"), one answer per person, the event's branding, and
+keeping attendee data inside EA-SYS, which the posture document given to EHS
+relies on.
 
-Changes (roughly 19 files):
+**Practical notes for the named uses.**
 
-- **Core**: new `src/lib/survey/survey.ts` (load by event, resolve the gating
-  survey, resolve by share token), `schema.ts` unchanged, `share-link.ts`
-  reshaped onto the real columns.
-- **Dashboard**: survey list page, per-survey builder, per-survey responses,
-  export and share-link routes, and removal of `surveyConfig` /
-  `surveyIntroHtml` from the event PUT.
-- **Public**: `src/app/api/public/events/[slug]/survey/route.ts` (1007 lines:
-  token parse with legacy fallback, share-token lookup, preview branch, the
-  shared submit finalizer) and the public form page (835 lines).
-- **Bulk email**: survey picker in the dialog, `filters.surveyId`, precheck.
-- **Peripheral**: clone (clone N surveys, never the share tokens),
-  `media-references` (intro HTML moves per-survey), setup and communications
-  tiles, `event-visibility` if the restricted select needs it.
+- Faculty feedback reaches speakers through companion registrations, which cloned
+  events do not create (ROADMAP "Event clone leaves speakers without companions").
+  Run the companion backfill for such an event before sending.
+- Exhibitor feedback reaches exhibitors who hold a registration; pick them by
+  badge type, tag or sponsor in the send dialog.
 
-Zero-change, listed in §2.
+## 12. Not in this plan
 
-Order: the schema, the public route and the builder have to land in one deploy,
-because the public form must keep working throughout. Staged commits on one
-branch, one deploy. Estimate: one to one and a half days including tests and the
-tenancy package.
-
----
-
-## 8. Deliberately not in v1
-
-- Open and close windows per survey (`opensAt` / `closesAt`). Additive later.
-- Session-scoped surveys. Schema does not preclude them (§3).
-- Anonymous responses.
-- New question types, conditional or branching logic.
-- Cross-survey analytics.
-- MCP tools. There are none today, so no client reconnect and no package bump.
-- Per-template certificate gating (`CertificateTemplate.autoIssueSurveyId`).
-  The natural next step after D1, but not in the same round as the restructure.
+- Anonymous surveys and links shared outside the person's email (the shareable
+  link was retired on September 17 for good reason).
+- Opening and closing times per survey (`isActive` covers closing by hand).
+- New question types (multi-select, 0 to 10 scale, matrix) and branching logic.
+- A "Rate this session" button on the public session page.
+- Cross-survey reports and MCP tools (none exist today, so no client reconnect).
+- Per-certificate-template survey choice (`CertificateTemplate.autoIssueSurveyId`).

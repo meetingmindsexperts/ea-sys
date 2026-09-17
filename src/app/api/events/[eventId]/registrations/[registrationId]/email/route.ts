@@ -16,9 +16,16 @@ import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
+import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
+import { surveyExpiryDaysSchema } from "@/lib/survey/expiry";
 
 const sendEmailSchema = z.object({
-  type: z.enum(["confirmation", "reminder", "payment-reminder", "custom"]).default("confirmation"),
+  type: z
+    .enum(["confirmation", "reminder", "payment-reminder", "custom", "survey-invitation"])
+    .default("confirmation"),
+  // Survey Invitation only: how many days the personal link stays valid
+  // (1 to 365, default 7), the same rule as the Communications send.
+  surveyExpiryDays: surveyExpiryDaysSchema.optional(),
   // Optional slug of a saved CUSTOM email template (one created under
   // Communications → Email Templates). When present, that active template is
   // sent instead of a built-in type — same as the bulk path. Renders with the
@@ -123,7 +130,106 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, templateSlug, customSubject, customMessage, daysUntilEvent } = validated.data;
+    const { type, templateSlug, customSubject, customMessage, daysUntilEvent, surveyExpiryDays } =
+      validated.data;
+
+    // Survey Invitation to ONE person (Sep 17, 2026). It goes through the bulk
+    // send with this registration as the only recipient, the way the webinar
+    // confirmation does, so the personal link, the template repair (a pasted
+    // shareable URL or a missing {{surveyLink}} still yields this person's
+    // link), the "event has a survey" precheck and the EmailLog row are the
+    // SAME code the Communications send runs. A copy here would drift.
+    if (type === "survey-invitation" && !templateSlug) {
+      if (registration.status === "CANCELLED") {
+        apiLogger.warn({ msg: "registration-email:survey-invitation-cancelled-refused", eventId, registrationId });
+        return NextResponse.json(
+          { error: "This registration is cancelled, so it is not sent the survey.", code: "REGISTRATION_CANCELLED" },
+          { status: 400 },
+        );
+      }
+      if (registration.surveyCompletedAt) {
+        apiLogger.warn({ msg: "registration-email:survey-invitation-already-completed", eventId, registrationId });
+        return NextResponse.json(
+          { error: "This person has already completed the survey.", code: "SURVEY_ALREADY_COMPLETED" },
+          { status: 409 },
+        );
+      }
+
+      const organizer = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true, email: true, emailSignature: true },
+      });
+
+      let surveyResult;
+      try {
+        surveyResult = await executeBulkEmail({
+          eventId,
+          recipientType: "registrations",
+          recipientIds: [registrationId],
+          emailType: "survey-invitation",
+          customSubject: customSubject || undefined,
+          customMessage: customMessage || undefined,
+          filters: surveyExpiryDays ? { surveyExpiryDays } : undefined,
+          organizerName:
+            organizer?.firstName && organizer?.lastName
+              ? `${organizer.firstName} ${organizer.lastName}`
+              : "Event Organizer",
+          organizerEmail: organizer?.email ?? "",
+          organizerSignature: organizer?.emailSignature ?? undefined,
+          organizationId: session.user.organizationId ?? null,
+          triggeredByUserId: session.user.id,
+        });
+      } catch (err) {
+        if (!(err instanceof BulkEmailError)) throw err;
+        apiLogger.warn({
+          msg: "registration-email:survey-invitation-refused",
+          eventId,
+          registrationId,
+          code: err.code,
+          reason: err.message,
+        });
+        return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+      }
+
+      if (surveyResult.successCount === 0) {
+        const reason = surveyResult.errors[0]?.error || "Failed to send the survey invitation";
+        apiLogger.error({
+          msg: "registration-email:survey-invitation-send-failed",
+          eventId,
+          registrationId,
+          reason,
+        });
+        return NextResponse.json({ error: reason }, { status: 500 });
+      }
+
+      // Fire-and-forget, as below: the email already went.
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "EMAIL_SENT",
+            entityType: "Registration",
+            entityId: registration.id,
+            changes: {
+              emailType: "survey-invitation",
+              templateSlug: "survey-invitation",
+              recipient: registration.attendee.email,
+              surveyExpiryDays: surveyExpiryDays ?? null,
+              ip: getClientIp(req),
+            },
+          },
+        })
+        .catch((err) =>
+          apiLogger.warn({ msg: "events/registrations/email:audit-log-failed", eventId, registrationId, err }),
+        );
+
+      apiLogger.info({ msg: "registration-email:survey-invitation-sent", eventId, registrationId });
+      return NextResponse.json({
+        success: true,
+        message: `Survey invitation sent to ${registration.attendee.email}`,
+      });
+    }
 
     // Group members are never dunned individually (review H2): their fee is
     // owed by the company on the consolidated invoice — refuse a single-send

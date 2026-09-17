@@ -39,6 +39,20 @@ describe("buildEventPreviewVariables", () => {
     expect(v.ticketType).toBe("Physician");
   });
 
+  // Sep 17, 2026: the preview filled {{surveyLink}} with "#", so the button
+  // went nowhere and "copy this link" read "#", which organizers took for the
+  // variable not resolving. With the event slug it opens the survey's
+  // non-saving preview page. Nothing is minted.
+  it("previews {{surveyLink}} as the event's survey preview page", () => {
+    const v = buildEventPreviewVariables({ ...baseEvent, slug: "cardio-2026" }, USER);
+    expect(String(v.surveyLink)).toMatch(/\/e\/cardio-2026\/survey\?preview=1$/);
+  });
+
+  it("keeps the placeholder when the caller has no slug", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(v.surveyLink).toBe("#");
+  });
+
   it("greets the recipient (test goes to the signed-in user)", () => {
     const v = buildEventPreviewVariables(baseEvent, USER);
     expect(v.firstName).toBe("Aisha");

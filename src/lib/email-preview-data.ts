@@ -10,9 +10,10 @@
  *
  * What deliberately STAYS a representative sample, because no honest real
  * value exists for a generic preview:
- *   - per-recipient minted links (surveyLink, rsvpLink, agreementLink,
- *     agreementBlock — minting real tokens for a preview would rotate or
- *     leak live credentials);
+ *   - per-recipient minted links (rsvpLink, agreementLink, agreementBlock —
+ *     minting real tokens for a preview would rotate or leak live
+ *     credentials). surveyLink is minted nowhere either, but previews as the
+ *     event's non-saving survey preview page (buildEventPreviewVariables);
  *   - payment artifacts (amount, paymentReference, receiptBlock — they
  *     belong to one specific Stripe payment);
  *   - certificate serials (not issued yet at preview time);
