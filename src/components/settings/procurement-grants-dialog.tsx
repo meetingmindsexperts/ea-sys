@@ -63,6 +63,25 @@ export function hasAnyGrant(u: ProcurementGrantTarget): boolean {
   return !!u.procurementRequest || !!u.procurementApproveUnlimited || !!u.procurementSettle || (u.procurementApproveCeilingAed ?? 0) > 0;
 }
 
+/**
+ * Does this person have procurement access by ANY route: a legacy grant, or a
+ * custom role tagged on them?
+ *
+ * Deliberately NOT folded into `hasAnyGrant`. That predicate answers "does this
+ * person hold one of the four GRANTS", which other callers rely on meaning
+ * exactly that; widening it in place would change their answer silently. Roles
+ * became the mechanism in plan §6, so the Team list needs the broader question,
+ * and asking it separately keeps both available.
+ *
+ * `permissionSetCount` is absent for somebody holding none, so the `?? 0` is
+ * where that default lives.
+ */
+export function hasProcurementAccess(
+  u: ProcurementGrantTarget & { permissionSetCount?: number },
+): boolean {
+  return hasAnyGrant(u) || (u.permissionSetCount ?? 0) > 0;
+}
+
 export function ProcurementGrantsDialog({
   user,
   approvers = [],

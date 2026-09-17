@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRuntimeFlags } from "@/components/runtime-flags";
-import { ProcurementGrantsDialog, hasAnyGrant } from "@/components/settings/procurement-grants-dialog";
+import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
 import { PermissionSetsCard } from "@/components/settings/permission-sets-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -131,6 +131,8 @@ interface User {
   procurementApproveUnlimited?: boolean;
   procurementSettle?: boolean;
   procurementDelegateUserId?: string | null;
+  /** How many live custom roles are tagged on them. Absent = none. */
+  permissionSetCount?: number;
   createdAt: string;
 }
 
@@ -249,10 +251,31 @@ export default function SettingsPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch("/api/organization/users");
+      // Roles come from their own lane-wrapped endpoint, not from the users
+      // route: see the comment on permission-sets/holders/route.ts. Fetched
+      // together so the Wallet tint refreshes on every existing call site,
+      // including onSaved from the grants dialog.
+      const [res, holdersRes] = await Promise.all([
+        fetch("/api/organization/users"),
+        fetch("/api/organization/permission-sets/holders").catch(() => null),
+      ]);
       if (res.ok) {
         const data = await res.json();
-        setUsers(data);
+        // FAIL SOFT: a failed or refused holder count must never blank the team
+        // list. Worst case the Wallet reads as it did before roles existed.
+        let counts: Record<string, number> = {};
+        if (holdersRes && holdersRes.ok) {
+          try {
+            counts = await holdersRes.json();
+          } catch {
+            counts = {};
+          }
+        } else if (holdersRes && !holdersRes.ok) {
+          console.error("settings:role-holders-load-failed", holdersRes.status);
+        }
+        setUsers(
+          (data as User[]).map((u) => ({ ...u, permissionSetCount: counts[u.id] ?? 0 })),
+        );
       } else {
         console.error("settings:users-load-failed", res.status);
       }
@@ -1222,10 +1245,10 @@ export default function SettingsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                title={hasAnyGrant(user) ? "Procurement grants (some set)" : "Procurement grants: request, approve up to a ceiling, settle"}
+                                title={hasProcurementAccess(user) ? "Procurement access (roles or grants set)" : "Procurement access: tag a role, or set request / approve / settle"}
                                 onClick={() => setGrantUser(user)}
                               >
-                                <Wallet className={`h-4 w-4 ${hasAnyGrant(user) ? "text-amber-600" : "text-muted-foreground"}`} />
+                                <Wallet className={`h-4 w-4 ${hasProcurementAccess(user) ? "text-amber-600" : "text-muted-foreground"}`} />
                               </Button>
                             )}
                             {user.id !== session?.user?.id && (

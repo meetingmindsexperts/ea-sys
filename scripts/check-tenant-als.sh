@@ -301,6 +301,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/organization/permission-sets/route.ts"                                  # Custom roles (Sep 16, 2026)
   "src/app/api/organization/permission-sets/[permissionSetId]/route.ts"                # Custom roles (Sep 16, 2026)
   "src/app/api/organization/users/[userId]/permission-sets/route.ts"                   # Custom roles (Sep 16, 2026)
+  "src/app/api/organization/permission-sets/holders/route.ts"                          # Custom roles (Sep 17, 2026)
 )
 SWEPT_MODULES=(
   # Analytics (Aug 20, 2026). The INGEST ROUTE is deliberately NOT listed: it

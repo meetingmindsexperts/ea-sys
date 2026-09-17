@@ -32,12 +32,14 @@ const svc = vi.hoisted(() => ({
   setPermissionSetArchived: vi.fn(),
   readUserPermissionSetIds: vi.fn().mockResolvedValue([]),
   setUserPermissionSets: vi.fn(),
+  readPermissionSetHolderCounts: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/lib/permissions/permission-set-service", () => svc);
 
 import { GET as listGet, POST as createPost } from "@/app/api/organization/permission-sets/route";
 import { PATCH as detailPatch } from "@/app/api/organization/permission-sets/[permissionSetId]/route";
 import { GET as assignGet, PUT as assignPut } from "@/app/api/organization/users/[userId]/permission-sets/route";
+import { GET as holdersGet } from "@/app/api/organization/permission-sets/holders/route";
 
 const ORG = "org-1";
 const session = (role: string, over: Record<string, unknown> = {}) => ({
@@ -214,5 +216,34 @@ describe("assigning roles to a person", () => {
     const res = await assignPut(put("/api/organization/users/target-1/permission-sets", { permissionSetIds: ["s1"] }), userParams);
     expect(res.status).toBe(422);
     expect((await res.json()).error).toContain("cannot be held by the same person");
+  });
+});
+
+describe("who holds a role (the Settings -> Team tint)", () => {
+  it("returns the counts inside the tenant lane", async () => {
+    // The lane is the whole point of this route existing: UserPermissionSet is
+    // RLS-policied, so an unwrapped read returns zero on the platform and every
+    // holder silently reads as nobody.
+    authMock.mockResolvedValue(session("SUPER_ADMIN"));
+    svc.readPermissionSetHolderCounts.mockResolvedValue({ u1: 2 });
+    const res = await holdersGet();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ u1: 2 });
+    expect(svc.readPermissionSetHolderCounts).toHaveBeenCalledWith(ORG);
+  });
+  it("is a 404 while the module is off", async () => {
+    delete process.env.PROCUREMENT_MODULE_ENABLED;
+    authMock.mockResolvedValue(session("SUPER_ADMIN"));
+    expect((await holdersGet()).status).toBe(404);
+    expect(svc.readPermissionSetHolderCounts).not.toHaveBeenCalled();
+  });
+  it("is a 401 with no session", async () => {
+    authMock.mockResolvedValue(null);
+    expect((await holdersGet()).status).toBe(401);
+  });
+  it("refuses an ADMIN, like every other role surface", async () => {
+    authMock.mockResolvedValue(session("ADMIN"));
+    expect((await holdersGet()).status).toBe(403);
+    expect(svc.readPermissionSetHolderCounts).not.toHaveBeenCalled();
   });
 });

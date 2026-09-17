@@ -21,7 +21,7 @@ const { mockDb } = vi.hoisted(() => ({
       updateMany: vi.fn(),
     },
     permissionSetGrant: { deleteMany: vi.fn(), createMany: vi.fn() },
-    userPermissionSet: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    userPermissionSet: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn(), groupBy: vi.fn() },
     user: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -42,6 +42,7 @@ import {
   setPermissionSetArchived,
   setUserPermissionSets,
   updatePermissionSet,
+  readPermissionSetHolderCounts,
 } from "@/lib/permissions/permission-set-service";
 
 const ORG = "org-1";
@@ -52,6 +53,25 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.auditLog.create.mockResolvedValue({});
   mockDb.userPermissionSet.findMany.mockResolvedValue([]);
+});
+
+describe("readPermissionSetHolderCounts", () => {
+  it("counts live roles per person and EXCLUDES archived ones", async () => {
+    mockDb.userPermissionSet.groupBy.mockResolvedValue([
+      { userId: "u1", _count: { _all: 2 } },
+      { userId: "u2", _count: { _all: 1 } },
+    ]);
+    const counts = await readPermissionSetHolderCounts("org1");
+    expect(counts).toEqual({ u1: 2, u2: 1 });
+    // Archiving is how an administrator takes a role out of use; counting one
+    // would keep its former holders looking granted.
+    const where = mockDb.userPermissionSet.groupBy.mock.calls[0][0].where;
+    expect(where).toEqual({ organizationId: "org1", permissionSet: { archivedAt: null } });
+  });
+  it("leaves somebody holding none ABSENT rather than present as 0", async () => {
+    mockDb.userPermissionSet.groupBy.mockResolvedValue([]);
+    expect(await readPermissionSetHolderCounts("org1")).toEqual({});
+  });
 });
 
 describe("createPermissionSet", () => {

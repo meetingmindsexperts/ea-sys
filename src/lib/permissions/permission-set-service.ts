@@ -629,3 +629,24 @@ async function writeAudit(input: {
     apiLogger.error({ err, msg: "permissions:audit-write-failed", entityId: input.entityId });
   }
 }
+
+/**
+ * How many LIVE roles each person in the organisation holds, keyed by user id.
+ *
+ * Archived roles are excluded: archiving is how an administrator takes a role
+ * out of use, so counting one would keep its former holders looking granted.
+ * Somebody holding none is ABSENT from the map rather than present as 0, so the
+ * caller's `?? 0` is the single place that default lives.
+ *
+ * Runs inside the caller's lane like every read in this file.
+ */
+export async function readPermissionSetHolderCounts(
+  organizationId: string,
+): Promise<Record<string, number>> {
+  const rows = await db.userPermissionSet.groupBy({
+    by: ["userId"],
+    where: { organizationId, permissionSet: { archivedAt: null } },
+    _count: { _all: true },
+  });
+  return Object.fromEntries(rows.map((row) => [row.userId, row._count._all]));
+}

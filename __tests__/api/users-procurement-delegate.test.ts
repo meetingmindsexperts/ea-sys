@@ -13,7 +13,11 @@ const { mockDb, mockAuth, mockLogger, mockReadPermissions, mockRunWithTenant } =
     auditLog: { create: vi.fn() },
   },
   mockAuth: vi.fn(),
-  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  // All four levels, not only the ones this file asserts on. The route logs a
+  // suppressed no-op update at debug, and a mock missing a level does not fail
+  // as a missing log: the call throws and the handler's own catch turns it
+  // into a 500, which reads as a broken route. Same trap as budget-routes.
+  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   // The route reads the person's custom-role permissions to judge the
   // separation rules on the RESULTING picture (plan §4).
   mockReadPermissions: vi.fn(),
@@ -77,6 +81,39 @@ describe("setting a delegate", () => {
   });
   it("clearing it is always allowed", async () => {
     expect((await put("medhat", { procurementDelegateUserId: null })).status).toBe(200);
+  });
+  it("clearing a delegate that was ALREADY null changes nothing, so it records nothing", async () => {
+    // medhat's stored delegate is null, so this save is a true no-op. Asserting
+    // only the 200 would pass whether or not the guard works, which is how the
+    // empty "User updated" row went unnoticed in the first place.
+    expect((await put("medhat", { procurementDelegateUserId: null })).status).toBe(200);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the no-op guard, and the three things it must never swallow", () => {
+  it("repeating the stored grants verbatim records nothing", async () => {
+    // The motivating bug: the grants dialog sends all four keys on every save,
+    // so saving it untouched wrote a row whose diff was empty.
+    expect((await put("muthu", { procurementSettle: true })).status).toBe(200);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+  it("an UNCHANGED Decimal ceiling reads as unchanged", async () => {
+    // procurementApproveCeilingAed is Decimal(18,2) in the database and a plain
+    // number on the wire. A strict compare would call this a change every time
+    // and the guard would never fire on the exact dialog it exists for.
+    expect((await put("lina", { procurementApproveCeilingAed: 1000000 })).status).toBe(200);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+  it("a CHANGED ceiling is still recorded", async () => {
+    expect((await put("lina", { procurementApproveCeilingAed: 2000000 })).status).toBe(200);
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+  it("deactivation is recorded even though no submitted field differs", async () => {
+    // `deactivated` is destructured out of `rest`, so the field diff is empty
+    // here. Suppressing on that alone would lose a security-relevant row.
+    expect((await put("owner", { deactivated: true })).status).toBe(200);
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
   });
 });
 

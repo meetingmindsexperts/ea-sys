@@ -450,6 +450,46 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
+    // NOTHING CHANGED, NOTHING TO RECORD (F3, Sep 17 2026).
+    //
+    // The grants dialog sends all four procurement keys on every save, so
+    // saving it without touching them wrote an audit row whose diff was empty.
+    // On the Activity page that renders as a bare "User updated" sitting beside
+    // the row that says what actually happened.
+    //
+    // The guard is deliberately NARROW. This handler also records role changes,
+    // module-access clearing, a stale delegate being dropped and deactivation,
+    // every one of which is security-relevant and must be recorded even when
+    // the submitted fields match what was stored. Suppression therefore
+    // requires ALL of: no submitted field differs, and none of those three
+    // fired. A blunt "grants unchanged, skip" would swallow them, which is a
+    // far worse bug than the duplicate row this removes.
+    const changedKeys = (Object.keys(rest) as (keyof typeof rest)[]).filter((key) => {
+      const next = rest[key];
+      if (next === undefined) return false;
+      const prev = (user as unknown as Record<string, unknown>)[key];
+      // `procurementApproveCeilingAed` is Decimal(18,2) in the database and a
+      // plain number on the wire, so a strict compare would call every save a
+      // change and the guard would never fire. Compare the numbers.
+      if (typeof next === "number" || (next === null && prev !== null && prev !== undefined && typeof prev === "object")) {
+        const prevNum = prev === null || prev === undefined ? null : Number(prev);
+        const nextNum = next === null ? null : Number(next);
+        return prevNum !== nextNum;
+      }
+      return next !== prev;
+    });
+    const auditWorthy =
+      changedKeys.length > 0 || clearModuleAccess || clearStaleDelegate || deactivated !== undefined;
+
+    if (!auditWorthy) {
+      apiLogger.debug({
+        msg: "organization/users:update-noop-not-audited",
+        targetUserId: userId,
+        byUserId: session.user.id,
+      });
+      return NextResponse.json(updatedUser);
+    }
+
     // Log the action
     await db.auditLog.create({
       data: {
