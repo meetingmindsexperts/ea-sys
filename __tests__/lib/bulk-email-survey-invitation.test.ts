@@ -121,6 +121,10 @@ const INPUT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Minting the survey token hashes it with NEXTAUTH_SECRET. Locally .env
+  // supplies it; CI has none, and without it the per-recipient hash throws and
+  // nothing is sent. Set it here so the test cannot depend on the machine.
+  process.env.NEXTAUTH_SECRET = "test-secret-survey-invitation";
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.registration.findMany.mockResolvedValue([REG]);
   mockSendEmail.mockResolvedValue({ success: true, messageId: "m1" });
