@@ -16,7 +16,7 @@ import { BUDGET_CURRENCIES } from "@/procurement/lib/budget-schemas";
 import { CONTINGENCY_CATEGORY_CODE } from "@/procurement/lib/budget-categories-seed";
 import { useBudgetProducts, useDeleteBudgetLine, useUpsertBudgetLine, type BudgetCategoryRow, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
 import { ProductPicker } from "@/procurement/components/product-picker";
-import { money2 } from "@/procurement/components/budget-ui";
+import { CategoryLabel, money2 } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -145,7 +145,7 @@ function LineRow({ l, cur, mode, onEdit, onDelete }: { l: BudgetLineRow; cur: st
   const editable = mode !== "read" && !(mode === "plan" && l.isContingency);
   return (
     <TableRow className={l.isContingency ? "bg-muted/40" : undefined}>
-      <TableCell className="text-xs text-muted-foreground">{l.category.code}</TableCell>
+      <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
       <TableCell>
         <div>
           {l.description}

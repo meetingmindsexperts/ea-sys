@@ -39,7 +39,7 @@ import {
   type BudgetCategoryRow,
   type BudgetRow,
 } from "@/procurement/hooks/use-procurement-api";
-import { BRAND_LABEL, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
+import { BRAND_LABEL, CategoryLabel, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
 import { BudgetActivityCard } from "@/procurement/components/budget-activity-card";
 import { BudgetLinesTable, lineCategories, type LinesMode } from "./budget-lines-table";
 import { DecideDialog, HeaderDialog, ReallocateDialog, ReasonDialog, SubmitDialog } from "./budget-dialogs";
@@ -361,10 +361,10 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
               className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition hover:opacity-80 disabled:opacity-60 ${cls}`}
             >
               {pendingCode === c.code && <Loader2 className="h-3 w-3 animate-spin" />}
-              {c.code}
+              <CategoryLabel code={c.code} name={c.name} />
             </button>
           ) : (
-            <span key={c.id} title={title} className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs ${cls}`}>{c.code}</span>
+            <span key={c.id} title={title} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${cls}`}><CategoryLabel code={c.code} name={c.name} /></span>
           );
         })}
       </div>

@@ -20,7 +20,7 @@ import { canAdminProcurement, canAuthorBudgets, canSettleProcurement } from "@/l
 import { ApiError } from "@/lib/api-fetch";
 import { isPeggedToAed, keysStillNeedingNote, varianceRows } from "@/procurement/lib/close-out";
 import { useBudget, useTransitionBudget, useUpsertBudgetLine, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
-import { ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2, signed2 } from "@/procurement/components/budget-ui";
+import { CategoryLabel, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2, signed2 } from "@/procurement/components/budget-ui";
 import { ReasonDialog } from "../budget-dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,7 +169,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
                 const needs = flagged.has(l.lineKey);
                 return (
                   <TableRow key={l.id} className={l.isContingency ? "bg-muted/40" : needs ? "bg-amber-50/60 dark:bg-amber-950/30" : undefined}>
-                    <TableCell className="text-xs text-muted-foreground">{l.category.code}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
                     <TableCell>{l.description}</TableCell>
                     <TableCell className="text-right tabular-nums">{money2(l.planned)}</TableCell>
                     <TableCell className="text-right tabular-nums">{money2(l.actual)}</TableCell>

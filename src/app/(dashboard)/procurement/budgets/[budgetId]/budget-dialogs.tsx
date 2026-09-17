@@ -138,7 +138,7 @@ export function SubmitDialog({ b, categories, open, onOpenChange }: DialogProps 
   const localMissing = missingForSubmission(
     { reportingCurrency: b.reportingCurrency, expectedAttendance: b.expectedAttendance, contingencyPercent: b.contingencyPercent, naCategoryCodes: b.naCategoryCodes },
     (b.lines ?? []).map((l) => ({ categoryId: l.categoryId, planned: l.planned, isContingency: l.isContingency, deletedAt: null, transactionCurrency: l.transactionCurrency, fxRateToReporting: l.fxRateToReporting })),
-    categories.map((c) => ({ id: c.id, code: c.code, depth: c.depth, isActive: c.isActive })),
+    categories.map((c) => ({ id: c.id, code: c.code, name: c.name, depth: c.depth, isActive: c.isActive, type: c.type })),
     CONTINGENCY_CATEGORY_CODE,
   );
   const missing = serverMissing ?? localMissing;

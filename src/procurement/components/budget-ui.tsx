@@ -23,6 +23,27 @@ const STATUS_CLASS: Record<BudgetStatus, string> = {
   ARCHIVED: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
 };
 
+/**
+ * A category as people read it: its chart code (500300) is the key finance
+ * files by, its name (Design, Marketing & Production) is what anyone else
+ * recognises, so both show. `stacked` puts the name under the code for table cells.
+ */
+export function CategoryLabel({ code, name, stacked }: { code: string; name: string; stacked?: boolean }) {
+  if (stacked) {
+    return (
+      <span className="block leading-tight">
+        <span className="block font-mono text-[11px]">{code}</span>
+        <span className="block">{name}</span>
+      </span>
+    );
+  }
+  return (
+    <span>
+      <span className="font-mono opacity-70">{code}</span> {name}
+    </span>
+  );
+}
+
 export function StatusBadge({ status }: { status: BudgetStatus }) {
   return <Badge className={STATUS_CLASS[status]} variant="secondary">{BUDGET_STATUS_LABEL[status]}</Badge>;
 }

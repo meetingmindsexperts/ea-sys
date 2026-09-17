@@ -24,8 +24,12 @@ export interface CompletenessLine {
 export interface CompletenessCategory {
   id: string;
   code: string;
+  /** Shown beside the code: a chart code (510400) means little on its own. */
+  name?: string;
   depth: number;
   isActive: boolean;
+  /** Revenue categories never block submission; only expense ones need a line or the mark. */
+  type?: "EXPENSE" | "REVENUE";
 }
 
 /**
@@ -51,8 +55,8 @@ export function missingForSubmission(
   const covered = new Set(live.filter((l) => !l.isContingency && money(l.planned).gt(0)).map((l) => l.categoryId));
   const na = new Set(budget.naCategoryCodes);
   for (const c of categories) {
-    if (!c.isActive || c.depth !== 0 || c.code === contingencyCode) continue;
-    if (!covered.has(c.id) && !na.has(c.code)) missing.push(`Category ${c.code} has no line with a planned amount and is not marked not applicable.`);
+    if (!c.isActive || c.depth !== 0 || c.code === contingencyCode || c.type === "REVENUE") continue;
+    if (!covered.has(c.id) && !na.has(c.code)) missing.push(`Category ${c.code}${c.name ? ` ${c.name}` : ""} has no line with a planned amount and is not marked not applicable.`);
   }
   for (const l of live) {
     if (budget.reportingCurrency && l.transactionCurrency !== budget.reportingCurrency && money(l.fxRateToReporting).lte(0)) {

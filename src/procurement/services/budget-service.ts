@@ -611,7 +611,7 @@ export async function submitBudget(input: { organizationId: string; actorUserId:
   if (!b) return fail("BUDGET_NOT_FOUND", "The budget was not found.", ctx);
   if (b.status !== "DRAFT") return fail("INVALID_STATUS", "Only a draft can be submitted.", ctx);
   const lines = await loadLines(db, b.id);
-  const categories = await db.budgetCategory.findMany({ where: { organizationId: input.organizationId }, select: { id: true, code: true, depth: true, isActive: true } });
+  const categories = await db.budgetCategory.findMany({ where: { organizationId: input.organizationId }, select: { id: true, code: true, name: true, depth: true, isActive: true, type: true } });
   const missing = missingForSubmission(b, lines, categories, CONTINGENCY_CATEGORY_CODE);
   if (missing.length > 0) return fail("INCOMPLETE", "The budget is not complete enough to submit.", ctx, { missing });
   const aed = resolveReportingToAedRate(b.reportingCurrency, input.reportingToAedRate);
