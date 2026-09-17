@@ -33,6 +33,13 @@ const ANY_TOKEN_RE = /\{\{([^{}]{1,120})\}\}/g;
 export const UNRESOLVED_TOKENS_CODE = "UNRESOLVED_TOKENS";
 
 /**
+ * How that refusal is recorded in `EmailLog.errorMessage` (followed by the
+ * token list). The survey thank-you sweep reads it to stop retrying a send
+ * that can only fail again until the template is fixed.
+ */
+export const UNRESOLVED_TOKENS_LOG_PREFIX = "unresolved_tokens";
+
+/**
  * Collapse editor-mangled tokens back to `{{name}}`. Anything that is not a
  * single word inside the braces is left exactly as it was.
  */

@@ -38,6 +38,8 @@ import {
   sendEmail,
   type EmailBranding,
 } from "@/lib/email";
+import { UNRESOLVED_TOKENS_CODE, UNRESOLVED_TOKENS_LOG_PREFIX } from "@/lib/template-tokens";
+import { getTitleLabel } from "@/lib/utils";
 import { loadCertificatePdfBytes } from "./pdf-loader";
 
 // Hold an eligible-but-not-yet-rendered cert's thank-you at most this long,
@@ -96,7 +98,12 @@ const CANDIDATE_SELECT = {
   eventId: true,
   surveyCompletedAt: true,
   certAutoIssueCheckedAt: true,
-  attendee: { select: { firstName: true, email: true } },
+  serialId: true,
+  // The registration details a thank-you template may use. Before Sep 17,
+  // 2026 only firstName was read, so a saved template greeting
+  // "Dear {{title}} {{lastName}}" was refused on every tick (OOPVF2026).
+  attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
+  ticketType: { select: { name: true } },
   event: {
     select: {
       name: true,
@@ -154,12 +161,22 @@ export async function runSurveyThankYouSweep(
   // whose other two modules were found. Splitting the lanes would be worse than
   // leaving both unwired: a succeeding candidate read with a fail-closed dedup
   // read re-thanks, and re-attaches certificates for, everyone in the window.
+  // "Done" = thanked, OR refused because the template uses a variable this
+  // sender does not fill. That refusal repeats on every tick until someone
+  // edits the template, so retrying every 3 minutes for 24 hours only logs the
+  // same error ~480 times per person (Sep 17, 2026, OOPVF2026). The person's
+  // certificate still goes out in its own cover email, because a failed
+  // thank-you never suppresses it. Any other failure (a provider outage) is
+  // still retried.
   const thankedRows = await dbOperator.emailLog.findMany({
     where: {
       entityType: "REGISTRATION",
       templateSlug: THANKYOU_SLUG,
-      status: "SENT",
       createdAt: { gte: windowStart },
+      OR: [
+        { status: "SENT" },
+        { status: "FAILED", errorMessage: { startsWith: UNRESOLVED_TOKENS_LOG_PREFIX } },
+      ],
     },
     select: { entityId: true },
   });
@@ -337,10 +354,16 @@ async function sendThankYouEmail(
     emailFromName: reg.event.emailFromName,
     emailCcAddresses: reg.event.emailCcAddresses,
   };
+  // The same registration details the one-person send fills. Event date,
+  // venue and the rest arrive through branding.eventVars (getEventTemplate).
   const vars: Record<string, string | number | undefined> = {
+    title: getTitleLabel(reg.attendee?.title),
     firstName: reg.attendee?.firstName ?? "there",
-    lastName: "",
+    lastName: reg.attendee?.lastName ?? "",
     eventName: reg.event.name,
+    registrationId:
+      reg.serialId != null ? String(reg.serialId).padStart(3, "0") : reg.id.slice(-8).toUpperCase(),
+    ticketType: reg.ticketType?.name ?? "",
   };
   const rendered = renderAndWrap(tpl, vars, branding);
 
@@ -363,8 +386,19 @@ async function sendThankYouEmail(
     },
   });
   if (!result.success) {
-    // sendEmail already wrote a FAILED EmailLog row; leaving no SENT row means
-    // the next sweep tick retries this registration (bounded by SCAN_WINDOW).
+    // sendEmail already wrote a FAILED EmailLog row (and logged the refusal at
+    // error). A template variable this sender cannot fill is final for this
+    // person: the candidate query skips them from the next tick on. Anything
+    // else leaves no SENT row, so the next tick retries (bounded by SCAN_WINDOW).
+    if (result.code === UNRESOLVED_TOKENS_CODE) {
+      apiLogger.warn({
+        msg: "survey-thankyou:template-variable-unfilled-not-retried",
+        eventId: reg.eventId,
+        registrationId: reg.id,
+        reason: result.error,
+        hint: "Edit the Survey Thank You template under Communications, Email Templates. People already refused are not retried; their certificate still goes out in its own email.",
+      });
+    }
     throw new Error(result.error ?? "thank-you send failed");
   }
 }

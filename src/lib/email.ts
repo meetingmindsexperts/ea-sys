@@ -5,7 +5,12 @@
 // `npm install postmark` to revive. Brevo/SendGrid packages are still installed.
 // import {
 import { buildRsvpButton } from "@/lib/rsvp/button";
-import { findUnresolvedTokens, normalizeTemplateTokens, UNRESOLVED_TOKENS_CODE } from "@/lib/template-tokens";
+import {
+  findUnresolvedTokens,
+  normalizeTemplateTokens,
+  UNRESOLVED_TOKENS_CODE,
+  UNRESOLVED_TOKENS_LOG_PREFIX,
+} from "@/lib/template-tokens";
 //   TransactionalEmailsApi,
 //   TransactionalEmailsApiApiKeys,
 //   SendSmtpEmail,
@@ -736,7 +741,7 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
         subject: params.subject,
         provider: providerName,
         status: "FAILED",
-        errorMessage: `unresolved_tokens: ${list}`,
+        errorMessage: `${UNRESOLVED_TOKENS_LOG_PREFIX}: ${list}`,
         htmlBody: params.htmlContent,
         attachmentNames,
         context: params.logContext,

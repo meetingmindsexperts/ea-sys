@@ -55,6 +55,22 @@ describe("H3 — the sweep must not starve older completions", () => {
     expect(where.id).toEqual({ notIn: ["reg1", "reg2"] });
   });
 
+  // Sep 17, 2026 (OOPVF2026): a thank-you refused for a template variable the
+  // sender cannot fill failed again on every 3-minute tick for 24 hours. That
+  // refusal now counts as done; any other failure is still retried.
+  it("treats a missing-variable refusal as done, and retries every other failure", async () => {
+    mockDbOperator.emailLog.findMany.mockResolvedValue([]);
+
+    await runSurveyThankYouSweep();
+
+    const where = mockDbOperator.emailLog.findMany.mock.calls[0][0].where;
+    expect(where.status).toBeUndefined();
+    expect(where.OR).toEqual([
+      { status: "SENT" },
+      { status: "FAILED", errorMessage: { startsWith: "unresolved_tokens" } },
+    ]);
+  });
+
   it("drains OLDEST-first so nobody starves", async () => {
     mockDbOperator.emailLog.findMany.mockResolvedValue([]);
 
