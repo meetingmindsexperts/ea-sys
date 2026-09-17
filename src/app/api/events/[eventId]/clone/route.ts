@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
@@ -8,8 +9,27 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { cloneEventSettings } from "@/lib/event-clone-settings";
 import { Prisma } from "@prisma/client";
 
+/**
+ * What the organizer chose to carry across (Sep 17, 2026). Both default to
+ * TRUE so a caller that sends no body (every client before this change) gets
+ * exactly the clone it always got.
+ *
+ * "Agenda" is tracks + sessions (breaks included) + topics: a session's
+ * trackId points at a track, so copying one without the other leaves dangling
+ * references, and a track list on its own is not a useful thing to clone.
+ *
+ * The two are INDEPENDENT on purpose. Agenda without speakers copies every
+ * session with nobody assigned (the public agenda reads TBA until someone is);
+ * speakers without agenda copies the faculty list with no sessions. Both are
+ * real ways to start a next edition, so neither is refused.
+ */
+const cloneOptionsSchema = z.object({
+  includeSpeakers: z.boolean().default(true),
+  includeAgenda: z.boolean().default(true),
+});
+
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   try {
@@ -22,6 +42,35 @@ export async function POST(
     const denied = denyReviewer(session, { route: "events/[eventId]/clone:POST" });
     if (denied) return denied;
 
+    // An empty body is the historical request and means "copy everything".
+    // A body that is present but unreadable is refused rather than defaulted:
+    // quietly copying the speakers somebody unticked is exactly the surprise
+    // the options exist to prevent.
+    const rawBody = await req.text();
+    let bodyJson: unknown = {};
+    if (rawBody.trim().length > 0) {
+      try {
+        bodyJson = JSON.parse(rawBody);
+      } catch {
+        apiLogger.warn({ msg: "events/clone:invalid-json", eventId, userId: session.user.id });
+        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+    }
+    const parsedOptions = cloneOptionsSchema.safeParse(bodyJson);
+    if (!parsedOptions.success) {
+      apiLogger.warn({
+        msg: "events/clone:zod-validation-failed",
+        eventId,
+        userId: session.user.id,
+        errors: parsedOptions.error.flatten(),
+      });
+      return NextResponse.json(
+        { error: "Invalid input", details: parsedOptions.error.flatten() },
+        { status: 400 },
+      );
+    }
+    const { includeSpeakers, includeAgenda } = parsedOptions.data;
+
     // Tenancy sweep: clone is a staff route, so the org comes from the session
     // (no DB lookup needed). Wrap the WHOLE clone — the source `speakers`
     // include reads the now-RLS'd Speaker table, so it must run inside the
@@ -33,8 +82,9 @@ export async function POST(
       where: buildEventAccessWhere(session.user, eventId),
       include: {
         ticketTypes: { include: { pricingTiers: true } },
-        speakers: true,
-        tracks: true,
+        // Not read at all when the organizer left the box unticked.
+        speakers: includeSpeakers,
+        tracks: includeAgenda,
         // Sponsors are a TABLE since Sep 2 2026. They used to ride along inside
         // `settings` (the clone allow-list carried "sponsors"), so without this
         // the promotion would have made cloning an event silently DROP its
@@ -45,6 +95,9 @@ export async function POST(
         emailTemplates: true,
         hotels: { include: { roomTypes: true } },
         eventSessions: {
+          // `take: 0` rather than `includeAgenda && {...}`: the conditional
+          // form erases the nested include from Prisma's result type.
+          take: includeAgenda ? undefined : 0,
           include: {
             speakers: true,
             // Per-session agenda items + their per-topic speakers — these
@@ -59,6 +112,12 @@ export async function POST(
     if (!source) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    // Guarded twice: the include above skips the read, and these skip the
+    // copy, so a future change to one cannot quietly bring the rows back.
+    const speakersToClone = includeSpeakers ? (source.speakers ?? []) : [];
+    const tracksToClone = includeAgenda ? (source.tracks ?? []) : [];
+    const sessionsToClone = includeAgenda ? (source.eventSessions ?? []) : [];
 
     // Generate unique slug
     const baseSlug = `${source.slug}-copy`;
@@ -219,7 +278,7 @@ export async function POST(
 
         // 3. Clone speakers (old ID → new ID map, clear userId)
         const speakerMap = new Map<string, string>();
-        for (const sp of source.speakers) {
+        for (const sp of speakersToClone) {
           const created = await tx.speaker.create({
             data: {
               eventId: event.id,
@@ -248,7 +307,7 @@ export async function POST(
 
         // 4. Clone tracks (old ID → new ID map)
         const trackMap = new Map<string, string>();
-        for (const tr of source.tracks) {
+        for (const tr of tracksToClone) {
           const created = await tx.track.create({
             data: {
               eventId: event.id,
@@ -318,7 +377,7 @@ export async function POST(
         }
 
         // 6. Clone sessions + session-speaker links
-        for (const sess of source.eventSessions) {
+        for (const sess of sessionsToClone) {
           const newSession = await tx.eventSession.create({
             data: {
               eventId: event.id,
@@ -331,6 +390,12 @@ export async function POST(
               location: sess.location,
               capacity: sess.capacity,
               status: "SCHEDULED",
+              // MUST be copied. Without it every Coffee Break, Lunch, Workshop
+              // and Symposium came out of a clone as a plain SESSION: breaks
+              // lost their muted band and started counting in the session
+              // totals, and workshops lost their chip. Nothing errored, because
+              // SESSION is the column default.
+              type: sess.type,
             },
           });
 
@@ -400,6 +465,8 @@ export async function POST(
       sourceEventId: eventId,
       newEventId: newEvent.id,
       userId: session.user.id,
+      includeSpeakers,
+      includeAgenda,
     });
 
     return NextResponse.json(

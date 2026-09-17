@@ -203,13 +203,25 @@ export function useSubmitterContext(eventId: string) {
   });
 }
 
+export interface CloneEventInput {
+  eventId: string;
+  /** Copy the speaker list (as Invited). Defaults to true on the server. */
+  includeSpeakers: boolean;
+  /** Copy tracks, sessions, breaks and topics. Defaults to true on the server. */
+  includeAgenda: boolean;
+}
+
 export function useCloneEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (eventId: string) =>
+    mutationFn: ({ eventId, includeSpeakers, includeAgenda }: CloneEventInput) =>
       fetchApi<{ id: string; name: string; slug: string }>(
         `/api/events/${eventId}/clone`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ includeSpeakers, includeAgenda }),
+        }
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.events });

@@ -62,8 +62,15 @@ function makeParams(eventId: string) {
   return { params: Promise.resolve({ eventId }) };
 }
 
-function makeRequest() {
-  return new Request("http://localhost/api/events/evt-1/clone", { method: "POST" });
+function makeRequest(body?: unknown) {
+  if (body === undefined) {
+    return new Request("http://localhost/api/events/evt-1/clone", { method: "POST" });
+  }
+  return new Request("http://localhost/api/events/evt-1/clone", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
 }
 
 const adminSession = {
@@ -950,6 +957,162 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(t2.title).toBe("Topic Two");
       expect(t2.duration).toBeNull();
       expect(t2.speakers).toBeUndefined(); // no speakers → no nested create
+    });
+    // ── Clone options: speakers + agenda (Sep 17, 2026) ────────────────────
+    //
+    // These re-run the captured transaction callback against a fresh tx whose
+    // every create is a plain implementation. The recorder inside
+    // setupSuccessfulClone misses eventSession.create (its mockResolvedValueOnce
+    // queue runs ahead of the recording wrapper), so an "agenda skipped"
+    // assertion made through it passes without checking anything.
+    function makeRecordingTx() {
+      let n = 0;
+      const next = (prefix: string) => vi.fn().mockImplementation(async () => ({ id: `${prefix}-${++n}` }));
+      return {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", organizationId: "org-1", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: next("tt") },
+        speaker: { create: next("new-sp") },
+        track: { create: next("new-tr") },
+        sponsor: { create: next("spn") },
+        hotel: { create: next("h") },
+        roomType: { create: next("rt") },
+        eventSession: { create: next("new-sess") },
+        sessionSpeaker: { create: next("ss") },
+        sessionTopic: { create: next("top") },
+        emailTemplate: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      };
+    }
+
+    async function cloneWith(body: unknown, sourceOverrides?: Record<string, unknown>) {
+      setupSuccessfulClone(sourceOverrides);
+      const res = await POST(makeRequest(body), makeParams("evt-1"));
+      const tx = makeRecordingTx();
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      await txFn(tx);
+      return { res, tx, include: mockDb.event.findFirst.mock.calls[0][0].include };
+    }
+
+    const dataOf = (fn: ReturnType<typeof vi.fn>, i: number) =>
+      (fn.mock.calls[i][0] as { data: Record<string, unknown> }).data;
+
+    describe("clone options", () => {
+      it("copies speakers and the agenda when no body is sent (the historical request)", async () => {
+        const { res, tx, include } = await cloneWith(undefined);
+        expect(res.status).toBe(201);
+
+        expect(include.speakers).toBe(true);
+        expect(include.tracks).toBe(true);
+        expect(include.eventSessions.take).toBeUndefined();
+
+        expect(tx.speaker.create).toHaveBeenCalledTimes(2);
+        expect(tx.track.create).toHaveBeenCalledTimes(2);
+        expect(tx.eventSession.create).toHaveBeenCalledTimes(2);
+        expect(tx.sessionSpeaker.create).toHaveBeenCalledTimes(1);
+      });
+
+      it("skips speakers, and every session link to them, when includeSpeakers is false", async () => {
+        const { res, tx, include } = await cloneWith({ includeSpeakers: false, includeAgenda: true });
+        expect(res.status).toBe(201);
+
+        // Not read, and not copied.
+        expect(include.speakers).toBe(false);
+        expect(tx.speaker.create).not.toHaveBeenCalled();
+        // The agenda still comes across, with nobody assigned.
+        expect(tx.track.create).toHaveBeenCalledTimes(2);
+        expect(tx.eventSession.create).toHaveBeenCalledTimes(2);
+        expect(tx.sessionSpeaker.create).not.toHaveBeenCalled();
+        // Everything that is neither still clones.
+        expect(tx.ticketType.create).toHaveBeenCalledTimes(2);
+        expect(tx.hotel.create).toHaveBeenCalledTimes(1);
+        expect(tx.sponsor.create).toHaveBeenCalledTimes(1);
+      });
+
+      it("drops per-topic speakers when agenda is kept but speakers are not", async () => {
+        const { tx } = await cloneWith(
+          { includeSpeakers: false, includeAgenda: true },
+          {
+            eventSessions: [
+              {
+                id: "sess-1", trackId: null, type: "SESSION", name: "Agenda Session", description: null,
+                startTime: new Date("2026-06-01T09:00:00Z"), endTime: new Date("2026-06-01T10:00:00Z"),
+                location: null, capacity: null, status: "SCHEDULED", externalId: null,
+                speakers: [{ sessionId: "sess-1", speakerId: "sp-1", role: "SPEAKER" }],
+                topics: [
+                  { id: "top-1", title: "Topic One", sortOrder: 0, duration: 30, abstractId: null, speakers: [{ topicId: "top-1", speakerId: "sp-1" }] },
+                ],
+              },
+            ],
+          },
+        );
+
+        expect(tx.sessionTopic.create).toHaveBeenCalledTimes(1);
+        const topic = dataOf(tx.sessionTopic.create, 0);
+        expect(topic.title).toBe("Topic One");
+        // No nested create pointing at a speaker that does not exist on the clone.
+        expect(topic.speakers).toBeUndefined();
+      });
+
+      it("skips tracks, sessions and topics when includeAgenda is false", async () => {
+        const { res, tx, include } = await cloneWith({ includeSpeakers: true, includeAgenda: false });
+        expect(res.status).toBe(201);
+
+        // Not read: tracks excluded, sessions capped at zero rows.
+        expect(include.tracks).toBe(false);
+        expect(include.eventSessions.take).toBe(0);
+        // Not copied, even though this mock returned the rows anyway (it
+        // ignores `take`), which is exactly what the second guard is for.
+        expect(tx.track.create).not.toHaveBeenCalled();
+        expect(tx.eventSession.create).not.toHaveBeenCalled();
+        expect(tx.sessionSpeaker.create).not.toHaveBeenCalled();
+        expect(tx.sessionTopic.create).not.toHaveBeenCalled();
+        // Speakers still come across.
+        expect(tx.speaker.create).toHaveBeenCalledTimes(2);
+      });
+
+      it("treats an omitted option as true", async () => {
+        const { tx, include } = await cloneWith({ includeAgenda: false });
+        expect(include.speakers).toBe(true);
+        expect(tx.speaker.create).toHaveBeenCalledTimes(2);
+        expect(tx.eventSession.create).not.toHaveBeenCalled();
+      });
+
+      it("refuses an unreadable body with 400 and clones nothing", async () => {
+        mockAuth.mockResolvedValue(adminSession);
+        const res = await POST(makeRequest("{not json"), makeParams("evt-1"));
+        expect(res.status).toBe(400);
+        expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+        expect(mockDb.$transaction).not.toHaveBeenCalled();
+      });
+
+      it("refuses a non-boolean option with 400 and clones nothing", async () => {
+        mockAuth.mockResolvedValue(adminSession);
+        const res = await POST(makeRequest({ includeSpeakers: "no" }), makeParams("evt-1"));
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error).toBe("Invalid input");
+        expect(mockDb.$transaction).not.toHaveBeenCalled();
+      });
+    });
+
+    it("copies each session's type, so breaks and workshops stay what they were", async () => {
+      const { tx } = await cloneWith(undefined, {
+        eventSessions: [
+          {
+            id: "sess-1", trackId: null, type: "BREAK", name: "Coffee Break", description: null,
+            startTime: new Date("2026-06-01T10:00:00Z"), endTime: new Date("2026-06-01T10:30:00Z"),
+            location: null, capacity: null, status: "SCHEDULED", externalId: null, speakers: [], topics: [],
+          },
+          {
+            id: "sess-2", trackId: null, type: "WORKSHOP", name: "Hands-on Echo", description: null,
+            startTime: new Date("2026-06-01T11:00:00Z"), endTime: new Date("2026-06-01T12:00:00Z"),
+            location: null, capacity: null, status: "SCHEDULED", externalId: null, speakers: [], topics: [],
+          },
+        ],
+      });
+
+      expect(tx.eventSession.create).toHaveBeenCalledTimes(2);
+      expect(dataOf(tx.eventSession.create, 0).type).toBe("BREAK");
+      expect(dataOf(tx.eventSession.create, 1).type).toBe("WORKSHOP");
     });
   });
 
