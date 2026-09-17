@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -27,6 +28,7 @@ import {
   Download,
   Loader2,
   PenLine,
+  RotateCcw,
 } from "lucide-react";
 import {
   Card,
@@ -50,6 +52,7 @@ import type {
   SurveyConfig,
 } from "@/lib/survey/schema";
 import type { QuestionAggregate } from "@/lib/survey/aggregate";
+import { ResetSurveyDialog, canResetSurvey } from "@/components/survey/reset-survey-dialog";
 
 interface ResponsesPayload {
   event: { id: string; name: string };
@@ -62,6 +65,7 @@ interface ResponsesPayload {
   responses: Array<{
     id: string;
     submittedAt: string;
+    registrationId: string | null;
     registrant: {
       firstName: string;
       lastName: string;
@@ -81,6 +85,9 @@ export default function SurveyResponsesPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { data: session } = useSession();
+  const canReset = canResetSurvey(session?.user?.role);
+  const [resetTarget, setResetTarget] = useState<{ registrationId: string; name: string } | null>(null);
 
   // ── Load ─────────────────────────────────────────────────────────────
 
@@ -241,6 +248,7 @@ export default function SurveyResponsesPage() {
                           {truncate(q.label, 40)}
                         </TableHead>
                       ))}
+                      {canReset && <TableHead className="sr-only">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -270,6 +278,28 @@ export default function SurveyResponsesPage() {
                             {renderAnswerCell(r.answers[q.id])}
                           </TableCell>
                         ))}
+                        {canReset && (
+                          <TableCell className="align-top text-right">
+                            {r.registrationId && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Reset survey for ${r.registrant ? `${r.registrant.firstName} ${r.registrant.lastName}` : "this person"}`}
+                                title="Reset survey"
+                                onClick={() =>
+                                  setResetTarget({
+                                    registrationId: r.registrationId as string,
+                                    name: r.registrant
+                                      ? `${r.registrant.firstName} ${r.registrant.lastName}`
+                                      : "This person",
+                                  })
+                                }
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -308,6 +338,22 @@ export default function SurveyResponsesPage() {
           </Card>
         </>
       )}
+
+      <ResetSurveyDialog
+        eventId={eventId}
+        registrationId={resetTarget?.registrationId ?? null}
+        personName={resetTarget?.name ?? "This person"}
+        open={resetTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setResetTarget(null);
+        }}
+        onReset={() => {
+          // The last response on a later page is gone: step back a page.
+          const onlyRowOnPage = data.responses.length === 1 && page > 1;
+          if (onlyRowOnPage) setPage((p) => p - 1);
+          else void load(page);
+        }}
+      />
     </div>
   );
 }

@@ -38,18 +38,36 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 
 import { runSurveyThankYouSweep } from "@/lib/certificates/survey-thankyou-sweep";
 
+const MARKER_AT = new Date("2026-09-17T12:00:00Z");
+const ANSWERED_BEFORE = new Date("2026-09-17T11:50:00Z");
+
+/** Thank-you markers (SENT rows) for these registrations, written after they answered. */
+function markers(ids: string[]) {
+  return ids.map((entityId) => ({ entityId, createdAt: MARKER_AT }));
+}
+
+/** The candidate query is the registration read that orders by completion. */
+function candidateQuery() {
+  const call = mockDbOperator.registration.findMany.mock.calls.find((c) => c[0].orderBy);
+  return call![0];
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDbOperator.registration.findMany.mockResolvedValue([]); // no work to do; we assert the QUERY
+  // Completion lookup for marked ids: answered before the marker. Candidate
+  // query: no work to do; we assert the QUERY.
+  mockDbOperator.registration.findMany.mockImplementation(async (args: { where: { id?: { in?: string[] } } }) =>
+    args.where.id?.in ? args.where.id.in.map((id) => ({ id, surveyCompletedAt: ANSWERED_BEFORE })) : [],
+  );
 });
 
 describe("H3 — the sweep must not starve older completions", () => {
   it("excludes already-thanked registrations IN THE QUERY (not after `take`)", async () => {
-    mockDbOperator.emailLog.findMany.mockResolvedValue([{ entityId: "reg1" }, { entityId: "reg2" }]);
+    mockDbOperator.emailLog.findMany.mockResolvedValue(markers(["reg1", "reg2"]));
 
     await runSurveyThankYouSweep();
 
-    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
+    const where = candidateQuery().where;
     // If the exclusion happens after `take`, the batch fills with rows that need
     // no work and the queue never drains. It must be part of the WHERE.
     expect(where.id).toEqual({ notIn: ["reg1", "reg2"] });
@@ -76,7 +94,7 @@ describe("H3 — the sweep must not starve older completions", () => {
 
     await runSurveyThankYouSweep();
 
-    const orderBy = mockDbOperator.registration.findMany.mock.calls[0][0].orderBy;
+    const orderBy = candidateQuery().orderBy;
     expect(orderBy).toEqual({ surveyCompletedAt: "asc" }); // was "desc"
   });
 
@@ -85,7 +103,7 @@ describe("H3 — the sweep must not starve older completions", () => {
 
     await runSurveyThankYouSweep();
 
-    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
+    const where = candidateQuery().where;
     expect(where.id).toBeUndefined(); // don't emit `notIn: []`
     expect(where.surveyCompletedAt).toMatchObject({ not: null });
   });
@@ -94,13 +112,32 @@ describe("H3 — the sweep must not starve older completions", () => {
     // 150 completions, the first 100 already thanked. The old code fetched the
     // newest 100 (all thanked) and did nothing, forever. The new query excludes
     // them, so `take` is spent entirely on the 50 that still need thanking.
-    const thanked = Array.from({ length: 100 }, (_, i) => ({ entityId: `reg${i}` }));
+    const thanked = markers(Array.from({ length: 100 }, (_, i) => `reg${i}`));
     mockDbOperator.emailLog.findMany.mockResolvedValue(thanked);
 
     await runSurveyThankYouSweep();
 
-    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
+    const where = candidateQuery().where;
     expect(where.id.notIn).toHaveLength(100);
-    expect(mockDbOperator.registration.findMany.mock.calls[0][0].take).toBe(100);
+    expect(candidateQuery().take).toBe(100);
+  });
+
+  // Sep 17, 2026: an organizer reset the survey and the person answered again,
+  // so their completion is newer than the thank-you marker from the first
+  // answer. They are owed a new thank-you (it carries any new certificate).
+  it("does not treat a thank-you from before a reset as covering the new answer", async () => {
+    mockDbOperator.emailLog.findMany.mockResolvedValue(markers(["reset-reg", "kept-reg"]));
+    mockDbOperator.registration.findMany.mockImplementation(async (args: { where: { id?: { in?: string[] } } }) =>
+      args.where.id?.in
+        ? [
+            { id: "reset-reg", surveyCompletedAt: new Date("2026-09-17T12:30:00Z") },
+            { id: "kept-reg", surveyCompletedAt: ANSWERED_BEFORE },
+          ]
+        : [],
+    );
+
+    await runSurveyThankYouSweep();
+
+    expect(candidateQuery().where.id).toEqual({ notIn: ["kept-reg"] });
   });
 });

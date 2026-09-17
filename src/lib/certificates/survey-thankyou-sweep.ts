@@ -168,7 +168,7 @@ export async function runSurveyThankYouSweep(
   // certificate still goes out in its own cover email, because a failed
   // thank-you never suppresses it. Any other failure (a provider outage) is
   // still retried.
-  const thankedRows = await dbOperator.emailLog.findMany({
+  const markerRows = await dbOperator.emailLog.findMany({
     where: {
       entityType: "REGISTRATION",
       templateSlug: THANKYOU_SLUG,
@@ -178,10 +178,30 @@ export async function runSurveyThankYouSweep(
         { status: "FAILED", errorMessage: { startsWith: UNRESOLVED_TOKENS_LOG_PREFIX } },
       ],
     },
-    select: { entityId: true },
+    select: { entityId: true, createdAt: true },
   });
+  const latestMarker = new Map<string, Date>();
+  for (const row of markerRows) {
+    if (!row.entityId) continue;
+    const previous = latestMarker.get(row.entityId);
+    if (!previous || row.createdAt > previous) latestMarker.set(row.entityId, row.createdAt);
+  }
+  // A marker only covers the answer it followed. An organizer can reset a
+  // survey (Sep 17, 2026) and the person answers again, which moves
+  // surveyCompletedAt past the old marker: they are owed a new thank-you, and
+  // it is the email that carries any certificate the new answer earns. Same
+  // privileged lane as the two reads around it, for the reason above.
+  const markedIds = [...latestMarker.keys()];
+  const markedCompletions = markedIds.length
+    ? await dbOperator.registration.findMany({
+        where: { id: { in: markedIds } },
+        select: { id: true, surveyCompletedAt: true },
+      })
+    : [];
   const thanked = new Set(
-    thankedRows.map((r) => r.entityId).filter((id): id is string => !!id),
+    markedCompletions
+      .filter((r) => !r.surveyCompletedAt || (latestMarker.get(r.id) as Date) >= r.surveyCompletedAt)
+      .map((r) => r.id),
   );
 
   // Tenancy: this candidate scan is deliberately ORG-BLIND (Registration is a

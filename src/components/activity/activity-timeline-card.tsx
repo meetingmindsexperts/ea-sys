@@ -19,6 +19,7 @@ import {
   Link2,
   ExternalLink,
   Paperclip,
+  RotateCcw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
@@ -43,6 +44,8 @@ const AUDIT_LABELS: Record<string, string> = {
   SPEAKER_AGREEMENT_REVOKED: "Agreement revoked",
   PANELIST_SYNC: "Synced as Zoom panelist",
   CHECK_IN: "Checked in",
+  // An organizer cleared a submitted survey (registrations/[id]/survey).
+  SURVEY_RESET: "Survey reset",
   // Speaker reimbursement (actions remapped in activity-feed.ts)
   REIMBURSEMENT_SUBMITTED: "Reimbursement form submitted",
   REIMBURSEMENT_REOPENED: "Reimbursement form reopened for edits",
@@ -83,6 +86,8 @@ function iconFor(item: ActivityItem) {
       return Users;
     case "CHECK_IN":
       return LogIn;
+    case "SURVEY_RESET":
+      return RotateCcw;
     case "EMAIL_SENT":
       return Mail;
     case "HONORARIUM_SET":

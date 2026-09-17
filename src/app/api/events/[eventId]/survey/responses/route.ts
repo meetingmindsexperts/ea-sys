@@ -182,6 +182,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       responses: pageResponses.map((r) => ({
         id: r.id,
         submittedAt: r.submittedAt,
+        // Lets the page reset this person's survey (registrations/[id]/survey).
+        registrationId: r.registration?.id ?? null,
         registrant: r.registration?.attendee
           ? {
               firstName: r.registration.attendee.firstName,

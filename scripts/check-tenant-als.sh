@@ -144,6 +144,7 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/registrations/bulk-type/route.ts"                      # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/import-contacts/route.ts"                # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/[registrationId]/route.ts"               # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/survey/route.ts"        # Survey reset (Sep 17, 2026)
   "src/app/api/events/[eventId]/registrations/[registrationId]/activity/route.ts"      # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/[registrationId]/barcode/route.ts"       # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/[registrationId]/cancel/route.ts"        # Reg-core (July 29, 2026)

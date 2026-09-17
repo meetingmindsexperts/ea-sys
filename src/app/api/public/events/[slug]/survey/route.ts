@@ -58,6 +58,7 @@ import {
   surveyConfigSchema,
   validateAnswers,
   type SurveyConfig,
+  SURVEY_COMPLETED_TAG,
 } from "@/lib/survey/schema";
 
 interface RouteParams {
@@ -65,7 +66,6 @@ interface RouteParams {
 }
 
 const TOKEN_PREFIX = "survey:";
-const SURVEY_COMPLETED_TAG = "survey-completed";
 
 /**
  * What a retired shareable link (`?share=`) answers. 410 Gone, not 400: the

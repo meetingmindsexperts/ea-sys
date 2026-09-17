@@ -27,6 +27,12 @@
 
 import { z } from "zod";
 
+/**
+ * The attendee tag a survey submission adds, so an organizer can filter "who
+ * answered". The public submit adds it; an organizer's survey reset removes it.
+ */
+export const SURVEY_COMPLETED_TAG = "survey-completed";
+
 // ── Question types ───────────────────────────────────────────────────────
 
 /**

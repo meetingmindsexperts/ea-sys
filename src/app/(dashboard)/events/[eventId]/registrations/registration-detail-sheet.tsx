@@ -92,6 +92,7 @@ import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { ResetSurveyDialog, canResetSurvey } from "@/components/survey/reset-survey-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import { RecordPaymentDialog } from "@/components/payments/record-payment-dialog";
@@ -447,6 +448,7 @@ export function RegistrationDetailSheet({
   // Survey Invitation to this one person: link lifetime in days, typed like
   // the Communications send (digits only, 1 to 365).
   const [surveyExpiryInput, setSurveyExpiryInput] = useState(String(DEFAULT_SURVEY_EXPIRY_DAYS));
+  const [resetSurveyOpen, setResetSurveyOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
@@ -3260,6 +3262,19 @@ export function RegistrationDetailSheet({
                           : "Not completed"}
                       </div>
                     </div>
+                    {/* Admins and organizers can clear a submitted survey so the
+                        person can answer again (the route enforces the same). */}
+                    {selectedRegistration.surveyCompletedAt && canResetSurvey(userSession?.user?.role) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-auto"
+                        onClick={() => setResetSurveyOpen(true)}
+                      >
+                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        Reset survey
+                      </Button>
+                    )}
                   </div>
                 </div>
               </section>
@@ -3361,6 +3376,27 @@ export function RegistrationDetailSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+
+    <ResetSurveyDialog
+      eventId={eventId}
+      registrationId={selectedRegistration?.id ?? null}
+      personName={
+        selectedRegistration
+          ? formatPersonName(
+              selectedRegistration.attendee?.title,
+              selectedRegistration.attendee?.firstName || "",
+              selectedRegistration.attendee?.lastName || "",
+            )
+          : "This person"
+      }
+      open={resetSurveyOpen}
+      onOpenChange={setResetSurveyOpen}
+      onReset={() => {
+        setSelectedRegistration((prev) => (prev ? { ...prev, surveyCompletedAt: null } : prev));
+        queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+        queryClient.invalidateQueries({ queryKey: ["activity"] });
+      }}
+    />
 
     {/* Email confirmation dialog */}
     <Dialog open={emailConfirmOpen} onOpenChange={setEmailConfirmOpen}>
