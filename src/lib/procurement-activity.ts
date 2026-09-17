@@ -282,6 +282,22 @@ function describeBudgetLine(row: ProcurementActivityRow): { title: string; detai
   }
 }
 
+function describeBudgetRevenueLine(row: ProcurementActivityRow): { title: string; detail: string | null } {
+  const c = row.changes ?? {};
+  const name = str(c.description) ?? "a revenue line";
+  const planned = amount(c.planned) ? `planned ${amount(c.planned)}` : null;
+  switch (row.action) {
+    case "CREATE":
+      return { title: `Revenue line added: ${name}`, detail: planned };
+    case "UPDATE":
+      return { title: `Revenue line edited: ${name}`, detail: planned ? `${planned.replace("planned", "planned now")}` : null };
+    case "DELETE":
+      return { title: `Revenue line removed: ${name}`, detail: null };
+    default:
+      return { title: `${humanize(row.action)}: ${name}`, detail: null };
+  }
+}
+
 function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeContext): { title: string; detail: string | null } {
   const c = row.changes ?? {};
   const aed = amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null;
@@ -512,6 +528,8 @@ export function describeProcurementActivity(row: ProcurementActivityRow, ctx: De
       return describeEventBudget(row, ctx);
     case "BudgetLine":
       return describeBudgetLine(row);
+    case "BudgetRevenueLine":
+      return describeBudgetRevenueLine(row);
     case "ApprovalRequest":
       return describeApprovalRequest(row, ctx);
     case "SpendRequest":

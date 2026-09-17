@@ -39,6 +39,12 @@ describe("missingForSubmission (spec §6a completeness)", () => {
     ]);
     expect(missingForSubmission(ok, [line("c-venue", { planned: "0" }), line("c-venue", { planned: "250" })], cats, "CONTINGENCY")).toEqual([]);
   });
+  it("never asks for a line in a revenue category, and names an expense gap with its category name", () => {
+    const withRevenue = [...cats, { id: "c-rev", code: "430005", name: "In-House: Delegate Sales", depth: 0, isActive: true, type: "REVENUE" as const }];
+    expect(missingForSubmission(ok, [line("c-venue"), line("c-cont", { isContingency: true })], withRevenue, "CONTINGENCY")).toEqual([]);
+    const named = [{ id: "c-510400", code: "510400", name: "Venue", depth: 0, isActive: true, type: "EXPENSE" as const }];
+    expect(missingForSubmission({ ...ok, naCategoryCodes: [] }, [line("c-other")], named, "CONTINGENCY")).toEqual(["Category 510400 Venue has no line with a planned amount and is not marked not applicable."]);
+  });
   it("requires a rate on a foreign-currency line", () => {
     expect(missingForSubmission(ok, [line("c-venue", { transactionCurrency: "USD", fxRateToReporting: "0" })], cats, "CONTINGENCY")).toEqual(["A USD line has no exchange rate."]);
   });

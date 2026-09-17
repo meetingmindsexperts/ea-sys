@@ -12,7 +12,9 @@ import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
 import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
 import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
+import { canViewFinance } from "@/lib/finance-visibility";
 import type { BudgetErrorCode } from "../services/budget-service";
+import type { RevenueErrorCode } from "../services/budget-revenue-service";
 import type { SpendRequestErrorCode } from "../services/spend-request-service";
 import type { CommitmentErrorCode, OrderActor } from "../services/commitment-service";
 
@@ -170,6 +172,28 @@ export const HTTP_STATUS_FOR_SPEND_REQUEST_ERROR: Record<SpendRequestErrorCode, 
   INVALID_FILTER: 400,
   UNKNOWN: 500,
 };
+
+export const HTTP_STATUS_FOR_REVENUE_ERROR: Record<RevenueErrorCode, number> = {
+  BUDGET_NOT_FOUND: 404,
+  LINE_NOT_FOUND: 404,
+  CATEGORY_NOT_FOUND: 404,
+  INVALID_STATUS: 409,
+  RATE_REQUIRED: 400,
+  INVALID_AMOUNT: 400,
+  UNKNOWN: 500,
+};
+
+/**
+ * Revenue reads registration payments and won deal values, which is finance
+ * data (src/lib/finance-visibility.ts), so a budget reader without finance
+ * sight is refused the revenue side even though they read the expense side.
+ * Logged, like every refusal.
+ */
+export function denyWithoutFinance(route: string, user: ProcurementActor): NextResponse | null {
+  if (canViewFinance(user.role)) return null;
+  apiLogger.warn({ msg: `${route}:finance-refused`, userId: user.id, role: user.role });
+  return NextResponse.json({ error: "Revenue figures need finance access.", code: "FINANCE_REQUIRED" }, { status: 403 });
+}
 
 /**
  * A read that fails (a pooler blip, a bad row) is a logged 500, never a bare

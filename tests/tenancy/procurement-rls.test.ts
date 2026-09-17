@@ -31,6 +31,12 @@ const BUD_A = "tenancy-bp-bud-a";
 const BUD_B = "tenancy-bp-bud-b";
 const LINE_A = "tenancy-bp-line-a";
 const LINE_B = "tenancy-bp-line-b";
+/** Revenue (Sep 17 2026): both orgs plan revenue on the same income-account code. */
+const SHARED_INCOME_CODE = "430005";
+const RCAT_A = "tenancy-bp-rcat-a";
+const RCAT_B = "tenancy-bp-rcat-b";
+const RLINE_A = "tenancy-bp-rline-a";
+const RLINE_B = "tenancy-bp-rline-b";
 const WF_A = "tenancy-bp-wf-a";
 const WF_B = "tenancy-bp-wf-b";
 const REQ_A = "tenancy-bp-req-a";
@@ -106,6 +112,18 @@ beforeAll(async () => {
       { id: LINE_B, organizationId: ORG_B_ID, budgetId: BUD_B, lineKey: "line-b", categoryId: CAT_B, description: "Hall hire", transactionCurrency: "AED", planned: 2000 },
     ],
   });
+  await owner.budgetCategory.createMany({
+    data: [
+      { id: RCAT_A, organizationId: ORG_A_ID, code: SHARED_INCOME_CODE, name: "Delegate Sales (A)", type: "REVENUE" },
+      { id: RCAT_B, organizationId: ORG_B_ID, code: SHARED_INCOME_CODE, name: "Delegate Sales (B)", type: "REVENUE" },
+    ],
+  });
+  await owner.budgetRevenueLine.createMany({
+    data: [
+      { id: RLINE_A, organizationId: ORG_A_ID, budgetId: BUD_A, lineKey: "rline-a", categoryId: RCAT_A, description: "Physicians", transactionCurrency: "AED", planned: 5000 },
+      { id: RLINE_B, organizationId: ORG_B_ID, budgetId: BUD_B, lineKey: "rline-b", categoryId: RCAT_B, description: "Physicians", transactionCurrency: "AED", planned: 7000 },
+    ],
+  });
   await owner.approvalWorkflowDefinition.createMany({
     data: [
       { id: WF_A, organizationId: ORG_A_ID, name: "Budgets", subjectType: "BUDGET", bands: [] },
@@ -170,11 +188,12 @@ async function cleanup() {
   await owner?.approvalWorkflowDefinition.deleteMany({ where: { id: { in: [WF_A, WF_B] } } });
   await owner?.eventFinancialSummary.deleteMany({ where: { id: { in: [SUM_A, SUM_B] } } });
   await owner?.budgetLine.deleteMany({ where: { id: { in: [LINE_A, LINE_B] } } });
+  await owner?.budgetRevenueLine.deleteMany({ where: { id: { in: [RLINE_A, RLINE_B] } } });
   await owner?.eventBudget.deleteMany({ where: { id: { in: [BUD_A, BUD_B] } } });
   await owner?.budgetTemplateLine.deleteMany({ where: { id: { in: [TLINE_A, TLINE_B] } } });
   await owner?.budgetTemplate.deleteMany({ where: { id: { in: [TPL_A, TPL_B] } } });
   await owner?.budgetProduct.deleteMany({ where: { id: { in: [PROD_A, PROD_B] } } });
-  await owner?.budgetCategory.deleteMany({ where: { id: { in: [CAT_A, CAT_B] } } });
+  await owner?.budgetCategory.deleteMany({ where: { id: { in: [CAT_A, CAT_B, RCAT_A, RCAT_B] } } });
 }
 
 afterAll(async () => {
@@ -213,6 +232,20 @@ describe("Budget & Procurement RLS via the SET LOCAL extension", () => {
     expect(budB?.id).toBe(BUD_B);
     const sumA = await runWithTenant(ORG_A_ID, () => db.eventFinancialSummary.findFirst({ where: { eventCode: SHARED_EVENT_CODE } }));
     expect(sumA?.id).toBe(SUM_A);
+  });
+
+  it("revenue: the SHARED income-account code resolves per lane, and B's revenue lines miss by budget id", async () => {
+    expect((await runWithTenant(ORG_A_ID, () => db.budgetCategory.findFirst({ where: { code: SHARED_INCOME_CODE, type: "REVENUE" } })))?.id).toBe(RCAT_A);
+    expect((await runWithTenant(ORG_B_ID, () => db.budgetCategory.findFirst({ where: { code: SHARED_INCOME_CODE, type: "REVENUE" } })))?.id).toBe(RCAT_B);
+    expect(await runWithTenant(ORG_A_ID, () => db.budgetRevenueLine.findMany({ where: { budgetId: BUD_B } }))).toHaveLength(0);
+    const own = await runWithTenant(ORG_A_ID, () => db.budgetRevenueLine.findMany({ where: { lineKey: { in: ["rline-a", "rline-b"] } } }));
+    expect(own.map((l) => l.id)).toEqual([RLINE_A]);
+    expect(await db.budgetRevenueLine.findMany({ where: { id: { in: [RLINE_A, RLINE_B] } } })).toHaveLength(0);
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.budgetRevenueLine.create({ data: { organizationId: ORG_B_ID, budgetId: BUD_B, lineKey: "smuggled", categoryId: RCAT_B, description: "x", transactionCurrency: "AED" } }),
+      ),
+    ).rejects.toThrow();
   });
 
   it("cross-tenant miss: B's budget is invisible from A's lane, even by id", async () => {

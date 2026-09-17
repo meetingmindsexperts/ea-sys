@@ -37,7 +37,7 @@ vi.mock("@/lib/approvals/approvals-service", () => ({
 }));
 vi.mock("@/procurement/services/budget-category-service", () => ({ ensureBudgetCategories: vi.fn().mockResolvedValue([]) }));
 
-import { decideReallocation, reallocateBudget, reopenBudget } from "@/procurement/services/budget-service";
+import { decideReallocation, reallocateBudget, reopenBudget, updateBudgetHeader } from "@/procurement/services/budget-service";
 
 const ORG = "org-1";
 const activeBudget = { id: "b1", organizationId: ORG, status: "ACTIVE", reportingCurrency: "AED", versionNo: 1, version: 3, naCategoryCodes: [], contingencyPercent: "10", contingencyAmount: "0.0000", plannedExpenseTotal: "36725.0000", taxTotalPlanned: "0.0000", forecastTotal: "0.0000" };
@@ -129,5 +129,20 @@ describe("reopen needs a reason", () => {
     // The guard passed; the transition itself then reported the (mocked-away) budget as missing.
     expect(r).toMatchObject({ ok: false, code: "BUDGET_NOT_FOUND" });
     expect(mockDb.eventBudget.findFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the target margin (Sep 17, 2026)", () => {
+  const header = { organizationId: ORG, actorUserId: "u1", source: "ui" as const, budgetId: "b1", expectedVersion: 3 };
+  it("changes on a draft only, like the rest of the plan", async () => {
+    const r = await updateBudgetHeader({ ...header, targetMarginPercent: "25" });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+  it("is a percent from 0 to under 100", async () => {
+    mockDb.eventBudget.findFirst.mockResolvedValue({ ...activeBudget, status: "DRAFT" });
+    expect(await updateBudgetHeader({ ...header, targetMarginPercent: "100" })).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
+    expect(await updateBudgetHeader({ ...header, targetMarginPercent: "-5" })).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 });

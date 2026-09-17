@@ -16,6 +16,7 @@ import type { BudgetActivityItem } from "@/procurement/lib/budget-activity";
 import { ApiError, apiFetch } from "@/lib/api-fetch";
 import type { BudgetCheckStatusValue, SpendRequestStatusValue } from "@/procurement/lib/spend-request-rules";
 import type { CommitmentStatusValue, FulfillmentStatusValue } from "@/procurement/lib/commitment-rules";
+import type { MarginView, RevenueActuals } from "@/procurement/lib/revenue-rules";
 
 export type BudgetStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "FROZEN" | "CLOSED" | "ARCHIVED";
 export const BUDGET_STATUS_ORDER: BudgetStatus[] = ["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"];
@@ -74,6 +75,8 @@ export interface BudgetRow {
   plannedExpenseTotal: string;
   taxTotalPlanned: string;
   forecastTotal: string;
+  plannedRevenueTotal: string;
+  targetMarginPercent: string | null;
   expectedAttendance: number | null;
   recordedAttendance: number | null;
   atRisk: boolean;
@@ -417,6 +420,8 @@ export const procurementKeys = {
   budget: (budgetId: string) => ["procurement", "budget", budgetId] as const,
   /** Under the budget key on purpose: every budget mutation's invalidation refreshes the log too. */
   budgetActivity: (budgetId: string) => ["procurement", "budget", budgetId, "activity"] as const,
+  /** Under the budget key too: a line, header or version change refreshes the revenue side. */
+  budgetRevenue: (budgetId: string) => ["procurement", "budget", budgetId, "revenue"] as const,
   approvals: (scope: ApprovalScope) => ["procurement", "approvals", scope] as const,
   categories: () => ["procurement", "categories"] as const,
   products: () => ["procurement", "products"] as const,
@@ -444,6 +449,57 @@ export function useBudget(budgetId: string | null) {
     queryKey: procurementKeys.budget(budgetId ?? "none"),
     queryFn: () => get<{ budget: BudgetRow }>(`/api/procurement/budgets/${budgetId}`).then((r) => r.budget),
     enabled: !!budgetId,
+  });
+}
+
+export interface RevenueLineRow {
+  id: string;
+  lineKey: string;
+  categoryId: string;
+  description: string;
+  qty: string;
+  unitAmount: string;
+  transactionCurrency: string;
+  fxRateToReporting: string;
+  planned: string;
+  notes: string | null;
+  sortOrder: number;
+  category: { id: string; code: string; name: string };
+}
+
+export interface BudgetRevenue {
+  lines: RevenueLineRow[];
+  categories: { id: string; code: string; name: string; isActive: boolean }[];
+  accounts: { code: string; name: string; planned: string; actual: string }[];
+  actuals: RevenueActuals;
+  margin: MarginView;
+  reportingCurrency: string;
+  targetMarginPercent: string | null;
+}
+
+/** The revenue side. `enabled` is false for a reader without finance sight: the route would refuse them. */
+export function useBudgetRevenue(budgetId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: procurementKeys.budgetRevenue(budgetId ?? "none"),
+    queryFn: () => get<{ revenue: BudgetRevenue }>(`/api/procurement/budgets/${budgetId}/revenue`).then((r) => r.revenue),
+    enabled: !!budgetId && enabled,
+  });
+}
+
+export function useUpsertRevenueLine(budgetId: string) {
+  const invalidate = useBudgetInvalidation();
+  return useMutation({
+    mutationFn: ({ lineId, ...input }: Record<string, unknown> & { lineId?: string }) =>
+      send<{ line: RevenueLineRow }>(lineId ? `/api/procurement/budgets/${budgetId}/revenue/${lineId}` : `/api/procurement/budgets/${budgetId}/revenue`, lineId ? "PATCH" : "POST", input, "Couldn't save the revenue line").then((r) => r.line),
+    onSuccess: () => invalidate(budgetId),
+  });
+}
+
+export function useDeleteRevenueLine(budgetId: string) {
+  const invalidate = useBudgetInvalidation();
+  return useMutation({
+    mutationFn: (lineId: string) => send<{ removed: string }>(`/api/procurement/budgets/${budgetId}/revenue/${lineId}`, "DELETE", undefined, "Couldn't remove the revenue line"),
+    onSuccess: () => invalidate(budgetId),
   });
 }
 

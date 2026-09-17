@@ -37,6 +37,7 @@ import {
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
 import { lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
+import { cloneRevenueLines, readRevenueActuals } from "./budget-revenue-service";
 
 export type BudgetErrorCode =
   | "EVENT_NOT_FOUND"
@@ -83,6 +84,7 @@ export const BUDGET_LINE_SELECT = {
 export const BUDGET_SELECT = {
   id: true, organizationId: true, eventId: true, eventCode: true, versionNo: true, brand: true, reportingCurrency: true,
   contingencyPercent: true, contingencyAmount: true, plannedExpenseTotal: true, taxTotalPlanned: true, forecastTotal: true,
+  plannedRevenueTotal: true, targetMarginPercent: true,
   expectedAttendance: true, recordedAttendance: true, benchmarkSourceType: true, benchmarkSourceId: true, ownerUserId: true,
   financeOwnerUserId: true, status: true, atRisk: true, naCategoryCodes: true, freezeAt: true, submittedAt: true,
   approvedAt: true, approvedByUserId: true, activatedAt: true, frozenAt: true, closedAt: true, closedByUserId: true,
@@ -126,6 +128,8 @@ export function toBudgetView(b: BudgetRow, lines?: LineRow[]) {
     plannedExpenseTotal: storedString(b.plannedExpenseTotal),
     taxTotalPlanned: storedString(b.taxTotalPlanned),
     forecastTotal: storedString(b.forecastTotal),
+    plannedRevenueTotal: storedString(b.plannedRevenueTotal),
+    targetMarginPercent: b.targetMarginPercent === null ? null : money(b.targetMarginPercent).toString(),
     lines: lines ? lines.filter((l) => !l.deletedAt).map(toLineView) : undefined,
   };
 }
@@ -359,9 +363,10 @@ export interface UpdateBudgetHeaderInput {
   financeOwnerUserId?: string | null;
   freezeAt?: Date | null;
   notes?: string | null;
+  targetMarginPercent?: MoneyInput | null;
 }
 
-const DRAFT_ONLY_HEADER: (keyof UpdateBudgetHeaderInput)[] = ["contingencyPercent", "reportingCurrency", "expectedAttendance", "naCategoryCodes", "benchmarkSourceType", "benchmarkSourceId", "brand"];
+const DRAFT_ONLY_HEADER: (keyof UpdateBudgetHeaderInput)[] = ["contingencyPercent", "reportingCurrency", "expectedAttendance", "naCategoryCodes", "benchmarkSourceType", "benchmarkSourceId", "brand", "targetMarginPercent"];
 
 export async function updateBudgetHeader(input: UpdateBudgetHeaderInput): Promise<BudgetResult<BudgetView>> {
   const ctx = { budgetId: input.budgetId, userId: input.actorUserId };
@@ -383,6 +388,14 @@ export async function updateBudgetHeader(input: UpdateBudgetHeaderInput): Promis
   if (input.expectedAttendance !== undefined && input.expectedAttendance !== null && input.expectedAttendance < 0) {
     return fail("INVALID_AMOUNT", "Expected attendance cannot be negative.", ctx);
   }
+  if (input.targetMarginPercent !== undefined && input.targetMarginPercent !== null) {
+    const t = money(input.targetMarginPercent);
+    if (t.lt(0) || t.gte(100)) return fail("INVALID_AMOUNT", "A target margin is a percent from 0 to under 100.", ctx);
+  }
+  if (input.reportingCurrency && input.reportingCurrency !== b.reportingCurrency) {
+    const revenueLines = await db.budgetRevenueLine.count({ where: { budgetId: b.id } });
+    if (revenueLines > 0) return fail("CURRENCY_LOCKED", "The reporting currency is fixed once the budget has revenue lines. Create a new version to change it.", ctx);
+  }
   const data: Prisma.EventBudgetUpdateManyMutationInput = {
     ...(input.contingencyPercent !== undefined ? { contingencyPercent: money(input.contingencyPercent).toString() } : {}),
     ...(input.reportingCurrency !== undefined ? { reportingCurrency: input.reportingCurrency } : {}),
@@ -394,6 +407,7 @@ export async function updateBudgetHeader(input: UpdateBudgetHeaderInput): Promis
     ...(input.financeOwnerUserId !== undefined ? { financeOwnerUserId: input.financeOwnerUserId } : {}),
     ...(input.freezeAt !== undefined ? { freezeAt: input.freezeAt } : {}),
     ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    ...(input.targetMarginPercent !== undefined ? { targetMarginPercent: input.targetMarginPercent === null ? null : money(input.targetMarginPercent).toString() } : {}),
     version: { increment: 1 },
   };
   try {
@@ -728,6 +742,7 @@ export async function newBudgetVersion(input: { organizationId: string; actorUse
           naCategoryCodes: b.naCategoryCodes,
           freezeAt: b.freezeAt,
           notes: b.notes,
+          targetMarginPercent: b.targetMarginPercent,
           createdByUserId: input.actorUserId,
         },
         select: { id: true },
@@ -737,7 +752,8 @@ export async function newBudgetVersion(input: { organizationId: string; actorUse
         data: lines.map((l) => ({ organizationId: input.organizationId, budgetId: created.id, ...cloneLineForNewVersion(l) })),
       });
       await recomputeBudgetTotals(tx, created.id);
-      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "NEW_VERSION", entityType: "EventBudget", entityId: created.id, changes: { source: input.source, fromBudgetId: b.id, fromVersionNo: b.versionNo, lines: lines.length } });
+      const revenueLines = await cloneRevenueLines(tx, { organizationId: input.organizationId, fromBudgetId: b.id, toBudgetId: created.id });
+      await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "NEW_VERSION", entityType: "EventBudget", entityId: created.id, changes: { source: input.source, fromBudgetId: b.id, fromVersionNo: b.versionNo, lines: lines.length, revenueLines } });
       return created.id;
     });
     return getBudget(input.organizationId, newId);
@@ -967,7 +983,31 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   }
   for (const [code, v] of acc) byCategory[code] = { planned: storedString(v.planned), actual: storedString(v.actual), variance: storedString(v.actual.minus(v.planned)) };
   const expenseTotal = lines.reduce((a, l) => a.plus(money(l.actual)), money(0));
-  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory };
+  // Revenue is read, never stored, while a budget is open: close-out keeps what it read (spec §6b).
+  const [revenueActuals, revenueLines] = await Promise.all([
+    readRevenueActuals(input.organizationId, b.eventId, b.reportingCurrency),
+    db.budgetRevenueLine.findMany({ where: { budgetId: b.id }, select: { planned: true, category: { select: { code: true } } } }),
+  ]);
+  const revenueByAccount: Record<string, { planned: string; actual: string; variance: string }> = {};
+  const plannedByAccount = new Map<string, ReturnType<typeof money>>();
+  for (const l of revenueLines) plannedByAccount.set(l.category.code, (plannedByAccount.get(l.category.code) ?? money(0)).plus(money(l.planned)));
+  for (const code of new Set([...plannedByAccount.keys(), ...Object.keys(revenueActuals.byAccount)])) {
+    const planned = plannedByAccount.get(code) ?? money(0);
+    const actual = money(revenueActuals.byAccount[code] ?? 0);
+    revenueByAccount[code] = { planned: storedString(planned), actual: storedString(actual), variance: storedString(actual.minus(planned)) };
+  }
+  const revenue = {
+    plannedRevenueTotal: storedString(b.plannedRevenueTotal),
+    actualRevenueTotal: revenueActuals.total,
+    byAccount: revenueByAccount,
+    notItemised: revenueActuals.notItemised,
+    noAccount: revenueActuals.noAccount.amount,
+    notConverted: revenueActuals.notConverted.map((n) => ({ from: n.from, currency: n.currency, amount: n.amount })),
+    targetMarginPercent: b.targetMarginPercent === null ? null : money(b.targetMarginPercent).toString(),
+  };
+  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory, revenue };
+  // Income-account codes and expense-group codes never collide, so one map holds both for the archive row.
+  const categoryTotals = { ...byCategory, ...revenueByAccount };
   const event = b.eventId ? await db.event.findUnique({ where: { id: b.eventId }, select: { name: true, startDate: true, eventType: true } }) : null;
   try {
     await tenantTransaction(async (tx) => {
@@ -987,11 +1027,11 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
         create: {
           organizationId: input.organizationId, sourceSystem: "EA_SYS", eventCode: b.eventCode, name: event?.name ?? b.eventCode,
           year: (event?.startDate ?? new Date()).getUTCFullYear(), eventType: event?.eventType ?? null, brand: b.brand, attendance: recordedAttendance,
-          currency: b.reportingCurrency, categoryTotals: byCategory, expenseTotal: storedString(expenseTotal), asOf: new Date(), eventBudgetId: b.id,
+          currency: b.reportingCurrency, categoryTotals, expenseTotal: storedString(expenseTotal), revenueTotal: revenueActuals.total, asOf: new Date(), eventBudgetId: b.id,
         },
         update: {
           name: event?.name ?? b.eventCode, year: (event?.startDate ?? new Date()).getUTCFullYear(), eventType: event?.eventType ?? null, brand: b.brand,
-          attendance: recordedAttendance, currency: b.reportingCurrency, categoryTotals: byCategory, expenseTotal: storedString(expenseTotal), asOf: new Date(), eventBudgetId: b.id,
+          attendance: recordedAttendance, currency: b.reportingCurrency, categoryTotals, expenseTotal: storedString(expenseTotal), revenueTotal: revenueActuals.total, asOf: new Date(), eventBudgetId: b.id,
         },
       });
       await audit(tx, { userId: input.actorUserId, organizationId: input.organizationId, action: "CLOSE", entityType: "EventBudget", entityId: b.id, changes: { source: input.source, recordedAttendance, actualTotal: storedString(expenseTotal), notesWritten: Object.keys(notes).length, reportingToAedRate: aed.rate.toString(), rateSource: aed.source, varianceFloorInReporting: storedString(floor) } });

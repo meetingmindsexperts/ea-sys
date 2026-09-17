@@ -49,6 +49,22 @@ export const updateBudgetHeaderSchema = z.object({
   financeOwnerUserId: z.string().max(100).nullable().optional(),
   freezeAt: dateInput.nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
+  /** Percent of revenue the author aims to keep; null clears it. */
+  targetMarginPercent: moneyInput.nullable().optional(),
+});
+
+export const upsertRevenueLineSchema = z.object({
+  categoryId: z.string().min(1).max(100).optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+  qty: moneyInput.optional(),
+  unitAmount: moneyInput.optional(),
+  transactionCurrency: z.enum(BUDGET_CURRENCIES).optional(),
+  fxRateToReporting: moneyInput.nullable().optional(),
+  notes: z.string().max(5000).nullable().optional(),
+});
+export const createRevenueLineSchema = upsertRevenueLineSchema.extend({
+  categoryId: z.string().min(1).max(100),
+  description: z.string().trim().min(1).max(500),
 });
 
 export const upsertBudgetLineSchema = z.object({

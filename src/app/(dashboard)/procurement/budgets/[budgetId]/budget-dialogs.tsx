@@ -58,6 +58,7 @@ export function HeaderDialog({ b, open, onOpenChange }: DialogProps) {
     expectedAttendance: b.expectedAttendance === null ? "" : String(b.expectedAttendance),
     brand: b.brand ?? "",
     notes: b.notes ?? "",
+    targetMarginPercent: b.targetMarginPercent === null ? "" : String(Number(b.targetMarginPercent)),
   }));
 
   async function save() {
@@ -65,11 +66,14 @@ export function HeaderDialog({ b, open, onOpenChange }: DialogProps) {
     if (attendance !== null && (!Number.isInteger(attendance) || attendance < 0)) return toast.error("Expected attendance must be a whole number.");
     const pct = Number(f.contingencyPercent);
     if (draft && (!Number.isFinite(pct) || pct < 0 || pct > 100)) return toast.error("Contingency percent must be between 0 and 100.");
+    const target = f.targetMarginPercent.trim() === "" ? null : Number(f.targetMarginPercent);
+    if (draft && target !== null && (!Number.isFinite(target) || target < 0 || target >= 100)) return toast.error("A target margin is a percent from 0 to under 100.");
     const patch: Record<string, unknown> = { expectedVersion: b.version };
     if (draft) {
       if (pct !== Number(b.contingencyPercent)) patch.contingencyPercent = f.contingencyPercent.trim();
       if (attendance !== b.expectedAttendance) patch.expectedAttendance = attendance;
       if ((f.brand || null) !== b.brand) patch.brand = f.brand || null;
+      if (target !== (b.targetMarginPercent === null ? null : Number(b.targetMarginPercent))) patch.targetMarginPercent = target === null ? null : f.targetMarginPercent.trim();
     }
     if ((f.notes.trim() || null) !== (b.notes ?? null)) patch.notes = f.notes.trim() || null;
     if (Object.keys(patch).length === 1) {
@@ -91,7 +95,7 @@ export function HeaderDialog({ b, open, onOpenChange }: DialogProps) {
         <DialogHeader>
           <DialogTitle>Budget details</DialogTitle>
           <DialogDescription>
-            {draft ? "Contingency, attendance and brand change on a draft; the reporting currency is fixed once the budget has lines." : "On an approved version only the notes change; planned figures, contingency and attendance revise on a new version."}
+            {draft ? "Contingency, attendance, the target margin and brand change on a draft; the reporting currency is fixed once the budget has lines." : "On an approved version only the notes change; planned figures, contingency, attendance and the target margin revise on a new version."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -103,7 +107,11 @@ export function HeaderDialog({ b, open, onOpenChange }: DialogProps) {
             <Label htmlFor="h-attendance">Expected attendance</Label>
             <Input id="h-attendance" type="number" min={0} value={f.expectedAttendance} disabled={!draft} onChange={(e) => setF((s) => ({ ...s, expectedAttendance: e.target.value }))} placeholder="Required to submit" />
           </div>
-          <div className="space-y-2 sm:col-span-2">
+          <div className="space-y-2">
+            <Label htmlFor="h-target">Target margin %</Label>
+            <Input id="h-target" type="number" min={0} max={99.99} step="0.5" value={f.targetMarginPercent} disabled={!draft} onChange={(e) => setF((s) => ({ ...s, targetMarginPercent: e.target.value }))} placeholder="No target" />
+          </div>
+          <div className="space-y-2">
             <Label>Brand</Label>
             <Select value={f.brand || "none"} disabled={!draft} onValueChange={(v) => setF((s) => ({ ...s, brand: v === "none" ? "" : v }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>

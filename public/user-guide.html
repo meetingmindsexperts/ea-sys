@@ -2906,7 +2906,11 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <h3>What a budget is here</h3>
       <p>A budget belongs to <b>one event</b> (the event needs a code first, set under the event&rsquo;s
       Settings). It is a list of <b>lines</b>: one per thing you expect to pay for, each under a
-      <b>category</b> (Venue, Food &amp; Beverage, AV, Travel, and so on). Every line carries four numbers:
+      <b>category</b>. The categories are the cost groups of the company&rsquo;s QuickBooks chart of accounts,
+      coded by their account number: <b>500100</b> CME Management, <b>500300</b> Design, Marketing &amp; Production,
+      <b>510200</b> Speakers &amp; Faculty, <b>510400</b> Venue, and so on, plus Contingency. Because a category is the
+      account the bill lands on, budget against actual per category adds up the same way as the QuickBooks
+      profit and loss report. Every line carries four numbers:
       <b>planned</b> (what you expect to spend, before VAT), <b>committed</b> (what has been ordered),
       <b>actual</b> (what has been invoiced) and <b>paid</b>. In this first release only planned is yours to
       type; the other three arrive later, from purchase orders and invoices.</p>
@@ -2931,11 +2935,23 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <ul>
         <li><b>New budget</b> on the Budgets page starts from a <b>template</b>: one blank line per category. Pick the event, the reporting currency, the contingency percent and the expected attendance.</li>
         <li>On the budget page, click the <b>pencil</b> on a line to set its description, quantity, unit cost and tax rate. Planned is quantity times unit cost, before VAT. <b>Add a line</b> adds one under any category; the bin icon removes one.</li>
-        <li>The <b>Catalogue item</b> box on the line form picks a product from the MME products list (203 cost items, each with its accounting SKU): it fills the description and the category, and both stay editable. The SKU then shows beside the line and travels with it for the accounting mapping. Admins keep the list under <b>Products</b> on the Budgets page: add an item, rename it, move it to another category, or archive it so it leaves the picker without touching the lines that used it.</li>
+        <li>The <b>Catalogue item</b> box on the line form picks a product from the MME products list (203 cost items). A product&rsquo;s SKU is its QuickBooks account number, so picking one fills the description and puts the line under that account&rsquo;s group: <b>510404</b> Venue Rental goes under <b>510400</b> Venue. The category then stays fixed while the item is linked; clear the item to file the line elsewhere. Admins keep the list under <b>Products</b> on the Budgets page: add an item (an account-number SKU takes its group by itself), rename it, or archive it so it leaves the picker without touching the lines that used it. A product whose SKU is not an account number takes whichever category the admin picks.</li>
         <li>A line can be in a <b>different currency</b> from the budget (a USD hotel on an AED budget). Give it the exchange rate and the planned figure is converted at that rate.</li>
         <li>The <b>category chips</b> above the table show where you stand: green has a line with a planned amount, amber has none yet (a line left blank does not count), grey is marked <b>not applicable</b>. Click a chip to mark a category not applicable when your event simply has no such cost. Every category must be one or the other before you can submit.</li>
-        <li><b>Edit details</b> changes the contingency percent, the expected attendance, the brand and the notes. The reporting currency is fixed once the budget has lines.</li>
+        <li><b>Edit details</b> changes the contingency percent, the expected attendance, the <b>target margin</b>, the brand and the notes. The reporting currency is fixed once the budget has lines.</li>
         <li><b>Discard draft</b> deletes a draft you will not pursue. Nothing else is affected.</li>
+      </ul>
+
+      <h3>Revenue and margin</h3>
+      <p>Below the lines, <b>Revenue and margin</b> shows what the event earns against what it costs, all without VAT.
+      You see it if your role can see money (admins, organizers, members); others see the expense side only.</p>
+      <ul>
+        <li><b>Planned revenue</b> is typed on a draft, like planned expense, one line per <b>income account</b> of the chart: <b>430005</b> Delegate Sales, <b>430012</b> Sponsorship Sales, <b>440011</b> Out-Sourced Venue Hire, and so on. Give each line a description, a quantity and a unit amount (for example 200 physicians at 1,500). It is approved with the budget; to change it later, make a new version.</li>
+        <li><b>Actual revenue is never typed.</b> It is read from what EA-SYS and the CRM already hold: registrations once <b>paid</b> (their price after any promo code, less refunds, without VAT) count under Delegate Sales, and CRM deals linked to the event count once <b>won</b>, split across income accounts by the products on the deal.</li>
+        <li>When a won deal&rsquo;s products do not add up to its value, the difference shows as <b>Not itemised on won deals</b>. A product whose In-House or Out-Sourced and category pair has no income account in the chart shows under <b>Products with no income account</b>, named. Nothing is guessed onto an account.</li>
+        <li>Amounts in USD, AED and SAR convert at the fixed rates. An amount in another currency on a budget in a different one is listed as not counted rather than priced at a made-up rate.</li>
+        <li><b>Planned margin</b> is planned revenue less planned expense and contingency. <b>Forecast margin</b> takes, for each income account, the larger of planned and actual, less the expense forecast. Set a <b>target margin</b> under Edit details and the page turns amber when the forecast margin falls below it. No email is sent.</li>
+        <li>Closing the budget keeps the revenue it read, per income account, in the close-out summary and the archive row.</li>
       </ul>
 
       <h3>Submitting, and the Approvals inbox</h3>
@@ -3018,13 +3034,15 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 <p><b>The quote file.</b> On a draft request, each quote row takes the vendor's own document (a PDF, PNG or JPEG up to 10 MB) beside its figures; anyone who can read the request can open it, and it never appears in the media library because it carries a supplier's prices.</p>
 <h3>Exporting a budget, importing suppliers and products</h3>
 <p><b>Export CSV</b> in the Actions box on any budget version downloads the whole version as a spreadsheet that opens in Excel: a short header block (event, version, status, currency, contingency), one row per line with its category, SKU, quantity, unit cost, rate, planned ex-VAT figure, tax, committed, actual, remaining and forecast, then the totals. Every figure is ex-VAT with the tax beside it; there is no gross column, by design. Each export is recorded in the audit trail with who pulled it.</p>
-<p><b>Import CSV</b> on the Products page takes a file with <code>sku</code>, <code>name</code>, <code>category</code> (the code, such as AV or PRINT) and an optional <code>active</code> column: an existing SKU is updated, a new one is created, nothing is ever deleted, and the dialog lists every row it could not read with the reason. <b>Import CSV</b> on the Suppliers page takes one row per supplier (<code>legalName</code> is the only required column; code, country, currency, tax number, terms, one contact and notes are optional): a row whose code or legal name already exists is skipped and reported, the rest are created the same way a typed one is, so they land as Proposed for the settle holder, or approved outright when the person importing holds the settle grant. Bank details are never imported; the settle holder enters them per supplier. Both dialogs offer a template to download, show the first five rows before importing, and accept up to 5,000 rows or 1 MB per file.</p>
+<p><b>Import CSV</b> on the Products page takes a file with <code>sku</code>, <code>name</code>, an optional <code>category</code> (leave it blank for an account-number SKU, which goes under its account group; otherwise a category code from the Products page) and an optional <code>active</code> column: an existing SKU is updated, a new one is created, nothing is ever deleted, and the dialog lists every row it could not read with the reason. <b>Import CSV</b> on the Suppliers page takes one row per supplier (<code>legalName</code> is the only required column; code, country, currency, tax number, terms, one contact and notes are optional): a row whose code or legal name already exists is skipped and reported, the rest are created the same way a typed one is, so they land as Proposed for the settle holder, or approved outright when the person importing holds the settle grant. Bank details are never imported; the settle holder enters them per supplier. Both dialogs offer a template to download, show the first five rows before importing, and accept up to 5,000 rows or 1 MB per file.</p>
 <h3>In one table</h3>
       <table>
         <thead><tr><th>Word</th><th>Meaning</th><th>Who</th></tr></thead>
         <tbody>
           <tr><td>Line</td><td>One expected cost under a category, with its planned amount.</td><td>Author</td></tr>
           <tr><td>Not applicable</td><td>A category your event has no cost in; marked so it does not block submission.</td><td>Author</td></tr>
+          <tr><td>Income account</td><td>A revenue account of the chart (Delegate Sales, Sponsorship Sales, ...); planned revenue is typed per account, actual revenue is read per account.</td><td>Author plans; actual is read</td></tr>
+          <tr><td>Target margin</td><td>The margin the budget aims for, as a percent of revenue; below it the revenue panel turns amber.</td><td>Author</td></tr>
           <tr><td>Contingency</td><td>A percentage of the planned total held aside for surprises.</td><td>Author sets the percent</td></tr>
           <tr><td>Submit</td><td>Send the draft for approval; the plan locks while it is decided.</td><td>Author</td></tr>
           <tr><td>Approve / Reject</td><td>Decide a submission or an over-10% move, in the Approvals inbox.</td><td>A person with an approval ceiling</td></tr>

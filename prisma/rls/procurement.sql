@@ -53,6 +53,13 @@ CREATE POLICY budgetline_tenant_isolation ON "BudgetLine"
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
 
+ALTER TABLE "BudgetRevenueLine" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS budgetrevenueline_tenant_isolation ON "BudgetRevenueLine";
+CREATE POLICY budgetrevenueline_tenant_isolation ON "BudgetRevenueLine"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
 ALTER TABLE "ApprovalWorkflowDefinition" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS approvalworkflowdefinition_tenant_isolation ON "ApprovalWorkflowDefinition";
 CREATE POLICY approvalworkflowdefinition_tenant_isolation ON "ApprovalWorkflowDefinition"

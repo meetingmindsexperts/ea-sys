@@ -35,6 +35,7 @@ import {
   LayoutTemplate,
   ShieldCheck,
   type LucideIcon,
+  TrendingUp,
 } from "lucide-react";
 import { isHrAuditEntityType, type HrAuditEntityType } from "@/lib/hr-visibility";
 import { isProcurementAuditEntityType, type ProcurementAuditEntityType } from "@/lib/procurement-visibility";
@@ -81,6 +82,7 @@ const HR_ENTITY_ICONS: Record<HrAuditEntityType, LucideIcon> = {
 export const PROCUREMENT_AUDIT_ENTITY_LABELS: Record<ProcurementAuditEntityType, string> = {
   EventBudget: "Budget",
   BudgetLine: "Budget line",
+  BudgetRevenueLine: "Revenue line",
   ApprovalRequest: "Approval",
   SpendRequest: "Spend request",
   Commitment: "Purchase order",
@@ -93,6 +95,7 @@ export const PROCUREMENT_AUDIT_ENTITY_LABELS: Record<ProcurementAuditEntityType,
 const PROCUREMENT_ENTITY_ICONS: Record<ProcurementAuditEntityType, LucideIcon> = {
   EventBudget: Wallet,
   BudgetLine: Rows3,
+  BudgetRevenueLine: TrendingUp,
   ApprovalRequest: ClipboardCheck,
   SpendRequest: ReceiptText,
   Commitment: PackageCheck,

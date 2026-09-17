@@ -266,6 +266,7 @@ export function procurementGrantsFromRow(
 export const PROCUREMENT_AUDIT_ENTITY_TYPES = [
   "EventBudget",
   "BudgetLine",
+  "BudgetRevenueLine",
   "ApprovalRequest",
   "SpendRequest",
   "Commitment",

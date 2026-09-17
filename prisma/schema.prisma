@@ -62,6 +62,7 @@ model Organization {
   budgetTemplateLines         BudgetTemplateLine[]
   eventBudgets                EventBudget[]
   budgetLines                 BudgetLine[]
+  budgetRevenueLines          BudgetRevenueLine[]
   approvalWorkflowDefinitions ApprovalWorkflowDefinition[]
   approvalRequests            ApprovalRequest[]
   approvalSteps               ApprovalStep[]
@@ -5276,6 +5277,7 @@ model BudgetCategory {
   children      BudgetCategory[]     @relation("BudgetCategoryTree")
   templateLines BudgetTemplateLine[]
   budgetLines   BudgetLine[]
+  revenueLines  BudgetRevenueLine[]
   products      BudgetProduct[]
 
   spendRequests   SpendRequest[]
@@ -5377,6 +5379,13 @@ model EventBudget {
   /// Sum of the lines' forecastFinalAmount; at risk when it exceeds
   /// plannedExpenseTotal + contingencyAmount (spec §6a).
   forecastTotal       Decimal             @default(0) @db.Decimal(18, 4)
+  /// Sum of the revenue lines' planned amounts, ex-VAT, reporting currency
+  /// (spec §6b, 17 September 2026). Actual revenue is never stored while the
+  /// budget is open: it is read from paid registrations and won deals.
+  plannedRevenueTotal Decimal             @default(0) @db.Decimal(18, 4)
+  /// The margin the author aims for, as a percent of revenue; the page warns
+  /// when the forecast margin falls below it. No email.
+  targetMarginPercent Decimal?            @db.Decimal(5, 2)
   /// Required at submission (spec §6c); the per-attendee divisor for the plan.
   expectedAttendance  Int?
   /// Written at close-out: checked-in registrations excluding faculty companions.
@@ -5410,6 +5419,7 @@ model EventBudget {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   event        Event?       @relation(fields: [eventId], references: [id], onDelete: Restrict)
   lines        BudgetLine[]
+  revenueLines BudgetRevenueLine[]
 
   spendRequests SpendRequest[]
   commitments   Commitment[]
@@ -5481,6 +5491,43 @@ model BudgetLine {
   @@index([budgetId, categoryId])
   @@index([productId])
   @@index([supplierId])
+}
+
+/// A planned revenue line (spec §6b, 17 September 2026): what the event
+/// expects to earn under one income account of the chart (430005 Delegate
+/// Sales, 440011 Out-Sourced Venue Hire, ...). Planned is typed on a draft and
+/// approved with the budget; the ACTUAL is never typed or stored here, it is
+/// read per income account from paid registrations and won CRM deals. Kept
+/// apart from BudgetLine because nothing on the purchasing side (commitments,
+/// spend requests, reallocation, contingency, variance notes) applies to money
+/// coming in. `lineKey` is stable across versions like an expense line's.
+model BudgetRevenueLine {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  budgetId            String
+  lineKey             String
+  categoryId          String
+  description         String
+  qty                 Decimal   @default(1) @db.Decimal(14, 4)
+  unitAmount          Decimal   @default(0) @db.Decimal(18, 4)
+  transactionCurrency String
+  fxRateToReporting   Decimal   @default(1) @db.Decimal(18, 8)
+  fxRateSource        String    @default("same-currency")
+  fxRateAsOf          DateTime?
+  /// qty x unitAmount x rate, ex-VAT, reporting currency.
+  planned             Decimal   @default(0) @db.Decimal(18, 4)
+  notes               String?   @db.Text
+  sortOrder           Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget       EventBudget    @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category     BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([budgetId, lineKey])
+  @@index([organizationId])
+  @@index([budgetId, categoryId])
 }
 
 /// The approvals primitive (build plan §4.5), in core because HR will reuse

@@ -215,6 +215,7 @@ async function attachProcurementSubjects(rows: AuditRow[], orgId: string) {
         return code ? (typeof f.versionNo === "number" ? `${code} v${f.versionNo}` : code) : null;
       }
       case "BudgetLine":
+      case "BudgetRevenueLine":
         return viaBudget(strOf(c.budgetId));
       case "SpendRequest":
         return requestLabel.get(r.entityId) ?? strOf(c.requestNo);

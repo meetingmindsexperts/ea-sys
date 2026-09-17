@@ -47,6 +47,7 @@ export async function listBudgetActivity(organizationId: string, budgetId: strin
         OR: [
           { entityType: "EventBudget", entityId: budgetId },
           { entityType: "BudgetLine", changes: { path: ["budgetId"], equals: budgetId } },
+          { entityType: "BudgetRevenueLine", changes: { path: ["budgetId"], equals: budgetId } },
           { entityType: "ApprovalRequest", action: { in: ["APPROVAL_REQUESTED", "APPROVAL_CANCELLED", "APPROVAL_DELEGATED", "APPROVAL_ESCALATED"] }, changes: { path: ["subjectId"], equals: budgetId } },
         ],
       },

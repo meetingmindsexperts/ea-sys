@@ -42,6 +42,8 @@ import {
 import { BRAND_LABEL, CategoryLabel, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2 } from "@/procurement/components/budget-ui";
 import { BudgetActivityCard } from "@/procurement/components/budget-activity-card";
 import { BudgetLinesTable, lineCategories, type LinesMode } from "./budget-lines-table";
+import { BudgetRevenueSection } from "./budget-revenue";
+import { canViewFinance } from "@/lib/finance-visibility";
 import { DecideDialog, HeaderDialog, ReallocateDialog, ReasonDialog, SubmitDialog } from "./budget-dialogs";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -184,6 +186,8 @@ export default function BudgetEditorPage() {
         <div className="min-w-0 space-y-5">
           <NaCategoryChips b={b} categories={categories} editable={mode === "plan"} onFailed={failed} />
           <BudgetLinesTable b={b} categories={categories} mode={mode} />
+          {/* Revenue reads registration payments and deal values: finance sight only, the route's own rule. */}
+          {canViewFinance(session?.user?.role) && <BudgetRevenueSection b={b} editable={canAuthor && b.status === "DRAFT"} />}
           <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Submitted</span><div>{fmtWhen(b.submittedAt)}</div></div>
             <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Approved</span><div>{fmtWhen(b.approvedAt)}</div></div>
