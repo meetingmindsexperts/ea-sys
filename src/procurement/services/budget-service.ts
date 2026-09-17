@@ -45,6 +45,7 @@ export type BudgetErrorCode =
   | "BUDGET_NOT_FOUND"
   | "TEMPLATE_NOT_FOUND"
   | "CATEGORY_NOT_FOUND"
+  | "CATEGORY_MISMATCH"
   | "LINE_NOT_FOUND"
   | "PRODUCT_NOT_FOUND"
   | "INVALID_STATUS"
@@ -462,24 +463,35 @@ export async function upsertBudgetLine(input: UpsertBudgetLineInput): Promise<Bu
   if (b.status === "FROZEN" && input.forecastFinalAmount !== undefined) {
     // A forecast may still move on a frozen budget: it is the owner's expectation, not the plan.
   }
-  const categoryId = input.categoryId ?? existing?.categoryId;
+  let productSku: string | null = existing?.product?.sku ?? null;
+  // A line linked to a catalogue item sits under that item's category, which
+  // is its account group (17 September 2026): budget against actual per
+  // category must total the same as the accounts the items post to.
+  let productCategoryId: string | null = null;
+  if (input.productId !== undefined) {
+    productSku = null;
+    if (input.productId) {
+      const product = await db.budgetProduct.findFirst({ where: { id: input.productId, organizationId: input.organizationId, isActive: true }, select: { sku: true, categoryId: true } });
+      if (!product) return fail("PRODUCT_NOT_FOUND", "The catalogue item was not found or is archived.", ctx);
+      productSku = product.sku;
+      productCategoryId = product.categoryId;
+    }
+  } else if (existing?.productId && input.categoryId !== undefined) {
+    const product = await db.budgetProduct.findFirst({ where: { id: existing.productId, organizationId: input.organizationId }, select: { categoryId: true } });
+    productCategoryId = product?.categoryId ?? null;
+  }
+  if (productCategoryId && input.categoryId && input.categoryId !== productCategoryId) {
+    return fail("CATEGORY_MISMATCH", `A line picked from the catalogue stays under that item's category${productSku ? ` (SKU ${productSku})` : ""}. Unlink the item to file the line elsewhere.`, ctx);
+  }
+  const categoryId = productCategoryId ?? input.categoryId ?? existing?.categoryId;
   if (!categoryId) return fail("CATEGORY_NOT_FOUND", "A line needs a category.", ctx);
-  if (input.categoryId) {
-    const cat = await db.budgetCategory.findFirst({ where: { id: input.categoryId, organizationId: input.organizationId, isActive: true }, select: { id: true, code: true } });
+  if (categoryId !== existing?.categoryId) {
+    const cat = await db.budgetCategory.findFirst({ where: { id: categoryId, organizationId: input.organizationId, isActive: true, type: "EXPENSE" }, select: { id: true, code: true } });
     if (!cat) return fail("CATEGORY_NOT_FOUND", "The category was not found or is archived.", ctx);
     if (cat.code === CONTINGENCY_CATEGORY_CODE) return fail("INVALID_STATUS", "Contingency is its own line, sized by the percent.", ctx);
   }
   const description = (input.description ?? existing?.description ?? "").trim();
   if (!description) return fail("INVALID_AMOUNT", "A line needs a description.", ctx);
-  let productSku: string | null = existing?.product?.sku ?? null;
-  if (input.productId !== undefined) {
-    productSku = null;
-    if (input.productId) {
-      const product = await db.budgetProduct.findFirst({ where: { id: input.productId, organizationId: input.organizationId, isActive: true }, select: { sku: true } });
-      if (!product) return fail("PRODUCT_NOT_FOUND", "The catalogue item was not found or is archived.", ctx);
-      productSku = product.sku;
-    }
-  }
   const currency = input.transactionCurrency ?? existing?.transactionCurrency ?? b.reportingCurrency;
   let rate: MoneyInput = 1;
   if (currency !== b.reportingCurrency) {

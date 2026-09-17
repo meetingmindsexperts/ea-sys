@@ -5,8 +5,7 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { patchProductSchema } from "@/procurement/lib/budget-schemas";
 import { procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
 import { updateBudgetProduct } from "@/procurement/services/budget-product-service";
-
-const STATUS: Record<string, number> = { INVALID_SKU: 400, SKU_TAKEN: 409, CATEGORY_NOT_FOUND: 404, PRODUCT_NOT_FOUND: 404, UNKNOWN: 500 };
+import { PRODUCT_STATUS as STATUS } from "../route";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ productId: string }> }) {
   const [g, { productId }] = await Promise.all([procurementGuard({ route: "procurement/products/[productId]", need: "admin", write: true }), params]);

@@ -1,6 +1,9 @@
 /**
  * Budget products: the organisation's cost catalogue a budget line is picked
- * from. `ensureBudgetProducts` seeds the MME list ONCE per organisation (the
+ * from. A SKU that is a cost account number files the product under its
+ * account group and nowhere else (`resolveProductCategory`, 17 September
+ * 2026), so the catalogue cannot drift from the chart of accounts; any other
+ * SKU takes the category it is given. `ensureBudgetProducts` seeds the MME list ONCE per organisation (the
  * category pattern): an organisation that already holds products, even after
  * archiving some, is never re-seeded, so an admin's edits stand. Seeding is
  * idempotent under concurrency because `@@unique([organizationId, sku])`
@@ -14,6 +17,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { BUDGET_PRODUCT_SEED, BUDGET_PRODUCT_SKU_RE } from "../lib/budget-products-seed";
+import { accountGroupCode } from "../lib/budget-categories-seed";
 import { ensureBudgetCategories } from "./budget-category-service";
 import { planProductImport, type ProductImportRow } from "../lib/catalogue-import";
 
@@ -27,7 +31,7 @@ export const BUDGET_PRODUCT_SELECT = {
   category: { select: { id: true, code: true, name: true } },
 } as const;
 
-export type BudgetProductErrorCode = "INVALID_SKU" | "SKU_TAKEN" | "CATEGORY_NOT_FOUND" | "PRODUCT_NOT_FOUND" | "UNKNOWN";
+export type BudgetProductErrorCode = "INVALID_SKU" | "SKU_TAKEN" | "CATEGORY_NOT_FOUND" | "CATEGORY_MISMATCH" | "PRODUCT_NOT_FOUND" | "UNKNOWN";
 
 export type BudgetProductResult<T> =
   | { ok: true; product: T }
@@ -50,7 +54,7 @@ export async function ensureBudgetProducts(organizationId: string) {
   const idByCode = new Map(categories.map((c) => [c.code, c.id]));
   const skipped: string[] = [];
   const data = BUDGET_PRODUCT_SEED.flatMap((p, i) => {
-    const categoryId = idByCode.get(p.category);
+    const categoryId = idByCode.get(accountGroupCode(p.sku) ?? "");
     if (!categoryId) {
       skipped.push(p.sku);
       return [];
@@ -68,7 +72,36 @@ export async function ensureBudgetProducts(organizationId: string) {
 }
 
 async function activeCategory(organizationId: string, categoryId: string) {
-  return db.budgetCategory.findFirst({ where: { id: categoryId, organizationId, isActive: true }, select: { id: true, code: true } });
+  return db.budgetCategory.findFirst({ where: { id: categoryId, organizationId, isActive: true, type: "EXPENSE" }, select: { id: true, code: true } });
+}
+
+type CategoryResolution =
+  | { ok: true; category: { id: string; code: string } }
+  | { ok: false; code: "CATEGORY_NOT_FOUND" | "CATEGORY_MISMATCH"; message: string };
+
+/**
+ * The category a product sits in. A SKU that is a cost account number belongs
+ * to its account group's category when the organisation holds one: a
+ * different category is refused, never silently corrected. Any other SKU (or
+ * an account whose group category does not exist yet) takes the category it
+ * was given, which must be an active expense category.
+ */
+export async function resolveProductCategory(organizationId: string, sku: string, requestedCategoryId?: string | null): Promise<CategoryResolution> {
+  const group = accountGroupCode(sku);
+  if (group) {
+    const cat = await db.budgetCategory.findFirst({ where: { organizationId, code: group, type: "EXPENSE" }, select: { id: true, code: true, name: true, isActive: true } });
+    if (cat) {
+      if (requestedCategoryId && requestedCategoryId !== cat.id) {
+        return { ok: false, code: "CATEGORY_MISMATCH", message: `SKU ${sku.trim()} is an account in group ${cat.code} ${cat.name}, so that is its category.` };
+      }
+      if (!cat.isActive) return { ok: false, code: "CATEGORY_NOT_FOUND", message: `Account group ${cat.code} ${cat.name} is archived.` };
+      return { ok: true, category: { id: cat.id, code: cat.code } };
+    }
+  }
+  if (!requestedCategoryId) return { ok: false, code: "CATEGORY_NOT_FOUND", message: "Pick a category: this SKU is not an account number with a category of its own." };
+  const category = await activeCategory(organizationId, requestedCategoryId);
+  if (!category) return { ok: false, code: "CATEGORY_NOT_FOUND", message: "The category was not found or is archived." };
+  return { ok: true, category };
 }
 
 export interface CreateBudgetProductInput {
@@ -77,14 +110,16 @@ export interface CreateBudgetProductInput {
   source: Source;
   sku: string;
   name: string;
-  categoryId: string;
+  /** Required unless the SKU is an account number whose group has a category. */
+  categoryId?: string | null;
 }
 
 export async function createBudgetProduct(input: CreateBudgetProductInput) {
   const sku = input.sku.trim();
   if (!BUDGET_PRODUCT_SKU_RE.test(sku)) return fail("INVALID_SKU", "A SKU is letters, digits, dots, dashes or underscores, up to 40 characters.");
-  const category = await activeCategory(input.organizationId, input.categoryId);
-  if (!category) return fail("CATEGORY_NOT_FOUND", "The category was not found or is archived.");
+  const resolved = await resolveProductCategory(input.organizationId, sku, input.categoryId);
+  if (!resolved.ok) return fail(resolved.code, resolved.message);
+  const category = resolved.category;
   try {
     const last = await db.budgetProduct.aggregate({ where: { organizationId: input.organizationId }, _max: { sortOrder: true } });
     const product = await db.budgetProduct.create({
@@ -129,9 +164,9 @@ export async function updateBudgetProduct(input: UpdateBudgetProductInput) {
   if (!before) return fail("PRODUCT_NOT_FOUND", "The product was not found.");
   let categoryCode: string | null = null;
   if (input.categoryId !== undefined && input.categoryId !== before.categoryId) {
-    const category = await activeCategory(input.organizationId, input.categoryId);
-    if (!category) return fail("CATEGORY_NOT_FOUND", "The category was not found or is archived.");
-    categoryCode = category.code;
+    const resolved = await resolveProductCategory(input.organizationId, before.sku, input.categoryId);
+    if (!resolved.ok) return fail(resolved.code, resolved.message);
+    categoryCode = resolved.category.code;
   }
   const data = {
     ...(input.name !== undefined ? { name: input.name.trim() } : {}),

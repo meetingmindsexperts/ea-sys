@@ -111,9 +111,9 @@ describe("POST /api/procurement/products/import", () => {
   });
   it("is a logged 400 for a file that cannot be read, and for a missing body", async () => {
     authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
-    const res = await importProducts(post("/api/procurement/products/import", { csv: "sku,name\n1,x\n" }));
+    const res = await importProducts(post("/api/procurement/products/import", { csv: "sku,category\n1,x\n" }));
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "INVALID_CSV", error: "Missing column: category." });
+    expect(await res.json()).toMatchObject({ code: "INVALID_CSV", error: "Missing column: name." });
     expect((await importProducts(post("/api/procurement/products/import", {}))).status).toBe(400);
     expect(productSvc.importBudgetProducts).not.toHaveBeenCalled();
     expect(audit.recordImport).not.toHaveBeenCalled();

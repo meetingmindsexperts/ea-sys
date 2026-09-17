@@ -30,7 +30,7 @@ const SEED: Array<{ name: string; eventType: "CONFERENCE" | "WEBINAR" | "HYBRID"
 export async function ensureBudgetTemplates(organizationId: string) {
   const existing = await db.budgetTemplate.findMany({ where: { organizationId }, select: TEMPLATE_SELECT, orderBy: { name: "asc" } });
   if (existing.length > 0) return existing;
-  const categories = (await ensureBudgetCategories(organizationId)).filter((c) => c.depth === 0 && c.isActive && c.code !== CONTINGENCY_CATEGORY_CODE);
+  const categories = (await ensureBudgetCategories(organizationId)).filter((c) => c.type === "EXPENSE" && c.depth === 0 && c.isActive && c.code !== CONTINGENCY_CATEGORY_CODE);
   try {
     for (const t of SEED) {
       await db.budgetTemplate.create({

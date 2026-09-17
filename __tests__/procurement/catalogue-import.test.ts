@@ -30,13 +30,15 @@ describe("parseProductImport", () => {
   it("is fatal without a header row or a required column", () => {
     expect(parseProductImport("").fatal).toBe("The file is empty.");
     expect(parseProductImport("sku,name,category\n").fatal).toMatch(/header row/);
-    expect(parseProductImport("sku,name\n1,x\n").fatal).toBe("Missing column: category.");
+    expect(parseProductImport("sku\n1\n").fatal).toBe("Missing column: name.");
+    // The category column is optional: an account-number SKU takes its account group.
+    expect(parseProductImport("sku,name\n510323,LED wall\n").rows).toEqual([{ rowNum: 2, sku: "510323", name: "LED wall", categoryCode: "", active: true }]);
   });
   it("refuses a row per rule and keeps going", () => {
     const r = parseProductImport(["sku,name,category,active", "510399,LED wall,AV,maybe", ",Stage,PRINT,", "bad sku!,X,AV,", "510399,Again,AV,", "510401,Fine,AV,yes"].join("\n"));
     expect(r.errors).toEqual([
       'Row 2: active must be yes or no, got "maybe".',
-      "Row 3: sku, name and category are required.",
+      "Row 3: sku and name are required.",
       'Row 4: SKU "bad sku!" may only hold letters, digits, dots, dashes and underscores (max 40).',
       'Row 5: SKU "510399" appears earlier in the file.',
     ]);
@@ -72,6 +74,25 @@ describe("planProductImport", () => {
   it("only carries the fields that differ on an update", () => {
     const plan = planProductImport([{ rowNum: 2, sku: "510399", name: "LED wall", categoryCode: "AV", active: false }], existing, categories);
     expect(plan.updates[0].changes).toEqual({ isActive: false });
+  });
+  it("files an account-number SKU under its account group, refuses a contradicting code and needs a code otherwise", () => {
+    const chart = [{ id: "c-510300", code: "510300" }, { id: "c-500900", code: "500900" }];
+    const plan = planProductImport(
+      [
+        { rowNum: 2, sku: "510323", name: "LED wall", categoryCode: "", active: true },
+        { rowNum: 3, sku: "510324", name: "Stage", categoryCode: "510300", active: true },
+        { rowNum: 4, sku: "510325", name: "Truss", categoryCode: "500900", active: true },
+        { rowNum: 5, sku: "LED-01", name: "Screen", categoryCode: "", active: true },
+        { rowNum: 6, sku: "LED-02", name: "Screen", categoryCode: "500900", active: true },
+      ],
+      [],
+      chart,
+    );
+    expect(plan.creates.map((c) => [c.sku, c.categoryId])).toEqual([["510323", "c-510300"], ["510324", "c-510300"], ["LED-02", "c-500900"]]);
+    expect(plan.errors).toEqual([
+      'Row 4: SKU 510325 belongs to account group 510300, not "500900". Leave the category blank.',
+      "Row 5: SKU LED-01 is not an account number with a category of its own, so the category is required.",
+    ]);
   });
 });
 

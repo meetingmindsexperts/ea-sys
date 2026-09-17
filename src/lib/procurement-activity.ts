@@ -475,6 +475,12 @@ function describeBudgetCategory(row: ProcurementActivityRow): { title: string; d
       return { title: "Category restored", detail: code };
     case "ARCHIVE":
       return { title: "Category archived", detail: code };
+    case "REALIGN": {
+      const created = Array.isArray(c.created) ? c.created.length : 0;
+      const removed = Array.isArray(c.removed) ? c.removed.length : 0;
+      const moved = typeof c.productsMoved === "number" ? c.productsMoved : 0;
+      return { title: "Categories moved to the chart of accounts", detail: `${created} added, ${removed} removed, ${moved} products refiled` };
+    }
     default:
       return { title: humanize(row.action), detail: null };
   }

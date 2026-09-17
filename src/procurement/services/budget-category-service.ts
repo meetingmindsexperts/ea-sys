@@ -1,7 +1,7 @@
 /**
  * Budget categories: the per-organisation catalogue every budget line keys on.
  *
- * `ensureBudgetCategories` seeds the spec's list ONCE per organisation (the
+ * `ensureBudgetCategories` seeds the chart-of-accounts groups ONCE per organisation (the
  * CRM pipeline-stage pattern): an organisation that already holds categories,
  * even after archiving some, is never re-seeded, so an admin's edits stand.
  * The seed is idempotent under concurrency because `@@unique([organizationId,
@@ -58,6 +58,7 @@ export async function ensureBudgetCategories(organizationId: string) {
         type: "EXPENSE" as const,
         depth: 0,
         sortOrder: i,
+        isActive: c.active ?? true,
       })),
       skipDuplicates: true,
     });

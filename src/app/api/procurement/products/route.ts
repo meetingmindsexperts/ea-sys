@@ -6,7 +6,7 @@ import { createProductSchema } from "@/procurement/lib/budget-schemas";
 import { guardedRead, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
 import { createBudgetProduct, ensureBudgetProducts } from "@/procurement/services/budget-product-service";
 
-export const PRODUCT_STATUS: Record<string, number> = { INVALID_SKU: 400, SKU_TAKEN: 409, CATEGORY_NOT_FOUND: 404, PRODUCT_NOT_FOUND: 404, UNKNOWN: 500 };
+export const PRODUCT_STATUS: Record<string, number> = { INVALID_SKU: 400, SKU_TAKEN: 409, CATEGORY_NOT_FOUND: 404, CATEGORY_MISMATCH: 400, PRODUCT_NOT_FOUND: 404, UNKNOWN: 500 };
 
 export async function GET() {
   const g = await procurementGuard({ route: "procurement/products", need: "view" });

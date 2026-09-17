@@ -254,18 +254,20 @@ function LineEditForm({ b, categories, mode, line, onDone }: { b: BudgetRow; cat
               products={products.data ?? []}
               loading={products.isPending}
               value={f.productId || null}
-              onPick={(p) => setF((s) => ({ ...s, productId: p.id, description: p.name, categoryId: cats.some((c) => c.id === p.categoryId) ? p.categoryId : s.categoryId }))}
+              onPick={(p) => setF((s) => ({ ...s, productId: p.id, description: p.name, categoryId: p.categoryId }))}
               onClear={() => set("productId", "")}
             />
           </div>
           <div className="space-y-1 md:col-span-2">
             <Label className="text-xs">Category</Label>
-            <Select value={f.categoryId} onValueChange={(v) => set("categoryId", v)}>
-              <SelectTrigger className="h-9"><SelectValue placeholder="Category" /></SelectTrigger>
+            {/* A catalogue item carries its account group, so the line follows it (the service refuses anything else). */}
+            <Select value={f.categoryId} onValueChange={(v) => set("categoryId", v)} disabled={!!f.productId}>
+              <SelectTrigger className="h-9" title={f.productId ? "Follows the catalogue item's account group. Clear the item to pick another category." : undefined}><SelectValue placeholder="Category" /></SelectTrigger>
               <SelectContent>
                 {cats.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            {f.productId && <p className="text-[11px] text-muted-foreground">Follows the catalogue item.</p>}
           </div>
           <div className="space-y-1 md:col-span-4">
             <Label className="text-xs">Description</Label>

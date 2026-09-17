@@ -97,7 +97,8 @@ export const createCategorySchema = z.object({
 export const createProductSchema = z.object({
   sku: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(160),
-  categoryId: z.string().min(1).max(100),
+  /** Optional when the SKU is an account number: the product then goes under its account group. */
+  categoryId: z.string().min(1).max(100).nullable().optional(),
 });
 export const patchProductSchema = z
   .object({ name: z.string().trim().min(1).max(160).optional(), categoryId: z.string().min(1).max(100).optional(), isActive: z.boolean().optional() })

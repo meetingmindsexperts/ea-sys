@@ -90,6 +90,10 @@ describe("suppliers, catalogue, templates", () => {
     expect(d("BudgetCategory", "CREATE", { code: "AV", name: "Audio visual" })).toEqual({ title: "Category added", detail: "code AV" });
     expect(d("BudgetCategory", "ARCHIVE", { code: "AV", isActive: false })).toEqual({ title: "Category archived", detail: "code AV" });
     expect(d("BudgetCategory", "RESTORE", { code: "AV", isActive: true })).toEqual({ title: "Category restored", detail: "code AV" });
+    expect(d("BudgetCategory", "REALIGN", { source: "script", created: ["500100", "500200"], removed: ["VENUE"], productsMoved: 203, templatesRebuilt: 3 })).toEqual({
+      title: "Categories moved to the chart of accounts",
+      detail: "2 added, 1 removed, 203 products refiled",
+    });
   });
   it("templates", () => {
     expect(d("BudgetTemplate", "CREATE", { name: "Conference standard", eventType: "CONFERENCE" })).toEqual({ title: "Template created", detail: "for conference events" });

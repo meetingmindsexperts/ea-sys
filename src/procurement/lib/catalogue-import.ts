@@ -12,6 +12,7 @@
  */
 import { parseCSV, parseCSVHeaders } from "@/lib/csv-parser";
 import { BUDGET_PRODUCT_SKU_RE } from "./budget-products-seed";
+import { accountGroupCode } from "./budget-categories-seed";
 import { proposeSupplierSchema } from "./budget-schemas";
 
 export interface ImportColumn {
@@ -67,9 +68,9 @@ function readCsv(text: string): { headers: string[]; rows: string[][]; fatal?: s
 // ---------------------------------------------------------------------------
 
 export const PRODUCT_IMPORT_COLUMNS: readonly ImportColumn[] = [
-  { name: "sku", sample: "510399", required: true, hint: "the accounting key; an existing SKU is updated, a new one is created" },
+  { name: "sku", sample: "510323", required: true, hint: "the accounting key, normally the QuickBooks account number; an existing SKU is updated, a new one is created" },
   { name: "name", sample: "LED wall 6x3m", required: true },
-  { name: "category", sample: "AV", required: true, hint: "a category code from the Products page (AV, PRINT, VENUE, ...)" },
+  { name: "category", sample: "", hint: "leave blank when the SKU is an account number (it goes under its account group, 510323 under 510300); otherwise a category code from the Products page" },
   { name: "active", sample: "yes", hint: "yes or no; blank means yes" },
 ];
 
@@ -77,6 +78,7 @@ export interface ProductImportRow {
   rowNum: number;
   sku: string;
   name: string;
+  /** Blank when the file leaves it to the SKU's account group. */
   categoryCode: string;
   active: boolean;
 }
@@ -105,8 +107,8 @@ export function parseProductImport(text: string): ParsedImport<ProductImportRow>
     const name = cell(fields, index, "name");
     const categoryCode = cell(fields, index, "category").toUpperCase();
     const activeRaw = cell(fields, index, "active");
-    if (!sku || !name || !categoryCode) {
-      errors.push(`Row ${rowNum}: sku, name and category are required.`);
+    if (!sku || !name) {
+      errors.push(`Row ${rowNum}: sku and name are required.`);
       return;
     }
     if (!BUDGET_PRODUCT_SKU_RE.test(sku)) {
@@ -149,16 +151,37 @@ export interface ProductImportPlan {
   errors: string[];
 }
 
+/**
+ * The category a row files under: an account-number SKU goes under its
+ * account group when that category exists, and a different category code in
+ * the file is an error rather than a silent correction; any other SKU needs a
+ * known category code. The service applies the same rule again on write.
+ */
+function rowCategory(r: ProductImportRow, categoryByCode: Map<string, string>): { id: string } | { error: string } {
+  const group = accountGroupCode(r.sku);
+  const groupId = group ? categoryByCode.get(group) : undefined;
+  const given = r.categoryCode.trim().toUpperCase();
+  if (groupId) {
+    if (given && categoryByCode.get(given) !== groupId) return { error: `Row ${r.rowNum}: SKU ${r.sku} belongs to account group ${group}, not "${r.categoryCode}". Leave the category blank.` };
+    return { id: groupId };
+  }
+  if (!given) return { error: `Row ${r.rowNum}: SKU ${r.sku} is not an account number with a category of its own, so the category is required.` };
+  const id = categoryByCode.get(given);
+  if (!id) return { error: `Row ${r.rowNum}: unknown category code "${r.categoryCode}".` };
+  return { id };
+}
+
 export function planProductImport(rows: ProductImportRow[], existing: ExistingProduct[], categories: { id: string; code: string }[]): ProductImportPlan {
   const categoryByCode = new Map(categories.map((c) => [c.code.toUpperCase(), c.id]));
   const bySku = new Map(existing.map((p) => [p.sku, p]));
   const plan: ProductImportPlan = { creates: [], updates: [], unchanged: 0, errors: [] };
   for (const r of rows) {
-    const categoryId = categoryByCode.get(r.categoryCode.toUpperCase());
-    if (!categoryId) {
-      plan.errors.push(`Row ${r.rowNum}: unknown category code "${r.categoryCode}".`);
+    const resolved = rowCategory(r, categoryByCode);
+    if ("error" in resolved) {
+      plan.errors.push(resolved.error);
       continue;
     }
+    const categoryId = resolved.id;
     const cur = bySku.get(r.sku);
     if (!cur) {
       plan.creates.push({ rowNum: r.rowNum, sku: r.sku, name: r.name, categoryId, active: r.active });

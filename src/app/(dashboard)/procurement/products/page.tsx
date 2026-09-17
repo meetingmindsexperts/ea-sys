@@ -3,7 +3,9 @@
  * The product catalogue: the cost items a budget line is picked from, with
  * the accounting SKU. Everyone who reads budgets can read the list; an admin
  * (SUPER_ADMIN or ADMIN) adds, renames, re-categorises and archives. Items are
- * never deleted, so a line that used one keeps its link and its SKU.
+ * never deleted, so a line that used one keeps its link and its SKU. A SKU
+ * that is an account number sits under its account group, so the category
+ * field is fixed for it (the service refuses anything else).
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -13,6 +15,7 @@ import { canAdminProcurement } from "@/lib/procurement-visibility";
 import { useBudgetCategories, useBudgetProducts, useCreateBudgetProduct, useImportBudgetProducts, useUpdateBudgetProduct, type BudgetProductRow } from "@/procurement/hooks/use-procurement-api";
 import { ProcurementCsvImportDialog } from "@/procurement/components/csv-import-dialog";
 import { PRODUCT_IMPORT_COLUMNS } from "@/procurement/lib/catalogue-import";
+import { accountGroupCode } from "@/procurement/lib/budget-categories-seed";
 import { ErrorState, LoadingState } from "@/procurement/components/budget-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,7 +64,7 @@ export default function BudgetProductsPage() {
   if (products.isError) return <ErrorState title="Couldn't load the catalogue" message={(products.error as Error)?.message ?? ""} backHref="/procurement" backLabel="Budgets" />;
 
   const activeCount = (products.data ?? []).filter((p) => p.isActive).length;
-  const cats = (categories.data ?? []).filter((c) => c.isActive);
+  const cats = (categories.data ?? []).filter((c) => c.isActive && c.type === "EXPENSE");
 
   return (
     <div className="space-y-5">
@@ -143,7 +146,7 @@ export default function BudgetProductsPage() {
           open={importing}
           onOpenChange={setImporting}
           title="Import products"
-          description="One row per cost item. An existing SKU is updated (name, category, active), a new SKU is created; nothing is deleted."
+          description="One row per cost item. An existing SKU is updated (name, category, active), a new SKU is created; nothing is deleted. Leave the category blank for an account-number SKU: it goes under its account group."
           columns={PRODUCT_IMPORT_COLUMNS}
           templateFilename="products-template.csv"
           onImport={(csv) => importProducts.mutateAsync(csv)}
@@ -157,13 +160,20 @@ export default function BudgetProductsPage() {
 
 type Cat = { id: string; code: string; name: string };
 
+/** The category an account-number SKU is fixed to, when the organisation holds its group. */
+function groupCategory(sku: string, categories: Cat[]): Cat | null {
+  const group = accountGroupCode(sku);
+  return group ? categories.find((c) => c.code === group) ?? null : null;
+}
+
 function AddProductDialog({ open, onOpenChange, categories }: { open: boolean; onOpenChange: (o: boolean) => void; categories: Cat[] }) {
   const create = useCreateBudgetProduct();
   const [f, setF] = useState({ sku: "", name: "", categoryId: "" });
+  const fixed = groupCategory(f.sku, categories);
   async function save() {
-    if (!f.sku.trim() || !f.name.trim() || !f.categoryId) return toast.error("A product needs a SKU, a name and a category.");
+    if (!f.sku.trim() || !f.name.trim() || (!fixed && !f.categoryId)) return toast.error("A product needs a SKU, a name and a category.");
     try {
-      const p = await create.mutateAsync({ sku: f.sku.trim(), name: f.name.trim(), categoryId: f.categoryId });
+      const p = await create.mutateAsync({ sku: f.sku.trim(), name: f.name.trim(), categoryId: fixed ? null : f.categoryId });
       toast.success(`${p.sku} added.`);
       setF({ sku: "", name: "", categoryId: "" });
       onOpenChange(false);
@@ -183,10 +193,14 @@ function AddProductDialog({ open, onOpenChange, categories }: { open: boolean; o
           <div className="space-y-1"><Label htmlFor="pname">Name</Label><Input id="pname" value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} placeholder="What is bought" /></div>
           <div className="space-y-1">
             <Label>Category</Label>
-            <Select value={f.categoryId} onValueChange={(v) => setF((s) => ({ ...s, categoryId: v }))}>
-              <SelectTrigger><SelectValue placeholder="Pick a category" /></SelectTrigger>
-              <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>)}</SelectContent>
-            </Select>
+            {fixed ? (
+              <p className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">{`${fixed.code} · ${fixed.name}`}<span className="ml-2 text-xs text-muted-foreground">from the account number</span></p>
+            ) : (
+              <Select value={f.categoryId} onValueChange={(v) => setF((s) => ({ ...s, categoryId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Pick a category" /></SelectTrigger>
+                <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>)}</SelectContent>
+              </Select>
+            )}
           </div>
         </div>
         <DialogFooter>
@@ -206,6 +220,7 @@ function EditProductDialog({ product, onClose, categories }: { product: BudgetPr
 
 function EditProductForm({ product, onClose, categories, update }: { product: BudgetProductRow; onClose: () => void; categories: Cat[]; update: ReturnType<typeof useUpdateBudgetProduct> }) {
   const [f, setF] = useState({ name: product.name, categoryId: product.categoryId });
+  const fixed = groupCategory(product.sku, categories);
   async function save() {
     if (!f.name.trim()) return toast.error("A product needs a name.");
     try {
@@ -221,14 +236,14 @@ function EditProductForm({ product, onClose, categories, update }: { product: Bu
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{`Edit ${product.sku}`}</DialogTitle>
-          <DialogDescription>Rename the item or move it to another category. Lines that already use it are not changed.</DialogDescription>
+          <DialogDescription>{fixed ? "Rename the item. Its category follows its account number." : "Rename the item or move it to another category. Lines that already use it are not changed."}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1"><Label htmlFor="ename">Name</Label><Input id="ename" value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} /></div>
           <div className="space-y-1">
             <Label>Category</Label>
-            <Select value={f.categoryId} onValueChange={(v) => setF((s) => ({ ...s, categoryId: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select value={f.categoryId} onValueChange={(v) => setF((s) => ({ ...s, categoryId: v }))} disabled={!!fixed}>
+              <SelectTrigger title={fixed ? "Follows the account number" : undefined}><SelectValue /></SelectTrigger>
               <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>

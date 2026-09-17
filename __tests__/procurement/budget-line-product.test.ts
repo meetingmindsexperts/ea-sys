@@ -2,7 +2,9 @@
  * A budget line linked to a catalogue item: an archived or foreign product is
  * refused BEFORE any transaction, a real one lands on the created row with
  * its SKU in the audit payload, and omitting the field on an edit keeps the
- * existing link (null is the explicit unlink).
+ * existing link (null is the explicit unlink). A linked line sits under the
+ * item's category (its account group): a different category is refused before
+ * any transaction, and picking the item without a category files the line.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -54,11 +56,27 @@ describe("upsertBudgetLine with a catalogue item", () => {
   });
 
   it("stores the link on the new line and the SKU in the audit payload", async () => {
-    mockDb.budgetProduct.findFirst.mockResolvedValue({ sku: "510301" });
+    mockDb.budgetProduct.findFirst.mockResolvedValue({ sku: "510301", categoryId: "c-av" });
     const r = await upsertBudgetLine({ ...base, productId: "p-av", categoryId: "c-av", description: "Audio Video Equipment Rental", qty: 2, unitCost: 4000 });
     expect(r.ok).toBe(true);
     expect(tx.budgetLine.create.mock.calls[0][0].data).toMatchObject({ productId: "p-av", categoryId: "c-av", planned: "8000.0000" });
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ entityType: "BudgetLine", action: "CREATE", changes: expect.objectContaining({ productSku: "510301" }) }) }));
+  });
+
+  it("files the line under the item's category when none is given", async () => {
+    mockDb.budgetProduct.findFirst.mockResolvedValue({ sku: "510301", categoryId: "c-av" });
+    const r = await upsertBudgetLine({ ...base, productId: "p-av", description: "AV rental", qty: 1, unitCost: 100 });
+    expect(r.ok).toBe(true);
+    expect(tx.budgetLine.create.mock.calls[0][0].data).toMatchObject({ productId: "p-av", categoryId: "c-av" });
+    expect(mockDb.budgetCategory.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "c-av", organizationId: ORG, isActive: true, type: "EXPENSE" } }));
+  });
+
+  it("refuses a category other than the item's, on a new link and on an existing one, before any transaction", async () => {
+    mockDb.budgetProduct.findFirst.mockResolvedValue({ sku: "510301", categoryId: "c-av" });
+    expect(await upsertBudgetLine({ ...base, productId: "p-av", categoryId: "c-print", description: "AV", qty: 1, unitCost: 100 })).toMatchObject({ ok: false, code: "CATEGORY_MISMATCH" });
+    mockDb.budgetLine.findFirst.mockResolvedValue({ id: "l1", lineKey: "k1", productId: "p-av", product: { id: "p-av", sku: "510301", name: "AV" }, categoryId: "c-av", description: "AV", qty: "1", unitCost: "100", transactionCurrency: "AED", fxRateToReporting: "1", taxRatePercent: null, taxCode: null, serviceStart: null, serviceEnd: null, sortOrder: 0, isContingency: false, deletedAt: null, forecastReason: null });
+    expect(await upsertBudgetLine({ ...base, lineId: "l1", categoryId: "c-print" })).toMatchObject({ ok: false, code: "CATEGORY_MISMATCH" });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 
   it("an edit that omits the field keeps the link; null unlinks", async () => {

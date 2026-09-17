@@ -536,7 +536,7 @@ export function useBudgetProducts() {
 export function useCreateBudgetProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { sku: string; name: string; categoryId: string }) =>
+    mutationFn: (input: { sku: string; name: string; categoryId?: string | null }) =>
       send<{ product: BudgetProductRow }>("/api/procurement/products", "POST", input, "Couldn't create the product").then((r) => r.product),
     onSuccess: () => void qc.invalidateQueries({ queryKey: procurementKeys.products() }),
   });
