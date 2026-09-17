@@ -21,6 +21,8 @@ vi.mock("@/lib/audit-data-transfer", () => audit);
 
 const budgetSvc = vi.hoisted(() => ({ getBudget: vi.fn() }));
 vi.mock("@/procurement/services/budget-service", () => budgetSvc);
+const revenueSvc = vi.hoisted(() => ({ getBudgetRevenue: vi.fn() }));
+vi.mock("@/procurement/services/budget-revenue-service", () => revenueSvc);
 const productSvc = vi.hoisted(() => ({ importBudgetProducts: vi.fn() }));
 vi.mock("@/procurement/services/budget-product-service", () => productSvc);
 const supplierSvc = vi.hoisted(() => ({ importSuppliers: vi.fn() }));
@@ -47,10 +49,18 @@ const budget = {
   ],
 };
 
+const revenue = {
+  lines: [], accounts: [{ code: "430005", name: "In-House Delegate Sales", planned: "1000.0000", actual: "250.0000" }],
+  actuals: { notItemised: "0.0000", noAccount: { amount: "0.0000", products: [] }, notConverted: [], total: "250.0000", paidRegistrations: 1, wonDeals: 0 },
+  margin: { plannedRevenue: "1000.0000", plannedCost: "0.0000", plannedMargin: "1000.0000", plannedMarginPercent: "100.00", forecastRevenue: "1000.0000", forecastCost: "0.0000", forecastMargin: "1000.0000", forecastMarginPercent: "100.00", belowTarget: false },
+  targetMarginPercent: null,
+};
+
 beforeEach(() => {
   process.env.PROCUREMENT_MODULE_ENABLED = "true";
   vi.clearAllMocks();
   budgetSvc.getBudget.mockResolvedValue({ ok: true, budget });
+  revenueSvc.getBudgetRevenue.mockResolvedValue({ ok: true, value: revenue });
   productSvc.importBudgetProducts.mockResolvedValue({ created: 1, updated: 2, unchanged: 3, errors: ["Row 9: service said no"] });
   supplierSvc.importSuppliers.mockResolvedValue({ created: 1, skipped: [{ rowNum: 3, reason: "code ACME already exists (Acme)" }], errors: [] });
 });
@@ -78,7 +88,30 @@ describe("GET /api/procurement/budgets/[budgetId]/export", () => {
     expect(body).toContain("Event,HM2026");
     expect(body).toContain("AV,AV,,LED,");
     expect(budgetSvc.getBudget).toHaveBeenCalledWith(ORG, "b1");
-    expect(audit.recordExport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "EventBudget", rowCount: 1, format: "csv", organizationId: ORG, userId: "u1", role: "MEMBER", filters: expect.objectContaining({ budgetId: "b1", eventCode: "HM2026", versionNo: 2 }) }));
+    expect(audit.recordExport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "EventBudget", rowCount: 1, format: "csv", organizationId: ORG, userId: "u1", role: "MEMBER", filters: expect.objectContaining({ budgetId: "b1", eventCode: "HM2026", versionNo: 2, revenue: "included" }) }));
+  });
+  it("adds revenue and margin for a caller with finance sight, read for the same budget", async () => {
+    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    const body = await (await exportGet(exportReq(), params)).text();
+    expect(revenueSvc.getBudgetRevenue).toHaveBeenCalledWith(ORG, "b1");
+    expect(body).toContain("430005,In-House Delegate Sales,1000.00,250.00,-750.00");
+    expect(body).toContain("Margin %,100.00,100.00");
+  });
+  it("leaves revenue out, and says so, for a procurement reader without finance sight", async () => {
+    authMock.mockResolvedValue(user({ role: "CRM_USER", procurementPermissions: ["procurement.budgets.view"] }));
+    const res = await exportGet(exportReq(), params);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(revenueSvc.getBudgetRevenue).not.toHaveBeenCalled();
+    expect(body).toContain("Revenue,Not included: revenue and margin need finance access");
+    expect(body).not.toContain("430005");
+    expect(audit.recordExport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ filters: expect.objectContaining({ revenue: "omitted" }) }));
+  });
+  it("maps a revenue read that fails for a found budget to its status, and records no export", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    revenueSvc.getBudgetRevenue.mockResolvedValue({ ok: false, code: "BUDGET_NOT_FOUND", message: "nope" });
+    expect((await exportGet(exportReq(), params)).status).toBe(404);
+    expect(audit.recordExport).not.toHaveBeenCalled();
   });
   it("refuses an org-null caller and maps an unknown budget to 404", async () => {
     authMock.mockResolvedValue({ user: { id: "u2", organizationId: null, role: "REGISTRANT" } });

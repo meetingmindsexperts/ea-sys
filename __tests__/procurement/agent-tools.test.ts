@@ -7,6 +7,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const svc = vi.hoisted(() => ({ listBudgets: vi.fn(), getBudget: vi.fn() }));
 vi.mock("@/procurement/services/budget-service", () => svc);
+const revSvc = vi.hoisted(() => ({ getBudgetRevenue: vi.fn() }));
+vi.mock("@/procurement/services/budget-revenue-service", () => revSvc);
+const finance = vi.hoisted(() => ({ sees: true }));
+vi.mock("@/lib/finance-visibility", () => ({ canViewFinance: () => finance.sees }));
 const reqSvc = vi.hoisted(() => ({ listSpendRequests: vi.fn(), invalidSpendRequestStatusFilter: (s: string | undefined) => s !== undefined && !["DRAFT", "PENDING_APPROVAL", "APPROVED", "AWAITING_SUPPLIER", "CONVERTED", "REJECTED", "CANCELLED", "CLOSED", "SUBMITTED", "BUDGET_CHECKED"].includes(s) }));
 vi.mock("@/procurement/services/spend-request-service", () => reqSvc);
 const orderSvc = vi.hoisted(() => ({ listCommitments: vi.fn(), invalidCommitmentStatusFilter: (s: string | undefined) => s !== undefined && !["APPROVED", "SENT_TO_ACCOUNTING", "POSTED", "CLOSED", "CANCELLED"].includes(s) }));
@@ -21,9 +25,16 @@ function fakeServer() {
   const tools = new Map<string, Handler>();
   return { tools, server: { tool: (name: string, _d: string, _p: unknown, h: Handler) => { tools.set(name, h); } } as never };
 }
-const budget = { id: "b1", eventCode: "TW2SE26", versionNo: 1, status: "ACTIVE", reportingCurrency: "AED", plannedExpenseTotal: "36725.0000", contingencyPercent: "10", contingencyAmount: "3672.5000", taxTotalPlanned: "1836.2500", forecastTotal: "36725.0000", atRisk: false, expectedAttendance: 120, recordedAttendance: null, lines: [] };
+const budget = { id: "b1", eventCode: "TW2SE26", versionNo: 1, status: "ACTIVE", reportingCurrency: "AED", plannedExpenseTotal: "36725.0000", contingencyPercent: "10", contingencyAmount: "3672.5000", taxTotalPlanned: "1836.2500", forecastTotal: "36725.0000", atRisk: false, expectedAttendance: 120, recordedAttendance: null, plannedRevenueTotal: "50000.0000", targetMarginPercent: "30", lines: [] };
+const revenue = {
+  reportingCurrency: "AED", targetMarginPercent: "30",
+  lines: [{ lineKey: "r1", category: { code: "430005", name: "In-House Delegate Sales" }, description: "Delegates", planned: "50000.0000", transactionCurrency: "USD", fxRateToReporting: "3.6725" }],
+  accounts: [{ code: "430005", name: "In-House Delegate Sales", planned: "50000.0000", actual: "12000.0000" }],
+  actuals: { notItemised: "500.0000", noAccount: { amount: "700.0000", products: [{ productName: "Online Advertising" }] }, notConverted: [{ from: "deals", currency: "GBP", amount: "900.0000" }], total: "13200.0000", paidRegistrations: 24, wonDeals: 2 },
+  margin: { plannedRevenue: "50000.0000", plannedCost: "40397.5000", plannedMargin: "9602.5000", plannedMarginPercent: "19.21", forecastRevenue: "51200.0000", forecastCost: "40397.5000", forecastMargin: "10802.5000", forecastMarginPercent: "21.10", belowTarget: true },
+};
 
-beforeEach(() => { vi.clearAllMocks(); process.env.PROCUREMENT_MODULE_ENABLED = "true"; });
+beforeEach(() => { vi.clearAllMocks(); finance.sees = true; process.env.PROCUREMENT_MODULE_ENABLED = "true"; revSvc.getBudgetRevenue.mockResolvedValue({ ok: true, value: revenue }); });
 afterEach(() => { delete process.env.PROCUREMENT_MODULE_ENABLED; });
 
 describe("registration gate", () => {
@@ -72,6 +83,54 @@ describe("the tools", () => {
     const miss = await tools.get("get_budget")!({ budgetId: "nope" });
     expect(miss.content[0].text).toContain("Error: The budget was not found.");
     expect(svc.getBudget).toHaveBeenLastCalledWith("org-1", "nope");
+  });
+});
+
+describe("revenue and margin on the budget reads", () => {
+  it("list_budgets shows planned revenue and the target", async () => {
+    svc.listBudgets.mockResolvedValue([budget]);
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
+    const out = await tools.get("list_budgets")!({});
+    expect(out.content[0].text).toContain("planned revenue 50000.0000, target margin 30%");
+  });
+  it("get_budget adds the accounts, what sits outside them and the margin against the target", async () => {
+    svc.getBudget.mockResolvedValue({ ok: true, budget });
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "ORGANIZER", fromApiKey: false });
+    const text = (await tools.get("get_budget")!({ budgetId: "b1" })).content[0].text;
+    expect(revSvc.getBudgetRevenue).toHaveBeenCalledWith("org-1", "b1");
+    expect(text).toContain("Revenue and margin (AED, ex-VAT), actuals from 24 paid registration(s) and 2 won deal(s):");
+    expect(text).toContain("430005 In-House Delegate Sales: planned 50000.0000, actual 12000.0000");
+    expect(text).toContain("not itemised on won deals: 500.0000");
+    expect(text).toContain("products with no income account: 700.0000 (Online Advertising)");
+    expect(text).toContain("not counted, no fixed rate to AED: deals GBP 900.0000");
+    expect(text).toContain("forecast: revenue 51200.0000, cost 40397.5000, margin 10802.5000 (21.10%)");
+    expect(text).toContain("target margin 30%: forecast BELOW target");
+    expect(text).toContain("planned line: 430005 Delegates: 50000.0000 (USD at 3.6725)");
+  });
+  it("get_budget still answers with the expense side when the revenue read fails", async () => {
+    svc.getBudget.mockResolvedValue({ ok: true, budget });
+    revSvc.getBudgetRevenue.mockResolvedValue({ ok: false, code: "UNKNOWN", message: "Could not load." });
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
+    const out = await tools.get("get_budget")!({ budgetId: "b1" });
+    expect(out.isError).toBeUndefined();
+    expect(out.content[0].text).toContain("TW2SE26 v1 [ACTIVE]");
+    expect(out.content[0].text).toContain("Revenue and margin: could not be read (Could not load.).");
+  });
+  it("shows no revenue to a role without finance sight, and never reads it", async () => {
+    finance.sees = false;
+    svc.getBudget.mockResolvedValue({ ok: true, budget });
+    svc.listBudgets.mockResolvedValue([budget]);
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    const got = (await tools.get("get_budget")!({ budgetId: "b1" })).content[0].text;
+    const listed = (await tools.get("list_budgets")!({})).content[0].text;
+    expect(revSvc.getBudgetRevenue).not.toHaveBeenCalled();
+    expect(got).toContain("Revenue and margin: not shown, they need finance access.");
+    expect(got).not.toContain("50000");
+    expect(listed).not.toContain("planned revenue");
   });
 });
 

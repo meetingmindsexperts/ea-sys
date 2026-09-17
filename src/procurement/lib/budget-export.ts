@@ -6,6 +6,11 @@
  * §7). Pure so the file's shape is pinned by a test and the route only
  * streams it; the numbers come from the same view the page renders, so the
  * export cannot disagree with the screen.
+ *
+ * Revenue and margin (17 September 2026) follow the expense blocks for a
+ * caller with finance sight, from the same revenue view the budget page's
+ * Revenue and margin section reads. For anyone else the file says in one row
+ * that revenue was left out, rather than going quiet about it.
  */
 import { toCsv } from "@/lib/csv-escape";
 import { toDisplay } from "./money";
@@ -54,6 +59,50 @@ export interface ExportBudget {
   lines?: ExportLine[];
 }
 
+/**
+ * The revenue side as the budget page receives it (budget-revenue-service's
+ * BudgetRevenueView), declared structurally so this file stays pure and never
+ * imports a service.
+ */
+export interface ExportRevenue {
+  lines: {
+    lineKey: string;
+    category: { code: string; name: string };
+    description: string;
+    qty: string;
+    unitAmount: string;
+    transactionCurrency: string;
+    fxRateToReporting: string;
+    planned: string;
+    notes: string | null;
+    sortOrder: number;
+  }[];
+  accounts: { code: string; name: string; planned: string; actual: string }[];
+  actuals: {
+    notItemised: string;
+    noAccount: { amount: string; products: { productName: string }[] };
+    notConverted: { from: string; currency: string; amount: string }[];
+    total: string;
+    paidRegistrations: number;
+    wonDeals: number;
+  };
+  margin: {
+    plannedRevenue: string;
+    plannedCost: string;
+    plannedMargin: string;
+    plannedMarginPercent: string | null;
+    forecastRevenue: string;
+    forecastCost: string;
+    forecastMargin: string;
+    forecastMarginPercent: string | null;
+    belowTarget: boolean;
+  };
+  targetMarginPercent: string | null;
+}
+
+/** "hidden": the caller has no finance sight, so the file says revenue was left out. */
+export type ExportRevenueOption = ExportRevenue | "hidden";
+
 /** Two decimals, banker's rounding at the edge; an absent figure is an empty cell, never "0.00". */
 function fmt(v: string | null | undefined): string {
   if (v === null || v === undefined || v === "") return "";
@@ -93,7 +142,38 @@ export function budgetCsvColumns(reportingCurrency: string): string[] {
   ];
 }
 
-export function buildBudgetCsv(b: ExportBudget, exportedAt: Date): string {
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+function revenueRows(r: ExportRevenue, cur: string): unknown[][] {
+  const lines = [...r.lines].sort((x, y) => x.sortOrder - y.sortOrder || x.lineKey.localeCompare(y.lineKey));
+  const target = r.targetMarginPercent;
+  const unmapped = r.actuals.noAccount.products.map((p) => p.productName);
+  return [
+    [],
+    ["Revenue"],
+    ["Income account", "Account name", `Planned (${cur}, ex-VAT)`, `Actual (${cur}, ex-VAT)`, `Actual less planned (${cur})`],
+    ...r.accounts.map((a) => [a.code, a.name, fmt(a.planned), fmt(a.actual), toDisplay(a.actual).minus(toDisplay(a.planned)).toFixed(2)]),
+    ["", "Not itemised on won deals", "", fmt(r.actuals.notItemised), ""],
+    ["", "Products with no income account", "", fmt(r.actuals.noAccount.amount), unmapped.join("; ")],
+    ["", "Total", fmt(r.margin.plannedRevenue), fmt(r.actuals.total), ""],
+    ["Counted from", `${plural(r.actuals.paidRegistrations, "paid registration")}, ${plural(r.actuals.wonDeals, "won deal")}`],
+    ...r.actuals.notConverted.map((n) => [`Not counted, no fixed rate to ${cur}`, n.from, `${n.currency} ${fmt(n.amount)}`]),
+    [],
+    ["Planned revenue lines"],
+    ["Income account", "Account name", "Description", "Qty", "Unit amount", "Currency", `Rate to ${cur}`, `Planned (${cur}, ex-VAT)`, "Notes"],
+    ...lines.map((l) => [l.category.code, l.category.name, l.description, fmt(l.qty), fmt(l.unitAmount), l.transactionCurrency, l.fxRateToReporting, fmt(l.planned), l.notes ?? ""]),
+    [],
+    ["Margin", "Planned", "Forecast"],
+    [`Revenue (${cur}, ex-VAT)`, fmt(r.margin.plannedRevenue), fmt(r.margin.forecastRevenue)],
+    [`Cost (${cur}, ex-VAT, with contingency)`, fmt(r.margin.plannedCost), fmt(r.margin.forecastCost)],
+    [`Margin (${cur})`, fmt(r.margin.plannedMargin), fmt(r.margin.forecastMargin)],
+    ["Margin %", r.margin.plannedMarginPercent ?? "", r.margin.forecastMarginPercent ?? ""],
+    ["Target margin %", target ?? ""],
+    ["Forecast below target", target === null ? "" : r.margin.belowTarget ? "yes" : "no"],
+  ];
+}
+
+export function buildBudgetCsv(b: ExportBudget, exportedAt: Date, opts: { revenue?: ExportRevenueOption } = {}): string {
   const cur = b.reportingCurrency;
   const lines = [...(b.lines ?? [])].sort((x, y) => x.sortOrder - y.sortOrder || x.lineKey.localeCompare(y.lineKey));
   const contingencyPct = Number(b.contingencyPercent);
@@ -154,5 +234,8 @@ export function buildBudgetCsv(b: ExportBudget, exportedAt: Date): string {
     ["Lines", lines.length],
   ];
 
-  return toCsv([...header, ...table, ...totals]);
+  const revenue: unknown[][] =
+    opts.revenue === undefined ? [] : opts.revenue === "hidden" ? [[], ["Revenue", "Not included: revenue and margin need finance access"]] : revenueRows(opts.revenue, cur);
+
+  return toCsv([...header, ...table, ...totals, ...revenue]);
 }
