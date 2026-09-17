@@ -11,7 +11,8 @@
  *      HTML, never recipient-controlled).
  *   3. Template coverage: every default template EXCEPT the pure-transactional
  *      ones (payment-confirmation, refund-confirmation — owner decision) and
- *      certificate-bundle-delivery (rendered by the certificate token
+ *      certificate-bundle-delivery / -attendance- / -appreciation-delivery
+ *      (rendered by the certificate token
  *      pipeline, which has its own resolver) carries the token, in BOTH the
  *      html and text bodies. A new template without it fails this test —
  *      add the token or add the slug to the exclusion list deliberately.
@@ -29,6 +30,8 @@ const EXCLUDED_SLUGS = new Set([
   "payment-confirmation", // transactional — fired by the Stripe webhook, no human sender
   "refund-confirmation", // transactional
   "certificate-bundle-delivery", // rendered by the certificate cover pipeline (own token resolver)
+  "certificate-attendance-delivery", // same pipeline, one Certificate of Attendance
+  "certificate-appreciation-delivery", // same pipeline, one Certificate of Appreciation
   "document-delivery", // transactional — invoice/receipt/credit-note PDF carrier, no human sender
   "speaker-reimbursement-received", // transactional — automated submit confirmation, no human sender
 ]);

@@ -569,7 +569,7 @@ export function registerAllMcpTools(
       scheduledEmailId: z.string(),
     }},
     // ─── Certificate template writes ───
-    { name: "create_certificate_template", description: "Create a new CertificateTemplate row. v3 multi-template model — an event can have N templates per category (e.g. 'Standard Attendance', 'VIP Attendance', 'Chairman Appreciation'). backgroundPdfUrl + textBoxes are optional at create; typically uploaded + dragged via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first to get a usable /uploads/... URL. Optional emailSubject + emailBody define the default cover email — Issue dialog pre-fills from these.", params: {
+    { name: "create_certificate_template", description: "Create a new CertificateTemplate row. v3 multi-template model — an event can have N templates per category (e.g. 'Standard Attendance', 'VIP Attendance', 'Chairman Appreciation'). backgroundPdfUrl + textBoxes are optional at create; typically uploaded + dragged via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first to get a usable /uploads/... URL. Optional emailSubject + emailBody give this template its own cover email, which wins over the event's certificate Email Template; leave them unset to follow that Email Template.", params: {
       name: z.string().min(1).max(120),
       category: z.enum(["ATTENDANCE", "APPRECIATION"]),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -607,7 +607,7 @@ export function registerAllMcpTools(
       autoIssueOnSurvey: z.boolean().optional(),
       autoIssueTag: z.string().max(120).nullable().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, cover-email defaults (emailSubject / emailBody), role, cmeHours, or survey auto-issue (autoIssueOnSurvey / autoIssueTag). Pass null on email/role/cmeHours/autoIssueTag to clear. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, cover-email defaults (emailSubject / emailBody), role, cmeHours, or survey auto-issue (autoIssueOnSurvey / autoIssueTag). Pass null on email/role/cmeHours/autoIssueTag to clear (a cleared email follows the event's certificate Email Template). Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),

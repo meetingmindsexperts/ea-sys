@@ -2239,25 +2239,34 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </div>
 
       <div class="sub" id="s18-5">
-        <div class="sub-title">Cover email defaults &mdash; per template</div>
-        <p>Every cert delivered by email needs a cover message. You can set a default subject + body per template so the operator who issues doesn&rsquo;t reconfigure each time.</p>
+        <div class="sub-title">Cover email &mdash; the Email Templates, and wording for one template</div>
+        <p>Every certificate goes out with a cover email. The wording comes from <strong>Communications &rarr; Email Templates</strong>, where each event has three certificate templates:</p>
+        <ul>
+          <li><strong>Certificate Delivery (Attendance)</strong> &mdash; an email carrying one Certificate of Attendance</li>
+          <li><strong>Certificate Delivery (Appreciation)</strong> &mdash; an email carrying one Certificate of Appreciation</li>
+          <li><strong>Certificate Delivery (Multiple Certificates)</strong> &mdash; an email carrying two or more certificates</li>
+        </ul>
+        <p>Edit those once and every certificate email for the event uses your wording: the Issue tab, a certificate issued to one person, the Communications certificate send, a resend, and certificates issued automatically after the survey. They start with the standard wording, so nothing changes until you edit them.</p>
+        <p>A certificate template can also have <strong>its own wording</strong>, which then wins over the email template for that certificate only. Use this when one template needs different words, for example a speaker certificate thanking them for their talk:</p>
         <div class="steps">
           <div class="step"><div class="step-n"></div><div class="step-b">In the Templates tab, click <strong>Edit</strong> on a template</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Click the <strong>Cover email</strong> button next to Close editor (top-right of the editor card)</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Edit the <strong>Subject</strong> and <strong>Body</strong>. The body uses the same rich editor as bulk-email and event content.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Click a token from the <strong>Available tokens</strong> list to append to Subject or Body</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save defaults</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save for this template</strong></div></div>
         </div>
+        <p>The dialog says which wording the template uses today. <strong>Save for this template</strong> only switches on once you change something, so opening the dialog and saving by habit can&rsquo;t detach a template by accident. Once a template has its own wording, edits to the Email Template no longer reach it; click <strong>Use the email template instead</strong> in the same dialog to go back. The Email Template&rsquo;s own editor lists any certificate templates that use their own wording, so you can see who your edit won&rsquo;t reach.</p>
 
         <p>The cover email has its own token set (in addition to the cert text-box tokens):</p>
         <ul>
           <li><code>{{recipientName}}</code>, <code>{{eventName}}</code>, <code>{{eventDateRange}}</code>, <code>{{venueLine}}</code>, <code>{{organizationName}}</code> &mdash; same as the cert</li>
+          <li><code>{{title}}</code>, <code>{{firstName}}</code>, <code>{{lastName}}</code> &mdash; for a greeting like &ldquo;Dear {{title}} {{lastName}}&rdquo; (title is empty when none is recorded)</li>
           <li><code>{{certificateType}}</code> &mdash; expands to &ldquo;Certificate of Attendance&rdquo; or &ldquo;Certificate of Appreciation&rdquo;</li>
           <li><code>{{certificateSerial}}</code> &mdash; the cert&rsquo;s unique serial number</li>
           <li><code>{{abstractTitle}}</code> &mdash; <strong>Appreciation only</strong>. The speaker&rsquo;s accepted abstract / paper title (poster preferred when they have multiple). Empty for speakers without accepted abstracts.</li>
         </ul>
 
-        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">No defaults? No problem.</div><div class="c-text">If you skip setting cover-email defaults on a template, the Issue dialog falls back to a sensible system default (different wording for Attendance vs Appreciation). You can edit per-run at Issue time.</div></div></div>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Which wording is used</div><div class="c-text">For an email carrying one certificate: the certificate template&rsquo;s own wording if it has one, otherwise the event&rsquo;s Email Template for that type. For two or more: the Multiple Certificates template. On the Issue tab the dialog opens with that wording and you can still change it for that run only.</div></div></div>
       </div>
 
       <div class="sub" id="s18-6">

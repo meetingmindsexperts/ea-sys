@@ -3,9 +3,9 @@
 /**
  * Email-editor dialog used by the certificate Issue flow (2026-06-02
  * evening). Opens when the operator clicks "Issue N certificates" on
- * the Issue tab — pre-filled with the template's saved emailSubject /
- * emailBody, or the system default for the template's category when
- * the template has no saved override yet.
+ * the Issue tab — pre-filled by the caller with the wording that would be
+ * sent: the template's own saved cover, else the event's certificate Email
+ * Template (Communications → Email Templates).
  *
  * Two consumers:
  *  1. Issue flow — subject + body confirmed here become the run's
@@ -53,8 +53,8 @@ export interface CertEmailEditorDialogProps {
   /** Drives the token-reference dropdown filter (hides abstractTitle on
    *  ATTENDANCE templates). */
   category: CertificateType;
-  /** Pre-fill values. Caller resolves "use template default" vs "use
-   *  system default" before passing in. */
+  /** Pre-fill values, read when the dialog opens. The caller resolves which
+   *  wording applies (pickSingleCoverEmail) before passing them in. */
   initialSubject: string;
   initialBody: string;
   /** Action button label + intent. */
@@ -67,6 +67,14 @@ export interface CertEmailEditorDialogProps {
   helperText?: string;
   /** Pending state — disables Confirm + shows spinner. */
   submitting?: boolean;
+  /** A second, left-aligned footer action (the template editor's "Use the
+   *  email template", which clears the template's own wording). */
+  secondaryAction?: { label: string; onClick: () => void; disabled?: boolean };
+  /** Keep the submit button off until the subject or body is edited. The
+   *  template editor sets it when the template has no wording of its own:
+   *  saving the untouched pre-fill would copy the event's Email Template onto
+   *  the template and stop later edits there from reaching it. */
+  requireChange?: boolean;
   /** Called with the operator-confirmed subject + body. The dialog
    *  trims subject + body before calling. */
   onSubmit: (vars: { emailSubject: string; emailBody: string }) => void;
@@ -82,6 +90,8 @@ export function CertEmailEditorDialog({
   recipientCount,
   helperText,
   submitting,
+  secondaryAction,
+  requireChange,
   onSubmit,
 }: CertEmailEditorDialogProps) {
   // Local state — only persisted out on Confirm. Cancel preserves the
@@ -90,16 +100,21 @@ export function CertEmailEditorDialog({
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
 
-  // Reset local state whenever the parent re-opens with new initials.
-  // React 19 "store info from previous renders" pattern — comparing
-  // initials via concat-stable key so the seed flips on actual change.
-  const seedKey = `${initialSubject}␟${initialBody}`;
-  const [lastSeedKey, setLastSeedKey] = useState(seedKey);
-  if (seedKey !== lastSeedKey) {
-    setLastSeedKey(seedKey);
-    setSubject(initialSubject);
-    setBody(initialBody);
+  // Seed from the initials only when the dialog OPENS (React 19 "store info
+  // from previous renders"). Re-seeding whenever the initials change would
+  // replace a half-typed draft the moment a background refetch of the email
+  // templates lands (review M2, Sep 17 2026).
+  const [wasOpen, setWasOpen] = useState(open);
+  const [seeded, setSeeded] = useState({ subject: initialSubject, body: initialBody });
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setSubject(initialSubject);
+      setBody(initialBody);
+      setSeeded({ subject: initialSubject, body: initialBody });
+    }
   }
+  const changed = subject !== seeded.subject || body !== seeded.body;
 
   const tokensForCategory = useMemo(
     () => COVER_EMAIL_TOKENS.filter((t) => t.categories.includes(category)),
@@ -126,7 +141,8 @@ export function CertEmailEditorDialog({
     onSubmit({ emailSubject: subjectTrimmed, emailBody: bodyTrimmed });
   }
 
-  const disabled = submitting || subject.trim().length === 0 || body.trim().length === 0;
+  const disabled =
+    submitting || subject.trim().length === 0 || body.trim().length === 0 || (requireChange && !changed);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,6 +217,17 @@ export function CertEmailEditorDialog({
           </details>
 
           <DialogFooter>
+            {secondaryAction && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="sm:mr-auto"
+                onClick={secondaryAction.onClick}
+                disabled={submitting || secondaryAction.disabled}
+              >
+                {secondaryAction.label}
+              </Button>
+            )}
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

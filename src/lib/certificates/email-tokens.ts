@@ -10,6 +10,8 @@
  *
  * Tokens supported in the cover email body:
  *   {{recipientName}}      "Dr. Sample Attendee"
+ *   {{title}}              "Dr." (empty when none is recorded)
+ *   {{firstName}} / {{lastName}}
  *   {{eventName}}          event.name
  *   {{eventDateRange}}     "5th - 7th December 2025"
  *   {{venueLine}}          "at Conrad Dubai, UAE"
@@ -41,6 +43,74 @@ export function defaultBodyForCategory(category: CertificateType): string {
   return category === "APPRECIATION"
     ? SYSTEM_DEFAULT_BODY_APPRECIATION
     : SYSTEM_DEFAULT_BODY_ATTENDANCE;
+}
+
+// ── One-certificate emails: editable per event (2026-09-17) ──────────────────
+// The single-certificate cover emails are per-event EmailTemplates under
+// Communications → Email Templates, one per category, seeded with the
+// constants above. Which wording an email uses, field by field:
+//   1. the certificate template's own saved cover (its "Cover email" editor),
+//   2. the event's Email Template for that category,
+//   3. the constants above (only when the template lookup fails).
+
+/** Slugs of the editable one-certificate cover emails. Client-safe: the
+ *  certificates page and the bulk-email dialog pre-fill from them. */
+export const CERT_COVER_TEMPLATE_SLUGS: Record<CertificateType, string> = {
+  ATTENDANCE: "certificate-attendance-delivery",
+  APPRECIATION: "certificate-appreciation-delivery",
+};
+
+/** Their names in the Email Templates list (DEFAULT_TEMPLATES reads these). */
+export const CERT_COVER_TEMPLATE_NAMES: Record<CertificateType, string> = {
+  ATTENDANCE: "Certificate Delivery (Attendance)",
+  APPRECIATION: "Certificate Delivery (Appreciation)",
+};
+
+/**
+ * The event's cover email for `slug`, read from the Email Templates list the
+ * dashboard already fetched. Null when the row is missing or switched off,
+ * which is what the server does too: it then uses the built-in text.
+ */
+export function eventCoverFromTemplateList(
+  rows: ReadonlyArray<{ slug: string; isActive: boolean; subject: string; htmlContent: string }> | undefined,
+  slug: string,
+): { subject: string; body: string } | null {
+  const row = rows?.find((t) => t.slug === slug && t.isActive);
+  return row ? { subject: row.subject, body: row.htmlContent } : null;
+}
+
+/**
+ * The cover email for an email carrying ONE certificate. Pure, so the send,
+ * the previews and the dashboard pre-fills cannot disagree. `eventCover` is
+ * the event's Email Template for the category (null when it could not be
+ * loaded). A template that saved only one half keeps the other half from the
+ * next source down, as it always has.
+ */
+export function pickSingleCoverEmail(
+  template: {
+    category: CertificateType;
+    emailSubject?: string | null;
+    emailBody?: string | null;
+  },
+  eventCover: { subject: string; body: string } | null,
+): { subject: string; body: string } {
+  const subjectFallback = eventCover?.subject?.trim().length ? eventCover.subject : SYSTEM_DEFAULT_SUBJECT;
+  const bodyFallback = eventCover?.body?.trim().length
+    ? eventCover.body
+    : defaultBodyForCategory(template.category);
+  return {
+    subject: template.emailSubject?.trim().length ? template.emailSubject : subjectFallback,
+    body: template.emailBody?.trim().length ? template.emailBody : bodyFallback,
+  };
+}
+
+/** True when the certificate template carries its own saved cover email, so
+ *  edits to the event's Email Template do not reach it. */
+export function hasOwnCoverEmail(template: {
+  emailSubject?: string | null;
+  emailBody?: string | null;
+}): boolean {
+  return Boolean(template.emailSubject?.trim().length || template.emailBody?.trim().length);
 }
 
 // ── Multi-certificate (bundle) defaults ──────────────────────────────────────
@@ -89,6 +159,9 @@ export interface EmailTokenSpec {
 
 export const COVER_EMAIL_TOKENS: EmailTokenSpec[] = [
   { token: "{{recipientName}}", description: "Full attendee/speaker name (with title prefix)", categories: ["ATTENDANCE", "APPRECIATION"] },
+  { token: "{{title}}", description: "Title only, e.g. Dr. (empty when none is recorded)", categories: ["ATTENDANCE", "APPRECIATION"] },
+  { token: "{{firstName}}", description: "First name", categories: ["ATTENDANCE", "APPRECIATION"] },
+  { token: "{{lastName}}", description: "Last name", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{eventName}}", description: "Event name", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{eventDateRange}}", description: "Event date range (e.g. 5th - 7th December 2025)", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{venueLine}}", description: "Venue + city + country, prefixed with 'at'", categories: ["ATTENDANCE", "APPRECIATION"] },

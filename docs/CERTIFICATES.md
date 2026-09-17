@@ -226,6 +226,7 @@ in-PDF set:
 | Extra token | Meaning |
 |---|---|
 | `{{organizationName}}` | org.name |
+| `{{title}}` / `{{firstName}}` / `{{lastName}}` | Name parts; `title` is the display label ("Dr."), empty when none (Sep 17, 2026) |
 | `{{certificateType}}` | "Certificate of Attendance" / "Certificate of Appreciation" |
 | `{{certificateSerial}}` | The cert's unique serial number |
 | `{{abstractTitle}}` | APPRECIATION-only: speaker's accepted abstract title (POSTER preferred) |
@@ -615,6 +616,59 @@ an organizer edits it.
   lastName, eventName, eventDateRange, eventDate, eventVenue, venueLine,
   organizationName, certificateList, certificateSerial, certificateType) —
   documented in `TEMPLATE_VARIABLES["certificate-bundle-delivery"]`.
+
+## One-certificate cover emails are editable templates too (Sep 17, 2026)
+
+Owner request: the default single-certificate email belonged under Email
+Templates, not only inside the certificate editor. Two more per-event system
+EmailTemplates, seeded with the previous hardcoded wording (imported from
+`email-tokens.ts`, not copied, so the seed cannot drift):
+`certificate-attendance-delivery` ("Certificate Delivery (Attendance)") and
+`certificate-appreciation-delivery` ("Certificate Delivery (Appreciation)").
+
+- **Precedence, field by field** — `pickSingleCoverEmail(template,
+  eventCover)` in [email-tokens.ts](../src/lib/certificates/email-tokens.ts),
+  pure and client-safe: the certificate template's own saved cover →
+  the event's Email Template for the category → the built-in constants
+  (lookup failure only). An operator's per-run override still wins above all.
+- **Server** — `resolveSingleCoverEmail(eventId, template)` and
+  `loadCategoryCoverEmailTemplate` in [bundle.ts](../src/lib/certificates/bundle.ts),
+  plus `resolveDefaultCoverEmail(eventId, certCount, category, template?)`,
+  which picks by how many certificates the email carries and is shared by
+  "Resend all", its preview, `issueCertificateBundle` and the Issue worker's
+  fallback for a run with no snapshot. Wired into every one-certificate path:
+  `issueSingleCertificate`, `reRenderAndResendCert`, both resend previews,
+  `buildCertCoverEmailPreview`, and `coverEmailFor` in bulk-issue.ts (both
+  categories loaded once per batch). "Resend all" for someone holding one
+  certificate passes that certificate's template, so its own wording is kept
+  exactly as "Resend latest version" keeps it (review M1).
+- **Dashboard** — `eventCoverFromTemplateList` reads the same rows from the
+  Email Templates list: the Issue dialog pre-fill, the per-template cover
+  editor pre-fill, and the bulk-email dialog's "Cover email" source picker.
+  The per-template editor says whether the template has its own wording
+  and offers **Use the email template instead** (PATCH both fields to null).
+  A manual run freezes whatever its dialog showed, so the Issue and Cover
+  email buttons wait for the Email Templates list, a failed load says so in
+  the dialog, the dialog seeds its fields only when it opens (a background
+  refetch no longer replaces a draft), and on a template with no wording of
+  its own **Save for this template** stays off until something is changed
+  (review M2). The bulk-email dialog's certificate-wording options wait for
+  the same list.
+- **Email Templates editor note** — on the two new templates,
+  [cover-template-override-note.tsx](../src/components/certificates/cover-template-override-note.tsx)
+  lists the certificate templates that use their own wording, since edits
+  there do not reach them (review M4).
+- **Known trap this addresses** — the editor used to pre-fill with the
+  built-in text, so opening it and saving copied that text into the
+  template, which then silently overrides the Email Template. Production on
+  Sep 17 had 8 of 9 templates with a saved cover (2 of them byte-equal
+  copies of the built-in text on a test event).
+- **`{{title}}` fix** — the certificate resolver did not know `{{title}}`,
+  so OSH Monthly Meeting 2026's saved "Dear {{title}} {{lastName}}" went out
+  as "Dear  Al Olama,". It now resolves, and `sendCertificateBundleEmail`
+  loads the recipient once (`completeRecipientNameParts`) when the wording
+  uses a name part the caller did not pass: the Issue worker's run items
+  keep only the full name, so that path would have printed "Dear ,".
 
 ## Preview-before-resend + sent-email audit copy (July 10, 2026)
 

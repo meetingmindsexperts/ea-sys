@@ -56,7 +56,12 @@ vi.mock("@/lib/certificates/pdf-loader", () => ({
   loadCertificatePdfBytes: (url: string) => mockLoadPdf(url),
 }));
 vi.mock("@/lib/certificates/email-tokens-resolver", () => ({
-  resolveCoverEmailTokens: (tpl: string) => Promise.resolve(tpl),
+  // Passthrough, except the name parts, so the sender's own lookup of a
+  // recipient's title/name is observable in the sent email.
+  resolveCoverEmailTokens: (tpl: string, ctx: Record<string, unknown>) =>
+    Promise.resolve(
+      tpl.replace(/\{\{(title|firstName|lastName)\}\}/g, (_m, key: string) => String(ctx?.[key] ?? "")),
+    ),
 }));
 vi.mock("@/lib/certificates/cert-context", () => ({
   loadRecipient: (r: string | null, s: string | null) => mockLoadRecipient(r, s),
@@ -288,6 +293,49 @@ describe("sendCertificateBundleEmail", () => {
     });
   });
 
+  it("loads the recipient's title and name when the wording uses them and the caller only had the full name", async () => {
+    // The Issue worker's run items keep only recipientName; a "Dear {{title}}
+    // {{lastName}}" greeting used to render as "Dear ,".
+    mockLoadRecipient.mockResolvedValue({ ...RECIPIENT, title: "DR" });
+    await sendCertificateBundleEmail({
+      ...SEND_ARGS,
+      emailBodyTemplate: "<p>Dear {{title}} {{lastName}},</p>",
+      certs: [cert("ATT-1", "ATTENDANCE")],
+    });
+    expect(mockLoadRecipient).toHaveBeenCalledWith("reg-1", "spk-1");
+    expect(mockSend.mock.calls[0][0].htmlContent).toContain("Dear Dr. Doe,");
+  });
+
+  it("still sends with what the caller had when looking the recipient up fails", async () => {
+    mockLoadRecipient.mockRejectedValue(new Error("pool timeout"));
+    const res = await sendCertificateBundleEmail({
+      ...SEND_ARGS,
+      recipientLastName: "Doe",
+      emailBodyTemplate: "<p>Dear {{title}} {{lastName}},</p>",
+      certs: [cert("ATT-1", "ATTENDANCE")],
+    });
+    expect(res.success).toBe(true);
+    expect(mockSend.mock.calls[0][0].htmlContent).toContain("Dear  Doe,");
+    const { apiLogger } = await import("@/lib/logger");
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "cert-bundle:recipient-name-load-failed", registrationId: "reg-1" }),
+    );
+  });
+
+  it("does not look the recipient up when the wording uses no name part, or the caller passed them", async () => {
+    await sendCertificateBundleEmail({ ...SEND_ARGS, certs: [cert("ATT-1", "ATTENDANCE")] });
+    await sendCertificateBundleEmail({
+      ...SEND_ARGS,
+      emailBodyTemplate: "<p>Dear {{title}} {{lastName}},</p>",
+      recipientFirstName: "Jane",
+      recipientLastName: "Doe",
+      recipientTitle: null,
+      certs: [cert("ATT-1", "ATTENDANCE")],
+    });
+    expect(mockLoadRecipient).not.toHaveBeenCalled();
+    expect(mockSend.mock.calls[1][0].htmlContent).toContain("Dear  Doe,");
+  });
+
   it("anchors a pure-attendance bundle on the registration", async () => {
     await sendCertificateBundleEmail({ ...SEND_ARGS, certs: [cert("ATT-1", "ATTENDANCE")] });
     expect(mockSend.mock.calls[0][0].logContext).toMatchObject({ entityType: "REGISTRATION", entityId: "reg-1" });
@@ -352,6 +400,23 @@ describe("buildCertCoverEmailPreview", () => {
     const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_APP] });
     expect(res?.subject).toContain("Your {{certificateType}}");
     expect(res?.htmlContent).toContain("{{abstractTitle}}"); // appreciation default body
+  });
+
+  it("single template without a saved cover uses the event's Email Template for its category", async () => {
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Org-edited appreciation subject",
+      htmlContent: "<p>Org-edited appreciation</p>",
+      textContent: "",
+      branding: {},
+    });
+    const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_APP] });
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-appreciation-delivery");
+    expect(res?.subject).toBe("Org-edited appreciation subject");
+    // A template with its own saved cover never reads the event template.
+    mockGetEventTemplate.mockClear();
+    const own = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] });
+    expect(own?.subject).toBe("Sub");
+    expect(mockGetEventTemplate).not.toHaveBeenCalled();
   });
 
   it("multiple templates → multi (bundle) system default", async () => {

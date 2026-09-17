@@ -15,6 +15,7 @@ const {
   mockLoadPdf,
   mockResolveEmail,
   mockLoadRecipient,
+  mockResolveCover,
 } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -27,6 +28,7 @@ const {
   mockLoadPdf: vi.fn(),
   mockResolveEmail: vi.fn(),
   mockLoadRecipient: vi.fn(),
+  mockResolveCover: vi.fn(),
 }));
 
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -43,14 +45,9 @@ vi.mock("@/lib/certificates/bundle", () => ({
   buildPersonCertificateWhere: (...a: unknown[]) => mockBuildWhere(...a),
   sendCertificateBundleEmail: (args: unknown) => mockBundleSend(args),
   resolveRecipientEmail: (...a: unknown[]) => mockResolveEmail(...a),
-}));
-vi.mock("@/lib/certificates/deliver", () => ({
   // Template-aware cover resolution is unit-tested in certificates-deliver;
-  // here the route just needs A cover to hand to the (mocked) sender.
-  resolveResendBundleCover: vi.fn().mockResolvedValue({
-    subject: "Your certificates",
-    body: "<p>Multi {{certificateList}}</p>",
-  }),
+  // here the route hands its arguments over and gets A cover back.
+  resolveDefaultCoverEmail: (...a: unknown[]) => mockResolveCover(...a),
 }));
 vi.mock("@/lib/certificates/pdf-loader", () => ({
   loadCertificatePdfBytes: (url: string) => mockLoadPdf(url),
@@ -95,6 +92,7 @@ beforeEach(() => {
   mockResolveEmail.mockResolvedValue("jane@x.com");
   mockLoadRecipient.mockResolvedValue({ fullName: "Dr. Jane Doe" });
   mockBundleSend.mockResolvedValue({ success: true, messageId: "m1" });
+  mockResolveCover.mockResolvedValue({ subject: "Your certificates", body: "<p>Multi {{certificateList}}</p>" });
 });
 
 describe("POST /certificates/issued/resend-bundle", () => {
@@ -118,6 +116,28 @@ describe("POST /certificates/issued/resend-bundle", () => {
         data: expect.objectContaining({ resendCount: { increment: 1 } }),
       }),
     );
+  });
+
+  it("hands one remaining certificate's template to the cover resolver, so its own wording is kept (review M1)", async () => {
+    mockLoadPdf.mockImplementation((url: string) =>
+      url.includes("/1.pdf") ? Promise.reject(new Error("ENOENT")) : Promise.resolve(Buffer.from("%PDF")),
+    );
+    mockDb.issuedCertificate.findMany.mockResolvedValue([
+      CERTS[0],
+      { ...CERTS[1], certificateTemplate: { name: "Speaker", emailSubject: "Thank you for your talk", emailBody: "<p>Thanks</p>" } },
+    ]);
+    await post({ registrationId: "reg-1" });
+    // The skipped cert's template must not be the one passed: the sent cert's is.
+    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 1, "APPRECIATION", {
+      name: "Speaker",
+      emailSubject: "Thank you for your talk",
+      emailBody: "<p>Thanks</p>",
+    });
+  });
+
+  it("passes no template when several certificates go out", async () => {
+    await post({ registrationId: "reg-1" });
+    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 2, "ATTENDANCE", null);
   });
 
   it("skips an unloadable PDF but sends the rest", async () => {

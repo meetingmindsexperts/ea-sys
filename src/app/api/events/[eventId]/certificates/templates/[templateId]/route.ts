@@ -43,8 +43,9 @@ const patchSchema = z.object({
     }),
   textBoxes: certificateTextBoxesSchema.optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
-  // Per-template default cover email — patches independently of the
-  // visual fields. Pass null to clear (reverts to system default).
+  // Per-template cover email — patches independently of the visual fields.
+  // Pass null to clear: the template then follows the event's certificate
+  // Email Template for its category.
   emailSubject: z.string().min(1).max(200).nullable().optional(),
   emailBody: z.string().min(1).max(10000).nullable().optional(),
   // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).

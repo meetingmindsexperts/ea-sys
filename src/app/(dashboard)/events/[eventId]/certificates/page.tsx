@@ -84,11 +84,14 @@ import type { CertificateTextBox } from "@/components/certificates/certificate-c
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
 import { AutoIssueAnalyticsCard } from "@/components/certificates/auto-issue-analytics-card";
 import {
-  SYSTEM_DEFAULT_SUBJECT,
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
   CERT_BUNDLE_COVER_TEMPLATE_SLUG,
-  defaultBodyForCategory,
+  CERT_COVER_TEMPLATE_SLUGS,
+  CERT_COVER_TEMPLATE_NAMES,
+  eventCoverFromTemplateList,
+  hasOwnCoverEmail,
+  pickSingleCoverEmail,
 } from "@/lib/certificates/email-tokens";
 import { useEmailTemplates } from "@/hooks/use-api";
 
@@ -372,19 +375,24 @@ export default function CertificatesPage() {
     APPRECIATION: templates.filter((t) => t.category === "APPRECIATION"),
   };
 
-  // The event's editable bundle cover email (Communications → Email
-  // Templates) — pre-fills the Issue dialog for multi-template runs so the
-  // operator starts from the same content the other bundle senders use.
-  const { data: emailTemplatesData } = useEmailTemplates(eventId);
-  const bundleCoverTemplate =
-    (
-      (emailTemplatesData?.templates ?? []) as Array<{
-        slug: string;
-        subject: string;
-        htmlContent: string;
-        isActive: boolean;
-      }>
-    ).find((t) => t.slug === CERT_BUNDLE_COVER_TEMPLATE_SLUG && t.isActive) ?? null;
+  // The event's editable cover emails (Communications → Email Templates) —
+  // pre-fill the Issue dialog and the per-template cover editor so the
+  // operator starts from the same wording the senders resolve: the bundle
+  // template for multi-template runs, the category template for one.
+  const emailTemplatesQuery = useEmailTemplates(eventId);
+  const emailTemplateRows = emailTemplatesQuery.data?.templates as
+    | Array<{ slug: string; subject: string; htmlContent: string; isActive: boolean }>
+    | undefined;
+  // Until the list arrives the dialogs would pre-fill with the built-in text,
+  // and a manual run freezes whatever the dialog showed (review M2), so the
+  // buttons that open them wait. A failed load says so in the dialog instead.
+  const coverTemplatesLoading = emailTemplatesQuery.isPending;
+  const coverTemplatesNotice = emailTemplatesQuery.isError
+    ? " The event's Email Templates could not be loaded, so this shows the built-in wording."
+    : "";
+  const bundleCoverTemplate = eventCoverFromTemplateList(emailTemplateRows, CERT_BUNDLE_COVER_TEMPLATE_SLUG);
+  const eventCoverFor = (category: CertCategory) =>
+    eventCoverFromTemplateList(emailTemplateRows, CERT_COVER_TEMPLATE_SLUGS[category]);
 
   const createTemplateMutation = useMutation({
     mutationFn: async (vars: { name: string; category: CertCategory }) => {
@@ -1177,6 +1185,8 @@ export default function CertificatesPage() {
                     <Button
                       variant="outline"
                       onClick={() => setTmplEmailDialogOpen(true)}
+                      disabled={coverTemplatesLoading}
+                      title={coverTemplatesLoading ? "Loading the event's email templates…" : undefined}
                     >
                       <Mail className="h-4 w-4 mr-1" />
                       Cover email
@@ -1996,8 +2006,9 @@ export default function CertificatesPage() {
                           <Button
                             onClick={() => {
                               // Issue click opens the cover-email confirmation
-                              // (editable subject/body, pre-filled from the single
-                              // template's saved cover email or the bundle default).
+                              // (editable subject/body, pre-filled with the wording
+                              // that applies: see pickSingleCoverEmail / the bundle
+                              // Email Template).
                               // The mutation fires from that dialog's confirm.
                               if (issueTemplateIds.length === 0) return;
                               setEmailDialogOpen(true);
@@ -2005,7 +2016,8 @@ export default function CertificatesPage() {
                             disabled={
                               eligibilityQuery.data.peopleCount === 0 ||
                               issueMutation.isPending ||
-                              !!activeRunId
+                              !!activeRunId ||
+                              coverTemplatesLoading
                             }
                           >
                             {issueMutation.isPending ? (
@@ -2330,29 +2342,60 @@ export default function CertificatesPage() {
           editor card's "Cover email" button. PATCHes the template
           row's emailSubject + emailBody (the Issue dialog later
           pre-fills from these). */}
-      {editingTemplate && (
-        <CertEmailEditorDialog
-          open={tmplEmailDialogOpen}
-          onOpenChange={setTmplEmailDialogOpen}
-          category={editingTemplate.category}
-          initialSubject={editingTemplate.emailSubject ?? SYSTEM_DEFAULT_SUBJECT}
-          initialBody={
-            editingTemplate.emailBody ?? defaultBodyForCategory(editingTemplate.category)
-          }
-          submitLabel="Save defaults"
-          helperText={`Defaults for the "${editingTemplate.name}" template. These pre-fill the Issue dialog every time you issue from this template. Operators can still tweak per-run.`}
-          submitting={updateTemplateMutation.isPending}
-          onSubmit={({ emailSubject, emailBody }) => {
-            updateTemplateMutation.mutate(
-              {
-                templateId: editingTemplate.id,
-                patch: { emailSubject, emailBody },
-              },
-              { onSuccess: () => setTmplEmailDialogOpen(false) },
-            );
-          }}
-        />
-      )}
+      {editingTemplate && (() => {
+        // Pre-filled with the wording this template sends today: its own
+        // saved cover, else the event's Email Template for its category.
+        const cover = pickSingleCoverEmail(editingTemplate, eventCoverFor(editingTemplate.category));
+        const ownWording = hasOwnCoverEmail(editingTemplate);
+        const emailTemplateName = CERT_COVER_TEMPLATE_NAMES[editingTemplate.category];
+        return (
+          <CertEmailEditorDialog
+            open={tmplEmailDialogOpen}
+            onOpenChange={setTmplEmailDialogOpen}
+            category={editingTemplate.category}
+            initialSubject={cover.subject}
+            initialBody={cover.body}
+            submitLabel="Save for this template"
+            helperText={
+              (ownWording
+                ? `"${editingTemplate.name}" has its own cover email, so edits to Communications → Email Templates → ${emailTemplateName} do not reach it. It pre-fills the Issue dialog; operators can still change it per run.`
+                : `"${editingTemplate.name}" uses Communications → Email Templates → ${emailTemplateName}. To give this template its own wording, change it here and save; it then wins over that email template.`) +
+              coverTemplatesNotice
+            }
+            submitting={updateTemplateMutation.isPending}
+            requireChange={!ownWording}
+            secondaryAction={
+              ownWording
+                ? {
+                    label: "Use the email template instead",
+                    onClick: () =>
+                      updateTemplateMutation.mutate(
+                        {
+                          templateId: editingTemplate.id,
+                          patch: { emailSubject: null, emailBody: null },
+                        },
+                        {
+                          onSuccess: () => {
+                            toast.success(`"${editingTemplate.name}" now uses ${emailTemplateName}`);
+                            setTmplEmailDialogOpen(false);
+                          },
+                        },
+                      ),
+                  }
+                : undefined
+            }
+            onSubmit={({ emailSubject, emailBody }) => {
+              updateTemplateMutation.mutate(
+                {
+                  templateId: editingTemplate.id,
+                  patch: { emailSubject, emailBody },
+                },
+                { onSuccess: () => setTmplEmailDialogOpen(false) },
+              );
+            }}
+          />
+        );
+      })()}
 
       {/* Issue confirmation — an EDITABLE cover email (bundle model). One
           template selected → pre-filled from its saved cover email; several →
@@ -2369,16 +2412,13 @@ export default function CertificatesPage() {
         // cover template (Communications → Email Templates) — same source
         // the other bundle senders resolve — falling back to the hardcoded
         // default while the templates list hasn't loaded.
-        const initialSubject = single
-          ? single.emailSubject?.trim().length
-            ? single.emailSubject
-            : SYSTEM_DEFAULT_SUBJECT
+        const singleCover = single ? pickSingleCoverEmail(single, eventCoverFor(single.category)) : null;
+        const initialSubject = singleCover
+          ? singleCover.subject
           : (bundleCoverTemplate?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI);
-        const initialBody = single
-          ? single.emailBody?.trim().length
-            ? single.emailBody
-            : defaultBodyForCategory(single.category)
-          : (bundleCoverTemplate?.htmlContent ?? SYSTEM_DEFAULT_BODY_MULTI);
+        const initialBody = singleCover
+          ? singleCover.body
+          : (bundleCoverTemplate?.body ?? SYSTEM_DEFAULT_BODY_MULTI);
         const count = eligibilityQuery.data?.peopleCount ?? 0;
         return (
           <CertEmailEditorDialog
@@ -2390,11 +2430,12 @@ export default function CertificatesPage() {
             submitLabel="Issue & send"
             recipientCount={count}
             helperText={
-              single
+              (single
                 ? `Sent to everyone receiving "${single.name}", with the certificate PDF attached. Tokens resolve per recipient.`
                 : `Sent ONCE per person with every earned certificate attached (${selected
                     .map((t) => t.name)
-                    .join(", ")}). {{certificateList}} lists each person's certs; recipients may get 1–${selected.length} PDFs depending on their tags.`
+                    .join(", ")}). {{certificateList}} lists each person's certs; recipients may get 1–${selected.length} PDFs depending on their tags.`) +
+              coverTemplatesNotice
             }
             submitting={issueMutation.isPending}
             onSubmit={({ emailSubject, emailBody }) => {

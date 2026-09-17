@@ -136,3 +136,25 @@ describe("resolveCoverEmailTokens — email-template compat tokens", () => {
     expect(out).toBe("xx");
   });
 });
+
+describe("resolveCoverEmailTokens — name parts (Sep 17, 2026)", () => {
+  // OSH Monthly Meeting 2026's saved cover greets "Dear {{title}} {{lastName}}";
+  // {{title}} was not a certificate token, so it went out as "Dear  Al Olama,".
+  it("resolves {{title}} alongside {{lastName}}", async () => {
+    const out = await resolveCoverEmailTokens("Dear {{title}} {{lastName}},", {
+      ...baseCtx,
+      title: "Dr.",
+      firstName: "Hessa",
+      lastName: "Al Olama",
+    });
+    expect(out).toBe("Dear Dr. Al Olama,");
+  });
+
+  it("resolves {{title}} to nothing (not an unknown-token warning) when none is recorded", async () => {
+    const { apiLogger } = await import("@/lib/logger");
+    vi.mocked(apiLogger.warn).mockClear();
+    const out = await resolveCoverEmailTokens("[{{title}}]", { ...baseCtx, title: null });
+    expect(out).toBe("[]");
+    expect(apiLogger.warn).not.toHaveBeenCalled();
+  });
+});

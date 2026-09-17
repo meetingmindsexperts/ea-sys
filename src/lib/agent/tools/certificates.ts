@@ -210,9 +210,10 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     textBoxes = v;
   }
 
-  // Optional cover-email defaults. Both nullable — when null the Issue
-  // dialog falls back to the per-category system default. min(1) when
-  // set so a template doesn't carry an empty string.
+  // Optional cover-email wording. Both nullable — when null the email uses
+  // the event's certificate Email Template for the category (Communications →
+  // Email Templates). min(1) when set so a template doesn't carry an empty
+  // string.
   let emailSubject: string | null = null;
   let emailBody: string | null = null;
   if (input.emailSubject !== undefined && input.emailSubject !== null) {
@@ -375,7 +376,8 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     }
     data.sortOrder = input.sortOrder;
   }
-  // Cover-email defaults — pass null to clear back to system default.
+  // Cover-email wording — pass null to go back to the event's certificate
+  // Email Template for the category.
   if (input.emailSubject !== undefined) {
     if (input.emailSubject === null) {
       data.emailSubject = null;
@@ -685,7 +687,7 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_certificate_template",
     description:
-      "Create a new certificate template. Organizer-defined name + ATTENDANCE/APPRECIATION category. Returns the new template id. backgroundPdfUrl and textBoxes are optional at create time; the operator typically uploads the PDF + drags boxes via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first. Optional emailSubject + emailBody define the default cover email — when set, the Issue dialog pre-fills from these; when null the dialog falls back to the per-category system default.",
+      "Create a new certificate template. Organizer-defined name + ATTENDANCE/APPRECIATION category. Returns the new template id. backgroundPdfUrl and textBoxes are optional at create time; the operator typically uploads the PDF + drags boxes via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first. Optional emailSubject + emailBody give this template its own cover email, which wins over the event's certificate Email Template (Communications → Email Templates → Certificate Delivery (Attendance / Appreciation)); leave them unset to follow that Email Template.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -738,7 +740,7 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "update_certificate_template",
     description:
-      "Patch a specific template by id — change name, background PDF, text box positions, sort order, or cover-email defaults. Partial: only fields you include get updated; others preserved. Pass null for emailSubject or emailBody to clear back to the system default. Category is immutable post-create (would invalidate IssuedCertificate audit rows). Find templateIds via list_certificate_templates.",
+      "Patch a specific template by id — change name, background PDF, text box positions, sort order, or cover-email defaults. Partial: only fields you include get updated; others preserved. Pass null for emailSubject or emailBody to drop the template's own wording and follow the event's certificate Email Template for the category. Category is immutable post-create (would invalidate IssuedCertificate audit rows). Find templateIds via list_certificate_templates.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -759,11 +761,11 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
         },
         emailSubject: {
           type: ["string", "null"],
-          description: "Default cover-email subject (max 200 chars). Null clears back to system default.",
+          description: "This template's own cover-email subject (max 200 chars). Null follows the event's certificate Email Template.",
         },
         emailBody: {
           type: ["string", "null"],
-          description: "Default cover-email body in Tiptap HTML (max 10000 chars). Null clears back to system default.",
+          description: "This template's own cover-email body in Tiptap HTML (max 10000 chars). Null follows the event's certificate Email Template.",
         },
         role: {
           type: ["string", "null"],

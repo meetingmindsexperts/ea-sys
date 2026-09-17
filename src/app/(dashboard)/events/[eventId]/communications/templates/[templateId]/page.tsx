@@ -42,6 +42,7 @@ import {
   useDeleteEmailTemplate,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { CertificateCoverOverrideNote } from "@/components/certificates/cover-template-override-note";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { toast } from "sonner";
 import { stripDocumentWrapper } from "@/lib/email-utils";
@@ -306,6 +307,7 @@ export default function EmailTemplateEditorPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         {/* Editor */}
         <div className="space-y-4">
+          <CertificateCoverOverrideNote eventId={eventId} slug={template.slug} />
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Template Settings</CardTitle>

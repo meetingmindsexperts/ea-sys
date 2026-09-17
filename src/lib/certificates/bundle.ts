@@ -29,6 +29,7 @@ import type { CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { escapeHtml } from "@/lib/html";
+import { getTitleLabel } from "@/lib/utils";
 import {
   sendEmail,
   wrapWithBranding,
@@ -45,11 +46,12 @@ import {
   type CoverEmailTokenContext,
 } from "./email-tokens-resolver";
 import {
-  SYSTEM_DEFAULT_SUBJECT,
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
   CERT_BUNDLE_COVER_TEMPLATE_SLUG,
-  defaultBodyForCategory,
+  CERT_COVER_TEMPLATE_SLUGS,
+  defaultCoverEmailFor,
+  pickSingleCoverEmail,
 } from "./email-tokens";
 import {
   loadEventContext,
@@ -609,6 +611,84 @@ export interface BundleEmailEvent {
   organization: { name: string };
 }
 
+/** Loads one of the event's editable certificate cover emails. Null only on
+ *  a genuine lookup failure (getEventTemplate already falls back to the
+ *  seeded default), so callers then use the hardcoded constants. */
+async function loadCoverEmailTemplateBySlug(
+  eventId: string,
+  slug: string,
+): Promise<{ subject: string; body: string } | null> {
+  try {
+    const tpl = await getEventTemplate(eventId, slug);
+    if (!tpl) return null;
+    return { subject: tpl.subject, body: tpl.htmlContent };
+  } catch (err) {
+    apiLogger.warn({
+      err,
+      msg: "cert-cover:template-load-failed",
+      eventId,
+      slug,
+      hint: "Falling back to the hardcoded cover-email default.",
+    });
+    return null;
+  }
+}
+
+/**
+ * The event's EDITABLE one-certificate cover email for a category —
+ * `certificate-attendance-delivery` / `certificate-appreciation-delivery`
+ * (Communications → Email Templates, Sep 17 2026). A certificate template's
+ * own saved cover still wins over it; see pickSingleCoverEmail.
+ */
+export async function loadCategoryCoverEmailTemplate(
+  eventId: string,
+  category: CertificateType,
+): Promise<{ subject: string; body: string } | null> {
+  return loadCoverEmailTemplateBySlug(eventId, CERT_COVER_TEMPLATE_SLUGS[category]);
+}
+
+/**
+ * The cover email for an email carrying ONE certificate: the template's own
+ * saved cover, then the event's Email Template for its category, then the
+ * built-in text. Every one-certificate sender and preview goes through here
+ * or through pickSingleCoverEmail with a batch-loaded event cover.
+ */
+export async function resolveSingleCoverEmail(
+  eventId: string,
+  template: { category: CertificateType; emailSubject?: string | null; emailBody?: string | null },
+): Promise<{ subject: string; body: string }> {
+  const ownSubject = Boolean(template.emailSubject?.trim().length);
+  const ownBody = Boolean(template.emailBody?.trim().length);
+  // Both halves saved on the template: the event template is never read.
+  const eventCover =
+    ownSubject && ownBody ? null : await loadCategoryCoverEmailTemplate(eventId, template.category);
+  return pickSingleCoverEmail(template, eventCover);
+}
+
+/**
+ * The cover email when no operator override applies, by how many
+ * certificates the email carries: one → resolveSingleCoverEmail (the
+ * template's own wording when the caller knows the template, else the event's
+ * Email Template for the category); several → the event's bundle template →
+ * the built-in multi text. Shared by "Resend all", its preview, and the
+ * worker's fallback for a run with no snapshot, so they cannot drift.
+ */
+export async function resolveDefaultCoverEmail(
+  eventId: string,
+  certCount: number,
+  primaryCategory: CertificateType,
+  singleTemplate?: { emailSubject?: string | null; emailBody?: string | null } | null,
+): Promise<{ subject: string; body: string }> {
+  if (certCount > 1) {
+    return (await loadBundleCoverEmailTemplate(eventId)) ?? defaultCoverEmailFor(certCount, primaryCategory);
+  }
+  return resolveSingleCoverEmail(eventId, {
+    category: primaryCategory,
+    emailSubject: singleTemplate?.emailSubject,
+    emailBody: singleTemplate?.emailBody,
+  });
+}
+
 /**
  * The event's EDITABLE bundle cover email — the `certificate-bundle-delivery`
  * EmailTemplate (Communications → Email Templates). `getEventTemplate` falls
@@ -621,19 +701,7 @@ export interface BundleEmailEvent {
 export async function loadBundleCoverEmailTemplate(
   eventId: string,
 ): Promise<{ subject: string; body: string } | null> {
-  try {
-    const tpl = await getEventTemplate(eventId, CERT_BUNDLE_COVER_TEMPLATE_SLUG);
-    if (!tpl) return null;
-    return { subject: tpl.subject, body: tpl.htmlContent };
-  } catch (err) {
-    apiLogger.warn({
-      err,
-      msg: "cert-bundle:cover-template-load-failed",
-      eventId,
-      hint: "Falling back to the hardcoded bundle cover-email default.",
-    });
-    return null;
-  }
+  return loadCoverEmailTemplateBySlug(eventId, CERT_BUNDLE_COVER_TEMPLATE_SLUG);
 }
 
 /** The event fields the bundle email needs — batch callers load this once
@@ -658,6 +726,56 @@ export async function loadBundleEmailEvent(eventId: string): Promise<BundleEmail
   });
 }
 
+const NAME_PART_TOKEN_RE = /\{\{(title|firstName|lastName)\}\}/;
+
+/**
+ * Some send paths know only the recipient's full name: the Issue worker's run
+ * items snapshot `recipientName` alone. A greeting like "Dear {{title}}
+ * {{lastName}}" then rendered as "Dear ," (OSH Monthly Meeting 2026 sent
+ * "Dear  Al Olama," with the title missing). When the cover email uses a name
+ * part the caller did not supply, load the person once. Costs no query when
+ * the wording does not use them or the caller already passed them.
+ */
+async function completeRecipientNameParts(args: {
+  recipientFirstName?: string | null;
+  recipientLastName?: string | null;
+  recipientTitle?: string | null;
+  registrationId: string | null;
+  speakerId: string | null;
+  emailSubjectTemplate: string;
+  emailBodyTemplate: string;
+  eventId: string;
+}): Promise<{ firstName: string | null; lastName: string | null; title: string | null }> {
+  const supplied = {
+    firstName: args.recipientFirstName ?? null,
+    lastName: args.recipientLastName ?? null,
+    title: args.recipientTitle ?? null,
+  };
+  const missing =
+    args.recipientFirstName == null || args.recipientLastName == null || args.recipientTitle === undefined;
+  const usesNameParts = NAME_PART_TOKEN_RE.test(`${args.emailSubjectTemplate}${args.emailBodyTemplate}`);
+  if (!missing || !usesNameParts || (!args.registrationId && !args.speakerId)) return supplied;
+  try {
+    const recipient = await loadRecipient(args.registrationId, args.speakerId);
+    if (!recipient) return supplied;
+    return {
+      firstName: supplied.firstName ?? recipient.firstName,
+      lastName: supplied.lastName ?? recipient.lastName,
+      title: args.recipientTitle === undefined ? recipient.title : supplied.title,
+    };
+  } catch (err) {
+    // The email still goes out with what the caller had.
+    apiLogger.warn({
+      err,
+      msg: "cert-bundle:recipient-name-load-failed",
+      eventId: args.eventId,
+      registrationId: args.registrationId,
+      speakerId: args.speakerId,
+    });
+    return supplied;
+  }
+}
+
 /**
  * Render the cover email CONTENT for a bundle send — subject, branded
  * wrapped HTML, and the plain-text body — WITHOUT sending anything. The
@@ -671,6 +789,8 @@ export async function renderBundleEmailContent(args: {
   recipientName: string;
   recipientFirstName?: string | null;
   recipientLastName?: string | null;
+  /** The Title enum value (e.g. "DR"), or null when none is recorded. */
+  recipientTitle?: string | null;
   /** Speaker id when the bundle carries an APPRECIATION cert — drives the
    *  {{abstractTitle}} lookup. */
   speakerId: string | null;
@@ -688,6 +808,7 @@ export async function renderBundleEmailContent(args: {
     recipientName: args.recipientName,
     firstName: args.recipientFirstName,
     lastName: args.recipientLastName,
+    title: getTitleLabel(args.recipientTitle),
     eventName: event.name,
     eventStartDate: event.startDate,
     eventEndDate: event.endDate,
@@ -706,6 +827,7 @@ export async function renderBundleEmailContent(args: {
     recipientName: escapeHtml(tokenCtx.recipientName),
     firstName: tokenCtx.firstName ? escapeHtml(tokenCtx.firstName) : tokenCtx.firstName,
     lastName: tokenCtx.lastName ? escapeHtml(tokenCtx.lastName) : tokenCtx.lastName,
+    title: tokenCtx.title ? escapeHtml(tokenCtx.title) : tokenCtx.title,
     eventName: escapeHtml(tokenCtx.eventName),
     organizationName: escapeHtml(tokenCtx.organizationName),
     venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
@@ -756,6 +878,9 @@ export async function sendCertificateBundleEmail(args: {
    *  Issue worker snapshots only the full recipientName. */
   recipientFirstName?: string | null;
   recipientLastName?: string | null;
+  /** Title enum value, or null when none is recorded. Leave undefined when
+   *  the caller does not know it: the sender loads it (see below). */
+  recipientTitle?: string | null;
   registrationId: string | null;
   speakerId: string | null;
   certs: BundleEmailCert[];
@@ -787,11 +912,13 @@ export async function sendCertificateBundleEmail(args: {
   const event = args.event ?? (await loadBundleEmailEvent(args.eventId));
   if (!event) return { success: false, error: "Event not found" };
 
+  const names = await completeRecipientNameParts(args);
   const { subject, wrappedHtml, bodyText, branding } = await renderBundleEmailContent({
     eventId: args.eventId,
     recipientName: args.recipientName,
-    recipientFirstName: args.recipientFirstName,
-    recipientLastName: args.recipientLastName,
+    recipientFirstName: names.firstName,
+    recipientLastName: names.lastName,
+    recipientTitle: names.title,
     speakerId: args.speakerId,
     certs: args.certs,
     emailSubjectTemplate: args.emailSubjectTemplate,
@@ -864,17 +991,15 @@ export async function buildCertCoverEmailPreview(args: {
   if (!event) return null;
 
   // Subject/body precedence — mirror coverEmailFor (bulk-issue.ts): custom
-  // override → single template's saved cover → category/multi system default.
+  // override → single template's saved cover → the event's Email Template for
+  // the category (or the bundle one for several) → built-in default.
   const primary = args.templates[0];
   let subjectTemplate: string;
   let bodyTemplate: string;
   if (args.templates.length === 1) {
-    subjectTemplate = primary.emailSubject?.trim().length
-      ? primary.emailSubject
-      : SYSTEM_DEFAULT_SUBJECT;
-    bodyTemplate = primary.emailBody?.trim().length
-      ? primary.emailBody
-      : defaultBodyForCategory(primary.category);
+    const cover = await resolveSingleCoverEmail(args.eventId, primary);
+    subjectTemplate = cover.subject;
+    bodyTemplate = cover.body;
   } else {
     // 2+ certs → the event's editable bundle cover template (same source
     // the real send uses), hardcoded default as the safety net.
@@ -896,6 +1021,7 @@ export async function buildCertCoverEmailPreview(args: {
     recipientName: "Dr. Sample Attendee",
     firstName: "Sample",
     lastName: "Attendee",
+    title: "Dr.",
     eventName: event.name,
     eventStartDate: event.startDate,
     eventEndDate: event.endDate,

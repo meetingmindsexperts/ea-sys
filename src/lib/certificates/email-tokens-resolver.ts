@@ -3,7 +3,7 @@
  * kept out of the client-bundle path. Pairs with the client-safe
  * `email-tokens.ts` (constants + token spec).
  *
- * Resolves the 8 tokens documented in email-tokens.ts. Unknown tokens
+ * Resolves the tokens documented in email-tokens.ts. Unknown tokens
  * render empty + emit a structured warn so a typo'd token shows up in
  * /logs at warn level rather than silently on every email. Per the
  * always-log-failures contract.
@@ -35,6 +35,9 @@ export interface CoverEmailTokenContext {
    */
   firstName?: string | null;
   lastName?: string | null;
+  /** Display label ("Dr."), not the Title enum. Backs `{{title}}`, which
+   *  organizers use in "Dear {{title}} {{lastName}}" greetings. */
+  title?: string | null;
   eventName: string;
   eventStartDate: Date;
   eventEndDate: Date;
@@ -187,6 +190,7 @@ export async function resolveCoverEmailTokens(
     // parts (manual Issue runs snapshot only the full name).
     firstName: ctx.firstName?.trim() || ctx.recipientName,
     lastName: ctx.lastName?.trim() || "",
+    title: ctx.title?.trim() || "",
     eventName: ctx.eventName,
     eventDateRange: formatDateRange(ctx.eventStartDate, ctx.eventEndDate),
     // Aliases matching the EmailTemplate variable names.

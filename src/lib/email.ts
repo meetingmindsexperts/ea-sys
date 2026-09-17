@@ -22,6 +22,12 @@ import juice from "juice";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
+import {
+  SYSTEM_DEFAULT_SUBJECT as CERT_SINGLE_DEFAULT_SUBJECT,
+  SYSTEM_DEFAULT_BODY_ATTENDANCE as CERT_ATTENDANCE_DEFAULT_BODY,
+  SYSTEM_DEFAULT_BODY_APPRECIATION as CERT_APPRECIATION_DEFAULT_BODY,
+  CERT_COVER_TEMPLATE_NAMES,
+} from "./certificates/email-tokens";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatEventDateRange, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
@@ -1398,8 +1404,40 @@ export function eventLocationVars(event: {
 // ── Available template variables per slug ──────────────────────────────────────
 
 export const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
+  "certificate-attendance-delivery": [
+    { key: "recipientName", description: "Recipient full name with title (e.g. Dr. Jane Doe)" },
+    { key: "title", description: "Recipient title only, e.g. Dr. (empty when none is recorded)" },
+    { key: "firstName", description: "Recipient first name" },
+    { key: "lastName", description: "Recipient last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDateRange", description: "Event date range (e.g. 17th - 19th June 2026)" },
+    { key: "eventDate", description: "Event start date (formatted)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "venueLine", description: "\"at Venue, City, Country\" line (empty when no venue)" },
+    { key: "organizationName", description: "Organization name" },
+    { key: "certificateType", description: "Certificate of Attendance" },
+    { key: "certificateSerial", description: "The certificate's serial number" },
+    { key: "certificateList", description: "One line with the certificate label and serial" },
+  ],
+  "certificate-appreciation-delivery": [
+    { key: "recipientName", description: "Recipient full name with title (e.g. Dr. Jane Doe)" },
+    { key: "title", description: "Recipient title only, e.g. Dr. (empty when none is recorded)" },
+    { key: "firstName", description: "Recipient first name" },
+    { key: "lastName", description: "Recipient last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDateRange", description: "Event date range (e.g. 17th - 19th June 2026)" },
+    { key: "eventDate", description: "Event start date (formatted)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "venueLine", description: "\"at Venue, City, Country\" line (empty when no venue)" },
+    { key: "organizationName", description: "Organization name" },
+    { key: "certificateType", description: "Certificate of Appreciation" },
+    { key: "certificateSerial", description: "The certificate's serial number" },
+    { key: "certificateList", description: "One line with the certificate label and serial" },
+    { key: "abstractTitle", description: "The speaker's accepted abstract title (poster preferred); empty when none" },
+  ],
   "certificate-bundle-delivery": [
     { key: "recipientName", description: "Recipient full name with title (e.g. Dr. Jane Doe)" },
+    { key: "title", description: "Recipient title only, e.g. Dr. (empty when none is recorded)" },
     { key: "firstName", description: "Recipient first name" },
     { key: "lastName", description: "Recipient last name" },
     { key: "eventName", description: "Event name" },
@@ -2713,6 +2751,55 @@ Thank you for completing the post-event survey for {{eventName}}. Your feedback 
 — The {{eventName}} team
 
 {{organizerSignature}}`,
+  },
+
+  {
+    slug: "certificate-attendance-delivery",
+    name: CERT_COVER_TEMPLATE_NAMES.ATTENDANCE,
+    // The cover email for an email carrying ONE Certificate of Attendance
+    // (Sep 17, 2026, owner request: the default belongs under Email
+    // Templates, not only inside the certificate editor). A certificate
+    // template's own saved cover still wins over this; see
+    // pickSingleCoverEmail in certificates/email-tokens.ts. The subject and
+    // body ARE the previous hardcoded default, imported rather than copied,
+    // so nothing changes until an organizer edits this template. Tokens
+    // resolve per recipient through the certificate cover-email resolver,
+    // which does not know {{organizerSignature}}, so it is left out.
+    subject: CERT_SINGLE_DEFAULT_SUBJECT,
+    htmlContent: CERT_ATTENDANCE_DEFAULT_BODY,
+    textContent: `Your {{certificateType}} — {{eventName}}
+
+Dear {{recipientName}},
+
+We are pleased to share your {{certificateType}} for {{eventName}} ({{eventDateRange}}), attached as a PDF.
+
+Certificate serial: {{certificateSerial}}
+
+Thank you for attending.
+
+Best regards,
+{{organizationName}}`,
+  },
+
+  {
+    slug: "certificate-appreciation-delivery",
+    name: CERT_COVER_TEMPLATE_NAMES.APPRECIATION,
+    // The APPRECIATION counterpart of the template above (speakers, chairs,
+    // committee). Same precedence and same imported default.
+    subject: CERT_SINGLE_DEFAULT_SUBJECT,
+    htmlContent: CERT_APPRECIATION_DEFAULT_BODY,
+    textContent: `Your {{certificateType}} — {{eventName}}
+
+Dear {{recipientName}},
+
+Thank you for your contribution to {{eventName}} ({{eventDateRange}}). Please find your {{certificateType}} attached.
+
+{{abstractTitle}}
+
+Certificate serial: {{certificateSerial}}
+
+Best regards,
+{{organizationName}}`,
   },
 
   {

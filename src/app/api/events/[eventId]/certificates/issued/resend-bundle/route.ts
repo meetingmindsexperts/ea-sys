@@ -36,11 +36,11 @@ import {
   buildPersonCertificateWhere,
   sendCertificateBundleEmail,
   resolveRecipientEmail,
+  resolveDefaultCoverEmail,
   type BundleEmailCert,
 } from "@/lib/certificates/bundle";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
 import { loadRecipient } from "@/lib/certificates/cert-context";
-import { resolveResendBundleCover } from "@/lib/certificates/deliver";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -139,7 +139,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           serial: true,
           type: true,
           pdfUrl: true,
-          certificateTemplate: { select: { name: true } },
+          certificateTemplate: { select: { name: true, emailSubject: true, emailBody: true } },
         },
       }),
     );
@@ -197,6 +197,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // per-row reissue is the repair path — this action replays, not repairs).
     const bundle: BundleEmailCert[] = [];
     const sentCertIds: string[] = [];
+    // The template behind each cert that made it into the email, in order: a
+    // one-certificate resend keeps that template's own cover wording.
+    const sentTemplates: Array<{ emailSubject: string | null; emailBody: string | null } | null> = [];
     for (const cert of certs) {
       try {
         const pdfBuffer = await loadCertificatePdfBytes(cert.pdfUrl!, {
@@ -211,6 +214,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           pdfBuffer,
         });
         sentCertIds.push(cert.id);
+        sentTemplates.push(cert.certificateTemplate);
       } catch (err) {
         apiLogger.warn({
           err,
@@ -239,11 +243,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // 2+ certs → the event's editable bundle cover template; the shared
-    // resolver keeps this send byte-identical to its preview.
+    // 2+ certs → the event's editable bundle cover template; one cert → its
+    // template's own wording, else the event's Email Template for the
+    // category. The shared resolver keeps this send identical to its preview.
     // tenancy: cover-template read runs inside the session org.
     const cover = await runWithTenant(orgId, () =>
-      resolveResendBundleCover(p.eventId, bundle.length, bundle[0].type),
+      resolveDefaultCoverEmail(
+        p.eventId,
+        bundle.length,
+        bundle[0].type,
+        bundle.length === 1 ? sentTemplates[0] : null,
+      ),
     );
     const send = await runWithTenant(orgId, () =>
       sendCertificateBundleEmail({
@@ -253,6 +263,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         recipientName: recipient?.fullName ?? "Certificate recipient",
         recipientFirstName: recipient?.firstName ?? null,
         recipientLastName: recipient?.lastName ?? null,
+        recipientTitle: recipient?.title ?? null,
         registrationId: linkedRegistrationId,
         speakerId: linkedSpeakerId,
         certs: bundle,

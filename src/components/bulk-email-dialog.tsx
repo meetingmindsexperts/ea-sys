@@ -48,7 +48,11 @@ import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { formatSessionRole } from "@/lib/session-enums";
 import { stripDocumentWrapper } from "@/lib/email-utils";
-import { defaultCoverEmailFor } from "@/lib/certificates/email-tokens";
+import {
+  CERT_COVER_TEMPLATE_SLUGS,
+  eventCoverFromTemplateList,
+  pickSingleCoverEmail,
+} from "@/lib/certificates/email-tokens";
 import {
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -453,16 +457,20 @@ export function BulkEmailDialog({
   // dropdown for every recipient type and on the Communications page. Inactive
   // and system templates are excluded (the latter are already covered by the
   // built-in options above).
-  const { data: templatesData } = useEmailTemplates(eventId, open);
-  const customTemplates = (
-    (templatesData?.templates ?? []) as Array<{
-      slug: string;
-      name: string;
-      isActive: boolean;
-      subject: string;
-      htmlContent: string;
-    }>
-  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
+  const templatesQuery = useEmailTemplates(eventId, open);
+  const templatesData = templatesQuery.data;
+  // Copying a certificate template's wording needs the event's Email Templates
+  // to fill a half it did not save; until they load, those options wait
+  // (review M2) rather than copying the built-in text into the send.
+  const certCoverSourcesReady = templatesQuery.isSuccess;
+  const allTemplateRows = (templatesData?.templates ?? []) as Array<{
+    slug: string;
+    name: string;
+    isActive: boolean;
+    subject: string;
+    htmlContent: string;
+  }>;
+  const customTemplates = allTemplateRows.filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
 
   const emailTypes: EmailTypeOption[] = [
     ...getEmailTypes(recipientType),
@@ -560,13 +568,16 @@ export function BulkEmailDialog({
     }
     if (value.startsWith("cert:")) {
       const t = certTemplateOptions.find((x) => x.id === value.slice(5));
-      if (!t) return;
-      // A template may have saved only one half of the cover — fall back to
-      // the category system default for the missing half, mirroring what
-      // the real send would use.
-      const fallback = defaultCoverEmailFor(1, t.category);
-      setCustomSubject(t.emailSubject?.trim() || fallback.subject);
-      setCustomMessage(t.emailBody?.trim() || fallback.body);
+      if (!t || !certCoverSourcesReady) return;
+      // The wording this template sends today: its own saved cover, with the
+      // event's Email Template for its category filling any missing half —
+      // the same rule the real send uses (pickSingleCoverEmail).
+      const cover = pickSingleCoverEmail(
+        t,
+        eventCoverFromTemplateList(allTemplateRows, CERT_COVER_TEMPLATE_SLUGS[t.category]),
+      );
+      setCustomSubject(cover.subject.trim());
+      setCustomMessage(cover.body.trim());
       return;
     }
     if (value.startsWith("tpl:")) {
@@ -935,7 +946,7 @@ export function BulkEmailDialog({
                     <div>
                       <div className="font-medium">Certificate default</div>
                       <div className="text-xs text-muted-foreground">
-                        Each template&apos;s saved cover email (or the system default) — leave subject/message blank
+                        Each template&apos;s own cover email, else the event&apos;s certificate Email Template — leave subject/message blank
                       </div>
                     </div>
                   </SelectItem>
@@ -946,7 +957,7 @@ export function BulkEmailDialog({
                         (t.emailSubject?.trim() || t.emailBody?.trim()),
                     )
                     .map((t) => (
-                      <SelectItem key={`cert:${t.id}`} value={`cert:${t.id}`}>
+                      <SelectItem key={`cert:${t.id}`} value={`cert:${t.id}`} disabled={!certCoverSourcesReady}>
                         <div>
                           <div className="font-medium">{t.name}</div>
                           <div className="text-xs text-muted-foreground">
@@ -973,6 +984,13 @@ export function BulkEmailDialog({
                 {"{{certificateList}}"} and {"{{certificateSerial}}"} resolve per
                 recipient; unknown tokens render blank.
               </p>
+              {templatesQuery.isError && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  The event&apos;s Email Templates could not be loaded, so a certificate
+                  template&apos;s wording can&apos;t be copied here. Leaving the subject and
+                  message blank still sends the right wording.
+                </p>
+              )}
             </div>
           )}
 

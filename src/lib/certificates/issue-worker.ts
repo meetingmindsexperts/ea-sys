@@ -46,10 +46,9 @@ import {
   loadBundleEmailEvent,
   loadCertTemplate,
   findOrIssueCertificate,
-  loadBundleCoverEmailTemplate,
+  resolveDefaultCoverEmail,
   collectRunItemCertRows,
 } from "./bundle";
-import { defaultCoverEmailFor } from "./email-tokens";
 import type { CertificateData, CertificateTemplate } from "./types";
 import {
   loadEventContext,
@@ -719,7 +718,7 @@ async function processSendPhase(
       emailSubject: true,
       emailBody: true,
       triggeredByUserId: true,
-      certificateTemplate: { select: { name: true } },
+      certificateTemplate: { select: { name: true, emailSubject: true, emailBody: true } },
     },
   });
   if (!runRow) {
@@ -738,23 +737,25 @@ async function processSendPhase(
   });
   const organizationIdForLog = eventForOrg?.organizationId ?? null;
   // Cover-email fallback when the run carries no snapshot (legacy + auto
-  // runs, e.g. a survey-gated multi-template auto bundle whose emailSubject/
-  // emailBody are null). M4: for a MULTI-template bundle, consult the
-  // organizer-editable `certificate-bundle-delivery` template FIRST — every
-  // other send path (deliver.resolveResendBundleCover, bulk-issue, preview)
-  // does; the worker send phase was the one path still hardcoding
-  // SYSTEM_DEFAULT_*_MULTI, so an edited bundle cover was silently ignored on
-  // auto-issued bundles. A single-template run keeps the category default
-  // (its own saved cover already rode in as the run snapshot when set).
+  // runs, e.g. a survey-gated auto run whose emailSubject/emailBody are
+  // null). Same resolver as "Resend all": several templates → the
+  // organizer-editable bundle template; one → that template's own wording,
+  // else the event's Email Template for its category. Only read when the
+  // snapshot is missing a half, so a manual run costs no template lookup.
   const bundleCount = runRow.templateIds.length || 1;
-  const fallbackCover =
-    bundleCount > 1
-      ? (await loadBundleCoverEmailTemplate(eventId)) ?? defaultCoverEmailFor(bundleCount, runRow.type)
-      : defaultCoverEmailFor(bundleCount, runRow.type);
+  const snapshotComplete = Boolean(runRow.emailSubject?.trim().length && runRow.emailBody?.trim().length);
+  const fallbackCover = snapshotComplete
+    ? null
+    : await resolveDefaultCoverEmail(
+        eventId,
+        bundleCount,
+        runRow.type,
+        bundleCount === 1 ? runRow.certificateTemplate : null,
+      );
   const emailSubjectTemplate =
-    runRow.emailSubject?.trim().length ? runRow.emailSubject : fallbackCover.subject;
+    runRow.emailSubject?.trim().length ? runRow.emailSubject : (fallbackCover?.subject ?? "");
   const emailBodyTemplate =
-    runRow.emailBody?.trim().length ? runRow.emailBody : fallbackCover.body;
+    runRow.emailBody?.trim().length ? runRow.emailBody : (fallbackCover?.body ?? "");
 
   // Rendered-but-not-emailed items. Keyed on renderedAt + errorPhase (not
   // the legacy issuedCertificateId pointer) because a bundle item whose

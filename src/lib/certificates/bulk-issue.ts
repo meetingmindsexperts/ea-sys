@@ -26,7 +26,7 @@
  * BulkEmailResult shape.
  */
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -34,16 +34,16 @@ import {
   sendCertificateBundleEmail,
   loadBundleEmailEvent,
   loadBundleCoverEmailTemplate,
+  loadCategoryCoverEmailTemplate,
   type BundleCert,
   type LoadedCertTemplate,
 } from "./bundle";
 import { selectAutoIssueTargets } from "./auto-issue";
 import { formatRecipientName } from "./cert-context";
 import {
-  SYSTEM_DEFAULT_SUBJECT,
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
-  defaultBodyForCategory,
+  pickSingleCoverEmail,
 } from "./email-tokens";
 import { resolveLinkedRegistration, resolveLinkedSpeaker } from "@/lib/activity-feed";
 
@@ -147,21 +147,28 @@ async function resolvePersonFacets(
   };
 }
 
+/** Event cover emails loaded ONCE per batch: the bundle template and the
+ *  one-certificate template per category (null = lookup failed). */
+export interface BatchCoverEmails {
+  bundle: { subject: string; body: string } | null;
+  byCategory: Record<CertificateType, { subject: string; body: string } | null>;
+}
+
 /** Cover email for one recipient's bundle: custom override → single
- *  template's saved cover email → the event's editable bundle template
- *  (loaded once per batch by the caller) → category/multi system default. */
-function coverEmailFor(
+ *  template's saved cover email → the event's Email Template for that
+ *  category, or the bundle template for several → built-in default. */
+export function coverEmailFor(
   bundled: Array<{ template: LoadedCertTemplate }>,
-  bundleCover: { subject: string; body: string } | null,
+  covers: BatchCoverEmails,
   customSubject?: string,
   customMessage?: string,
 ): { subject: string; body: string } {
   let subject: string;
   let body: string;
+  const bundleCover = covers.bundle;
   if (bundled.length === 1) {
     const t = bundled[0].template;
-    subject = t.emailSubject?.trim().length ? t.emailSubject : SYSTEM_DEFAULT_SUBJECT;
-    body = t.emailBody?.trim().length ? t.emailBody : defaultBodyForCategory(t.category);
+    ({ subject, body } = pickSingleCoverEmail(t, covers.byCategory[t.category]));
   } else {
     subject = bundleCover?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI;
     body = bundleCover?.body ?? SYSTEM_DEFAULT_BODY_MULTI;
@@ -212,10 +219,18 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   }
 
   const event = await loadBundleEmailEvent(eventId);
-  // The event's editable bundle cover email — loaded ONCE per batch (not per
-  // recipient); multi-cert bundles use it, single-cert emails keep the
-  // certificate template's own saved cover.
-  const bundleCover = await loadBundleCoverEmailTemplate(eventId);
+  // The event's editable cover emails — loaded ONCE per batch (not per
+  // recipient): the bundle one for multi-cert emails, one per category for
+  // single-cert emails whose template has no saved cover of its own.
+  const [bundleCover, attendanceCover, appreciationCover] = await Promise.all([
+    loadBundleCoverEmailTemplate(eventId),
+    loadCategoryCoverEmailTemplate(eventId, "ATTENDANCE"),
+    loadCategoryCoverEmailTemplate(eventId, "APPRECIATION"),
+  ]);
+  const covers: BatchCoverEmails = {
+    bundle: bundleCover,
+    byCategory: { ATTENDANCE: attendanceCover, APPRECIATION: appreciationCover },
+  };
   if (!event) {
     // The caller already verified the event exists — this is a mid-send
     // deletion race. Fail the whole batch rather than emailing per-recipient.
@@ -396,7 +411,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       return { ok: false, error: `Certificates could not be issued — ${templateFailures.join("; ")}` };
     }
 
-    const cover = coverEmailFor(bundled, bundleCover, customSubject, customMessage);
+    const cover = coverEmailFor(bundled, covers, customSubject, customMessage);
     const send = await sendCertificateBundleEmail({
       eventId,
       organizationId: organizationId ?? null,
@@ -404,6 +419,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       recipientName: formatRecipientName(recipient.title ?? null, recipient.firstName, recipient.lastName),
       recipientFirstName: recipient.firstName,
       recipientLastName: recipient.lastName,
+      recipientTitle: recipient.title,
       registrationId: facets.registrationId,
       speakerId: facets.speakerId,
       certs: bundled.map((b) => ({

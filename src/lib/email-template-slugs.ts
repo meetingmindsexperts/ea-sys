@@ -13,6 +13,8 @@
  * Leaf module: no imports, safe for any bundle.
  */
 export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
+  "certificate-attendance-delivery",
+  "certificate-appreciation-delivery",
   "certificate-bundle-delivery",
   "document-delivery",
   "registration-confirmation",
@@ -81,6 +83,8 @@ export function isCustomTemplateSlug(slug: string): boolean {
  */
 const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   "certificate-delivery": "Certificate",
+  "certificate-attendance-delivery": "Certificate (attendance)",
+  "certificate-appreciation-delivery": "Certificate (appreciation)",
   "certificate-bundle-delivery": "Certificate (bundle)",
   "document-delivery": "Document Delivery",
   "custom-notification": "Custom Email",
