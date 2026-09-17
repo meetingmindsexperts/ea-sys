@@ -16,7 +16,8 @@
  * repair path); revoked certs are never sent.
  *
  * Cover email: the event's editable "Certificate Delivery (Multiple
- * Certificates)" template for 2+ certs (system default as fallback);
+ * Certificates)" template for 2+ certs; for one, that template's own wording
+ * or the event's certificate Email Template (resolveDefaultCoverEmail);
  * {{certificateList}} enumerates the attached certs — with multiple certs
  * there is no single frozen run snapshot that could apply.
  *
@@ -261,8 +262,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: event.organizationId,
         recipientEmail,
         recipientName: recipient?.fullName ?? "Certificate recipient",
-        recipientFirstName: recipient?.firstName ?? null,
-        recipientLastName: recipient?.lastName ?? null,
+        // "" rather than null when the lookup above found nobody, so the
+        // sender does not repeat that same lookup.
+        recipientFirstName: recipient?.firstName ?? "",
+        recipientLastName: recipient?.lastName ?? "",
         recipientTitle: recipient?.title ?? null,
         registrationId: linkedRegistrationId,
         speakerId: linkedSpeakerId,

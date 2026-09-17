@@ -707,9 +707,9 @@ async function processSendPhase(
   eventId: string,
 ): Promise<RunTickResult> {
   // Load the run row to read the snapshotted email subject + body the
-  // operator confirmed at Issue time. Falls back to system defaults
-  // when missing — covers legacy runs created before the email-
-  // editor feature shipped.
+  // operator confirmed at Issue time. When missing (auto runs, and legacy
+  // runs from before the email editor), falls back through
+  // resolveDefaultCoverEmail below.
   const runRow = await db.certificateIssueRun.findUnique({
     where: { id: runId },
     select: {
@@ -944,6 +944,8 @@ async function processReissuePhase(
     // reissue run ever exists.
     actorUserId: triggeredByUserId ?? null,
     source: "bulk",
+    // The category cover email is read once for this batch, not per item.
+    coverEmailCache: new Map(),
   };
 
   let emailed = 0;

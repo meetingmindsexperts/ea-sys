@@ -9,6 +9,7 @@ import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
+import { buildCertCoverTemplatePreview } from "@/lib/certificates/bundle";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
 interface RouteParams {
@@ -246,9 +247,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // recipient's personal link (src/lib/survey/invitation-link.ts).
     const previewTemplate =
       template.slug === "survey-invitation" ? ensurePersonalSurveyLink(template).template : template;
-    const renderedBody = renderTemplate(previewTemplate.htmlContent, sampleVars);
-    const renderedSubject = renderTemplatePlain(previewTemplate.subject, sampleVars);
-    const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, branding));
+    // The certificate cover templates are rendered by the certificate
+    // resolver, whose tokens format differently from the generic samples, so
+    // they preview and test-send the way a real certificate email renders.
+    const certPreview = await buildCertCoverTemplatePreview({
+      eventId,
+      slug: template.slug,
+      subject: previewTemplate.subject,
+      htmlContent: previewTemplate.htmlContent,
+    });
+    const renderedSubject = certPreview?.subject ?? renderTemplatePlain(previewTemplate.subject, sampleVars);
+    const wrappedHtml =
+      certPreview?.htmlContent ??
+      inlineCss(wrapWithBranding(renderTemplate(previewTemplate.htmlContent, sampleVars), branding));
 
     if (action === "test") {
       // Send test email to current user

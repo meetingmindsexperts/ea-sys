@@ -27,6 +27,7 @@ import {
   SYSTEM_DEFAULT_BODY_ATTENDANCE as CERT_ATTENDANCE_DEFAULT_BODY,
   SYSTEM_DEFAULT_BODY_APPRECIATION as CERT_APPRECIATION_DEFAULT_BODY,
   CERT_COVER_TEMPLATE_NAMES,
+  CERT_BUNDLE_COVER_TEMPLATE_NAME,
 } from "./certificates/email-tokens";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatEventDateRange, resolveTimezone } from "./event-time";
@@ -2804,7 +2805,7 @@ Best regards,
 
   {
     slug: "certificate-bundle-delivery",
-    name: "Certificate Delivery (Multiple Certificates)",
+    name: CERT_BUNDLE_COVER_TEMPLATE_NAME,
     // The cover email for any send carrying 2+ certificate PDFs in ONE email
     // (per-person Issue multi-select, Communications certificate send, survey
     // auto-issue bundles; the Issue-tab multi-run dialog pre-fills from it).
@@ -3345,10 +3346,11 @@ export function getSamplePreviewVariables(
     eventStartDate: "Monday, March 15, 2026",
     organizationName: "Sample Organization",
     venueLine: "at Convention Center, Dubai",
-    // Certificate cover tokens — the cert send dialog previews through the
-    // cert pipeline's own resolver (buildCertCoverEmailPreview), but the
-    // generic template-editor preview of certificate-bundle-delivery renders
-    // through these samples. List markup mirrors buildCertificateList().
+    // Certificate cover tokens — every certificate preview renders through
+    // the cert pipeline's own resolver (buildCertCoverEmailPreview, and the
+    // Email Templates editor via buildCertCoverTemplatePreview). These
+    // samples keep the preview-variable drift test honest and serve any
+    // other generic preview. List markup mirrors buildCertificateList().
     recipientName: "Dr. John Doe",
     certificateType: "Certificate of Attendance",
     certificateSerial: "SAMPLE-0001",

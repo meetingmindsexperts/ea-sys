@@ -654,6 +654,20 @@ EmailTemplates, seeded with the previous hardcoded wording (imported from
   its own **Save for this template** stays off until something is changed
   (review M2). The bulk-email dialog's certificate-wording options wait for
   the same list.
+- **Email Templates editor preview and test send** render these three
+  templates through the certificate pipeline (`buildCertCoverTemplatePreview`,
+  sample recipient "Dr. Sample Attendee" with real event data), so the dates,
+  certificate type and title read exactly as in a real certificate email; the
+  Communications send dialog's Preview shares the same renderer
+  (`renderSampleCoverEmail`). The send dialog's blank-fields option is called
+  **Certificate email template** and names which template each selected
+  certificate uses (`describeCertificateCoverSources`), e.g.
+  "CME → Certificate Delivery (Attendance)".
+- **Lookups** — the one-certificate senders pass the rendered recipient's
+  name parts to the sender, so `{{title}}` costs no second lookup; the bulk
+  reissue worker shares a per-batch `coverEmailCache`, so the category
+  template is read once per batch; "Resend all" tells the sender when its
+  recipient lookup found nobody.
 - **Email Templates editor note** — on the two new templates,
   [cover-template-override-note.tsx](../src/components/certificates/cover-template-override-note.tsx)
   lists the certificate templates that use their own wording, since edits

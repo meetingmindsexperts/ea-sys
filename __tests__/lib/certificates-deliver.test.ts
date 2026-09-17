@@ -175,6 +175,19 @@ describe("issueSingleCertificate", () => {
     expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
   });
 
+  it("hands the rendered recipient's name parts to the sender, so it does not look them up again", async () => {
+    mockDb.certificateTemplate.findFirst.mockResolvedValue({
+      ...ATT_TEMPLATE,
+      emailBody: "<p>Dear {{title}} {{lastName}},</p>",
+    });
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+    mockDb.issuedCertificate.create.mockResolvedValue({ id: "cert-9" });
+    const res = await issueSingleCertificate(CTX, { templateId: "t", registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: true });
+    // Once for the certificate render; the email reuses it.
+    expect(mockLoadRecipient).toHaveBeenCalledTimes(1);
+  });
+
   it("409 ALREADY_ISSUED when the person already holds this template's cert (P2002)", async () => {
     mockDb.certificateTemplate.findFirst.mockResolvedValue(ATT_TEMPLATE);
     mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
@@ -257,6 +270,24 @@ describe("reRenderAndResendCert", () => {
     expect(res).toMatchObject({ ok: true });
     expect(mockSend.mock.calls[0][0].subject).toBe("Event attendance subject");
     expect(mockSend.mock.calls[0][0].htmlContent).toContain("Event attendance body");
+  });
+
+  it("a batch sharing a cover cache reads the event's Email Template once, not per certificate", async () => {
+    mockDb.issuedCertificate.findFirst.mockResolvedValue(baseCert);
+    mockDb.certificateTemplate.findFirst.mockResolvedValue({ ...TEMPLATE, emailSubject: null, emailBody: null });
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+    mockDb.issuedCertificate.update.mockResolvedValue({});
+    useEventAttendanceCover();
+    const batchCtx = { ...CTX, coverEmailCache: new Map() };
+
+    await reRenderAndResendCert(batchCtx, "cert-1");
+    await reRenderAndResendCert(batchCtx, "cert-1");
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls[1][0].subject).toBe("Event attendance subject");
+    const categoryLookups = mockGetEventTemplate.mock.calls.filter(
+      (c: unknown[]) => c[1] === "certificate-attendance-delivery",
+    );
+    expect(categoryLookups).toHaveLength(1);
   });
 
   it("SEND_FAILED: re-render commits but no resendCount bump on email failure", async () => {

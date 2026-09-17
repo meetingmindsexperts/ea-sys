@@ -127,6 +127,30 @@ export function hasOwnCoverEmail(template: {
 /** Slug of the editable per-event bundle cover-email template. Client-safe —
  *  the certificates page uses it to pre-fill the Issue dialog. */
 export const CERT_BUNDLE_COVER_TEMPLATE_SLUG = "certificate-bundle-delivery";
+export const CERT_BUNDLE_COVER_TEMPLATE_NAME = "Certificate Delivery (Multiple Certificates)";
+
+/**
+ * Which cover email a certificate send will use when the operator leaves the
+ * subject and message blank, in the words the Email Templates list uses: one
+ * entry per selected certificate template, plus the bundle template when a
+ * person can receive several. The bulk-email dialog shows it on the default
+ * cover option, which used to say only "Certificate default".
+ */
+export function describeCertificateCoverSources(
+  templates: ReadonlyArray<{
+    name: string;
+    category: CertificateType;
+    emailSubject?: string | null;
+    emailBody?: string | null;
+  }>,
+): string {
+  if (templates.length === 0) return "Select a certificate template to see which email it uses";
+  const parts = templates.map((t) =>
+    hasOwnCoverEmail(t) ? `${t.name} → its own cover email` : `${t.name} → ${CERT_COVER_TEMPLATE_NAMES[t.category]}`,
+  );
+  if (templates.length > 1) parts.push(`anyone receiving several → ${CERT_BUNDLE_COVER_TEMPLATE_NAME}`);
+  return parts.join("; ");
+}
 
 export const SYSTEM_DEFAULT_SUBJECT_MULTI = "Your certificates — {{eventName}}";
 

@@ -41,8 +41,8 @@ const createSchema = z.object({
       message: "backgroundPdfUrl must be a /uploads/certificates/ path or an https Supabase URL",
     }),
   textBoxes: certificateTextBoxesSchema.optional(),
-  // Per-template default cover email. Both nullable — when null the
-  // Issue dialog pre-fills with the system default. min(1) when set
+  // Per-template cover email. Both nullable — when null the template
+  // follows the event's certificate Email Template. min(1) when set
   // so a template doesn't carry an empty string that would render
   // an empty email on the wire.
   emailSubject: z.string().min(1).max(200).nullable().optional(),

@@ -656,14 +656,26 @@ export async function loadCategoryCoverEmailTemplate(
 export async function resolveSingleCoverEmail(
   eventId: string,
   template: { category: CertificateType; emailSubject?: string | null; emailBody?: string | null },
+  cache?: CoverEmailCache,
 ): Promise<{ subject: string; body: string }> {
   const ownSubject = Boolean(template.emailSubject?.trim().length);
   const ownBody = Boolean(template.emailBody?.trim().length);
   // Both halves saved on the template: the event template is never read.
-  const eventCover =
-    ownSubject && ownBody ? null : await loadCategoryCoverEmailTemplate(eventId, template.category);
-  return pickSingleCoverEmail(template, eventCover);
+  if (ownSubject && ownBody) return pickSingleCoverEmail(template, null);
+  let pending = cache?.get(template.category);
+  if (!pending) {
+    pending = loadCategoryCoverEmailTemplate(eventId, template.category);
+    cache?.set(template.category, pending);
+  }
+  return pickSingleCoverEmail(template, await pending);
 }
+
+/**
+ * One event's category cover emails, loaded once and shared by a batch of
+ * one-certificate sends (the bulk reissue worker re-sends up to 25 per tick).
+ * The loader never rejects, so a cached promise is safe to reuse.
+ */
+export type CoverEmailCache = Map<CertificateType, Promise<{ subject: string; body: string } | null>>;
 
 /**
  * The cover email when no operator override applies, by how many
@@ -1010,54 +1022,74 @@ export async function buildCertCoverEmailPreview(args: {
   if (args.customSubject?.trim().length) subjectTemplate = args.customSubject;
   if (args.customMessage?.trim().length) bodyTemplate = args.customMessage;
 
-  const bundle = {
-    certs: args.templates.map((t, i) => ({
-      serial: `PREVIEW-DRAFT-${i + 1}`,
-      type: t.category,
-      templateName: t.name,
-    })),
-  };
-  const tokenCtx: CoverEmailTokenContext = {
+  const certs = args.templates.map((t, i) => ({
+    serial: `PREVIEW-DRAFT-${i + 1}`,
+    type: t.category,
+    templateName: t.name,
+  }));
+  return renderSampleCoverEmail(args.eventId, event, certs, subjectTemplate, bodyTemplate);
+}
+
+/**
+ * Renders a certificate cover email for the synthetic "Dr. Sample Attendee"
+ * through renderBundleEmailContent, the exact pipeline the real send uses,
+ * so a preview cannot format a token differently from the email. speakerId
+ * is null, so {{abstractTitle}} renders empty rather than showing some real
+ * speaker's abstract.
+ */
+async function renderSampleCoverEmail(
+  eventId: string,
+  event: BundleEmailEvent,
+  certs: Array<{ serial: string; type: CertificateType; templateName: string }>,
+  subjectTemplate: string,
+  bodyTemplate: string,
+): Promise<{ subject: string; htmlContent: string }> {
+  const { subject, wrappedHtml } = await renderBundleEmailContent({
+    eventId,
     recipientName: "Dr. Sample Attendee",
-    firstName: "Sample",
-    lastName: "Attendee",
-    title: "Dr.",
-    eventName: event.name,
-    eventStartDate: event.startDate,
-    eventEndDate: event.endDate,
-    venue: event.venue,
-    city: event.city,
-    country: event.country,
-    organizationName: event.organization.name,
-    certificateType: primary.category,
-    certificateSerial: bundle.certs[0].serial,
+    recipientFirstName: "Sample",
+    recipientLastName: "Attendee",
+    recipientTitle: "DR",
     speakerId: null,
-    eventId: args.eventId,
-    bundle,
-  };
-  const escapedTokenCtx: CoverEmailTokenContext = {
-    ...tokenCtx,
-    recipientName: escapeHtml(tokenCtx.recipientName),
-    eventName: escapeHtml(tokenCtx.eventName),
-    organizationName: escapeHtml(tokenCtx.organizationName),
-    venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
-    city: tokenCtx.city ? escapeHtml(tokenCtx.city) : tokenCtx.city,
-    country: tokenCtx.country ? escapeHtml(tokenCtx.country) : tokenCtx.country,
-    escapeDynamic: true,
-  };
+    certs,
+    emailSubjectTemplate: subjectTemplate,
+    emailBodyTemplate: bodyTemplate,
+    event,
+  });
+  return { subject, htmlContent: wrappedHtml };
+}
 
-  const subject = (await resolveCoverEmailTokens(subjectTemplate, tokenCtx))
-    .replace(/\s+/g, " ")
-    .trim();
-  const bodyHtml = await resolveCoverEmailTokens(bodyTemplate, escapedTokenCtx);
+/** The sample certificates a cover-email Email Template previews with. */
+const PREVIEW_CERTS_BY_TEMPLATE_SLUG: Record<string, Array<{ serial: string; type: CertificateType; templateName: string }>> = {
+  [CERT_COVER_TEMPLATE_SLUGS.ATTENDANCE]: [
+    { serial: "PREVIEW-DRAFT-1", type: "ATTENDANCE", templateName: "Attendance" },
+  ],
+  [CERT_COVER_TEMPLATE_SLUGS.APPRECIATION]: [
+    { serial: "PREVIEW-DRAFT-1", type: "APPRECIATION", templateName: "Appreciation" },
+  ],
+  [CERT_BUNDLE_COVER_TEMPLATE_SLUG]: [
+    { serial: "PREVIEW-DRAFT-1", type: "ATTENDANCE", templateName: "Attendance" },
+    { serial: "PREVIEW-DRAFT-2", type: "APPRECIATION", templateName: "Appreciation" },
+  ],
+};
 
-  const branding: EmailBranding = {
-    emailHeaderImage: event.emailHeaderImage,
-    emailFooterImage: event.emailFooterImage,
-    emailFooterHtml: event.emailFooterHtml,
-    emailFromAddress: event.emailFromAddress,
-    emailFromName: event.emailFromName ?? event.organization.name,
-    eventName: event.name,
-  };
-  return { subject, htmlContent: inlineCss(wrapWithBranding(bodyHtml, branding)) };
+/**
+ * Preview / test send of a certificate cover Email Template from the Email
+ * Templates editor. Those templates are rendered by the certificate
+ * resolver, whose tokens format differently from the generic email samples
+ * ("15th - 17th March 2026", the real certificate type per template), so
+ * the editor renders them the way a real certificate email is rendered.
+ * Returns null, with no database read, for any other slug.
+ */
+export async function buildCertCoverTemplatePreview(args: {
+  eventId: string;
+  slug: string;
+  subject: string;
+  htmlContent: string;
+}): Promise<{ subject: string; htmlContent: string } | null> {
+  const certs = PREVIEW_CERTS_BY_TEMPLATE_SLUG[args.slug];
+  if (!certs) return null;
+  const event = await loadBundleEmailEvent(args.eventId);
+  if (!event) return null;
+  return renderSampleCoverEmail(args.eventId, event, certs, args.subject, args.htmlContent);
 }

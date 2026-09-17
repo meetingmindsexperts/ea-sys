@@ -50,6 +50,7 @@ import { formatSessionRole } from "@/lib/session-enums";
 import { stripDocumentWrapper } from "@/lib/email-utils";
 import {
   CERT_COVER_TEMPLATE_SLUGS,
+  describeCertificateCoverSources,
   eventCoverFromTemplateList,
   pickSingleCoverEmail,
 } from "@/lib/certificates/email-tokens";
@@ -339,7 +340,8 @@ export function BulkEmailDialog({
   // Certificate sends only — where the cover email comes from. Picking a
   // source PRE-FILLS the editable Subject/Message fields (the fields stay
   // the source of truth for the send): "default" clears them (the send then
-  // uses the per-template saved cover / bundle system default), `cert:{id}`
+  // uses each template's own wording, else the event's certificate Email
+  // Template, or the bundle one for several), `cert:{id}`
   // copies a certificate template's saved cover, `tpl:{slug}` copies a
   // saved email template from Communications → Email Templates.
   const [coverSource, setCoverSource] = useState("default");
@@ -591,8 +593,9 @@ export function BulkEmailDialog({
   };
 
   const handlePreview = async () => {
-    // Certificate sends preview the cert COVER email (per-template saved
-    // cover → system defaults, with sample tokens + real event branding).
+    // Certificate sends preview the cert COVER email (each template's own
+    // wording, else the event's certificate Email Template, with sample
+    // tokens + real event branding).
     // The certificate PDFs themselves preview per template via the links
     // in the template picker above.
     if (isCertificate) {
@@ -688,7 +691,8 @@ export function BulkEmailDialog({
       // carried in filters.templateSlug (so it survives schedule → worker).
       emailType: isSavedTemplate ? "template" : emailType,
       // Certificate sends accept an OPTIONAL subject/message override —
-      // blank falls back to the template's saved cover email / system default.
+      // blank uses the template's own cover email, else the event's
+      // certificate Email Template.
       customSubject: isCustom
         ? customSubject.trim()
         : isCertificate || isReminder
@@ -939,14 +943,17 @@ export function BulkEmailDialog({
               <Label>Cover email</Label>
               <Select value={coverSource} onValueChange={applyCoverSource}>
                 <SelectTrigger className="data-[size=default]:h-auto min-h-12 py-1">
-                  <SelectValue placeholder="Certificate default" />
+                  <SelectValue placeholder="Certificate email template" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">
                     <div>
-                      <div className="font-medium">Certificate default</div>
+                      <div className="font-medium">Certificate email template</div>
                       <div className="text-xs text-muted-foreground">
-                        Each template&apos;s own cover email, else the event&apos;s certificate Email Template — leave subject/message blank
+                        {describeCertificateCoverSources(
+                          certTemplateOptions.filter((t) => certTemplateIds.includes(t.id)),
+                        )}{" "}
+                        — leave subject and message blank
                       </div>
                     </div>
                   </SelectItem>

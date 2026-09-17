@@ -135,6 +135,16 @@ describe("POST /certificates/issued/resend-bundle", () => {
     });
   });
 
+  it("tells the sender the recipient was already looked up when nobody was found", async () => {
+    mockLoadRecipient.mockResolvedValue(null);
+    await post({ registrationId: "reg-1" });
+    expect(mockBundleSend.mock.calls[0][0]).toMatchObject({
+      recipientFirstName: "",
+      recipientLastName: "",
+      recipientTitle: null,
+    });
+  });
+
   it("passes no template when several certificates go out", async () => {
     await post({ registrationId: "reg-1" });
     expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 2, "ATTENDANCE", null);

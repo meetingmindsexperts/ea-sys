@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, mockApiLogger, mockSendEmail } = vi.hoisted(() => ({
+const { mockAuth, mockDb, mockApiLogger, mockSendEmail, mockCertPreview } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -26,6 +26,7 @@ const { mockAuth, mockDb, mockApiLogger, mockSendEmail } = vi.hoisted(() => ({
   },
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   mockSendEmail: vi.fn(),
+  mockCertPreview: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -57,6 +58,9 @@ vi.mock("@/lib/email-preview-data", () => ({
   buildRealPreviewOverrides: vi.fn(async () => ({})),
 }));
 vi.mock("@/lib/email-template-slugs", () => ({ isCustomTemplateSlug: vi.fn(() => false) }));
+vi.mock("@/lib/certificates/bundle", () => ({
+  buildCertCoverTemplatePreview: (args: unknown) => mockCertPreview(args),
+}));
 vi.mock("@/lib/email", () => ({
   sendEmail: mockSendEmail,
   renderTemplate: vi.fn(() => "<p>body</p>"),
@@ -97,6 +101,7 @@ beforeEach(() => {
     .mockResolvedValueOnce({ emailSignature: null })
     .mockResolvedValueOnce({ email: "staff@org.com", firstName: "Dinalyn" });
   mockSendEmail.mockResolvedValue({ success: true });
+  mockCertPreview.mockResolvedValue(null);
 });
 
 describe("email template test send — EmailLog attribution", () => {
@@ -159,5 +164,40 @@ describe("email template test send — EmailLog attribution", () => {
     );
     expect(res.status).toBe(200);
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("certificate cover templates render the way a certificate email does", () => {
+  const CERT_TEMPLATE = {
+    id: "tpl-3",
+    slug: "certificate-attendance-delivery",
+    subject: "Your {{certificateType}} — {{eventName}}",
+    htmlContent: "<p>Dear {{title}} {{lastName}},</p>",
+  };
+  const CERT_RENDER = { subject: "Your Certificate of Attendance — Test Event", htmlContent: "<p>Dear Dr. Attendee,</p>" };
+
+  it("previews through the certificate renderer, with the template's own subject and body", async () => {
+    mockDb.emailTemplate.findFirst.mockResolvedValue(CERT_TEMPLATE);
+    mockCertPreview.mockResolvedValue(CERT_RENDER);
+    const res = await POST(new Request("http://t", { method: "POST", body: JSON.stringify({ action: "preview" }) }), {
+      params,
+    });
+    expect(mockCertPreview).toHaveBeenCalledWith({
+      eventId: "ev-1",
+      slug: "certificate-attendance-delivery",
+      subject: CERT_TEMPLATE.subject,
+      htmlContent: CERT_TEMPLATE.htmlContent,
+    });
+    expect(await res.json()).toEqual(CERT_RENDER);
+  });
+
+  it("test-sends the certificate rendering too", async () => {
+    mockDb.emailTemplate.findFirst.mockResolvedValue(CERT_TEMPLATE);
+    mockCertPreview.mockResolvedValue(CERT_RENDER);
+    await POST(testSendRequest(), { params });
+    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({
+      subject: `[TEST] ${CERT_RENDER.subject}`,
+      htmlContent: CERT_RENDER.htmlContent,
+    });
   });
 });

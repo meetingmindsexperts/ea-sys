@@ -80,7 +80,12 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   },
 }));
 
-import { findOrIssueCertificate, sendCertificateBundleEmail, buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
+import {
+  findOrIssueCertificate,
+  sendCertificateBundleEmail,
+  buildCertCoverEmailPreview,
+  buildCertCoverTemplatePreview,
+} from "@/lib/certificates/bundle";
 
 const RECIPIENT = { title: "Dr.", firstName: "Jane", lastName: "Doe", fullName: "Dr. Jane Doe", organization: null, jobTitle: null, city: null, country: null };
 const EVENT_CTX = { name: "OSH", startDate: new Date("2026-06-17"), endDate: new Date("2026-06-17"), venue: null, city: null, country: null, organizationName: "MMG", organizationLogo: null, cmeHours: 4, accreditations: [], settings: {} };
@@ -462,5 +467,33 @@ describe("buildCertCoverEmailPreview", () => {
     expect(await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] })).toBeNull();
     mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
     expect(await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [] })).toBeNull();
+  });
+});
+
+describe("buildCertCoverTemplatePreview (Email Templates editor)", () => {
+  beforeEach(() => {
+    mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
+  });
+
+  it("renders a certificate cover template for the sample recipient, title included", async () => {
+    const res = await buildCertCoverTemplatePreview({
+      eventId: "evt-1",
+      slug: "certificate-appreciation-delivery",
+      subject: "Your {{certificateType}}",
+      htmlContent: "<p>Dear {{title}} {{lastName}},</p>",
+    });
+    expect(res?.subject).toBe("Your {{certificateType}}");
+    expect(res?.htmlContent).toContain("Dear Dr. Attendee,");
+  });
+
+  it("returns null without reading anything for a slug that is not a certificate cover", async () => {
+    const res = await buildCertCoverTemplatePreview({
+      eventId: "evt-1",
+      slug: "registration-confirmation",
+      subject: "s",
+      htmlContent: "<p>h</p>",
+    });
+    expect(res).toBeNull();
+    expect(mockDb.event.findUnique).not.toHaveBeenCalled();
   });
 });

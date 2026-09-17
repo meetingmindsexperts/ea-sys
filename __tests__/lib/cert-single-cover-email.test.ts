@@ -15,6 +15,7 @@ import {
   SYSTEM_DEFAULT_BODY_APPRECIATION,
   SYSTEM_DEFAULT_BODY_ATTENDANCE,
   SYSTEM_DEFAULT_SUBJECT,
+  describeCertificateCoverSources,
   eventCoverFromTemplateList,
   hasOwnCoverEmail,
   pickSingleCoverEmail,
@@ -116,5 +117,28 @@ describe("the two system templates", () => {
     expect(keys(CERT_COVER_TEMPLATE_SLUGS.ATTENDANCE)).toContain("title");
     expect(keys(CERT_COVER_TEMPLATE_SLUGS.ATTENDANCE)).not.toContain("abstractTitle");
     expect(keys(CERT_COVER_TEMPLATE_SLUGS.APPRECIATION)).toContain("abstractTitle");
+  });
+});
+
+describe("describeCertificateCoverSources (the send dialog's default cover option)", () => {
+  it("names the Email Template each selected certificate template will use", () => {
+    expect(describeCertificateCoverSources([{ name: "CME", category: "ATTENDANCE" }])).toBe(
+      "CME → Certificate Delivery (Attendance)",
+    );
+  });
+
+  it("says when a template uses its own wording, and adds the bundle template for several", () => {
+    expect(
+      describeCertificateCoverSources([
+        { name: "CME", category: "ATTENDANCE", emailSubject: "Own", emailBody: null },
+        { name: "Speaker", category: "APPRECIATION" },
+      ]),
+    ).toBe(
+      "CME → its own cover email; Speaker → Certificate Delivery (Appreciation); anyone receiving several → Certificate Delivery (Multiple Certificates)",
+    );
+  });
+
+  it("asks for a selection when none is made", () => {
+    expect(describeCertificateCoverSources([])).toMatch(/Select a certificate template/);
   });
 });

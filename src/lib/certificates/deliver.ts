@@ -40,6 +40,7 @@ import {
   resolveSingleCoverEmail,
   loadBundleEmailEvent,
   renderBundleEmailContent,
+  type CoverEmailCache,
   buildPersonCertificateWhere,
   type RenderAndUploadResult,
   type BundleCert,
@@ -54,6 +55,9 @@ export interface DeliverContext {
   actorUserId: string | null;
   /** Where the request came from — written into the audit trail. */
   source: "rest" | "bulk";
+  /** Shared by a batch of sends for one event (the bulk reissue worker), so
+   *  the category cover email is read once per batch, not once per person. */
+  coverEmailCache?: CoverEmailCache;
 }
 
 export type DeliverSuccess = {
@@ -74,8 +78,9 @@ export type DeliverResult = DeliverSuccess | DeliverFailure;
 // compose the same primitives without duplication or an import cycle.
 
 /** Build + send the cover email using the CURRENT template's subject/body
- *  (fallback to system default). Thin 1-cert wrapper over the shared bundle
- *  sender so all cert code paths render identical emails. */
+ *  (resolved by the caller through resolveSingleCoverEmail). Thin 1-cert
+ *  wrapper over the shared bundle sender so all cert code paths render
+ *  identical emails. */
 async function sendCertEmail(args: {
   eventId: string;
   type: CertificateType;
@@ -84,6 +89,9 @@ async function sendCertEmail(args: {
   speakerId: string | null;
   registrationId: string | null;
   recipientName: string;
+  /** The rendered certificate's recipient: passing the name parts saves the
+   *  sender a second lookup when the wording uses {{title}} / {{lastName}}. */
+  recipient: { firstName: string; lastName: string; title: string | null };
   recipientEmail: string;
   pdfBuffer: Buffer;
   emailSubjectTemplate: string;
@@ -96,6 +104,9 @@ async function sendCertEmail(args: {
     organizationId: args.organizationId,
     recipientEmail: args.recipientEmail,
     recipientName: args.recipientName,
+    recipientFirstName: args.recipient.firstName,
+    recipientLastName: args.recipient.lastName,
+    recipientTitle: args.recipient.title,
     registrationId: args.registrationId,
     speakerId: args.speakerId,
     certs: [
@@ -238,6 +249,7 @@ export async function issueSingleCertificate(
     speakerId,
     registrationId,
     recipientName: render.recipient.fullName,
+    recipient: render.recipient,
     recipientEmail,
     pdfBuffer: render.pdfBuffer,
     emailSubjectTemplate: cover.subject,
@@ -320,11 +332,11 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
   });
 
   const recipientName = render.recipient.fullName || snapshotName(cert.recipientSnapshot);
-  const cover = await resolveSingleCoverEmail(ctx.eventId, {
-    category: cert.type,
-    emailSubject: tmpl.emailSubject,
-    emailBody: tmpl.emailBody,
-  });
+  const cover = await resolveSingleCoverEmail(
+    ctx.eventId,
+    { category: cert.type, emailSubject: tmpl.emailSubject, emailBody: tmpl.emailBody },
+    ctx.coverEmailCache,
+  );
   const send = await sendCertEmail({
     eventId: ctx.eventId,
     type: cert.type,
@@ -333,6 +345,7 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
     speakerId: cert.speakerId,
     registrationId: cert.registrationId,
     recipientName,
+    recipient: render.recipient,
     recipientEmail,
     pdfBuffer: render.pdfBuffer,
     emailSubjectTemplate: cover.subject,

@@ -31,7 +31,10 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn(),
 }));
 vi.mock("@/lib/certificates/email-tokens-resolver", () => ({ resolveCoverEmailTokens: vi.fn() }));
-vi.mock("@/lib/certificates/email-tokens", () => ({
+vi.mock("@/lib/certificates/email-tokens", async (importOriginal) => ({
+  // The real module first: bundle.ts reads CERT_COVER_TEMPLATE_SLUGS when it
+  // loads, so a stub listing only two exports fails the import.
+  ...(await importOriginal<typeof import("@/lib/certificates/email-tokens")>()),
   SYSTEM_DEFAULT_SUBJECT: "subject",
   defaultBodyForCategory: vi.fn(() => "body"),
 }));
