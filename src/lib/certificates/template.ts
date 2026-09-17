@@ -19,6 +19,7 @@
  */
 
 import { apiLogger } from "@/lib/logger";
+import { formatPersonName } from "@/lib/utils";
 import type {
   CertificateType,
   CertificateTemplate,
@@ -124,6 +125,14 @@ export function resolveTokens(data: CertificateData): Record<string, string> {
 
   return {
     recipientName: recipient.fullName,
+    // The same name with the honorific deliberately omitted (Sep 17, 2026).
+    // `recipientName` keeps its meaning BECAUSE both starter templates and
+    // every organizer-built template already reference it: redefining that key
+    // would silently restyle every certificate issued from here on, with
+    // nothing in review to catch it. So the choice is a second token, not a
+    // changed one. Built through the same formatter with a null title rather
+    // than hand-joining, so the two can never disagree about spacing.
+    recipientNamePlain: formatPersonName(null, recipient.firstName, recipient.lastName),
     organizationName: event.organizationName,
     eventName: event.name,
     // No `Event.subtitle` column yet — resolves empty. Kept because removing

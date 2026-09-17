@@ -45,6 +45,12 @@ export const CERTIFICATE_TOKENS: readonly CertificateTokenSpec[] = [
     sample: "Dr. Sample Attendee",
   },
   {
+    key: "recipientNamePlain",
+    description:
+      "The same name WITHOUT the honorific. Use this when the certificate should read \"Ahmed Osman\" rather than \"Dr. Ahmed Osman\". Identical to recipientName for a recipient who has no title set.",
+    sample: "Sample Attendee",
+  },
+  {
     key: "organizationName",
     description: "The issuing organisation's name",
     sample: "Meeting Minds Experts",

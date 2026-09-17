@@ -87,6 +87,30 @@ describe("token catalog ↔ resolver parity (drift guard)", () => {
   });
 });
 
+describe("recipientNamePlain (Sep 17, 2026)", () => {
+  it("drops the honorific, while recipientName keeps it", () => {
+    const d = certData(); // title "Dr.", fullName "Dr. Sample Attendee"
+    expect(mergeBody("{{recipientName}}", d)).toBe("Dr. Sample Attendee");
+    expect(mergeBody("{{recipientNamePlain}}", d)).toBe("Sample Attendee");
+  });
+
+  it("resolves identically to recipientName when there is no title", () => {
+    const d = certData({
+      recipient: { title: null, firstName: "Sample", lastName: "Attendee", fullName: "Sample Attendee" },
+    });
+    expect(mergeBody("{{recipientNamePlain}}", d)).toBe("Sample Attendee");
+    expect(mergeBody("{{recipientNamePlain}}", d)).toBe(mergeBody("{{recipientName}}", d));
+  });
+
+  it("leaves recipientName's meaning untouched", () => {
+    // The load-bearing one. Both starter templates (starter-template.ts:185,
+    // :189) and any organizer-built template already use {{recipientName}};
+    // redefining it to drop the title would restyle every certificate issued
+    // from here on, silently. Adding a token is safe, changing one is not.
+    expect(mergeBody("{{recipientName}}", certData())).toBe("Dr. Sample Attendee");
+  });
+});
+
 describe("newly exposed tokens", () => {
   it("renders the issuing organisation", () => {
     expect(mergeBody("{{organizationName}}", certData())).toBe("Meeting Minds Experts");
