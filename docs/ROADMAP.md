@@ -865,6 +865,35 @@ the width lives; all 20 render sites go through it, and
 `__tests__/components/public-banner-band.test.ts` fails on any page that
 inlines its own wrapper or declares the width elsewhere.
 
+### Custom email templates: "Start from" an existing template (Sep 17, 2026, owner: "not now")
+
+**The gap.** New Template (Communications → Email Templates) gives a stub
+("Dear {{firstName}}, Your content here...") and the organiser pastes the
+rest in by hand. Production shows the cost: 10 custom templates across 7
+events, and the same ones keep being rebuilt ("Joining Instruction -
+Delegate" on 3 events, "Joining Instruction" on 2, two faculty variants on
+Pan Hematology Summit 2026). The manual path today is: open the base
+template, source view, copy the HTML, New Template, paste, retype the
+subject; the plain-text version is lost every time.
+
+**The design, when picked up (about half a day).** A "Start from" select in
+the New Template dialog offering blank or any of this event's templates,
+system or custom; one server route `POST .../email-templates/[id]/duplicate`
+that copies subject, HTML and text under the new slug, atomically and
+audited (a client-side copy would depend on the list payload carrying the
+body). No schema change, no migration, no runtime cost.
+
+**The one trap.** A copy of an automatic email (registration confirmation,
+payment confirmation, the webinar sequence) carries tokens only that
+automatic sender fills (`{{paymentBlock}}`, `{{joinUrl}}`, `{{receiptBlock}}`).
+Since Sep 11 `sendEmail` refuses an unresolved token by name rather than
+mailing a literal, so a copy cannot send a broken email, but the dialog
+should list which tokens the chosen base carries that a saved-template send
+cannot fill, so the organiser removes them before the first send.
+
+**Out of scope unless asked:** copying from another event's template (event
+clone already carries every template across, since Jun 29).
+
 ### Saved email templates drift behind the built-in defaults (Aug 10, 2026, owner: "add to backlog")
 
 Surfaced while fixing the session-proposal confirmation email. Three related
