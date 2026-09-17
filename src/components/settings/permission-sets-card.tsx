@@ -252,7 +252,7 @@ function PermissionSetDialog({
 
   return (
     <Dialog open={editing !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing === "new" ? "New role" : "Edit role"}</DialogTitle>
           <DialogDescription>
@@ -301,7 +301,7 @@ function PermissionSetDialog({
               return (
                 <div key={group} className="rounded-lg border p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{group}</p>
-                  <div className="space-y-2">
+                  <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
                     {items.map((item) => (
                       <label key={item.key} className="flex items-start gap-3 cursor-pointer">
                         <Checkbox
