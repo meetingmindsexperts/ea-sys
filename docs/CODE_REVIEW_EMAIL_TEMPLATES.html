@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review: Email templates, tokens and senders (September 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.live{background:var(--blocker);color:#fff} .pill.latent{background:var(--muted);color:#fff}
+  .pill.shipped{background:var(--ok);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .learn{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:.7rem 1rem;margin:.9rem 0 0;font-size:.93rem}
+  .learn strong{color:var(--ok)}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e}
+    .sev{color:#14171a} .pill.live{color:#14171a} .pill.latent{color:#14171a} .pill.shipped{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+    .learn{background:#0c2e1a;border-color:#1a5c34}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review: Email templates, tokens and senders</h1>
+  <div class="sub">September 18, 2026. Three-lens adversarial review (token resolution, template association, sender surface), read-only. Every claim was verified in source at commit <code>01bbce0b</code>; line numbers are from that commit. Production figures are read-only queries run the same day.</div>
+</header>
+
+<h2>1. Verdict in four lines</h2>
+<ul>
+  <li><strong>The core is not spaghetti.</strong> One send choke point (<code>sendEmail</code>), one render engine with the token normalizer and the unresolved-token refusal, one template resolver (<code>getEventTemplate</code>), one branding wrapper with the global event variables, and shared builders for every complex block (speaker context, agreement, RSVP, survey, travel grant, barcode, payment reminder, abstract variables). These work and should not be touched.</li>
+  <li><strong>The spaghetti is at the edges, in three layers.</strong> The association layer (how an email type becomes a slug) exists as five hand-copied maps. The token contract (which tokens a template may use, which are raw HTML, which a sender fills) is documentation only, with no test that a sender fills what its template uses. The sender surface pastes the same fifteen-to-thirty-line "resolve template, build variables, brand, send" block at about twenty-two sites, each with its own variable map.</li>
+  <li><strong>Those edges have produced four real defects</strong>, one of them live on 23 of 29 events today, plus nine narrower ones. All are catalogued below with production counts.</li>
+  <li><strong>Streamlining is worth doing, in phases.</strong> Fix the defects first (half a day, no structure change). Then give the templates a typed registry and the missing drift test (one to two days). Then collapse the senders onto one entry point (two to three days, one sender per commit). Do not fold the certificate cover or the agreement merges into the main engine.</li>
+</ul>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Measure</th><th>Count</th><th>Where</th></tr>
+  <tr><td>Real <code>sendEmail</code> senders</td><td>34</td><td>22 through <code>getEventTemplate</code> + <code>renderAndWrap</code>; the rest hardcoded (operator alerts, auth) or bespoke</td></tr>
+  <tr><td>Render vocabularies</td><td>7</td><td><code>renderTemplate</code>, <code>renderMessageValue</code>, the certificate cover resolver, the speaker and presenter agreement merges, the docx merge, the CRM sponsor body</td></tr>
+  <tr><td>Email type to slug maps</td><td>5</td><td>bulk server, bulk dialog, Communications tiles, speaker single-send, registration single-send and its sheet</td></tr>
+  <tr><td>"Which template do I send" resolvers</td><td>7</td><td><code>getEventTemplate</code> plus six wrappers with three different "is this custom" rules</td></tr>
+  <tr><td>Places a registration's variables are hand-built</td><td>8</td><td>confirmation, bulk, single-send, payment confirmation, survey thank-you, group, document delivery, webinar (via bulk)</td></tr>
+  <tr><td>Places a speaker's variables are hand-built</td><td>9</td><td>bulk, single-send, reimbursement send, reimbursement received, profile form, presenter agreement, travel grant, panelist, reviewer notify</td></tr>
+  <tr><td>Hand-listed <code>rawHtmlKeys</code> sets</td><td>11</td><td>each sender lists its own; an omission is what produces finding 4</td></tr>
+  <tr><td>Copies of <code>escapeHtml</code> for email</td><td>9</td><td>one canonical in <code>src/lib/html.ts</code>, eight private copies, two of which skip the apostrophe</td></tr>
+  <tr><td>Pasted <code>|| getDefaultTemplate(slug)</code> fallbacks</td><td>12</td><td>dead code: <code>getEventTemplate</code> already falls back internally</td></tr>
+  <tr><td>System slugs without a variables entry</td><td>9 of 35</td><td>editors for those show only the four global tokens</td></tr>
+  <tr><td>Files touched to add one system template today</td><td>about 12</td><td><code>email.ts</code> twice, the slug mirror, bulk twice, dialog twice, tiles, settings twice, editor, both single-send routes, the sheet</td></tr>
+  <tr><td>Production: <code>EmailTemplate</code> rows</td><td>745 across 29 events, 43 slugs</td><td>35 system slugs, 8 custom slugs; no way to tell an untouched seed from an edit</td></tr>
+</table>
+</div>
+
+<h2>2. The map: what lives where</h2>
+
+<h3>2.1 Render engines</h3>
+<div class="tbl-wrap">
+<table>
+  <tr><th>Engine</th><th>Syntax</th><th>Escaping</th><th>Unknown token</th></tr>
+  <tr><td><code>renderTemplate</code>, <code>renderTemplatePlain</code> (<code>email.ts:1106</code>)</td><td><code>{{x}}</code>, normalized first (<code>template-tokens.ts</code>)</td><td>escape everything except <code>DEFAULT_RAW_HTML_KEYS</code> (<code>email.ts:1055</code>) plus caller keys; plain never escapes</td><td>left literal, then <code>sendEmail</code> refuses on subject or HTML (<code>email.ts:728</code>), warns on text</td></tr>
+  <tr><td><code>renderMessageValue</code> (<code>email.ts:1158</code>)</td><td>same engine over a typed value</td><td><code>isHtml</code> flag</td><td>same</td></tr>
+  <tr><td>Certificate cover resolver (<code>certificates/email-tokens-resolver.ts:187</code>)</td><td><code>{{x}}</code>, <strong>not normalized</strong></td><td>caller pre-escapes, <code>escapeDynamic</code></td><td>renders empty plus a warn; never refused</td></tr>
+  <tr><td><code>mergeAgreementHtml</code> (<code>speaker-agreement.ts:1055</code>), <code>mergePresenterAgreementHtml</code> (<code>presenter-agreement.ts:75</code>)</td><td><code>{{ x }}</code>, <strong>not normalized</strong></td><td>escapes everything, no raw keys</td><td>left literal, <strong>no guard</strong> (feeds the acceptance page and the PDF)</td></tr>
+  <tr><td>docx merge (<code>speaker-agreement.ts:787</code>)</td><td>single brace <code>{x}</code></td><td>library</td><td>renders the string <code>undefined</code>, no warn</td></tr>
+  <tr><td>CRM <code>substituteBodyTokens</code> (<code>crm/services/sponsor-email-service.ts:44</code>)</td><td>whitelist of four</td><td>escaped</td><td>left literal in a raw body, then refused by the main guard</td></tr>
+</table>
+</div>
+
+<h3>2.2 Association maps</h3>
+<div class="tbl-wrap">
+<table>
+  <tr><th>Map</th><th>Where</th><th>Agrees with the others?</th></tr>
+  <tr><td><code>DEFAULT_TEMPLATES</code> (35 entries, no kind, recipient, sendable-from or version)</td><td><code>email.ts:1782</code></td><td>authority</td></tr>
+  <tr><td><code>SYSTEM_TEMPLATE_SLUGS</code> client mirror</td><td><code>email-template-slugs.ts:15</code></td><td>pinned by a drift test</td></tr>
+  <tr><td><code>TEMPLATE_VARIABLES</code> (26 slugs)</td><td><code>email.ts:1407</code></td><td>9 slugs missing; read by the editor only, never by a sender</td></tr>
+  <tr><td><code>BULK_EMAIL_TEMPLATE_SLUGS</code> (server send)</td><td><code>bulk-email.ts:385</code></td><td>audience-blind (finding 2)</td></tr>
+  <tr><td>dialog <code>emailTypeToSlug</code> (preview)</td><td><code>bulk-email-dialog.tsx:258</code></td><td>differs from the server on <code>invitation</code> for non-speakers</td></tr>
+  <tr><td>dialog option lists (four audiences)</td><td><code>bulk-email-dialog.tsx:174</code></td><td>hand-maintained</td></tr>
+  <tr><td>Communications tiles</td><td><code>communications/page.tsx:150</code></td><td>hand-maintained</td></tr>
+  <tr><td>speaker single-send <code>slugMap</code> + enum</td><td><code>speakers/[speakerId]/email/route.ts:223</code></td><td>third copy</td></tr>
+  <tr><td>registration single-send <code>slugMap</code> + enum, and the sheet's <code>EMAIL_TYPE_TO_SLUG</code></td><td><code>registrations/[registrationId]/email/route.ts:389</code>, <code>registration-detail-sheet.tsx:141</code></td><td>fourth and fifth copies</td></tr>
+  <tr><td>Settings tab <code>DEFAULT_SLUGS</code> (8 slugs)</td><td><code>settings/page.tsx:2691</code></td><td>stale: 27 system templates show a "Custom" badge there</td></tr>
+  <tr><td>Twelve automatic senders</td><td>hard-coded slug literals</td><td>fine on their own; each carries its own variable map</td></tr>
+</table>
+</div>
+
+<h3>2.3 Seeding and reset</h3>
+<p>Three seed sites with three rules: event create seeds all 35 rows fire-and-forget with no webinar filter (<code>api/events/route.ts:226</code>); the templates list GET seeds the missing ones with the webinar filter (<code>email-templates/route.ts:56</code>); MCP <code>update_email_template</code> seeds one row on demand without the token normalizer (<code>agent/tools/communications.ts:305</code>). The schema carries no origin marker, so an untouched seed and an organizer edit are indistinguishable; that is why the anchor-based repair scripts exist. Reset has two semantics: REST overwrites in place and refuses a custom slug; MCP deletes the row for any slug (finding 3).</p>
+
+<h2>3. Findings</h2>
+<p>No BLOCKER. Ranked by the damage a real organizer action does today. "Live" means the failure is reachable from the UI on production data now; "latent" means it needs an organizer edit or an MCP call that has not happened yet.</p>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> 1. Bulk "Registration Confirmation" is refused on 23 of 29 events <span class="pill live">live</span></h3>
+  <div class="loc"><code>src/lib/bulk-email.ts:388</code> (type to slug), <code>:1700-1745</code> (base variables), <code>:1864-1878</code> (the only place <code>paymentBlock</code> is set), <code>src/lib/email.ts:1800</code> (default template uses <code>{{paymentBlock}}</code>), <code>:728</code> (refusal)</div>
+  <p>The dialog offers "Registration Confirmation" for registrations and the Communications "Welcome Paid" tile defaults to it. It maps to the <code>registration-confirmation</code> slug, whose default body carries <code>{{paymentBlock}}</code>. Bulk fills that token only inside the payment-reminder branch and has no default for it, so on the confirmation type the token is never resolved. Since the September 11 guard every recipient is refused with <code>unresolved_tokens: {{paymentBlock}}</code>, a FAILED row and an error alert; before the guard the literal token was delivered.</p>
+  <div class="lbl">Evidence</div>
+  <p>The 29 bulk confirmations ever sent (OSH Monthly Meeting, Oman Oncology Pharmacy) went out only because those two events had removed the token from their template. 23 of the 29 active <code>registration-confirmation</code> rows on production still carry it. No test renders a bulk confirmation.</p>
+  <div class="lbl">Fix</div>
+  <p>Extract the payment block from <code>sendRegistrationConfirmation</code> into a builder and call it for the confirmation type, or route bulk confirmation through <code>sendRegistrationConfirmation</code> per recipient (which also restores the quote PDF and barcode the single path attaches). Pin with a test that renders the default template through bulk.</p>
+  <div class="learn"><strong>What to learn:</strong> the dialog, the tile and the server map all agreed that "confirmation" exists. None of them knew what the template needs. A map from type to slug is not a contract; the contract is "this sender fills these tokens", and nothing records it.</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> 2. Reviewers' "Review Invitation" previews one template and sends another <span class="pill latent">latent</span></h3>
+  <div class="loc"><code>src/components/bulk-email-dialog.tsx:184</code> (option), <code>:265</code> (preview maps non-speakers to <code>custom-notification</code>), <code>src/lib/bulk-email.ts:386</code> (server maps <code>invitation</code> to <code>speaker-invitation</code> for every audience), precheck has no audience rule for it</div>
+  <p>Pick reviewers, choose Review Invitation, Preview shows the custom notification, Send delivers the speaker invitation: subject "Speaker Invitation", body "You're Invited to Speak". Nothing refuses it because the speaker tokens default to empty strings for every audience.</p>
+  <div class="lbl">Evidence</div>
+  <p>Zero reviewer invitations have gone through bulk on production, so nobody has been hit. No test.</p>
+  <div class="lbl">Fix</div>
+  <p>Key the slug on (type, audience) in one place, or remove the option for reviewers and point them at the reviewer pool invitation that already exists as a template.</p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> 3. MCP <code>reset_email_template</code> deletes an organizer's custom template <span class="pill latent">latent</span></h3>
+  <div class="loc"><code>src/lib/agent/tools/communications.ts:352-369</code>; compare REST <code>email-templates/[templateId]/route.ts:346-360</code></div>
+  <p>The MCP tool finds the row by slug and deletes it, with no system-slug guard. For a system slug the next read seeds the default again, which is the intent. For one of the eight custom slugs on production (joining instructions, chairperson invitation, faculty confirmation and so on) the row is the only copy, and the message still says "default will be used". REST refuses the same request.</p>
+  <div class="lbl">Fix</div>
+  <p>Refuse custom slugs, and reuse the REST reset (overwrite in place) so the two cannot drift again. Pin with a test.</p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> 4. The automatic abstract decision email shows the reviewer-notes box as escaped source <span class="pill latent">latent</span></h3>
+  <div class="loc"><code>src/lib/abstract-notifications.ts:144-153</code> (builds <code>reviewNotes</code> as HTML, the comment says to register it raw), <code>:386</code> (<code>renderAndWrap</code> called with no raw keys), <code>src/lib/email.ts:1055</code> (<code>DEFAULT_RAW_HTML_KEYS</code> has no <code>reviewNotes</code>), <code>src/lib/bulk-email.ts:1976</code> (bulk adds it, so the resend renders correctly)</div>
+  <p>Accept or reject an abstract with notes and the author receives <code>&lt;div style="background: #e0f2fe ..."&gt;&lt;strong&gt;Reviewer Notes:</code> as visible text. The bulk "Resend Decision" for the same abstract renders the box. Same variable builder, two raw-key lists.</p>
+  <div class="lbl">Evidence</div>
+  <p>Four decision emails have ever been sent on production, one with a stored body, none with notes, so no author has seen it yet. The variable is pinned by a test; the automatic render path is not.</p>
+  <div class="lbl">Fix</div>
+  <p>Add <code>reviewNotes</code> to <code>DEFAULT_RAW_HTML_KEYS</code> (with <code>claimSummary</code>, <code>presenterFeeBlock</code>, <code>rsvpLink</code>, <code>reimbursementLink</code>, <code>profileFormLink</code>, which have the same shape) and pin the automatic path with a rendered assertion.</p>
+  <div class="learn"><strong>What to learn:</strong> a raw-key list hand-written at eleven call sites is a bug generator. The block builder knows its output is HTML; the knowledge belongs with the builder, not with every caller.</div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 5. The registration completion email is hardcoded, unbranded and uneditable</h3>
+  <div class="loc"><code>send-completion-emails/route.ts:101</code> (hand-rolled from), <code>:139</code> (hardcoded <code>systemTemplates.registrationCompletion</code>), <code>src/lib/email.ts:3146</code></div>
+  <p>Every other attendee email carries the event's header image, footer and auto-CC and can be edited under Communications. The "Send Registration Forms" email after a CSV import carries none of that and cannot be edited. The <code>emailTemplates</code> block says "all callers will be migrated to use DB templates". Fix: a <code>registration-completion</code> entry in <code>DEFAULT_TEMPLATES</code> sent through the normal path.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 6. Advertised tokens that one sender fills and another does not</h3>
+  <div class="loc"><code>registrations/[registrationId]/email/route.ts:368-385</code> (no <code>eventCity</code>, <code>eventCountry</code>, <code>organizerName</code>, <code>organizerEmail</code>, <code>eventDateRange</code>), <code>src/lib/email.ts:1548</code>, <code>:1699</code> (the editor advertises them), <code>src/lib/bulk-email.ts:1175</code> (bulk fills them)</div>
+  <p>An organizer who adds <code>{{eventCity}}</code> to the Event Reminder, as the variable panel invites, sends fine from Communications and gets a refusal from the registration detail sheet. Same class: <code>reviewScore</code> is passed as <code>undefined</code> (<code>abstract-notifications.ts:154</code>) and <code>receiptUrl</code> as <code>undefined</code> (<code>payment-confirmation-email.ts:167</code>); <code>renderTemplate</code> treats <code>undefined</code> as unknown, so adding either token refuses every unscored decision or every offline payment confirmation. No production template uses these tokens on the affected slugs today. The "Dear {{title}} {{lastName}}" greeting that broke the survey thank-you on September 17 is still unfillable on document delivery, both reviewer notifies, the panelist invitation, the group confirmation and the reimbursement receipt.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 7. Five senders format <code>{{eventDate}}</code> in the server's timezone, and caller-wins precedence hides the correct global value</h3>
+  <div class="loc"><code>bulk-email.ts:1164</code>, <code>registrations/.../email/route.ts:355</code>, <code>speakers/.../email/route.ts:160</code>, <code>payment-confirmation-email.ts:94</code>, <code>group-registration-service.ts:958</code>; the tz-aware global block is <code>email.ts:3656</code>, spread under caller vars at <code>:3777</code></div>
+  <p>An event stored as a Dubai after-midnight start (the create form stores wall-clock minus four hours) is the previous calendar day in UTC: the confirmation says the 3rd, every bulk reminder says the 2nd. Two of 39 production events have such a start, one upcoming. The same five sites render <code>{{eventVenue}}</code> as "venue" or "TBA" while the confirmation and the global block render "venue, city". The precedence test pins "caller wins", which is exactly what keeps this alive. Fix: delete the per-sender date and venue formatting so the global block is the only source.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 8. "Disable" on a system template means "send the built-in text instead", and the preview does not say so</h3>
+  <div class="loc"><code>src/lib/email.ts:3696</code> (inactive row falls back to the default), editor copy at <code>templates/[templateId]/page.tsx:318</code>, preview at <code>email-templates/[templateId]/route.ts:178-262</code> never checks <code>isActive</code></div>
+  <p>An organizer who switches Registration Confirmation off to silence it during a test import finds every registrant still receives the built-in text, and the editor's Preview keeps rendering the disabled edits, so preview and send differ. For custom slugs the switch does what it says (hard refusal). Two meanings, one switch.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 9. A scheduled saved-template send passes precheck and fails at fire time</h3>
+  <div class="loc"><code>src/lib/bulk-email.ts:1042-1053</code> (precheck loads the template only for the RSVP check) vs <code>:1446-1455</code> (fire-time hard fail)</div>
+  <p>Schedule a saved template, deactivate it later: green "queued" toast, FAILED row a minute later, the class the precheck exists to prevent. Known and deferred since the communications round 2 review (A3). Fix: the precheck resolves the slug through the same rule as the send.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 10. Certificate emails skip the event auto-CC and the bulk stream</h3>
+  <div class="loc"><code>src/lib/certificates/bundle.ts:724-736</code> (never selects <code>emailCcAddresses</code>), <code>:866-873</code> (branding hand-built), <code>:948</code> (no <code>cc</code>, no <code>stream</code>)</div>
+  <p>Every other attendee email goes through <code>brandingCc</code>. A thousand-certificate blast also lands in transactional SES metrics. Fix: hand the rendered cover to the shared send half.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 11. Three definitions of "is this a custom template"</h3>
+  <div class="loc">bulk: <code>emailType === "template"</code> (<code>bulk-email.ts:1424</code>); registration route: <code>!!templateSlug</code> (<code>:438</code>); RSVP, dialog, editor: <code>isCustomTemplateSlug</code></div>
+  <p>A REST call with <code>templateSlug: "payment-reminder"</code> on an event where that row is inactive hard-fails on the registration route and silently sends the built-in on bulk and the speaker route. UI surfaces only offer custom slugs, so this is REST and MCP reachable only.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 12. Frozen seed copies with no provenance</h3>
+  <div class="loc"><code>prisma/schema.prisma</code> (<code>EmailTemplate</code> has no origin, hash or customized-at field), <code>clone/route.ts:445-456</code> (clone copies every row verbatim, hidden webinar rows included)</div>
+  <p>745 rows on production; nothing can say which are untouched seeds. A default-template improvement in code reaches no existing event, which is why <code>{{abstractNumber}}</code> and <code>{{travelGrantBlock}}</code> reached zero live copies and why anchor-based repair scripts exist. Accepted design so far, but it is the root of the "26 events hold a frozen copy" class of incident.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> 13. The agreement merges skip the token normalizer, with no guard behind them</h3>
+  <div class="loc"><code>speaker-agreement.ts:1097</code>, <code>presenter-agreement.ts:100</code>, saves at <code>events/[eventId]/route.ts:87</code> store Tiptap output verbatim</div>
+  <p>An editor-mangled <code>{{&lt;span&gt;speakerName&lt;/span&gt;}}</code> in Content, Speaker Agreement ships literally on the acceptance page and inside the PDF attached to every invitation. The email path is protected against exactly this since September 11; the agreement path is not.</p>
+</div>
+
+<h3>Low</h3>
+<ul>
+  <li>Nine <code>escapeHtml</code> copies for email; two four-character variants skip the apostrophe (<code>commitment-service.ts:427</code>, <code>daily-digest-worker.ts:563</code>).</li>
+  <li>Twelve pasted <code>|| getDefaultTemplate(slug)</code> fallbacks after <code>getEventTemplate</code>, which already falls back; each then rebuilds a minimal branding that cannot fire today.</li>
+  <li>Nine system slugs have no <code>TEMPLATE_VARIABLES</code> entry, so <code>{{surveyLink}}</code>, <code>{{joinUrl}}</code>, <code>{{passcodeBlock}}</code> and the webinar tokens are undiscoverable in the editor. The pasted-share-link incident of September 17 is what that looks like.</li>
+  <li>The template editor's preview renders with no raw keys, so <code>claimSummary</code> and <code>presenterFeeBlock</code> show as escaped source in the editor while the sends render them.</li>
+  <li>Bulk saved-template sends log <code>templateSlug: "bulk-template"</code>, never the real slug; Email History cannot say which template went.</li>
+  <li>Settings, Email Templates classifies with a stale eight-slug list, so 27 system templates carry a "Custom" badge there.</li>
+  <li><code>refund-confirmation</code> is seeded and editable on every event and has no sender.</li>
+  <li>Nine CTA-button builders with the same inline style; four approaches to the greeting name.</li>
+  <li>Seven inline copies of the "random token, hash, delete old, create" mint; only the agreement link is shared.</li>
+  <li>The registration single-send route accepts any <code>templateSlug</code> without the custom-slug classifier, and has no BCC or attachments while the speaker route and bulk do.</li>
+</ul>
+
+<h2>4. Already right: do not touch</h2>
+<ul>
+  <li><code>sendEmail</code> (<code>email.ts:696-975</code>): EmailLog row on every outcome, attachment names, the unresolved-token refusal, the circuit breaker, the admin alert, the non-production subject prefix. One choke point.</li>
+  <li><code>renderTemplate</code> plus <code>normalizeTemplateTokens</code> plus <code>findUnresolvedTokens</code>, pinned by tests.</li>
+  <li><code>getEventTemplate</code> with the active-row and default fallback and the branding load, plus <code>renderAndWrap</code>, the global event variables, <code>wrapWithBranding</code>, <code>brandingFrom</code>, <code>brandingCc</code>, <code>renderMessageValue</code>.</li>
+  <li>The block builders: <code>buildSpeakerEmailContext</code> (the one speaker source, used by bulk, single, preview, docx, the agreement merge), <code>buildAbstractConfirmationVars</code> and <code>buildAbstractDecisionVars</code>, <code>buildPaymentReminderVars</code>, <code>buildAgreementBlock</code> and <code>mintSpeakerAgreementLink</code>, <code>buildRsvpButton</code> and <code>resolveRsvpLinkForPerson</code>, <code>buildTravelGrantBlock</code>, <code>buildEntryBarcode</code>, <code>ensurePersonalSurveyLink</code>, <code>buildEventDateTokens</code>.</li>
+  <li>Bulk's per-recipient idempotency and abort, <code>precheckBulkEmailViability</code> behind both enqueue doors, and <code>bulk-email-audience.ts</code> shared by server and dialog.</li>
+  <li>On the certificate side, <code>pickSingleCoverEmail</code> and <code>renderBundleEmailContent</code>: one pipeline for the send and both previews. The per-certificate-template cover override is a legitimate layer above the per-event slug and should stay a separate vocabulary.</li>
+</ul>
+
+<h2>5. Proposal, in phases</h2>
+
+<h3>Phase 0: the defects (about half a day, no structural change)</h3>
+<ol>
+  <li>Finding 1: build the payment block for bulk confirmation; test renders the default template through bulk.</li>
+  <li>Finding 2: audience-keyed slug for <code>invitation</code>, or drop the reviewer option.</li>
+  <li>Finding 3: MCP reset refuses custom slugs and reuses the REST reset.</li>
+  <li>Finding 4: the six block keys join <code>DEFAULT_RAW_HTML_KEYS</code>; the automatic decision path gets a rendered test.</li>
+  <li>Finding 6: <code>?? ""</code> for <code>reviewScore</code> and <code>receiptUrl</code>; the registration route gains the location and organizer variables.</li>
+  <li>Findings 9 and 10: precheck resolves the slug; the certificate send takes the event CC and the bulk stream.</li>
+  <li>Finding 13: the two agreement merges and their save paths call the normalizer.</li>
+</ol>
+<p>Blast radius: seven senders, each change a few lines, each with a test. Safe to ship as one gated push.</p>
+
+<h3>Phase 1: the contract (one to two days)</h3>
+<p>A single typed registry replaces <code>DEFAULT_TEMPLATES</code>: one entry per slug with kind (system or custom), recipient type, sendable-from surfaces, its bulk email type, its variables, its raw HTML keys, its default subject and bodies, and an optional preview fixture. From it derive <code>SYSTEM_TEMPLATE_SLUGS</code>, <code>TEMPLATE_VARIABLES</code>, <code>DEFAULT_RAW_HTML_KEYS</code>, the five type-to-slug maps, the dialog option lists, the Settings list and the preview samples, with a generated client-safe leaf so no server import leaks. Then the missing drift test: build each sender's variable map with fixtures and assert it covers its default template and its registry entry. That is the test that would have caught the survey thank-you refusal, finding 1 and finding 6 before an organizer did. Adding a system template becomes one entry instead of twelve files.</p>
+
+<h3>Phase 2: the senders (two to three days, one sender per commit)</h3>
+<p>One entry point, <code>sendEventTemplatedEmail({ eventId, slug, recipient, vars, attachments, bcc, emailType, stream, triggeredByUserId, templateTransform })</code>, doing <code>getEventTemplate</code>, the optional transform (the travel-grant and fee-block "append the token" trick, so those sites stop editing templates by hand), <code>renderAndWrap</code>, <code>brandingFrom</code>, <code>brandingCc</code>, and <code>sendEmail</code> with a full log context. Beside it, <code>buildEventVars(event)</code> (the global keys plus city, country, address, start date, one venue shape, all through <code>buildEventDateTokens</code>) and <code>buildRecipientVars</code> for a registration or a speaker row, extracted from bulk's <code>generateEmailForRecipient</code>. About sixteen senders collapse onto them, each losing fifteen to thirty lines; the two single-send routes become "resolve one recipient, build vars, send"; the completion email becomes a template (finding 5); finding 7 disappears because no sender formats a date any more. Must stay bespoke: <code>sendRegistrationConfirmation</code> (payment block, quote PDF, inline barcode), operator mail (not event-scoped) and CRM sponsor mail (its own reply model).</p>
+<p>What can break on a live system: a missed raw key turns a block into escaped source (the July 16 MCP class); a missed transform drops the travel-grant token; a bug in the helper is a total event-mail outage. Mitigation: one sender per commit, the per-sender tests plus the unresolved-token suite as the net, and a real send to the owner's inbox per sender. Bulk and single-send switch from UTC dates to event-timezone dates and from "venue" to "venue, city", which is the fix but is visible.</p>
+
+<h3>Phase 3, owner call: seed provenance and the disable switch (schema, additive)</h3>
+<p>Nullable <code>EmailTemplate.seedHash</code> and <code>customizedAt</code>. Seed sites write the hash; PUT and MCP update stamp <code>customizedAt</code>; <code>getEventTemplate</code> serves the current code default when the row provably equals a default and was never customized, so a default improvement reaches untouched rows with no repair script; clone copies only customized rows. Backfill marks a row customized unless its content equals a current default (fail-safe, never overwrites an edit). And split the switch for system slugs into "use my edited version" and "use the built-in", keeping "disable" only for custom templates, with the editor preview rendering what the send would.</p>
+
+<h3>Do not do</h3>
+<ul>
+  <li>Do not fold the certificate cover resolver into <code>renderTemplate</code>: every cover would change date format and the unknown-token contract, for no organizer benefit.</li>
+  <li>Do not fold the agreement merges in either; they should adopt the normalizer and the canonical <code>escapeHtml</code> and stay separate, because they feed a PDF and an acceptance page, not an email.</li>
+</ul>
+
+<h2>6. What to learn from this review</h2>
+<ul>
+  <li><strong>A documentation list is not a contract.</strong> <code>TEMPLATE_VARIABLES</code> tells the organizer what to type and tells no sender what to fill. The test that pins preview to template exists; the test that pins sender to template does not, and every refusal incident since September 11 sits in that gap.</li>
+  <li><strong>A preview that renders the union of every sample is honest about the template and dishonest about the send.</strong> The editor shows a hundred and fifty resolvable tokens; each sender fills its own subset. The gap is invisible until the refusal.</li>
+  <li><strong>Knowledge that lives with a caller drifts; knowledge that lives with the thing does not.</strong> Whether a block is HTML is a property of the block builder, not of the eleven senders that use it. Which template an email type maps to is a property of the type, not of five surfaces.</li>
+  <li><strong>"Reset" that deletes is a different operation from "reset" that restores.</strong> Two surfaces gave one word two meanings, and only one of them was safe for organizer-created rows.</li>
+  <li><strong>A seed with no provenance freezes.</strong> Once a row cannot say whether it was ever edited, every improvement to the default becomes a migration of organizer data, which is why it never happens.</li>
+</ul>
+
+<footer>
+  Review method: three parallel read-only reviewers (token pipeline, template association, sender surface), each report re-verified against source by hand before inclusion, then read-only production queries for reach. Nothing in this document was taken from CLAUDE.md or other prose; where the prose and the code disagreed, the code was used.
+</footer>
+
+</div>
+</body>
+</html>
