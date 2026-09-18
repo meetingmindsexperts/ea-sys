@@ -121,8 +121,7 @@ function PublicSurveyClient() {
     | { kind: "ready"; data: ReadyData }
     | {
         kind: "thank-you";
-        eventName: string;
-        bannerImage: string | null;
+        event: EventLite;
         thankYouHtml: string | null;
       }
   >({ kind: "loading" });
@@ -168,8 +167,7 @@ function PublicSurveyClient() {
         if (data.alreadyCompleted === true) {
           setState({
             kind: "thank-you",
-            eventName: data.event.name,
-            bannerImage: data.event.bannerImage,
+            event: data.event,
             thankYouHtml: data.thankYouHtml ?? null,
           });
           return;
@@ -246,8 +244,7 @@ function PublicSurveyClient() {
         }
         setState({
           kind: "thank-you",
-          eventName: loaded.event.name,
-          bannerImage: loaded.event.bannerImage,
+          event: loaded.event,
           thankYouHtml: loaded.thankYouHtml,
         });
       } catch (err) {
@@ -266,11 +263,7 @@ function PublicSurveyClient() {
   if (state.kind === "error") return <ErrorPanel message={state.message} />;
   if (state.kind === "thank-you") {
     return (
-      <ThankYouPanel
-        eventName={state.eventName}
-        bannerImage={state.bannerImage}
-        thankYouHtml={state.thankYouHtml}
-      />
+      <ThankYouPanel event={state.event} thankYouHtml={state.thankYouHtml} />
     );
   }
 
@@ -341,8 +334,7 @@ function PublicSurveyClient() {
                   onClick={() =>
                     setState({
                       kind: "thank-you",
-                      eventName: data.event.name,
-                      bannerImage: data.event.bannerImage,
+                      event: data.event,
                       thankYouHtml: data.thankYouHtml,
                     })
                   }
@@ -673,13 +665,25 @@ function ErrorPanel({ message }: { message: string }) {
   );
 }
 
+/**
+ * The terminal state: shown after a submit, and again when a used link is
+ * reopened.
+ *
+ * The header is the SAME `PublicHeader` the form uses: the banner band at its
+ * natural aspect, then the event-name strip. It used to be a hand-rolled
+ * `<img>` inside the card, which squeezed the full-width event banner into a
+ * box 64px tall and about 270px wide (70% of a max-w-md card's content box),
+ * so the logo lockup and the date badge came out illegible and the
+ * art-directed mobile banner was dropped entirely. Sharing the header also
+ * keeps the page's identity across the submit (same banner, same column, only
+ * the card changes) and puts this page back on the one banner rule that
+ * `EventBannerBand` owns, which the inline image sat outside of.
+ */
 function ThankYouPanel({
-  eventName,
-  bannerImage,
+  event,
   thankYouHtml,
 }: {
-  eventName: string;
-  bannerImage: string | null;
+  event: EventLite;
   /** The organizer's own message; null or blank shows the default copy. */
   thankYouHtml: string | null;
 }) {
@@ -688,46 +692,61 @@ function ThankYouPanel({
       ? thankYouHtml
       : null;
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.07] via-background to-muted/40 px-4">
-      <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-0 -left-20 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
+    <div className="flex min-h-screen flex-col bg-background">
+      <PublicHeader event={event} />
 
-      <div className="relative w-full max-w-md rounded-3xl border bg-card/90 p-8 text-center shadow-xl shadow-primary/10 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-500 sm:p-10">
-        {bannerImage ? (
-          <div className="mx-auto mb-6 flex h-16 items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={bannerImage}
-              alt={eventName}
-              className="max-h-full w-auto max-w-[70%] object-contain"
-            />
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.06] via-background to-muted/40">
+        <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
+        <div className="pointer-events-none absolute top-1/3 -left-28 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
+
+        {/* Same column the questions sat in, so the page doesn't jump on submit,
+            centred in whatever room the header leaves. */}
+        <div className="relative mx-auto w-full max-w-2xl px-4 py-12 sm:py-16">
+          <div className="rounded-3xl border bg-card/90 p-8 text-center shadow-xl shadow-primary/10 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-3 duration-500 sm:p-12">
+            <div className="relative mx-auto flex h-16 w-16 items-center justify-center">
+              <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-20 blur-md" />
+              <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-white shadow-lg shadow-primary/30 animate-in zoom-in-50 duration-700">
+                <Check className="h-8 w-8" strokeWidth={2.5} />
+              </span>
+            </div>
+
+            {/* States the outcome whatever the organizer's own wording says. */}
+            <p className="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+              Response recorded
+            </p>
+
+            {customHtml ? (
+              /* The organizer's words, untouched. Their first paragraph is
+                 promoted to heading size, because the editor's usual output is
+                 two plain paragraphs and those rendered as one flat grey block
+                 with no hierarchy. A message that opens with a real heading
+                 never matches the selector and is styled by prose as before. */
+              <div
+                className="prose prose-slate mx-auto mt-3 max-w-[46ch] text-muted-foreground [&_a]:text-primary [&>*:last-child]:mb-0 [&>*]:mb-3 [&>p:first-child]:mb-2 [&>p:first-child]:text-xl [&>p:first-child]:font-bold [&>p:first-child]:tracking-tight [&>p:first-child]:text-foreground sm:[&>p:first-child]:text-2xl"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(customHtml) }}
+              />
+            ) : (
+              <>
+                <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
+                  Thank you for completing the form!
+                </h1>
+                <p className="mx-auto mt-3 max-w-[46ch] text-muted-foreground">
+                  Your feedback for{" "}
+                  <span className="font-medium text-foreground">{event.name}</span> has been
+                  recorded.
+                </p>
+                <p className="mx-auto mt-2 max-w-[46ch] text-muted-foreground">
+                  Your attendance certificate will be received on your registered email&nbsp;ID.
+                </p>
+              </>
+            )}
           </div>
-        ) : null}
 
-        <div className="relative mx-auto mb-5 flex h-16 w-16 items-center justify-center">
-          <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-20 blur-md" />
-          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-white shadow-lg shadow-primary/30 animate-in zoom-in-50 duration-700">
-            <Check className="h-8 w-8" strokeWidth={2.5} />
-          </span>
+          {/* Nothing follows this page, so say so rather than leave a dead end. */}
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            You can close this page.
+          </p>
         </div>
-
-        {customHtml ? (
-          <div
-            className="prose prose-slate max-w-none text-muted-foreground [&_a]:text-primary [&>*:last-child]:mb-0 [&>*]:mb-3"
-            dangerouslySetInnerHTML={{ __html: sanitizeHtml(customHtml) }}
-          />
-        ) : (
-          <>
-            <h1 className="text-2xl font-bold tracking-tight">Thank you for completing the form!</h1>
-            <p className="mt-3 text-muted-foreground">
-              Your feedback for <span className="font-medium text-foreground">{eventName}</span> has
-              been recorded.
-            </p>
-            <p className="mt-2 text-muted-foreground">
-              Your attendance certificate will be received on your registered email&nbsp;ID.
-            </p>
-          </>
-        )}
       </div>
     </div>
   );
