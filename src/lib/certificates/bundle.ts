@@ -83,8 +83,6 @@ export interface LoadedCertTemplate {
    *  autoIssueTag for historical reasons; the meaning is general. */
   autoIssueTag: string | null;
   template: CertificateTemplate;
-  emailSubject: string | null;
-  emailBody: string | null;
 }
 
 export async function loadCertTemplate(
@@ -102,8 +100,6 @@ export async function loadCertTemplate(
       textBoxes: true,
       role: true,
       cmeHours: true,
-      emailSubject: true,
-      emailBody: true,
     },
   });
   if (!tmpl) return null;
@@ -118,8 +114,6 @@ export async function loadCertTemplate(
       role: tmpl.role,
       cmeHours: tmpl.cmeHours == null ? null : Number(tmpl.cmeHours),
     },
-    emailSubject: tmpl.emailSubject,
-    emailBody: tmpl.emailBody,
   };
 }
 
@@ -640,8 +634,9 @@ async function loadCoverEmailTemplateBySlug(
 /**
  * The event's EDITABLE one-certificate cover email for a category —
  * `certificate-attendance-delivery` / `certificate-appreciation-delivery`
- * (Communications → Email Templates, Sep 17 2026). A certificate template's
- * own saved cover still wins over it; see pickSingleCoverEmail.
+ * (Communications → Email Templates, Sep 17 2026). Since Sep 18, 2026 it is
+ * the only editable wording for a one-certificate email; see
+ * pickSingleCoverEmail.
  */
 export async function loadCategoryCoverEmailTemplate(
   eventId: string,
@@ -651,26 +646,22 @@ export async function loadCategoryCoverEmailTemplate(
 }
 
 /**
- * The cover email for an email carrying ONE certificate: the template's own
- * saved cover, then the event's Email Template for its category, then the
- * built-in text. Every one-certificate sender and preview goes through here
- * or through pickSingleCoverEmail with a batch-loaded event cover.
+ * The cover email for an email carrying ONE certificate: the event's Email
+ * Template for the category, then the built-in text. Every one-certificate
+ * sender and preview goes through here or through pickSingleCoverEmail with
+ * a batch-loaded event cover.
  */
 export async function resolveSingleCoverEmail(
   eventId: string,
-  template: { category: CertificateType; emailSubject?: string | null; emailBody?: string | null },
+  category: CertificateType,
   cache?: CoverEmailCache,
 ): Promise<{ subject: string; body: string }> {
-  const ownSubject = Boolean(template.emailSubject?.trim().length);
-  const ownBody = Boolean(template.emailBody?.trim().length);
-  // Both halves saved on the template: the event template is never read.
-  if (ownSubject && ownBody) return pickSingleCoverEmail(template, null);
-  let pending = cache?.get(template.category);
+  let pending = cache?.get(category);
   if (!pending) {
-    pending = loadCategoryCoverEmailTemplate(eventId, template.category);
-    cache?.set(template.category, pending);
+    pending = loadCategoryCoverEmailTemplate(eventId, category);
+    cache?.set(category, pending);
   }
-  return pickSingleCoverEmail(template, await pending);
+  return pickSingleCoverEmail(category, await pending);
 }
 
 /**
@@ -682,8 +673,7 @@ export type CoverEmailCache = Map<CertificateType, Promise<{ subject: string; bo
 
 /**
  * The cover email when no operator override applies, by how many
- * certificates the email carries: one → resolveSingleCoverEmail (the
- * template's own wording when the caller knows the template, else the event's
+ * certificates the email carries: one → resolveSingleCoverEmail (the event's
  * Email Template for the category); several → the event's bundle template →
  * the built-in multi text. Shared by "Resend all", its preview, and the
  * worker's fallback for a run with no snapshot, so they cannot drift.
@@ -692,16 +682,11 @@ export async function resolveDefaultCoverEmail(
   eventId: string,
   certCount: number,
   primaryCategory: CertificateType,
-  singleTemplate?: { emailSubject?: string | null; emailBody?: string | null } | null,
 ): Promise<{ subject: string; body: string }> {
   if (certCount > 1) {
     return (await loadBundleCoverEmailTemplate(eventId)) ?? defaultCoverEmailFor(certCount, primaryCategory);
   }
-  return resolveSingleCoverEmail(eventId, {
-    category: primaryCategory,
-    emailSubject: singleTemplate?.emailSubject,
-    emailBody: singleTemplate?.emailBody,
-  });
+  return resolveSingleCoverEmail(eventId, primaryCategory);
 }
 
 /**
@@ -1050,12 +1035,7 @@ export async function sendCertificateBundleEmail(args: {
  */
 export async function buildCertCoverEmailPreview(args: {
   eventId: string;
-  templates: Array<{
-    name: string;
-    category: CertificateType;
-    emailSubject: string | null;
-    emailBody: string | null;
-  }>;
+  templates: Array<{ name: string; category: CertificateType }>;
   customSubject?: string;
   customMessage?: string;
 }): Promise<{ subject: string; htmlContent: string } | null> {
@@ -1064,13 +1044,13 @@ export async function buildCertCoverEmailPreview(args: {
   if (!event) return null;
 
   // Subject/body precedence — mirror coverEmailFor (bulk-issue.ts): custom
-  // override → single template's saved cover → the event's Email Template for
-  // the category (or the bundle one for several) → built-in default.
+  // override → the event's Email Template for the category (or the bundle
+  // one for several) → built-in default.
   const primary = args.templates[0];
   let subjectTemplate: string;
   let bodyTemplate: string;
   if (args.templates.length === 1) {
-    const cover = await resolveSingleCoverEmail(args.eventId, primary);
+    const cover = await resolveSingleCoverEmail(args.eventId, primary.category);
     subjectTemplate = cover.subject;
     bodyTemplate = cover.body;
   } else {

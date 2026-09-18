@@ -144,7 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       const certTemplates = await db.certificateTemplate.findMany({
         where: { id: { in: certificateTemplateIds }, eventId },
-        select: { id: true, name: true, category: true, emailSubject: true, emailBody: true },
+        select: { id: true, name: true, category: true },
       });
       if (certTemplates.length !== new Set(certificateTemplateIds).size) {
         apiLogger.warn({

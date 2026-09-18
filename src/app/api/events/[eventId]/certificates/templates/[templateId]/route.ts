@@ -43,11 +43,9 @@ const patchSchema = z.object({
     }),
   textBoxes: certificateTextBoxesSchema.optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
-  // Per-template cover email — patches independently of the visual fields.
-  // Pass null to clear: the template then follows the event's certificate
-  // Email Template for its category.
-  emailSubject: z.string().min(1).max(200).nullable().optional(),
-  emailBody: z.string().min(1).max(10000).nullable().optional(),
+  // No per-template cover email since Sep 18, 2026 (the event's Certificate
+  // Delivery email template is the wording); a client still sending
+  // emailSubject / emailBody has them stripped by Zod, never written.
   // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).
   role: z.string().max(120).trim().nullable().optional(),
   cmeHours: z.number().min(0).max(999).nullable().optional(),
@@ -113,8 +111,6 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       data.textBoxes = parsed.data.textBoxes as unknown as Prisma.InputJsonValue;
     }
     if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder;
-    if (parsed.data.emailSubject !== undefined) data.emailSubject = parsed.data.emailSubject;
-    if (parsed.data.emailBody !== undefined) data.emailBody = parsed.data.emailBody;
     if (parsed.data.role !== undefined) data.role = parsed.data.role;
     if (parsed.data.cmeHours !== undefined) data.cmeHours = parsed.data.cmeHours;
     if (parsed.data.autoIssueOnSurvey !== undefined) data.autoIssueOnSurvey = parsed.data.autoIssueOnSurvey;

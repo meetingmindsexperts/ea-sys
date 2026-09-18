@@ -157,9 +157,9 @@ export interface BatchCoverEmails {
   byCategory: Record<CertificateType, { subject: string; body: string } | null>;
 }
 
-/** Cover email for one recipient's bundle: custom override → single
- *  template's saved cover email → the event's Email Template for that
- *  category, or the bundle template for several → built-in default. */
+/** Cover email for one recipient's bundle: custom override → the event's
+ *  Email Template for the category (one certificate) or the bundle template
+ *  (several) → built-in default. */
 export function coverEmailFor(
   bundled: Array<{ template: LoadedCertTemplate }>,
   covers: BatchCoverEmails,
@@ -171,7 +171,7 @@ export function coverEmailFor(
   const bundleCover = covers.bundle;
   if (bundled.length === 1) {
     const t = bundled[0].template;
-    ({ subject, body } = pickSingleCoverEmail(t, covers.byCategory[t.category]));
+    ({ subject, body } = pickSingleCoverEmail(t.category, covers.byCategory[t.category]));
   } else {
     subject = bundleCover?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI;
     body = bundleCover?.body ?? SYSTEM_DEFAULT_BODY_MULTI;
@@ -224,7 +224,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   const event = await loadBundleEmailEvent(eventId);
   // The event's editable cover emails — loaded ONCE per batch (not per
   // recipient): the bundle one for multi-cert emails, one per category for
-  // single-cert emails whose template has no saved cover of its own.
+  // single-cert emails.
   const [bundleCover, attendanceCover, appreciationCover] = await Promise.all([
     loadBundleCoverEmailTemplate(eventId),
     loadCategoryCoverEmailTemplate(eventId, "ATTENDANCE"),

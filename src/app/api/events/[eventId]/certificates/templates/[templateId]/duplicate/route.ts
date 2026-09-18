@@ -153,8 +153,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
           // which is structurally a JS-clonable object/array.
           textBoxes: source.textBoxes as Prisma.InputJsonValue,
           sortOrder: nextOrder,
-          emailSubject: source.emailSubject,
-          emailBody: source.emailBody,
+          // No per-template cover to copy since Sep 18, 2026: the event's
+          // Certificate Delivery email template is the wording.
           // H4: copy the CME/role + auto-issue config too — a hand-listed
           // clone silently dropped these, so duplicating a CME cert produced
           // a clone whose {{cmeHours}} rendered blank and duplicating an

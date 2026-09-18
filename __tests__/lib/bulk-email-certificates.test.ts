@@ -60,8 +60,6 @@ const ATT_TPL: LoadedCertTemplate = {
   category: "ATTENDANCE",
   autoIssueTag: "attended",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
-  emailSubject: "Att subject",
-  emailBody: "<p>Att body</p>",
 };
 const APP_TPL: LoadedCertTemplate = {
   id: "tpl-app",
@@ -69,8 +67,6 @@ const APP_TPL: LoadedCertTemplate = {
   category: "APPRECIATION",
   autoIssueTag: "speaker",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
-  emailSubject: null,
-  emailBody: null,
 };
 
 const REG_RECIPIENT = {
@@ -159,22 +155,25 @@ describe("executeCertificateBulkSend", () => {
     expect(sent.recipientLastName).toBe("Doe");
   });
 
-  it("tag-filters: recipient with only the attendance tag gets only that cert (its own cover email)", async () => {
+  it("tag-filters: recipient with only the attendance tag gets only that cert (the attendance cover email)", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
       attendee: { tags: ["attended"], email: "jane@x.com" },
     });
     mockLinkedSpeaker.mockResolvedValue(null); // no speaker facet at all
+    mockLoadCategoryCover.mockImplementation((_e: string, category: string) =>
+      Promise.resolve(category === "ATTENDANCE" ? { subject: "Att subject", body: "<p>Att body</p>" } : null),
+    );
     const res = await executeCertificateBulkSend(BASE);
     expect(res.successCount).toBe(1);
     expect(mockFindOrIssue).toHaveBeenCalledTimes(1);
     expect(mockFindOrIssue.mock.calls[0][0]).toMatchObject({ templateId: "tpl-att" });
     const sent = mockBundleSend.mock.calls[0][0];
     expect(sent.certs).toHaveLength(1);
-    // Single template → its saved cover email wins.
+    // Single template → the event's Email Template for its category.
     expect(sent.emailSubjectTemplate).toBe("Att subject");
   });
 
-  it("a one-certificate email without a saved cover uses the event's Email Template for its category", async () => {
+  it("a one-certificate email uses the event's Email Template for its category", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
       attendee: { tags: ["attended"], email: "jane@x.com" },
     });
@@ -183,7 +182,7 @@ describe("executeCertificateBulkSend", () => {
         category === "ATTENDANCE" ? { subject: "Event attendance subject", body: "<p>Event attendance body</p>" } : null,
       ),
     );
-    await executeCertificateBulkSend({ ...BASE, templates: [{ ...ATT_TPL, emailSubject: null, emailBody: null }] });
+    await executeCertificateBulkSend({ ...BASE, templates: [ATT_TPL] });
     const sent = mockBundleSend.mock.calls[0][0];
     expect(sent.emailSubjectTemplate).toBe("Event attendance subject");
     expect(sent.emailBodyTemplate).toBe("<p>Event attendance body</p>");
@@ -191,11 +190,6 @@ describe("executeCertificateBulkSend", () => {
     expect(sent.recipientTitle).toBe("DR");
     // Loaded once for the batch, not per recipient.
     expect(mockLoadCategoryCover).toHaveBeenCalledTimes(2);
-
-    // A template's own saved cover still wins over the event template.
-    mockBundleSend.mockClear();
-    await executeCertificateBulkSend({ ...BASE, templates: [ATT_TPL] });
-    expect(mockBundleSend.mock.calls[0][0].emailSubjectTemplate).toBe("Att subject");
   });
 
   it("SKIPS (not fails) a recipient when no template tag matches — no tag, no certificate", async () => {

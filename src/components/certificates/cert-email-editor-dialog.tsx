@@ -4,14 +4,11 @@
  * Email-editor dialog used by the certificate Issue flow (2026-06-02
  * evening). Opens when the operator clicks "Issue N certificates" on
  * the Issue tab — pre-filled by the caller with the wording that would be
- * sent: the template's own saved cover, else the event's certificate Email
- * Template (Communications → Email Templates).
- *
- * Two consumers:
- *  1. Issue flow — subject + body confirmed here become the run's
- *     stored snapshot (frozen for the duration of the run).
- *  2. Templates editor — the same dialog (or the inline-card variant
- *     below) lets the organizer save a default per template.
+ * sent: the event's certificate Email Template for the category, or the
+ * bundle one for several (Communications → Email Templates). The subject +
+ * body confirmed here become the run's stored snapshot (frozen for the
+ * duration of the run). The per-template cover editor that also used this
+ * dialog was removed on Sep 18, 2026.
  *
  * The Tiptap editor is lazy-loaded so pdf-lib + tiptap don't load on
  * tabs that don't need them. Matches the lazy pattern used by the
@@ -67,14 +64,6 @@ export interface CertEmailEditorDialogProps {
   helperText?: string;
   /** Pending state — disables Confirm + shows spinner. */
   submitting?: boolean;
-  /** A second, left-aligned footer action (the template editor's "Use the
-   *  email template", which clears the template's own wording). */
-  secondaryAction?: { label: string; onClick: () => void; disabled?: boolean };
-  /** Keep the submit button off until the subject or body is edited. The
-   *  template editor sets it when the template has no wording of its own:
-   *  saving the untouched pre-fill would copy the event's Email Template onto
-   *  the template and stop later edits there from reaching it. */
-  requireChange?: boolean;
   /** Called with the operator-confirmed subject + body. The dialog
    *  trims subject + body before calling. */
   onSubmit: (vars: { emailSubject: string; emailBody: string }) => void;
@@ -90,8 +79,6 @@ export function CertEmailEditorDialog({
   recipientCount,
   helperText,
   submitting,
-  secondaryAction,
-  requireChange,
   onSubmit,
 }: CertEmailEditorDialogProps) {
   // Local state — only persisted out on Confirm. Cancel preserves the
@@ -105,16 +92,13 @@ export function CertEmailEditorDialog({
   // replace a half-typed draft the moment a background refetch of the email
   // templates lands (review M2, Sep 17 2026).
   const [wasOpen, setWasOpen] = useState(open);
-  const [seeded, setSeeded] = useState({ subject: initialSubject, body: initialBody });
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
       setSubject(initialSubject);
       setBody(initialBody);
-      setSeeded({ subject: initialSubject, body: initialBody });
     }
   }
-  const changed = subject !== seeded.subject || body !== seeded.body;
 
   const tokensForCategory = useMemo(
     () => COVER_EMAIL_TOKENS.filter((t) => t.categories.includes(category)),
@@ -141,8 +125,7 @@ export function CertEmailEditorDialog({
     onSubmit({ emailSubject: subjectTrimmed, emailBody: bodyTrimmed });
   }
 
-  const disabled =
-    submitting || subject.trim().length === 0 || body.trim().length === 0 || (requireChange && !changed);
+  const disabled = submitting || subject.trim().length === 0 || body.trim().length === 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -217,17 +200,6 @@ export function CertEmailEditorDialog({
           </details>
 
           <DialogFooter>
-            {secondaryAction && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="sm:mr-auto"
-                onClick={secondaryAction.onClick}
-                disabled={submitting || secondaryAction.disabled}
-              >
-                {secondaryAction.label}
-              </Button>
-            )}
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

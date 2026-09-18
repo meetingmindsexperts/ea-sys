@@ -118,21 +118,13 @@ describe("POST /certificates/issued/resend-bundle", () => {
     );
   });
 
-  it("hands one remaining certificate's template to the cover resolver, so its own wording is kept (review M1)", async () => {
+  it("resolves one remaining certificate's cover by the SENT cert's category (the skipped one is not counted)", async () => {
     mockLoadPdf.mockImplementation((url: string) =>
       url.includes("/1.pdf") ? Promise.reject(new Error("ENOENT")) : Promise.resolve(Buffer.from("%PDF")),
     );
-    mockDb.issuedCertificate.findMany.mockResolvedValue([
-      CERTS[0],
-      { ...CERTS[1], certificateTemplate: { name: "Speaker", emailSubject: "Thank you for your talk", emailBody: "<p>Thanks</p>" } },
-    ]);
+    mockDb.issuedCertificate.findMany.mockResolvedValue([CERTS[0], { ...CERTS[1], type: "APPRECIATION" }]);
     await post({ registrationId: "reg-1" });
-    // The skipped cert's template must not be the one passed: the sent cert's is.
-    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 1, "APPRECIATION", {
-      name: "Speaker",
-      emailSubject: "Thank you for your talk",
-      emailBody: "<p>Thanks</p>",
-    });
+    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 1, "APPRECIATION");
   });
 
   it("tells the sender the recipient was already looked up when nobody was found", async () => {
@@ -145,9 +137,9 @@ describe("POST /certificates/issued/resend-bundle", () => {
     });
   });
 
-  it("passes no template when several certificates go out", async () => {
+  it("resolves the bundle cover by count and the first cert's category when several go out", async () => {
     await post({ registrationId: "reg-1" });
-    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 2, "ATTENDANCE", null);
+    expect(mockResolveCover).toHaveBeenCalledWith("evt-1", 2, "ATTENDANCE");
   });
 
   it("skips an unloadable PDF but sends the rest", async () => {

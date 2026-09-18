@@ -50,12 +50,7 @@ import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { formatSessionRole } from "@/lib/session-enums";
 import { stripDocumentWrapper } from "@/lib/email-utils";
-import {
-  CERT_COVER_TEMPLATE_SLUGS,
-  describeCertificateCoverSources,
-  eventCoverFromTemplateList,
-  pickSingleCoverEmail,
-} from "@/lib/certificates/email-tokens";
+import { describeCertificateCoverSources } from "@/lib/certificates/email-tokens";
 import {
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -269,10 +264,9 @@ export function BulkEmailDialog({
   // Certificate sends only — where the cover email comes from. Picking a
   // source PRE-FILLS the editable Subject/Message fields (the fields stay
   // the source of truth for the send): "default" clears them (the send then
-  // uses each template's own wording, else the event's certificate Email
-  // Template, or the bundle one for several), `cert:{id}`
-  // copies a certificate template's saved cover, `tpl:{slug}` copies a
-  // saved email template from Communications → Email Templates.
+  // uses the event's certificate Email Template for the category, or the
+  // bundle one for several), `tpl:{slug}` copies a saved email template
+  // from Communications → Email Templates.
   const [coverSource, setCoverSource] = useState("default");
   // When scheduling a send that started from a row selection, the organizer
   // chooses whether the scheduled email goes to that fixed set of rows or to
@@ -393,7 +387,6 @@ export function BulkEmailDialog({
   // Copying a certificate template's wording needs the event's Email Templates
   // to fill a half it did not save; until they load, those options wait
   // (review M2) rather than copying the built-in text into the send.
-  const certCoverSourcesReady = templatesQuery.isSuccess;
   const allTemplateRows = (templatesData?.templates ?? []) as Array<{
     slug: string;
     name: string;
@@ -495,20 +488,6 @@ export function BulkEmailDialog({
     if (value === "default") {
       setCustomSubject("");
       setCustomMessage("");
-      return;
-    }
-    if (value.startsWith("cert:")) {
-      const t = certTemplateOptions.find((x) => x.id === value.slice(5));
-      if (!t || !certCoverSourcesReady) return;
-      // The wording this template sends today: its own saved cover, with the
-      // event's Email Template for its category filling any missing half —
-      // the same rule the real send uses (pickSingleCoverEmail).
-      const cover = pickSingleCoverEmail(
-        t,
-        eventCoverFromTemplateList(allTemplateRows, CERT_COVER_TEMPLATE_SLUGS[t.category]),
-      );
-      setCustomSubject(cover.subject.trim());
-      setCustomMessage(cover.body.trim());
       return;
     }
     if (value.startsWith("tpl:")) {
@@ -620,8 +599,7 @@ export function BulkEmailDialog({
       // carried in filters.templateSlug (so it survives schedule → worker).
       emailType: isSavedTemplate ? "template" : emailType,
       // Certificate sends accept an OPTIONAL subject/message override —
-      // blank uses the template's own cover email, else the event's
-      // certificate Email Template.
+      // blank uses the event's certificate Email Template.
       customSubject: isCustom
         ? customSubject.trim()
         : isCertificate || isReminder
@@ -813,14 +791,6 @@ export function BulkEmailDialog({
                               setCertTemplateIds((prev) =>
                                 c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
                               );
-                              // Deselecting the template whose saved cover
-                              // is the picked source removes its option —
-                              // point the picker back at "default" (the
-                              // already-copied subject/message fields are
-                              // untouched; they drive the send).
-                              if (c !== true && coverSource === `cert:${t.id}`) {
-                                setCoverSource("default");
-                              }
                             }}
                           />
                           <span>
@@ -865,8 +835,8 @@ export function BulkEmailDialog({
           )}
 
           {/* Certificate cover-email source — pre-fills the Subject/Message
-              fields from a certificate template's saved cover OR a saved
-              email template, instead of typing from scratch. */}
+              fields from a saved email template, instead of typing from
+              scratch. */}
           {isCertificate && (
             <div className="space-y-2">
               <Label>Cover email</Label>
@@ -886,22 +856,6 @@ export function BulkEmailDialog({
                       </div>
                     </div>
                   </SelectItem>
-                  {certTemplateOptions
-                    .filter(
-                      (t) =>
-                        certTemplateIds.includes(t.id) &&
-                        (t.emailSubject?.trim() || t.emailBody?.trim()),
-                    )
-                    .map((t) => (
-                      <SelectItem key={`cert:${t.id}`} value={`cert:${t.id}`} disabled={!certCoverSourcesReady}>
-                        <div>
-                          <div className="font-medium">{t.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            Saved cover from the certificate template editor
-                          </div>
-                        </div>
-                      </SelectItem>
-                    ))}
                   {customTemplates.map((t) => (
                     <SelectItem key={`tpl:${t.slug}`} value={`tpl:${t.slug}`}>
                       <div>

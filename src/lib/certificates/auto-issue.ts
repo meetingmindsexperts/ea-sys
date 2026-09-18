@@ -82,8 +82,6 @@ export interface AutoIssueTemplate {
   id: string;
   category: CertificateType; // ATTENDANCE | APPRECIATION
   autoIssueTag: string | null;
-  emailSubject: string | null;
-  emailBody: string | null;
 }
 
 export interface AutoIssueTarget {
@@ -205,7 +203,7 @@ export async function runAutoIssueSweep(
     const loadTemplates = () =>
       db.certificateTemplate.findMany({
         where: { eventId, autoIssueOnSurvey: true },
-        select: { id: true, category: true, autoIssueTag: true, emailSubject: true, emailBody: true },
+        select: { id: true, category: true, autoIssueTag: true },
       });
     const templates = eventOrg ? await runWithTenant(eventOrg, loadTemplates) : await loadTemplates();
     templatesByEvent.set(eventId, templates);
@@ -396,11 +394,10 @@ async function processRegistration(
       const anySpeakerTarget = surviving.some((t) => t.recipient === "speaker");
       const anyRegistrationTarget = surviving.some((t) => t.recipient === "registration");
       const runType = anyRegistrationTarget ? "ATTENDANCE" : "APPRECIATION";
-      // Cover email: a single template keeps its own saved cover email
-      // (today's behavior); a multi bundle leaves the snapshot null so the
-      // send phase falls back to the MULTI defaults ({{certificateList}}).
-      const single = surviving.length === 1 ? templateMap.get(surviving[0].templateId) : null;
-      if (!single && surviving.length > 1) {
+      // Cover email: the run carries no snapshot. The send phase resolves
+      // the event's Email Template at send time: the category one for a
+      // single certificate, the bundle one ({{certificateList}}) for several.
+      if (surviving.length > 1) {
         apiLogger.info({
           msg: "cert-auto-issue:multi-default-cover",
           registrationId: reg.id,
@@ -428,8 +425,8 @@ async function processRegistration(
           triggeredByUserId: null,
           status: "PENDING",
           totalCount: 1,
-          emailSubject: single?.emailSubject ?? null,
-          emailBody: single?.emailBody ?? null,
+          emailSubject: null,
+          emailBody: null,
           notes: "Auto-issued on survey completion",
         },
         select: { id: true },

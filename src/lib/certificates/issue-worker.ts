@@ -718,7 +718,7 @@ async function processSendPhase(
       emailSubject: true,
       emailBody: true,
       triggeredByUserId: true,
-      certificateTemplate: { select: { name: true, emailSubject: true, emailBody: true } },
+      certificateTemplate: { select: { name: true } },
     },
   });
   if (!runRow) {
@@ -739,19 +739,14 @@ async function processSendPhase(
   // Cover-email fallback when the run carries no snapshot (legacy + auto
   // runs, e.g. a survey-gated auto run whose emailSubject/emailBody are
   // null). Same resolver as "Resend all": several templates → the
-  // organizer-editable bundle template; one → that template's own wording,
-  // else the event's Email Template for its category. Only read when the
-  // snapshot is missing a half, so a manual run costs no template lookup.
+  // organizer-editable bundle template; one → the event's Email Template for
+  // its category. Only read when the snapshot is missing a half, so a manual
+  // run costs no template lookup.
   const bundleCount = runRow.templateIds.length || 1;
   const snapshotComplete = Boolean(runRow.emailSubject?.trim().length && runRow.emailBody?.trim().length);
   const fallbackCover = snapshotComplete
     ? null
-    : await resolveDefaultCoverEmail(
-        eventId,
-        bundleCount,
-        runRow.type,
-        bundleCount === 1 ? runRow.certificateTemplate : null,
-      );
+    : await resolveDefaultCoverEmail(eventId, bundleCount, runRow.type);
   const emailSubjectTemplate =
     runRow.emailSubject?.trim().length ? runRow.emailSubject : (fallbackCover?.subject ?? "");
   const emailBodyTemplate =

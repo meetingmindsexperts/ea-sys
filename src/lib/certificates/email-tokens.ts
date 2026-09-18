@@ -49,9 +49,13 @@ export function defaultBodyForCategory(category: CertificateType): string {
 // The single-certificate cover emails are per-event EmailTemplates under
 // Communications → Email Templates, one per category, seeded with the
 // constants above. Which wording an email uses, field by field:
-//   1. the certificate template's own saved cover (its "Cover email" editor),
-//   2. the event's Email Template for that category,
-//   3. the constants above (only when the template lookup fails).
+//   1. the event's Email Template for that category,
+//   2. the constants above (only when the template lookup fails).
+// A per-run override typed on the Issue dialog wins above both. Until
+// Sep 18, 2026 a certificate template could also carry its own cover
+// (CertificateTemplate.emailSubject / emailBody); the owner removed that
+// layer so one wording per category per event is the only place to edit.
+// The columns stay in the schema, unread.
 
 /** Slugs of the editable one-certificate cover emails. Client-safe: the
  *  certificates page and the bulk-email dialog pre-fill from them. */
@@ -83,34 +87,16 @@ export function eventCoverFromTemplateList(
  * The cover email for an email carrying ONE certificate. Pure, so the send,
  * the previews and the dashboard pre-fills cannot disagree. `eventCover` is
  * the event's Email Template for the category (null when it could not be
- * loaded). A template that saved only one half keeps the other half from the
- * next source down, as it always has.
+ * loaded); a blank half falls through to the built-in text for that half.
  */
 export function pickSingleCoverEmail(
-  template: {
-    category: CertificateType;
-    emailSubject?: string | null;
-    emailBody?: string | null;
-  },
+  category: CertificateType,
   eventCover: { subject: string; body: string } | null,
 ): { subject: string; body: string } {
-  const subjectFallback = eventCover?.subject?.trim().length ? eventCover.subject : SYSTEM_DEFAULT_SUBJECT;
-  const bodyFallback = eventCover?.body?.trim().length
-    ? eventCover.body
-    : defaultBodyForCategory(template.category);
   return {
-    subject: template.emailSubject?.trim().length ? template.emailSubject : subjectFallback,
-    body: template.emailBody?.trim().length ? template.emailBody : bodyFallback,
+    subject: eventCover?.subject?.trim().length ? eventCover.subject : SYSTEM_DEFAULT_SUBJECT,
+    body: eventCover?.body?.trim().length ? eventCover.body : defaultBodyForCategory(category),
   };
-}
-
-/** True when the certificate template carries its own saved cover email, so
- *  edits to the event's Email Template do not reach it. */
-export function hasOwnCoverEmail(template: {
-  emailSubject?: string | null;
-  emailBody?: string | null;
-}): boolean {
-  return Boolean(template.emailSubject?.trim().length || template.emailBody?.trim().length);
 }
 
 // ── Multi-certificate (bundle) defaults ──────────────────────────────────────
@@ -137,17 +123,10 @@ export const CERT_BUNDLE_COVER_TEMPLATE_NAME = "Certificate Delivery (Multiple C
  * cover option, which used to say only "Certificate default".
  */
 export function describeCertificateCoverSources(
-  templates: ReadonlyArray<{
-    name: string;
-    category: CertificateType;
-    emailSubject?: string | null;
-    emailBody?: string | null;
-  }>,
+  templates: ReadonlyArray<{ name: string; category: CertificateType }>,
 ): string {
   if (templates.length === 0) return "Select a certificate template to see which email it uses";
-  const parts = templates.map((t) =>
-    hasOwnCoverEmail(t) ? `${t.name} → its own cover email` : `${t.name} → ${CERT_COVER_TEMPLATE_NAMES[t.category]}`,
-  );
+  const parts = templates.map((t) => `${t.name} → ${CERT_COVER_TEMPLATE_NAMES[t.category]}`);
   if (templates.length > 1) parts.push(`anyone receiving several → ${CERT_BUNDLE_COVER_TEMPLATE_NAME}`);
   return parts.join("; ");
 }

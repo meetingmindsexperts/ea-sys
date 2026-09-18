@@ -88,9 +88,7 @@ import {
   SYSTEM_DEFAULT_BODY_MULTI,
   CERT_BUNDLE_COVER_TEMPLATE_SLUG,
   CERT_COVER_TEMPLATE_SLUGS,
-  CERT_COVER_TEMPLATE_NAMES,
   eventCoverFromTemplateList,
-  hasOwnCoverEmail,
   pickSingleCoverEmail,
 } from "@/lib/certificates/email-tokens";
 import { useEmailTemplates } from "@/hooks/use-api";
@@ -130,11 +128,6 @@ interface CertificateTemplate {
   backgroundPdfUrl: string | null;
   textBoxes: CertificateTextBox[];
   sortOrder: number;
-  /** Organizer-set default subject/body for the cover email. Null when
-   *  the template hasn't been customized yet — the Issue dialog falls
-   *  back to the per-category system default. */
-  emailSubject: string | null;
-  emailBody: string | null;
   /** Role/designation ({{role}} token) — e.g. "Speaker", "Moderator". */
   role: string | null;
   /** Static per-template CME hours ({{cmeHours}}, overrides event-level). */
@@ -269,11 +262,6 @@ export default function CertificatesPage() {
   // Email-editor dialog state. The Issue button opens this; on Confirm
   // the issueMutation fires with the dialog-confirmed subject + body.
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
-  // Separate dialog state for the per-template "Edit cover email
-  // defaults" button inside the canvas-editor card — saves to the
-  // template's emailSubject / emailBody columns via PATCH instead of
-  // firing an issue run.
-  const [tmplEmailDialogOpen, setTmplEmailDialogOpen] = useState(false);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
   // Bulk "resend latest version to everyone" confirm dialog (re-render each
   // already-issued cert for the selected template from the CURRENT template +
@@ -376,16 +364,16 @@ export default function CertificatesPage() {
   };
 
   // The event's editable cover emails (Communications → Email Templates) —
-  // pre-fill the Issue dialog and the per-template cover editor so the
-  // operator starts from the same wording the senders resolve: the bundle
-  // template for multi-template runs, the category template for one.
+  // pre-fill the Issue dialog so the operator starts from the same wording
+  // the senders resolve: the bundle template for multi-template runs, the
+  // category template for one.
   const emailTemplatesQuery = useEmailTemplates(eventId);
   const emailTemplateRows = emailTemplatesQuery.data?.templates as
     | Array<{ slug: string; subject: string; htmlContent: string; isActive: boolean }>
     | undefined;
-  // Until the list arrives the dialogs would pre-fill with the built-in text,
+  // Until the list arrives the dialog would pre-fill with the built-in text,
   // and a manual run freezes whatever the dialog showed (review M2), so the
-  // buttons that open them wait. A failed load says so in the dialog instead.
+  // button that opens it waits. A failed load says so in the dialog instead.
   const coverTemplatesLoading = emailTemplatesQuery.isPending;
   const coverTemplatesNotice = emailTemplatesQuery.isError
     ? " The event's Email Templates could not be loaded, so this shows the built-in wording."
@@ -423,8 +411,6 @@ export default function CertificatesPage() {
         name?: string;
         backgroundPdfUrl?: string | null;
         textBoxes?: CertificateTextBox[];
-        emailSubject?: string | null;
-        emailBody?: string | null;
         role?: string | null;
         cmeHours?: number | null;
         autoIssueOnSurvey?: boolean;
@@ -1181,15 +1167,6 @@ export default function CertificatesPage() {
                     >
                       <Eye className="h-4 w-4 mr-1" />
                       Preview
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setTmplEmailDialogOpen(true)}
-                      disabled={coverTemplatesLoading}
-                      title={coverTemplatesLoading ? "Loading the event's email templates…" : undefined}
-                    >
-                      <Mail className="h-4 w-4 mr-1" />
-                      Cover email
                     </Button>
                     <Button
                       variant="outline"
@@ -2338,70 +2315,11 @@ export default function CertificatesPage() {
         </Dialog>
       )}
 
-      {/* Per-template email-defaults dialog — opens from the canvas
-          editor card's "Cover email" button. PATCHes the template
-          row's emailSubject + emailBody (the Issue dialog later
-          pre-fills from these). */}
-      {editingTemplate && (() => {
-        // Pre-filled with the wording this template sends today: its own
-        // saved cover, else the event's Email Template for its category.
-        const cover = pickSingleCoverEmail(editingTemplate, eventCoverFor(editingTemplate.category));
-        const ownWording = hasOwnCoverEmail(editingTemplate);
-        const emailTemplateName = CERT_COVER_TEMPLATE_NAMES[editingTemplate.category];
-        return (
-          <CertEmailEditorDialog
-            open={tmplEmailDialogOpen}
-            onOpenChange={setTmplEmailDialogOpen}
-            category={editingTemplate.category}
-            initialSubject={cover.subject}
-            initialBody={cover.body}
-            submitLabel="Save for this template"
-            helperText={
-              (ownWording
-                ? `"${editingTemplate.name}" has its own cover email, so edits to Communications → Email Templates → ${emailTemplateName} do not reach it. It pre-fills the Issue dialog; operators can still change it per run.`
-                : `"${editingTemplate.name}" uses Communications → Email Templates → ${emailTemplateName}. To give this template its own wording, change it here and save; it then wins over that email template.`) +
-              coverTemplatesNotice
-            }
-            submitting={updateTemplateMutation.isPending}
-            requireChange={!ownWording}
-            secondaryAction={
-              ownWording
-                ? {
-                    label: "Use the email template instead",
-                    onClick: () =>
-                      updateTemplateMutation.mutate(
-                        {
-                          templateId: editingTemplate.id,
-                          patch: { emailSubject: null, emailBody: null },
-                        },
-                        {
-                          onSuccess: () => {
-                            toast.success(`"${editingTemplate.name}" now uses ${emailTemplateName}`);
-                            setTmplEmailDialogOpen(false);
-                          },
-                        },
-                      ),
-                  }
-                : undefined
-            }
-            onSubmit={({ emailSubject, emailBody }) => {
-              updateTemplateMutation.mutate(
-                {
-                  templateId: editingTemplate.id,
-                  patch: { emailSubject, emailBody },
-                },
-                { onSuccess: () => setTmplEmailDialogOpen(false) },
-              );
-            }}
-          />
-        );
-      })()}
-
       {/* Issue confirmation — an EDITABLE cover email (bundle model). One
-          template selected → pre-filled from its saved cover email; several →
-          the bundle default ({{certificateList}} enumerates every attached
-          cert; per-template defaults are ignored). The confirmed subject +
-          body are snapshotted onto the run row, so a later template edit
+          template selected → pre-filled from the event's Email Template for
+          its category; several → the bundle template ({{certificateList}}
+          enumerates every attached cert). The confirmed subject + body are
+          snapshotted onto the run row, so a later Email Template edit
           doesn't change in-flight emails. Mounted at page level so it's
           anchored regardless of the active tab. */}
       {(() => {
@@ -2412,7 +2330,7 @@ export default function CertificatesPage() {
         // cover template (Communications → Email Templates) — same source
         // the other bundle senders resolve — falling back to the hardcoded
         // default while the templates list hasn't loaded.
-        const singleCover = single ? pickSingleCoverEmail(single, eventCoverFor(single.category)) : null;
+        const singleCover = single ? pickSingleCoverEmail(single.category, eventCoverFor(single.category)) : null;
         const initialSubject = singleCover
           ? singleCover.subject
           : (bundleCoverTemplate?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI);

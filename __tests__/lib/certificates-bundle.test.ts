@@ -120,8 +120,6 @@ const ATT_TEMPLATE_ROW = {
   textBoxes: [],
   role: null,
   cmeHours: null,
-  emailSubject: "Sub",
-  emailBody: "<p>Hi {{recipientName}}</p>",
 };
 
 function p2002() {
@@ -398,36 +396,21 @@ describe("sendCertificateBundleEmail", () => {
 // custom override) — the same rules coverEmailFor applies on the real send.
 
 describe("buildCertCoverEmailPreview", () => {
-  const PREVIEW_ATT = {
-    name: "Standard Attendance",
-    category: "ATTENDANCE" as const,
-    emailSubject: "Sub",
-    emailBody: "<p>Hi {{recipientName}}</p>",
-  };
-  const PREVIEW_APP = {
-    name: "Speaker",
-    category: "APPRECIATION" as const,
-    emailSubject: null,
-    emailBody: null,
-  };
+  const PREVIEW_ATT = { name: "Standard Attendance", category: "ATTENDANCE" as const };
+  const PREVIEW_APP = { name: "Speaker", category: "APPRECIATION" as const };
 
   beforeEach(() => {
     mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
     mockGetEventTemplate.mockResolvedValue(null);
   });
 
-  it("single template with a saved cover email → uses it", async () => {
-    const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] });
-    expect(res).toEqual({ subject: "Sub", htmlContent: "<p>Hi {{recipientName}}</p>" });
-  });
-
-  it("single template without a saved cover → per-category system default", async () => {
+  it("single template → per-category system default when the event has no template", async () => {
     const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_APP] });
     expect(res?.subject).toContain("Your {{certificateType}}");
     expect(res?.htmlContent).toContain("{{abstractTitle}}"); // appreciation default body
   });
 
-  it("single template without a saved cover uses the event's Email Template for its category", async () => {
+  it("single template uses the event's Email Template for its category", async () => {
     mockGetEventTemplate.mockResolvedValue({
       subject: "Org-edited appreciation subject",
       htmlContent: "<p>Org-edited appreciation</p>",
@@ -437,11 +420,10 @@ describe("buildCertCoverEmailPreview", () => {
     const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_APP] });
     expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-appreciation-delivery");
     expect(res?.subject).toBe("Org-edited appreciation subject");
-    // A template with its own saved cover never reads the event template.
+    // The attendance template reads the attendance slug, never the other one.
     mockGetEventTemplate.mockClear();
-    const own = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] });
-    expect(own?.subject).toBe("Sub");
-    expect(mockGetEventTemplate).not.toHaveBeenCalled();
+    await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] });
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-attendance-delivery");
   });
 
   it("multiple templates → multi (bundle) system default", async () => {

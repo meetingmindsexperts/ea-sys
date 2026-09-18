@@ -63,6 +63,8 @@ const source = {
   backgroundPdfUrl: null,
   textBoxes: [{ id: "b1" }],
   sortOrder: 2,
+  // A stale per-template cover on the source row (unread since Sep 18, 2026)
+  // must not travel to the clone.
   emailSubject: "Subj",
   emailBody: "Body",
   role: "Chairperson",
@@ -104,7 +106,8 @@ describe("POST duplicate certificate template — H4 field copy", () => {
     // Sanity: the fields that were already copied still are.
     expect(created.name).toBe("Chairman Appreciation (copy)");
     expect(created.category).toBe("APPRECIATION");
-    expect(created.emailSubject).toBe("Subj");
+    expect(created.emailSubject).toBeUndefined();
+    expect(created.emailBody).toBeUndefined();
     expect(created.sortOrder).toBe(5);
 
     const body = await res.json();

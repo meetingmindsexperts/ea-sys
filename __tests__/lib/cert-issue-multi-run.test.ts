@@ -48,8 +48,6 @@ const TPL = (id: string, category: "ATTENDANCE" | "APPRECIATION") => ({
   category,
   autoIssueTag: "t",
   template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
-  emailSubject: null,
-  emailBody: null,
 });
 
 function okCert(id: string) {

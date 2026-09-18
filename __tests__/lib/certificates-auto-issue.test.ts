@@ -56,15 +56,11 @@ const attendanceTpl = {
   id: "tpl_att",
   category: "ATTENDANCE" as const,
   autoIssueTag: "delegate",
-  emailSubject: null,
-  emailBody: null,
 };
 const appreciationTpl = {
   id: "tpl_app",
   category: "APPRECIATION" as const,
   autoIssueTag: "speaker",
-  emailSubject: "Thanks",
-  emailBody: "<p>Thanks</p>",
 };
 
 describe("selectAutoIssueTargets (constraint C routing)", () => {
@@ -214,7 +210,7 @@ describe("runAutoIssueSweep", () => {
     expect(res.runsCreated).toBe(2); // targets enqueued
   });
 
-  it("a single surviving target keeps its template's own cover email snapshot", async () => {
+  it("a single surviving target leaves the run's cover snapshot empty, so the send phase resolves the event's Email Template", async () => {
     registrationFindMany.mockResolvedValue([
       {
         id: "reg_6", eventId: "evt_1", certAutoIssueAttempts: 0,
@@ -231,8 +227,8 @@ describe("runAutoIssueSweep", () => {
     const runArg = txRunCreate.mock.calls[0][0].data;
     expect(runArg.certificateTemplateId).toBe("tpl_app");
     expect(runArg.templateIds).toEqual(["tpl_app"]);
-    expect(runArg.emailSubject).toBe("Thanks");
-    expect(runArg.emailBody).toBe("<p>Thanks</p>");
+    expect(runArg.emailSubject).toBeNull();
+    expect(runArg.emailBody).toBeNull();
   });
 
   it("drops an already-covered target but still bundles the remaining one", async () => {

@@ -676,11 +676,12 @@ model CertificateTemplate {
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
   textBoxes         Json            @default("[]")
   sortOrder         Int             @default(0)
-  // Per-template default cover email (cert PDF is always attached). Both
-  // nullable — when null the Issue dialog pre-fills the system default.
-  // Tokens supported in body: recipientName, eventName, eventDateRange,
-  // venueLine, organizationName, certificateType, certificateSerial,
-  // plus abstractTitle on APPRECIATION templates.
+  // UNREAD since Sep 18, 2026. These held a per-template cover email that
+  // won over the event's Certificate Delivery email template; the owner
+  // removed that layer so one wording per category per event is the only
+  // place to edit. Kept because a column is never dropped (blue-green); no
+  // code reads or writes them. The cover wording lives on EmailTemplate
+  // (certificate-attendance-delivery / -appreciation-delivery / -bundle-).
   emailSubject      String?
   emailBody         String?         @db.Text
   createdAt         DateTime        @default(now())

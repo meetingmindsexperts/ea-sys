@@ -21,7 +21,7 @@ This doc is the dev/ops reference.
 Event ──┬─── CertificateTemplate (N per category)
         │      ├─ name, category (ATTENDANCE | APPRECIATION)
         │      ├─ backgroundPdfUrl, textBoxes: Json
-        │      ├─ emailSubject, emailBody (cover email defaults)
+        │      ├─ emailSubject, emailBody (UNREAD since Sep 18, 2026; kept, never dropped)
         │      └─ sortOrder
         │
         ├─── CertificateIssueRun (1 per Issue click)
@@ -419,8 +419,9 @@ and to **issue on demand to one person**. Shared core:
   ONE recipient as ONE bundle email (one PDF per cert). Issue-or-reuse per
   template via `findOrIssueCertificate` (an already-held template is
   **re-attached** with its existing serial, never duplicated — unlike the
-  strict single API below); cover email = the single template's saved cover
-  when exactly one cert materializes, else the bundle default. Per-template
+  strict single API below); cover email = the event's Certificate Delivery
+  email template for the category when exactly one cert materializes, else
+  the bundle template. Per-template
   failures (revoked / render error) collect into `failures[]` (partial send);
   all-failed → `ALL_TEMPLATES_FAILED`. Audits only newly minted certs.
   **Tags ENFORCED** (2026-07-10 correction, same day): a selected template is
@@ -573,13 +574,14 @@ cert cover email isn't an `EmailTemplate` slug). Now:
 
 **Cover-email source picker (same day):** instead of typing a subject/message
 from scratch, the dialog's **Cover email** dropdown pre-fills the editable
-Subject/Message fields from either (a) a selected certificate template's
-**saved cover** (the one edited in the cert template editor — offered when it
-has one), or (b) a **saved email template** from Communications → Email
-Templates (active custom templates; `stripDocumentWrapper` applied so a
+Subject/Message fields from a **saved email template** from Communications →
+Email Templates (active custom templates; `stripDocumentWrapper` applied so a
 legacy full-document template doesn't nest inside the branding wrapper).
-"Certificate default" clears the fields (per-template/bundle default applies,
-as before). The FIELDS remain the source of truth for the send — the picker
+"Certificate email template" clears the fields (the event's Certificate
+Delivery template for the category, or the bundle one, applies). Until Sep 18,
+2026 the picker also offered a selected certificate template's own saved
+cover; that layer is gone (see the section at the end of this file). The
+FIELDS remain the source of truth for the send — the picker
 is a copy action, so edits after picking just diverge. To make saved email
 templates render correctly as covers, the cert token resolver
 ([email-tokens-resolver.ts](../src/lib/certificates/email-tokens-resolver.ts))
@@ -610,14 +612,22 @@ an organizer edits it.
   (certificates page, via `useEmailTemplates` + the client-safe
   `CERT_BUNDLE_COVER_TEMPLATE_SLUG` constant in email-tokens.ts).
 - Precedence is unchanged: an operator's custom subject/message override
-  still wins; a SINGLE-cert email still uses that certificate template's own
-  saved cover.
+  still wins; a SINGLE-cert email uses the event's Certificate Delivery email
+  template for its category (until Sep 18, 2026, the certificate template's
+  own saved cover).
 - Tokens: the cert cover-email resolver set (recipientName, firstName,
   lastName, eventName, eventDateRange, eventDate, eventVenue, venueLine,
   organizationName, certificateList, certificateSerial, certificateType) —
   documented in `TEMPLATE_VARIABLES["certificate-bundle-delivery"]`.
 
 ## One-certificate cover emails are editable templates too (Sep 17, 2026)
+
+> **Superseded in part on Sep 18, 2026:** the per-template cover layer this
+> section describes (the certificate template's own saved cover winning over
+> the Email Template, the "Cover email" button in the certificate editor,
+> "Use the email template instead", the editor note, the send dialog's
+> "saved cover" option) was removed the next day. The Email Templates, the
+> previews, the `{{title}}` fix and the lookups stand. See the final section.
 
 Owner request: the default single-certificate email belonged under Email
 Templates, not only inside the certificate editor. Two more per-event system
@@ -832,3 +842,43 @@ nobody has reviewed.
 - [MCP_REFERENCE.md](MCP_REFERENCE.md) — full MCP tool catalog
 - [user-guide.html §18](../public/user-guide.html#s18) — operator-facing guide
 - [CLAUDE.md](../CLAUDE.md) — codebase notes
+
+## The per-template cover email is gone; one wording per category per event (Sep 18, 2026)
+
+Owner decision, after an organizer asked why the same moment had "so many
+emails": the cover email a certificate design carried of its own
+(`CertificateTemplate.emailSubject` / `emailBody`, the "Cover email" button
+in the certificate editor, "Use the email template instead", the Email
+Templates editor's note listing templates with their own wording, and the
+Communications send dialog's "saved cover" option) was removed. **The three
+Email Templates are now the only wording:** Certificate Delivery
+(Attendance), (Appreciation) and (Multiple Certificates), plus whatever an
+operator types on a single Issue run.
+
+- **Precedence, field by field** — `pickSingleCoverEmail(category,
+  eventCover)`: the event's Email Template for the category → the built-in
+  constants (lookup failure only). A per-run override typed on the Issue
+  dialog still wins above both. `resolveSingleCoverEmail(eventId, category,
+  cache?)` and `resolveDefaultCoverEmail(eventId, certCount, category)` lost
+  their template arguments; `LoadedCertTemplate` and the auto-issue template
+  select no longer carry the two fields; an auto-issue run's snapshot is
+  always empty, so the worker resolves the Email Template at send time.
+- **Writers** — the certificate template REST POST/PATCH, the duplicate
+  route and the MCP `create_` / `update_certificate_template` tools no
+  longer accept the two fields (a REST client still sending them has them
+  stripped by Zod; package 0.4.37, MCP clients reconnect).
+- **The columns stay** in the schema, unread, because a column is never
+  dropped (blue-green). Verified read-only on production before the change:
+  nine certificate templates, all nine carried a cover. Two events held the
+  built-in text (no change). **OSH Monthly Meeting 2026** (six templates, one
+  shared edited wording, no Attendance email template row yet) and
+  **OOPVF2026** (one CME template with edited wording, an untouched seeded
+  Attendance email template) fall back to the Attendance Email Template's
+  seeded default; the owner chose this over moving the wording across
+  ("Yes, no data move"). Their organizers edit Communications → Email
+  Templates → Certificate Delivery (Attendance) if the default is not what
+  they want.
+- **Trade accepted** — one cover wording per category per event. A
+  certificate that needs different words (a poster appreciation naming the
+  paper) uses `{{abstractTitle}}` in the shared Appreciation email or a
+  per-run override.

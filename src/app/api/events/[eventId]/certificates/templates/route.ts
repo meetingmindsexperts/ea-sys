@@ -41,12 +41,8 @@ const createSchema = z.object({
       message: "backgroundPdfUrl must be a /uploads/certificates/ path or an https Supabase URL",
     }),
   textBoxes: certificateTextBoxesSchema.optional(),
-  // Per-template cover email. Both nullable — when null the template
-  // follows the event's certificate Email Template. min(1) when set
-  // so a template doesn't carry an empty string that would render
-  // an empty email on the wire.
-  emailSubject: z.string().min(1).max(200).nullable().optional(),
-  emailBody: z.string().min(1).max(10000).nullable().optional(),
+  // No per-template cover email since Sep 18, 2026: the wording comes from
+  // the event's Certificate Delivery email template for the category.
   // Role/designation this template certifies ({{role}} token) + static
   // per-template CME hours ({{cmeHours}}, overrides event-level when set).
   role: z.string().max(120).trim().nullable().optional(),
@@ -169,8 +165,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           backgroundPdfUrl: data.backgroundPdfUrl ?? null,
           textBoxes: (data.textBoxes ?? []) as unknown as Prisma.InputJsonValue,
           sortOrder: nextOrder,
-          emailSubject: data.emailSubject ?? null,
-          emailBody: data.emailBody ?? null,
           role: data.role ?? null,
           cmeHours: data.cmeHours ?? null,
           autoIssueOnSurvey: data.autoIssueOnSurvey ?? false,

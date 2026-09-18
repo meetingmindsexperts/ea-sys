@@ -1,10 +1,10 @@
 /**
- * One-certificate cover emails as editable Email Templates (Sep 17, 2026).
+ * One-certificate cover emails as editable Email Templates (Sep 17, 2026;
+ * the per-template cover that used to sit above them was removed Sep 18).
  *
  * Which wording a one-certificate email uses, field by field:
- *   1. the certificate template's own saved cover,
- *   2. the event's Email Template for the category,
- *   3. the built-in text.
+ *   1. the event's Email Template for the category,
+ *   2. the built-in text.
  * pickSingleCoverEmail is the one rule every sender, preview and dashboard
  * pre-fill goes through, so it is pinned here directly.
  */
@@ -17,7 +17,6 @@ import {
   SYSTEM_DEFAULT_SUBJECT,
   describeCertificateCoverSources,
   eventCoverFromTemplateList,
-  hasOwnCoverEmail,
   pickSingleCoverEmail,
 } from "@/lib/certificates/email-tokens";
 import { DEFAULT_TEMPLATES, TEMPLATE_VARIABLES } from "@/lib/email";
@@ -26,47 +25,31 @@ import { SYSTEM_TEMPLATE_SLUGS, formatTemplateLabel } from "@/lib/email-template
 const EVENT_COVER = { subject: "Event subject", body: "<p>Event body</p>" };
 
 describe("pickSingleCoverEmail", () => {
-  it("a template's own saved cover wins over the event's Email Template", () => {
-    const out = pickSingleCoverEmail(
-      { category: "ATTENDANCE", emailSubject: "Own subject", emailBody: "<p>Own body</p>" },
-      EVENT_COVER,
-    );
-    expect(out).toEqual({ subject: "Own subject", body: "<p>Own body</p>" });
-  });
-
-  it("a template with no saved cover takes the event's Email Template", () => {
-    const out = pickSingleCoverEmail({ category: "ATTENDANCE", emailSubject: null, emailBody: null }, EVENT_COVER);
-    expect(out).toEqual(EVENT_COVER);
-  });
-
-  it("a half-saved cover keeps its half and takes the other from the event template", () => {
-    const out = pickSingleCoverEmail(
-      { category: "APPRECIATION", emailSubject: "Own subject", emailBody: "   " },
-      EVENT_COVER,
-    );
-    expect(out).toEqual({ subject: "Own subject", body: "<p>Event body</p>" });
+  it("takes the event's Email Template for the category", () => {
+    expect(pickSingleCoverEmail("ATTENDANCE", EVENT_COVER)).toEqual({
+      subject: "Event subject",
+      body: "<p>Event body</p>",
+    });
   });
 
   it("falls back to the built-in text for the category when the event template is unavailable", () => {
-    expect(pickSingleCoverEmail({ category: "ATTENDANCE" }, null)).toEqual({
+    expect(pickSingleCoverEmail("ATTENDANCE", null)).toEqual({
       subject: SYSTEM_DEFAULT_SUBJECT,
       body: SYSTEM_DEFAULT_BODY_ATTENDANCE,
     });
-    expect(pickSingleCoverEmail({ category: "APPRECIATION" }, null).body).toBe(SYSTEM_DEFAULT_BODY_APPRECIATION);
+    expect(pickSingleCoverEmail("APPRECIATION", null).body).toBe(SYSTEM_DEFAULT_BODY_APPRECIATION);
   });
 
   it("a blank event template field never produces a blank email", () => {
-    const out = pickSingleCoverEmail({ category: "ATTENDANCE" }, { subject: " ", body: "" });
-    expect(out).toEqual({ subject: SYSTEM_DEFAULT_SUBJECT, body: SYSTEM_DEFAULT_BODY_ATTENDANCE });
+    const out = pickSingleCoverEmail("ATTENDANCE", { subject: " ", body: "" });
+    expect(out.subject).toBe(SYSTEM_DEFAULT_SUBJECT);
+    expect(out.body).toBe(SYSTEM_DEFAULT_BODY_ATTENDANCE);
   });
-});
 
-describe("hasOwnCoverEmail", () => {
-  it("is true when either half is saved and false when neither is", () => {
-    expect(hasOwnCoverEmail({ emailSubject: "S", emailBody: null })).toBe(true);
-    expect(hasOwnCoverEmail({ emailSubject: null, emailBody: "<p>B</p>" })).toBe(true);
-    expect(hasOwnCoverEmail({ emailSubject: " ", emailBody: null })).toBe(false);
-    expect(hasOwnCoverEmail({})).toBe(false);
+  it("has no per-template arm: the rule takes only a category, so a certificate template cannot carry wording of its own", () => {
+    // Sep 18, 2026: the owner removed the per-template cover. The signature
+    // is the guard: there is nothing to pass a template's fields into.
+    expect(pickSingleCoverEmail.length).toBe(2);
   });
 });
 
@@ -127,14 +110,14 @@ describe("describeCertificateCoverSources (the send dialog's default cover optio
     );
   });
 
-  it("says when a template uses its own wording, and adds the bundle template for several", () => {
+  it("adds the bundle template when several are selected", () => {
     expect(
       describeCertificateCoverSources([
-        { name: "CME", category: "ATTENDANCE", emailSubject: "Own", emailBody: null },
+        { name: "CME", category: "ATTENDANCE" },
         { name: "Speaker", category: "APPRECIATION" },
       ]),
     ).toBe(
-      "CME → its own cover email; Speaker → Certificate Delivery (Appreciation); anyone receiving several → Certificate Delivery (Multiple Certificates)",
+      "CME → Certificate Delivery (Attendance); Speaker → Certificate Delivery (Appreciation); anyone receiving several → Certificate Delivery (Multiple Certificates)",
     );
   });
 

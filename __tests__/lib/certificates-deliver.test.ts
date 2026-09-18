@@ -129,7 +129,7 @@ beforeEach(() => {
 });
 
 describe("issueSingleCertificate", () => {
-  const ATT_TEMPLATE = { category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Sub", emailBody: "<p>Hi {{recipientName}}</p>" };
+  const ATT_TEMPLATE = { category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
 
   it("rejects when neither or both recipients are given", async () => {
     mockDb.certificateTemplate.findFirst.mockResolvedValue(ATT_TEMPLATE);
@@ -177,9 +177,13 @@ describe("issueSingleCertificate", () => {
   });
 
   it("hands the rendered recipient's name parts to the sender, so it does not look them up again", async () => {
-    mockDb.certificateTemplate.findFirst.mockResolvedValue({
-      ...ATT_TEMPLATE,
-      emailBody: "<p>Dear {{title}} {{lastName}},</p>",
+    mockDb.certificateTemplate.findFirst.mockResolvedValue(ATT_TEMPLATE);
+    // The event's attendance email greets by name part.
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "S",
+      htmlContent: "<p>Dear {{title}} {{lastName}},</p>",
+      textContent: "",
+      branding: {},
     });
     mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
     mockDb.issuedCertificate.create.mockResolvedValue({ id: "cert-9" });
@@ -215,7 +219,7 @@ describe("reRenderAndResendCert", () => {
     id: "cert-1", type: "ATTENDANCE", serial: "OMM-ATT-0002", certificateTemplateId: "tmpl-1",
     registrationId: "reg-1", speakerId: null, revokedAt: null, recipientSnapshot: { fullName: "Dr. Jane Doe" },
   };
-  const TEMPLATE = { category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Sub", emailBody: "<p>Hi {{recipientName}}</p>" };
+  const TEMPLATE = { category: "ATTENDANCE", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
 
   it("404 when the cert isn't found (or cross-tenant)", async () => {
     mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
@@ -260,9 +264,9 @@ describe("reRenderAndResendCert", () => {
     expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
   });
 
-  it("a template with no saved cover resends with the event's Email Template for its category", async () => {
+  it("resends with the event's Email Template for its category", async () => {
     mockDb.issuedCertificate.findFirst.mockResolvedValue(baseCert);
-    mockDb.certificateTemplate.findFirst.mockResolvedValue({ ...TEMPLATE, emailSubject: null, emailBody: null });
+    mockDb.certificateTemplate.findFirst.mockResolvedValue(TEMPLATE);
     mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
     mockDb.issuedCertificate.update.mockResolvedValue({});
     useEventAttendanceCover();
@@ -275,7 +279,7 @@ describe("reRenderAndResendCert", () => {
 
   it("a batch sharing a cover cache reads the event's Email Template once, not per certificate", async () => {
     mockDb.issuedCertificate.findFirst.mockResolvedValue(baseCert);
-    mockDb.certificateTemplate.findFirst.mockResolvedValue({ ...TEMPLATE, emailSubject: null, emailBody: null });
+    mockDb.certificateTemplate.findFirst.mockResolvedValue(TEMPLATE);
     mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
     mockDb.issuedCertificate.update.mockResolvedValue({});
     useEventAttendanceCover();
@@ -311,9 +315,9 @@ describe("reRenderAndResendCert", () => {
 // template, ONE bundle email with one PDF per cert.
 
 describe("issueCertificateBundle", () => {
-  const TPL_A = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Att Sub", emailBody: "<p>A</p>" };
-  const TPL_B = { id: "tpl-b", name: "Committee", category: "ATTENDANCE", autoIssueTag: "committee", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Committee", cmeHours: null, emailSubject: null, emailBody: null };
-  const APP_TPL = { id: "tpl-s", name: "Speaker", category: "APPRECIATION", autoIssueTag: "speaker", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Speaker", cmeHours: null, emailSubject: null, emailBody: null };
+  const TPL_A = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
+  const TPL_B = { id: "tpl-b", name: "Committee", category: "ATTENDANCE", autoIssueTag: "committee", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Committee", cmeHours: null };
+  const APP_TPL = { id: "tpl-s", name: "Speaker", category: "APPRECIATION", autoIssueTag: "speaker", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Speaker", cmeHours: null };
 
   function primeTemplates(rows: Array<Record<string, unknown>>) {
     mockDb.certificateTemplate.findFirst.mockImplementation(
@@ -362,14 +366,7 @@ describe("issueCertificateBundle", () => {
     expect(mockSend.mock.calls[0][0].htmlContent).toContain("Org-edited");
   });
 
-  it("single template keeps its saved cover email", async () => {
-    useEventAttendanceCover();
-    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
-    expect(res).toMatchObject({ ok: true });
-    expect(mockSend.mock.calls[0][0].subject).toBe("Att Sub");
-  });
-
-  it("single template with no saved cover uses the event's Email Template for its category", async () => {
+  it("a single template uses the event's Email Template for its category", async () => {
     useEventAttendanceCover();
     const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-b"], registrationId: "reg-1" });
     expect(res).toMatchObject({ ok: true });
@@ -612,7 +609,7 @@ describe("collectRunItemCertRows", () => {
 // ── Preview-before-resend ────────────────────────────────────────────────────
 
 describe("preview-before-resend", () => {
-  const ATT_TPL_ROW = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Att Sub", emailBody: "<p>Att body</p>" };
+  const ATT_TPL_ROW = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null };
   const CERT_ROW = {
     id: "cert-1",
     type: "ATTENDANCE",
@@ -648,22 +645,14 @@ describe("preview-before-resend", () => {
     expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-attendance-delivery");
   });
 
-  it("resolveDefaultCoverEmail: a single cert whose template has its own wording keeps it", async () => {
-    useEventAttendanceCover();
-    const cover = await resolveDefaultCoverEmail("evt-1", 1, "ATTENDANCE", {
-      emailSubject: "Own subject",
-      emailBody: "<p>Own body</p>",
-    });
-    expect(cover).toEqual({ subject: "Own subject", body: "<p>Own body</p>" });
-    expect(mockGetEventTemplate).not.toHaveBeenCalled();
-  });
 
-  it("previewReissueEmail renders the CURRENT template's cover for the real recipient (no writes)", async () => {
+  it("previewReissueEmail renders the event's category cover for the real recipient (no writes)", async () => {
     mockDb.issuedCertificate.findFirst.mockResolvedValue(CERT_ROW);
+    useEventAttendanceCover();
     const res = await previewReissueEmail(CTX, "cert-1");
     if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
-    expect(res.subject).toBe("Att Sub");
-    expect(res.htmlContent).toContain("Att body");
+    expect(res.subject).toBe("Event attendance subject");
+    expect(res.htmlContent).toContain("Event attendance body");
     expect(res.recipientEmail).toBe("jane@x.com");
     expect(res.serials).toEqual(["OMM-ATT-0002"]);
     // Read-only: nothing rendered, updated, or sent.
@@ -700,18 +689,15 @@ describe("preview-before-resend", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("previewResendBundleEmail for one certificate keeps its template's own wording (review M1)", async () => {
+  it("previewResendBundleEmail for one certificate uses the event's Email Template for its category", async () => {
     useEventAttendanceCover();
     mockDb.issuedCertificate.findMany.mockResolvedValue([
-      {
-        serial: "OMM-ATT-0002",
-        type: "ATTENDANCE",
-        certificateTemplate: { name: "Speaker thanks", emailSubject: "Thank you for your talk", emailBody: "<p>Thanks</p>" },
-      },
+      { serial: "OMM-ATT-0002", type: "ATTENDANCE", certificateTemplate: { name: "Attendance" } },
     ]);
     const res = await previewResendBundleEmail(CTX, { registrationId: "reg-1" });
     if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
-    expect(res.subject).toBe("Thank you for your talk");
+    expect(res.subject).toBe("Event attendance subject");
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-attendance-delivery");
   });
 
   it("previewResendBundleEmail 409s when the person holds no sendable certs", async () => {

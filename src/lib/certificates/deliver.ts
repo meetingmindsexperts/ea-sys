@@ -240,7 +240,7 @@ export async function issueSingleCertificate(
     throw err;
   }
 
-  const cover = await resolveSingleCoverEmail(ctx.eventId, tmpl);
+  const cover = await resolveSingleCoverEmail(ctx.eventId, tmpl.category);
   const send = await sendCertEmail({
     eventId: ctx.eventId,
     type: tmpl.category,
@@ -332,11 +332,7 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
   });
 
   const recipientName = render.recipient.fullName || snapshotName(cert.recipientSnapshot);
-  const cover = await resolveSingleCoverEmail(
-    ctx.eventId,
-    { category: cert.type, emailSubject: tmpl.emailSubject, emailBody: tmpl.emailBody },
-    ctx.coverEmailCache,
-  );
+  const cover = await resolveSingleCoverEmail(ctx.eventId, cert.type, ctx.coverEmailCache);
   const send = await sendCertEmail({
     eventId: ctx.eventId,
     type: cert.type,
@@ -599,15 +595,10 @@ export async function issueCertificateBundle(
   }
 
   // Cover email — same precedence as every other send: exactly one cert →
-  // that template's saved cover, then the event's Email Template for its
-  // category; several → the event's EDITABLE bundle template
-  // (`certificate-bundle-delivery`). Hardcoded defaults are the safety net.
-  const cover = await resolveDefaultCoverEmail(
-    ctx.eventId,
-    bundled.length,
-    bundled[0].template.category,
-    bundled.length === 1 ? bundled[0].template : null,
-  );
+  // the event's Email Template for its category; several → the event's
+  // EDITABLE bundle template (`certificate-bundle-delivery`). Hardcoded
+  // defaults are the safety net.
+  const cover = await resolveDefaultCoverEmail(ctx.eventId, bundled.length, bundled[0].template.category);
 
   const send = await sendCertificateBundleEmail({
     eventId: ctx.eventId,
@@ -716,11 +707,7 @@ export async function previewReissueEmail(
   if (!event) return { ok: false, code: "EVENT_NOT_FOUND", error: "Event not found.", status: 404 };
 
   // Same cover precedence as reRenderAndResendCert.
-  const cover = await resolveSingleCoverEmail(ctx.eventId, {
-    category: cert.type,
-    emailSubject: tmpl.emailSubject,
-    emailBody: tmpl.emailBody,
-  });
+  const cover = await resolveSingleCoverEmail(ctx.eventId, cert.type);
 
   const { subject, wrappedHtml } = await renderBundleEmailContent({
     eventId: ctx.eventId,
@@ -759,7 +746,7 @@ export async function previewResendBundleEmail(
     select: {
       serial: true,
       type: true,
-      certificateTemplate: { select: { name: true, emailSubject: true, emailBody: true } },
+      certificateTemplate: { select: { name: true } },
     },
   });
   if (certs.length === 0) {
@@ -785,14 +772,8 @@ export async function previewResendBundleEmail(
   }
   if (!event) return { ok: false, code: "EVENT_NOT_FOUND", error: "Event not found.", status: 404 };
 
-  // Same cover as the resend-all route: one cert keeps its template's own
-  // wording; see resolveDefaultCoverEmail.
-  const cover = await resolveDefaultCoverEmail(
-    ctx.eventId,
-    certs.length,
-    certs[0].type,
-    certs.length === 1 ? certs[0].certificateTemplate : null,
-  );
+  // Same cover as the resend-all route; see resolveDefaultCoverEmail.
+  const cover = await resolveDefaultCoverEmail(ctx.eventId, certs.length, certs[0].type);
   const { subject, wrappedHtml } = await renderBundleEmailContent({
     eventId: ctx.eventId,
     recipientName: recipient?.fullName ?? "Certificate recipient",

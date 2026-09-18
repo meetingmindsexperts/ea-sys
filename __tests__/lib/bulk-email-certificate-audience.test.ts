@@ -132,8 +132,6 @@ beforeEach(() => {
     category: "ATTENDANCE",
     autoIssueTag: "attended",
     template: { backgroundPdfUrl: null, textBoxes: [], role: null, cmeHours: null },
-    emailSubject: null,
-    emailBody: null,
   });
   mockCertBulkSend.mockResolvedValue(CERT_RESULT);
 });
