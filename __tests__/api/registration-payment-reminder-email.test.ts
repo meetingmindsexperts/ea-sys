@@ -49,6 +49,7 @@ vi.mock("@/lib/email", () => ({
   }),
   renderAndWrap: renderAndWrapSpy,
   renderMessageValue: vi.fn((m: string) => m),
+  renderTemplatePlain: vi.fn((t: string) => t),
   brandingFrom: vi.fn().mockReturnValue({ email: "f@x.com" }),
   brandingCc: vi.fn().mockReturnValue([]),
   sendRegistrationConfirmation: vi.fn(),

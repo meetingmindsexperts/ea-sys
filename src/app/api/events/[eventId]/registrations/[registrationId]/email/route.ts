@@ -7,7 +7,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation, eventLocationVars } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, sendRegistrationConfirmation, eventLocationVars } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { getTitleLabel } from "@/lib/utils";
@@ -436,7 +436,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
-      vars.subject = customSubject;
+      // A token typed into the subject box resolves like one in the message box.
+      vars.subject = renderTemplatePlain(customSubject, vars);
       vars.message = customMessage;
     }
 

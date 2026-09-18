@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { hashVerificationToken } from "./security";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
 import { readRegistrationBasePrice } from "./registration-financials";
 import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import {
@@ -1881,7 +1881,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // Pre-flight already verified subject + message are present (see
       // hoisted check above the recipient resolve), so this is just
       // hydration of the per-recipient vars.
-      vars.subject = customSubject!;
+      // A token typed into the SUBJECT box resolves like one typed into the
+      // message box (renderMessageValue below); before this the literal
+      // {{firstName}} reached the unresolved-token guard and the send was
+      // refused (found by the sender drift test, September 18, 2026).
+      vars.subject = renderTemplatePlain(customSubject!, vars);
       vars.message = customMessage!;
     } else if (emailType === "template" || emailType === "abstract-reminder") {
       // A saved custom template (or the abstract-reminder template) defines
@@ -1889,7 +1893,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // {{message}} placeholders for an optional per-send note. Both are
       // optional here (the template, not the operator, owns the content), so
       // default to empty.
-      vars.subject = customSubject ?? "";
+      vars.subject = renderTemplatePlain(customSubject ?? "", vars);
       vars.message = customMessage ?? "";
     }
 

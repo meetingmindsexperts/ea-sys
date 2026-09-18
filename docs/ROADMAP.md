@@ -17,19 +17,26 @@ documentation only, and about twenty-two senders pasting the same
 resolve-render-brand-send block. **Phase 0 (the defects) shipped the same day.**
 The owner chose to hold the three structural phases; each is its own decision.
 
-**Phase 1, the contract (one to two days).** One typed registry per slug (kind,
-recipient type, sendable-from surfaces, bulk email type, variables, raw HTML
-keys, default subject and bodies, preview fixture) replacing `DEFAULT_TEMPLATES`,
-from which `SYSTEM_TEMPLATE_SLUGS`, `TEMPLATE_VARIABLES`, `DEFAULT_RAW_HTML_KEYS`,
-the remaining type-to-slug maps (speaker and registration single-send, the
-detail sheet, the Communications tiles), the dialog option lists, the Settings
-list and the preview samples are derived, with a generated client-safe leaf.
-Plus the missing drift test: each sender's variable map, built with fixtures,
-must cover its default template and its registry entry. Adding a system
-template becomes one entry instead of about twelve files. Also here: the nine
-system slugs with no `TEMPLATE_VARIABLES` entry (the webinar set,
-`abstract-reminder`, `survey-invitation`, `survey-thankyou`), and the template
-editor's preview rendering with no raw keys.
+**Phase 1, the contract: SHIPPED September 18, 2026.** One registry
+(`src/lib/email-template-registry.ts`, a client-safe leaf) holds each system
+template's name, description, recipient, surfaces, bulk type and dialog
+placement, single-send types, variables and raw HTML keys; the default subject
+and bodies sit in `email-template-defaults.ts` keyed by the same slug type, so
+the compiler refuses a template present in one file and not the other. From it
+are derived `DEFAULT_TEMPLATES`, `TEMPLATE_VARIABLES`, `DEFAULT_RAW_HTML_KEYS`,
+the client-safe slug set, the bulk type-to-slug map and its audience override,
+the two single-send routes' type enums and slug lookups, the registration
+sheet's labels, the dialog's four option lists, the Settings short list and the
+templates page's descriptions. The nine templates with no variable list have
+one, and four lists gained a token their own body uses. The drift test is two
+suites: the bulk pipeline runs every registered (type, audience) against the
+real default template and asserts nothing is left unresolved, and the two
+per-person routes do the same for every type they accept; a body-to-contract
+check pins every default body's tokens to its registry variables. First run
+found that a token typed into the SUBJECT box was refused where the message box
+resolved it; all three senders now render the typed subject. Not built: a
+per-template preview fixture (the global sample map plus the coverage test
+does the job).
 
 **Phase 2, the senders (two to three days, one sender per commit).** One
 `sendEventTemplatedEmail({ eventId, slug, recipient, vars, attachments, bcc,
