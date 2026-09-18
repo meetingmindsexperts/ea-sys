@@ -44,7 +44,7 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 - **Tasks** — follow-ups with email reminders.
 - **Notes** — the manual "we actually phoned them" activity log.
 - **Filters** — sales rep, date range, value (finance-gated), lifecycle, industry.
-- **Reports & export** — pipeline-by-stage, win/loss + win rate, per-rep leaderboard, and CSV export of the filtered deal list (values finance-gated).
+- **Reports & export** — pipeline-by-stage, win/loss + win rate, per-rep leaderboard, a group-by breakdown (pipeline / rep / event / deal type / lost reason / expected-close month / closed month; `bucketDeals` in `lib/reports.ts`, one row fetch under the report's own `where`), and CSV export of the filtered deal list (values finance-gated).
 
 **Out of scope (v1) — do not build these without a fresh decision:**
 

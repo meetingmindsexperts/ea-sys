@@ -28,6 +28,7 @@ import { companyDealValueBreakdown, type RollupDeal } from "@/crm/lib/company-ro
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
 import { ensureDealTypes } from "@/crm/services/deal-type-service";
 import { buildCrmReport } from "@/crm/services/report-service";
+import { CRM_REPORT_DIMENSIONS, CRM_REPORT_DIMENSION_LABELS, isLostOnlyDimension } from "@/crm/lib/reports";
 import {
   createDeal,
   updateDeal,
@@ -679,9 +680,9 @@ export function registerCrmMcpTools(
 
   server.tool(
     "get_crm_report",
-    "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter. Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
-    { eventId: z.string().optional() },
-    async ({ eventId }) =>
+    "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter. Optional groupBy adds a breakdown by ONE dimension: pipeline, owner, event, dealType, lostReason, expectedCloseMonth or closedMonth (each row: deals, open/won/lost counts and values, win rate). Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
+    { eventId: z.string().optional(), groupBy: z.enum(CRM_REPORT_DIMENSIONS).optional() },
+    async ({ eventId, groupBy }) =>
       safeTool("get_crm_report", async () => {
         // ONE report implementation (R2-M9): this tool used to compose its own
         // thinner groupBy shaping, which had already drifted from the REST
@@ -689,9 +690,10 @@ export function registerCrmMcpTools(
         // now consume report-service. MCP callers are admin-equivalent, so
         // values are visible.
         await ensurePipelineStages(organizationId);
-        const { pipeline, winLoss, reps } = await buildCrmReport({
+        const { pipeline, winLoss, reps, breakdown } = await buildCrmReport({
           organizationId,
           canSeeValues,
+          groupBy: groupBy ?? null,
           filters: { eventId: eventId ?? null },
         });
 
@@ -712,11 +714,27 @@ export function registerCrmMcpTools(
               `  ${r.ownerName}: ${r.wonCount} won${r.wonCurrency && !r.wonMixed ? ` (${money(r.wonValue, r.wonCurrency)})` : ""}, ${r.openCount} open`,
           );
 
+        // The breakdown, when asked for: one line per bucket, the same money
+        // honesty as every bucket above (mixed currencies are named, never summed).
+        let breakdownText = "";
+        if (breakdown) {
+          const lostOnly = isLostOnlyDimension(breakdown.dimension);
+          const lines = breakdown.rows.map((r) =>
+            lostOnly
+              ? `  ${r.label}: ${bucket({ count: r.lostCount, value: r.lostValue, currency: r.lostCurrency, mixed: r.lostMixed })}`
+              : `  ${r.label}: ${r.totalCount} deal(s) — open ${bucket({ count: r.openCount, value: r.openValue, currency: r.openCurrency, mixed: r.openMixed })}; won ${bucket({ count: r.wonCount, value: r.wonValue, currency: r.wonCurrency, mixed: r.wonMixed })}; lost ${r.lostCount}; win rate ${r.winRate === null ? "n/a" : `${r.winRate}%`}`,
+          );
+          breakdownText =
+            `\n\nBy ${CRM_REPORT_DIMENSION_LABELS[breakdown.dimension].toLowerCase()}:\n` +
+            (lines.length > 0 ? lines.join("\n") : "  (no deals match)");
+        }
+
         return (
           `Pipeline${eventId ? " (filtered to one event)" : ""}:\n${stageLines.join("\n")}\n` +
           `Open pipeline: ${pipeline.openCount} deal(s) — ${openLine}\n\n` +
           `Closed:\n${wl}` +
-          (repLines.length > 0 ? `\n\nTop reps:\n${repLines.join("\n")}` : "")
+          (repLines.length > 0 ? `\n\nTop reps:\n${repLines.join("\n")}` : "") +
+          breakdownText
         );
       }),
   );

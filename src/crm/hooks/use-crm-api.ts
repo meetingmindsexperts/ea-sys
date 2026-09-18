@@ -17,6 +17,7 @@
  * An optimistic update with no rollback path is a lie the UI tells the user.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { BreakdownRow, CrmReportDimension } from "@/crm/lib/reports";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
 import type { CrmListMeta } from "@/crm/lib/list-caps";
@@ -820,6 +821,8 @@ export interface CrmReport {
     wonCurrency: string | null;
     wonMixed: boolean;
   }>;
+  /** The report grouped by one dimension; null when the request asked for none. */
+  breakdown: { dimension: CrmReportDimension; rows: BreakdownRow[] } | null;
   generatedAt: string;
 }
 

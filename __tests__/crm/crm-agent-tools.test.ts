@@ -26,8 +26,8 @@ vi.mock("@/lib/db", () => ({
     crmDealContact: { findMany: vi.fn() },
     crmTask: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmNote: { findMany: vi.fn(), create: vi.fn() },
-    user: { findFirst: vi.fn() },
-    event: { findFirst: vi.fn() },
+    user: { findFirst: vi.fn(), findMany: vi.fn() },
+    event: { findFirst: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     crmNotification: { create: vi.fn().mockResolvedValue({}) },
@@ -262,5 +262,43 @@ describe("org binding — the injected org, never tool input", () => {
       expect.objectContaining({ where: expect.objectContaining({ organizationId: ORG }) }),
     );
     expect(db.crmContact.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("get_crm_report — groupBy breakdown", () => {
+  it("adds a breakdown by the requested dimension, read org-bound", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue([
+      { id: "s1", name: "New", isTerminal: false, sortOrder: 0 },
+    ] as never);
+    vi.mocked(db.crmDeal.groupBy).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { status: "OPEN", currency: "USD", dealValue: 1200, pipeline: "CORPORATE", ownerId: null, eventId: null, dealTypeId: null, lostReason: null, expectedClose: null, wonAt: null, lostAt: null },
+      { status: "WON", currency: "USD", dealValue: 800, pipeline: "CONFERENCE", ownerId: null, eventId: null, dealTypeId: null, lostReason: null, expectedClose: null, wonAt: new Date("2026-08-01T00:00:00Z"), lostAt: null },
+    ] as never);
+
+    const res = await tools.get("get_crm_report")!({ groupBy: "pipeline" });
+    const text = res.content[0]!.text;
+    expect(res.isError).toBeUndefined();
+    expect(text).toContain("By pipeline:");
+    expect(text).toContain("Corporate: 1 deal(s)");
+    expect(text).toContain("Conference: 1 deal(s)");
+    // The breakdown read is bound to the INJECTED organization, like every other read.
+    expect(db.crmDeal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ organizationId: ORG }) }),
+    );
+  });
+
+  it("prints no breakdown when none was asked for", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmPipelineStage.findMany).mockResolvedValue([
+      { id: "s1", name: "New", isTerminal: false, sortOrder: 0 },
+    ] as never);
+    vi.mocked(db.crmDeal.groupBy).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    const res = await tools.get("get_crm_report")!({});
+    expect(res.content[0]!.text).not.toContain("By ");
+    expect(db.crmDeal.findMany).not.toHaveBeenCalled();
   });
 });

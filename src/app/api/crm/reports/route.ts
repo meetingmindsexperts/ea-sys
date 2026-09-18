@@ -4,12 +4,16 @@ import { apiLogger } from "@/lib/logger";
 import { requireCrmRead } from "@/crm/lib/crm-route";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { buildCrmReport } from "@/crm/services/report-service";
+import { parseReportDimension } from "@/crm/lib/reports";
 
 /**
  * GET /api/crm/reports — pipeline summary, win/loss, and a per-rep leaderboard.
  *
- * Honours the same filters as the board (event/owner/date/value) via buildDealWhere,
- * so a report reflects whatever the operator is looking at. Money is finance-gated:
+ * Honours the same filters as the board (event/owner/pipeline/deal type/date/value)
+ * via buildDealWhere, so a report reflects whatever the operator is looking at.
+ * `groupBy` adds a breakdown by one dimension (pipeline, owner, event, dealType,
+ * lostReason, expectedCloseMonth, closedMonth); a value that is not a dimension is
+ * a logged 400, never a silently missing table. Money is finance-gated:
  * a MEMBER gets counts + win-rate but every VALUE comes back null (rendered as "—",
  * never a fabricated 0).
  *
@@ -26,12 +30,24 @@ export async function GET(req: Request) {
 
   try {
     const { searchParams } = new URL(req.url);
+    const groupByParam = searchParams.get("groupBy");
+    const groupBy = parseReportDimension(groupByParam);
+    if (groupByParam && !groupBy) {
+      apiLogger.warn({ msg: "crm/reports:invalid-group-by", organizationId: ctx.organizationId, groupBy: groupByParam });
+      return NextResponse.json(
+        { error: `"${groupByParam}" is not a report dimension`, code: "INVALID_GROUP_BY" },
+        { status: 400 },
+      );
+    }
     const report = await buildCrmReport({
       organizationId: ctx.organizationId,
       canSeeValues,
+      groupBy,
       filters: {
         eventId: searchParams.get("eventId"),
         ownerId: searchParams.get("ownerId"),
+        pipeline: searchParams.get("pipeline"),
+        dealTypeId: searchParams.get("dealTypeId"),
         dateField: searchParams.get("dateField"),
         from: searchParams.get("from"),
         to: searchParams.get("to"),

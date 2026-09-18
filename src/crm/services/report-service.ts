@@ -26,18 +26,47 @@ import {
   type WinLoss,
   type StageBucketInput,
   type RepRow,
+  bucketDeals,
+  type BreakdownDealRow,
+  type BreakdownRow,
+  type CrmReportDimension,
 } from "@/crm/lib/reports";
+import { CRM_DEAL_PIPELINE_LABELS } from "@/crm/lib/crm-types";
+
+export interface CrmReportBreakdown {
+  dimension: CrmReportDimension;
+  rows: BreakdownRow[];
+}
 
 export interface CrmReport {
   pipeline: PipelineSummary;
   winLoss: WinLoss;
   reps: RepRow[];
+  /** The report grouped by ONE dimension (pipeline, rep, event, deal type, lost reason, month); null when none was asked for. */
+  breakdown: CrmReportBreakdown | null;
 }
+
+/** The scalar columns the breakdown groups on: one narrow read, no relations. */
+const BREAKDOWN_SELECT = {
+  status: true,
+  currency: true,
+  dealValue: true,
+  pipeline: true,
+  ownerId: true,
+  eventId: true,
+  dealTypeId: true,
+  lostReason: true,
+  expectedClose: true,
+  wonAt: true,
+  lostAt: true,
+} as const;
 
 export async function buildCrmReport(args: {
   organizationId: string;
   canSeeValues: boolean;
   filters: DealFilterParams;
+  /** Group the filtered deals by this dimension as well. Omitted = no breakdown, no extra read. */
+  groupBy?: CrmReportDimension | null;
 }): Promise<CrmReport> {
   const where = buildDealWhere(args.filters, {
     organizationId: args.organizationId,
@@ -48,7 +77,8 @@ export async function buildCrmReport(args: {
   // per-row currencies, so a sum is only meaningful per currency — the folds
   // below return null + mixed:true rather than adding AED to USD and stamping
   // the result "$".
-  const [stages, byStage, wonAgg, lostAgg, byOwner, users] = await Promise.all([
+  const groupBy = args.groupBy ?? null;
+  const [stages, byStage, wonAgg, lostAgg, byOwner, users, breakdownDeals, eventNames, dealTypeNames] = await Promise.all([
     db.crmPipelineStage.findMany({
       where: { organizationId: args.organizationId },
       orderBy: { sortOrder: "asc" },
@@ -82,6 +112,18 @@ export async function buildCrmReport(args: {
       where: { organizationId: args.organizationId },
       select: { id: true, firstName: true, lastName: true },
     }),
+    // The breakdown reads the SAME `where` as every aggregate above, so a bucket
+    // total can never disagree with the pipeline total beside it. Fetched only
+    // when a dimension was asked for: the plain report costs what it cost.
+    groupBy ? db.crmDeal.findMany({ where, select: BREAKDOWN_SELECT }) : Promise.resolve([]),
+    // Name lookups are org-bound and fetched only for the dimension in use.
+    // Deal types include archived ones: an old deal may still point at one.
+    groupBy === "event"
+      ? db.event.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    groupBy === "dealType"
+      ? db.crmDealType.findMany({ where: { organizationId: args.organizationId }, select: { id: true, name: true } })
+      : Promise.resolve([]),
   ]);
 
   const num = (d: unknown) => (d == null ? 0 : Number(d));
@@ -163,5 +205,35 @@ export async function buildCrmReport(args: {
     }),
   );
 
-  return { pipeline, winLoss, reps };
+  // ── Breakdown by one dimension ────────────────────────────────────────────
+  let breakdown: CrmReportBreakdown | null = null;
+  if (groupBy) {
+    const rows: BreakdownDealRow[] = breakdownDeals.map((d) => ({
+      status: d.status,
+      currency: d.currency,
+      dealValue: d.dealValue == null ? null : Number(d.dealValue),
+      pipeline: d.pipeline ?? null,
+      ownerId: d.ownerId ?? null,
+      eventId: d.eventId ?? null,
+      dealTypeId: d.dealTypeId ?? null,
+      lostReason: d.lostReason ?? null,
+      expectedClose: d.expectedClose ?? null,
+      wonAt: d.wonAt ?? null,
+      lostAt: d.lostAt ?? null,
+    }));
+    breakdown = {
+      dimension: groupBy,
+      rows: bucketDeals(rows, groupBy, {
+        canSeeValues: args.canSeeValues,
+        labels: {
+          pipeline: new Map(Object.entries(CRM_DEAL_PIPELINE_LABELS)),
+          owner: nameById,
+          event: new Map(eventNames.map((e) => [e.id, e.name])),
+          dealType: new Map(dealTypeNames.map((t) => [t.id, t.name])),
+        },
+      }),
+    };
+  }
+
+  return { pipeline, winLoss, reps, breakdown };
 }

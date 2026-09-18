@@ -309,7 +309,7 @@ WEBINAR-type events only.
 | `create_crm_task` | Create a CRM follow-up task. |
 | `complete_crm_task` | Mark a CRM task done. |
 | `add_crm_note` | Log a note / call / meeting on a CRM record. |
-| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. |
+| `get_crm_report` | Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional `groupBy` (`pipeline`, `owner`, `event`, `dealType`, `lostReason`, `expectedCloseMonth`, `closedMonth`) adds a breakdown with counts, values and win rate per group. |
 
 Sponsorship pipeline. Registered from inside the CRM module (`src/crm/agent-tools.ts`) rather than the core registrar, which is why an earlier hand-maintained count missed all 26 of them.
 

@@ -10,7 +10,7 @@
  */
 import { Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { Download, Layers, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
+import { BarChart3, Download, Layers, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,16 +24,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
-import { useCrmReport } from "@/crm/hooks/use-crm-api";
+import { useCrmReport, useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canViewDealValues, canExportCrm } from "@/crm/lib/crm-roles";
-import { formatDealValue } from "@/crm/lib/crm-types";
+import { CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
+import {
+  CRM_REPORT_DIMENSIONS,
+  CRM_REPORT_DIMENSION_LABELS,
+  isLostOnlyDimension,
+  parseReportDimension,
+} from "@/crm/lib/reports";
 
-const REPORT_FILTER_KEYS = ["event", "owner", "dateField", "from", "to"];
+const REPORT_FILTER_KEYS = ["event", "owner", "pipeline", "dealType", "dateField", "from", "to"];
+const ALL_PIPELINE = "__all__";
+const ALL_DEAL_TYPE = "__all__";
+/** The breakdown shown when the URL names no dimension: pipeline, the first split a manager asks for. */
+const DEFAULT_GROUP_BY = "pipeline" as const;
 const DATE_FIELDS = [
   { value: "expectedClose", label: "Expected close" },
   { value: "createdAt", label: "Created" },
@@ -55,13 +72,20 @@ function ReportsInner() {
   const canExport = canExportCrm(session?.user?.role);
 
   const { get, set, clear, anyActive } = useCrmFilters();
+  // The dimension is a VIEW choice, not a filter: it rides in the URL like the
+  // filters (so a link to "deals by event" is shareable) but Clear leaves it alone.
+  const groupBy = parseReportDimension(get("groupBy")) ?? DEFAULT_GROUP_BY;
   const filters = {
     eventId: get("event") || undefined,
     ownerId: get("owner") || undefined,
+    pipeline: get("pipeline") || undefined,
+    dealTypeId: get("dealType") || undefined,
     dateField: get("dateField") || undefined,
     from: get("from") || undefined,
     to: get("to") || undefined,
+    groupBy,
   };
+  const { data: dealTypes = [] } = useCrmDealTypes();
 
   const { data: report, isLoading, isError, refetch } = useCrmReport(filters);
   const filtersActive = anyActive(REPORT_FILTER_KEYS);
@@ -73,13 +97,15 @@ function ReportsInner() {
       event: get("event"),
       owner: get("owner"),
       status: get("status"),
+      pipeline: get("pipeline"),
+      dealType: get("dealType"),
       dateField: get("dateField"),
       from: get("from"),
       to: get("to"),
       min: get("min"),
       max: get("max"),
     })) {
-      if (v) qs.set(k === "event" ? "eventId" : k === "owner" ? "ownerId" : k, v);
+      if (v) qs.set(k === "event" ? "eventId" : k === "owner" ? "ownerId" : k === "dealType" ? "dealTypeId" : k, v);
     }
     const s = qs.toString();
     return `/api/crm/deals/export${s ? `?${s}` : ""}`;
@@ -89,7 +115,7 @@ function ReportsInner() {
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Pipeline, win rate and rep performance — of whatever you filter to.
+          Pipeline, win rate, rep performance and a breakdown by pipeline, rep, event, deal type, lost reason or month, of whatever you filter to.
         </p>
         {canExport ? (
           <Button asChild variant="outline">
@@ -111,6 +137,34 @@ function ReportsInner() {
           className="w-[14rem]"
         />
         <OwnerFilter value={get("owner")} onChange={(v) => set({ owner: v })} />
+        <Select value={get("pipeline") || ALL_PIPELINE} onValueChange={(v) => set({ pipeline: v === ALL_PIPELINE ? null : v })}>
+          <SelectTrigger className="w-[10rem]" aria-label="Pipeline">
+            <SelectValue placeholder="Any pipeline" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_PIPELINE}>Any pipeline</SelectItem>
+            {CRM_DEAL_PIPELINES.map((p) => (
+              <SelectItem key={p} value={p}>
+                {CRM_DEAL_PIPELINE_LABELS[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {dealTypes.length > 0 && (
+          <Select value={get("dealType") || ALL_DEAL_TYPE} onValueChange={(v) => set({ dealType: v === ALL_DEAL_TYPE ? null : v })}>
+            <SelectTrigger className="w-[11rem]" aria-label="Deal type">
+              <SelectValue placeholder="Any deal type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_DEAL_TYPE}>Any deal type</SelectItem>
+              {dealTypes.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <DateRangeFilter
           fields={DATE_FIELDS}
           fieldValue={get("dateField") || "expectedClose"}
@@ -125,6 +179,21 @@ function ReportsInner() {
             Clear
           </Button>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Group by</span>
+          <Select value={groupBy} onValueChange={(v) => set({ groupBy: v === DEFAULT_GROUP_BY ? null : v })}>
+            <SelectTrigger className="w-[13rem]" aria-label="Group by">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CRM_REPORT_DIMENSIONS.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {CRM_REPORT_DIMENSION_LABELS[d]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isError ? (
@@ -243,6 +312,79 @@ function ReportsInner() {
               </Table>
             )}
           </section>
+
+          {/* ── Breakdown by one dimension ─────────────────────────────────── */}
+          {report.breakdown && (() => {
+            const b = report.breakdown;
+            const lostOnly = isLostOnlyDimension(b.dimension);
+            const dimLabel = CRM_REPORT_DIMENSION_LABELS[b.dimension];
+            // The same placeholder the money cells use for "nothing to show".
+            const none = money(null, null);
+            return (
+              <section className="overflow-hidden rounded-xl border bg-card lg:col-span-2">
+                <header className="flex items-center gap-2 border-b p-3">
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                  {/* "Deals by …", not "By …": the rep leaderboard above is already titled "By sales rep". */}
+                  <h2 className="text-sm font-semibold">Deals by {dimLabel.toLowerCase()}</h2>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {lostOnly ? "lost deals only" : `${b.rows.length} ${b.rows.length === 1 ? "group" : "groups"}`}
+                  </span>
+                </header>
+                {b.rows.length === 0 ? (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    {lostOnly ? "No lost deals match these filters." : "No deals match these filters."}
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableHead>{dimLabel}</TableHead>
+                        {lostOnly ? (
+                          <>
+                            <TableHead className="text-right">Lost</TableHead>
+                            <TableHead className="text-right">Lost value</TableHead>
+                          </>
+                        ) : (
+                          <>
+                            <TableHead className="text-right">Deals</TableHead>
+                            <TableHead className="text-right">Open</TableHead>
+                            <TableHead className="text-right">Open value</TableHead>
+                            <TableHead className="text-right">Won</TableHead>
+                            <TableHead className="text-right">Won value</TableHead>
+                            <TableHead className="text-right">Lost</TableHead>
+                            <TableHead className="text-right">Win rate</TableHead>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {b.rows.map((r) => (
+                        <TableRow key={r.key}>
+                          <TableCell className="font-medium">{r.label}</TableCell>
+                          {lostOnly ? (
+                            <>
+                              <TableCell className="text-right tabular-nums">{r.lostCount}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(r.lostValue, r.lostCurrency, r.lostMixed)}</TableCell>
+                            </>
+                          ) : (
+                            <>
+                              <TableCell className="text-right tabular-nums">{r.totalCount}</TableCell>
+                              <TableCell className="text-right tabular-nums">{r.openCount}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(r.openValue, r.openCurrency, r.openMixed)}</TableCell>
+                              <TableCell className="text-right tabular-nums">{r.wonCount}</TableCell>
+                              <TableCell className="text-right font-medium tabular-nums">{money(r.wonValue, r.wonCurrency, r.wonMixed)}</TableCell>
+                              <TableCell className="text-right tabular-nums">{r.lostCount}</TableCell>
+                              <TableCell className="text-right tabular-nums">{r.winRate === null ? none : `${r.winRate}%`}</TableCell>
+                            </>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </section>
+            );
+          })()}
           </div>
         </>
       )}
