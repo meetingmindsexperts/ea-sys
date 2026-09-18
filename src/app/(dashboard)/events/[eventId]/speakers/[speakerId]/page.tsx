@@ -69,6 +69,7 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { usePreviewEmailBySlug, useEventSpeakerTags, useEvent, useEmailTemplates } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { singleSendSlugFor } from "@/lib/email-template-registry";
 import { SESSION_ROLE_COLORS, formatSessionRole } from "@/lib/session-enums";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
@@ -284,12 +285,6 @@ export default function SpeakerDetailPage() {
   };
 
   const handlePreviewEmail = async () => {
-    const slugMap: Record<string, string> = {
-      invitation: "speaker-invitation",
-      agreement: "speaker-agreement",
-      custom: "custom-notification",
-      "abstract-confirmation": "abstract-submission-confirmation",
-    };
     if (emailType === "template" && !selectedTemplateSlug) {
       toast.error("Pick a saved template first");
       return;
@@ -300,7 +295,7 @@ export default function SpeakerDetailPage() {
     }
     try {
       const result = await previewMutation.mutateAsync({
-        slug: emailType === "template" ? selectedTemplateSlug : slugMap[emailType],
+        slug: emailType === "template" ? selectedTemplateSlug : singleSendSlugFor("speaker", emailType) ?? "",
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
         customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
         // Preview greets THIS speaker with THEIR sessions, matching the send.

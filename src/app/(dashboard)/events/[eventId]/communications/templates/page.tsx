@@ -33,19 +33,9 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate, useDeleteEmailTemplate } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { templateDescription } from "@/lib/email-template-registry";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
-const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
-  "registration-confirmation": "Sent when someone registers for the event",
-  "speaker-invitation": "Sent when inviting a speaker to the event",
-  "speaker-agreement": "Sent with speaker agreement terms",
-  "event-reminder": "Sent as a reminder before the event",
-  "abstract-submission-confirmation": "Sent when a speaker submits an abstract",
-  "abstract-status-update": "Sent when an abstract status changes (accepted, rejected, etc.)",
-  "submitter-welcome": "Sent when a submitter creates an account",
-  "custom-notification": "Template for custom/ad-hoc emails",
-};
 
 // Grouped variable reference shown in the create-custom-template dialog. Each
 // group merges the variable sets of the listed system slugs (deduped by key),
@@ -116,7 +106,7 @@ function TemplateCard({
             </div>
           </div>
           <CardDescription>
-            {isCustom ? template.slug : TEMPLATE_DESCRIPTIONS[template.slug] || template.slug}
+            {templateDescription(template.slug)}
           </CardDescription>
         </CardHeader>
         <CardContent>

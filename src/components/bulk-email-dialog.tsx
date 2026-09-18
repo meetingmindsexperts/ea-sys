@@ -2,6 +2,7 @@
 
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
 import { bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
+import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
 import { useState } from "react";
 import {
@@ -171,56 +172,12 @@ interface BulkEmailDialogProps {
   recipientCountFor?: (filters: BulkEmailEffectiveFilters) => number;
 }
 
-const speakerEmailTypes: EmailTypeOption[] = [
-  { value: "invitation", label: "Speaker Invitation", description: "Invite speakers to your event" },
-  { value: "agreement", label: "Speaker Agreement", description: "Send agreement terms for review" },
-  // Issue + attach certificate PDFs — each recipient gets only the certs
-  // whose template tag they hold, all in one email.
-  { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
-  { value: "custom", label: "Custom Email", description: "Write a custom message" },
-];
-
-const reviewerEmailTypes: EmailTypeOption[] = [
-  { value: "custom", label: "Custom Email", description: "Write a custom message to reviewers" },
-  { value: "invitation", label: "Review Invitation", description: "Resend the reviewer pool invitation (the email a reviewer gets when added)" },
-];
-
-const registrationEmailTypes: EmailTypeOption[] = [
-  { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },
-  { value: "reminder", label: "Event Reminder", description: "Remind about the upcoming event" },
-  // Amount due + a "Pay Now" link, resolved per-recipient (tier / discount /
-  // tax aware) — best paired with the Payment Status = Unpaid filter.
-  { value: "payment-reminder", label: "Payment Reminder", description: "Chase an outstanding balance with a Pay Now link" },
-  // Survey invitation — per-recipient token mint + {{surveyLink}}.
-  // Body comes from the per-event "Survey Invitation" template
-  // (override in Communications → Email Templates) or the cert-
-  // neutral system default.
-  { value: "survey-invitation", label: "Survey Invitation", description: "Send a unique link to the post-event feedback survey" },
-  // Issue + attach certificate PDFs — each recipient gets only the certs
-  // whose template tag they hold, all in one email.
-  { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
-  { value: "custom", label: "Custom Email", description: "Write a custom message" },
-];
-
-// Sep 8, 2026: the abstract types are back, and they send. The July-16
-// review (A2) removed accepted/rejected/revision because the pipeline could
-// not build per-abstract context; these three are built on the same var
-// builders as the automatic emails, and the decision one renders each
-// abstract's CURRENT status rather than asserting one.
-const abstractEmailTypes: EmailTypeOption[] = [
-  { value: "abstract-confirmation", label: "Resend Submission Confirmation", description: "One email per abstract, with its number, title and details" },
-  { value: "abstract-decision", label: "Resend Decision", description: "One email per decided abstract, with its current status and reviewer notes" },
-  { value: "abstract-reminder", label: "Submission Reminder", description: "Authors who still have a draft; add a message" },
-  { value: "custom", label: "Custom Email", description: "Write a custom message" },
-];
-
+// The per-audience dropdowns come from the template registry: each system
+// template's `bulk` spec names its type, label, wording and where it sits, and
+// the certificate pipeline's non-template option is declared beside them. One
+// list, read by this dialog, the Communications tiles and the server.
 function getEmailTypes(recipientType: RecipientType): EmailTypeOption[] {
-  switch (recipientType) {
-    case "speakers": return speakerEmailTypes;
-    case "reviewers": return reviewerEmailTypes;
-    case "registrations": return registrationEmailTypes;
-    case "abstracts": return abstractEmailTypes;
-  }
+  return bulkEmailTypeOptionsFor(recipientType);
 }
 
 function getDefaultEmailType(recipientType: RecipientType): string {

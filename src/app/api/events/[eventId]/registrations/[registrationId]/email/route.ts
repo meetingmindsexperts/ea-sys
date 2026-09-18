@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -21,7 +22,9 @@ import { surveyExpiryDaysSchema } from "@/lib/survey/expiry";
 
 const sendEmailSchema = z.object({
   type: z
-    .enum(["confirmation", "reminder", "payment-reminder", "custom", "survey-invitation"])
+    // The built-in types this route sends: the registration surface's
+    // single-send entries in the template registry.
+    .enum(singleSendTypesFor("registration", { route: true }).map((s) => s.type) as [string, ...string[]])
     .default("confirmation"),
   // Survey Invitation only: how many days the personal link stays valid
   // (1 to 365, default 7), the same rule as the Communications send.
@@ -397,13 +400,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       paymentBlock: "",
     };
 
-    const slugMap: Record<string, string> = {
-      confirmation: "registration-confirmation",
-      reminder: "event-reminder",
-      "payment-reminder": "payment-reminder",
-      custom: "custom-notification",
-    };
-
     if (type === "reminder") {
       vars.daysUntilEvent = daysUntilEvent ?? 1;
     }
@@ -447,7 +443,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // A saved custom template (templateSlug) loads directly and has NO default
     // fallback — an inactive/missing one is a clear 400 rather than a blank send.
     const isCustomTemplate = !!templateSlug;
-    const slug = templateSlug ?? slugMap[type];
+    const slug = templateSlug ?? singleSendSlugFor("registration", type) ?? "custom-notification";
     const tpl =
       (await getEventTemplate(eventId, slug)) ||
       (isCustomTemplate ? null : getDefaultTemplate(slug));

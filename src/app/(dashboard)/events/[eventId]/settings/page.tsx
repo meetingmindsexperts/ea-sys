@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CORE_TEMPLATE_SLUGS } from "@/lib/email-template-registry";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/use-api";
 import { apiFetch } from "@/lib/api-fetch";
@@ -2688,16 +2689,9 @@ export default function EventSettingsPage() {
 
 // ── Email Templates Tab (inline in settings) ───────────────────────────────────
 
-const DEFAULT_SLUGS = new Set([
-  "registration-confirmation",
-  "speaker-invitation",
-  "speaker-agreement",
-  "event-reminder",
-  "abstract-submission-confirmation",
-  "abstract-status-update",
-  "submitter-welcome",
-  "custom-notification",
-]);
+// The short list this tab shows (the most-used built-ins): the registry's
+// `core` templates. The full list is under Communications, Email Templates.
+const DEFAULT_SLUGS = CORE_TEMPLATE_SLUGS;
 
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "registration-confirmation": "Sent when someone registers for the event",

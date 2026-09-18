@@ -1,54 +1,17 @@
 /**
  * Client-safe classifier for email-template slugs.
  *
- * The authoritative source of system templates is `DEFAULT_TEMPLATES` in
- * `src/lib/email.ts`, but that module pulls in server-only code (a lazy `db`
- * import, the Pino logger). Client components (the bulk-email dialog) need to
- * tell a *custom* template (one an organizer created) apart from a *system*
- * default without importing that module — so this leaf module mirrors just the
- * slug list. A vitest (`email-template-slugs.test.ts`) asserts this mirror
- * stays in sync with `DEFAULT_TEMPLATES`, so drift fails CI rather than
- * silently mis-classifying a template.
+ * The system-template list lives in the registry leaf
+ * (`email-template-registry.ts`, no server imports), so this module reads it
+ * rather than mirroring it: there is no second copy to drift. Client
+ * components (the bulk-email dialog) use the classifiers below to tell a
+ * *custom* template (one an organizer created) apart from a *system* default.
  *
- * Leaf module: no imports, safe for any bundle.
+ * Leaf module: imports only the registry leaf, safe for any bundle.
  */
-export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
-  "certificate-attendance-delivery",
-  "certificate-appreciation-delivery",
-  "certificate-bundle-delivery",
-  "document-delivery",
-  "registration-confirmation",
-  "speaker-invitation",
-  "speaker-agreement",
-  "presenter-agreement",
-  "event-reminder",
-  "abstract-submission-confirmation",
-  "session-proposal-confirmation",
-  "group-registration-confirmation",
-  "session-proposal-welcome",
-  "abstract-status-update",
-  "submitter-welcome",
-  "abstract-reminder",
-  "reviewer-assignment",
-  "reviewer-pool-invitation",
-  "custom-notification",
-  "payment-confirmation",
-  "payment-reminder",
-  "refund-confirmation",
-  "survey-invitation",
-  "survey-thankyou",
-  "dinner-rsvp-invitation",
-  "speaker-reimbursement-invitation",
-  "travel-grant-invitation",
-  "speaker-reimbursement-received",
-  "speaker-profile-form-request",
-  "webinar-confirmation",
-  "webinar-live-now",
-  "webinar-panelist-invitation",
-  "webinar-reminder-1h",
-  "webinar-reminder-24h",
-  "webinar-thank-you",
-]);
+import { SYSTEM_TEMPLATE_SLUG_LIST } from "@/lib/email-template-registry";
+
+export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set(SYSTEM_TEMPLATE_SLUG_LIST);
 
 /**
  * The auto-webinar email-sequence templates. These only make sense on a

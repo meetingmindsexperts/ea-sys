@@ -67,6 +67,7 @@ import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags, useEvent, useEmailTemplates } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { singleSendSlugFor } from "@/lib/email-template-registry";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
@@ -231,12 +232,6 @@ export function SpeakerDetailSheet({
   );
 
   const handlePreviewEmail = async () => {
-    const slugMap: Record<string, string> = {
-      invitation: "speaker-invitation",
-      agreement: "speaker-agreement",
-      custom: "custom-notification",
-      "abstract-confirmation": "abstract-submission-confirmation",
-    };
     if (emailType === "template" && !selectedTemplateSlug) {
       toast.error("Pick a saved template first");
       return;
@@ -247,7 +242,7 @@ export function SpeakerDetailSheet({
     }
     try {
       const result = await previewMutation.mutateAsync({
-        slug: emailType === "template" ? selectedTemplateSlug : slugMap[emailType],
+        slug: emailType === "template" ? selectedTemplateSlug : singleSendSlugFor("speaker", emailType) ?? "",
         // Preview greets THIS speaker with THEIR sessions, matching the send.
         speakerId: speakerId ?? undefined,
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,

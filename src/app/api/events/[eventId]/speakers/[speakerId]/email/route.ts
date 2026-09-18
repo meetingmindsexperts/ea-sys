@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -33,7 +34,9 @@ const sendEmailSchema = z.object({
   // (Communications → Email Templates) to this speaker — the single-send
   // parity of the bulk dialog's "Your saved template" option, which
   // organizers couldn't reach when emailing one person.
-  type: z.enum(["invitation", "agreement", "custom", "template"]),
+  // The built-in types this route sends come from the registry (the speaker
+  // surface's single-send entries); "template" is a saved custom template.
+  type: z.enum(["template", ...singleSendTypesFor("speaker", { route: true }).map((s) => s.type)]),
   // Required when type === "template" (enforced below — Zod refine can't see
   // across fields cleanly here without restructuring the schema).
   templateSlug: z.string().min(1).max(200).optional(),
@@ -220,12 +223,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       organizerSignature: user?.emailSignature ?? "",
     };
 
-    const slugMap: Record<string, string> = {
-      invitation: "speaker-invitation",
-      agreement: "speaker-agreement",
-      custom: "custom-notification",
-    };
-
     if (type === "custom") {
       if (!customSubject || !customMessage) {
         return NextResponse.json(
@@ -242,7 +239,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // default, so a deactivated/deleted template hard-fails with a clear 400
     // (never silently falls back to a different email — the bulk pipeline's
     // semantics). System slugs keep their default fallback.
-    const effectiveSlug = type === "template" ? (templateSlug as string) : slugMap[type];
+    const effectiveSlug = type === "template" ? (templateSlug as string) : (singleSendSlugFor("speaker", type) ?? "custom-notification");
     const tpl = await getEventTemplate(eventId, effectiveSlug) || getDefaultTemplate(effectiveSlug);
     if (!tpl) {
       if (type === "template") {

@@ -88,6 +88,7 @@ import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
@@ -130,21 +131,14 @@ import {
   resolveBadgeTypeField,
 } from "./registration-enums";
 
-const EMAIL_TYPE_LABELS: Record<string, string> = {
-  confirmation: "Registration Confirmation",
-  reminder: "Event Reminder",
-  "payment-reminder": "Payment Reminder",
-  custom: "Custom Notification",
-  "survey-invitation": "Survey Invitation",
-};
-
-const EMAIL_TYPE_TO_SLUG: Record<string, string> = {
-  confirmation: "registration-confirmation",
-  reminder: "event-reminder",
-  "payment-reminder": "payment-reminder",
-  custom: "custom-notification",
-  "survey-invitation": "survey-invitation",
-};
+// The built-in single-send types for a registration, from the template
+// registry (the same entries the send route accepts).
+const EMAIL_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  singleSendTypesFor("registration").map((s) => [s.type, s.label]),
+);
+const EMAIL_TYPE_TO_SLUG: Record<string, string> = Object.fromEntries(
+  singleSendTypesFor("registration").map((s) => [s.type, singleSendSlugFor("registration", s.type) ?? ""]),
+);
 
 interface RegistrationDetailSheetProps {
   eventId: string;
