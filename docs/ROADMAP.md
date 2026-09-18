@@ -4245,6 +4245,88 @@ intact — that produces noise + erodes trust in the scanner output,
 which is the failure mode that kills security regimes in solo-dev
 shops.**
 
+### OWASP ZAP baseline against the local standalone (Sep 18, 2026): scoped, not started
+
+Follow-on to the section above. Owner question on Sep 18: "should we do OWASP ZAP?" Answer:
+yes, as a bounded baseline against the local standalone, never as a full scan of production.
+The June 8 deferral stands for the full regime (Snyk, CI-wired scans, a staging box); what has
+changed is that a much smaller version is now cheap and has a reason.
+
+**What changed since June 8.**
+- The local production-copy standalone rig exists (`node .next/standalone/server.js` on
+  `:3199` over `ea_sys_prod_local`, every email provider blanked and SES pointed at a region
+  that does not exist; the script used for the Sep 14 and Sep 18 browser verifications).
+  That removes the "no staging environment" blocker for a LOCAL run without building staging.
+- [SECURITY_AND_PRIVACY_POSTURE.md](SECURITY_AND_PRIVACY_POSTURE.md) has been handed to a
+  federal health authority and [COMPLIANCE_READINESS_Q4.md](COMPLIANCE_READINESS_Q4.md) lists
+  "no independent penetration test" as gap 0.4 and decision 2. Trigger 3 above has partly
+  fired. A ZAP report is not a penetration test, but it is a concrete attachment for the
+  questionnaire line that asks whether the application has ever been scanned.
+
+**What it adds, and what it does not.** ZAP is black-box: it crawls the running app and checks
+security headers, cookie flags, reflected input, open redirects, error-page disclosure and
+fingerprinted component versions. Every review in this file so far read code, and the bugs
+they found were IDOR and tenant-scoping, the class ZAP is weakest at (its access-control
+add-on needs two authenticated users per role and is noisy). So the scan complements the
+reviews rather than repeating them.
+
+**The starting point, measured on Sep 18 before any scanner ran.** A plain `curl` of
+`/login` on production returns `Content-Security-Policy: frame-ancestors 'self'`,
+`Referrer-Policy` and `Permissions-Policy`, and returns `X-Powered-By: Next.js`. It does NOT
+return `X-Frame-Options`, `X-Content-Type-Options` or `Strict-Transport-Security`, although
+[next.config.ts](../next.config.ts) declares all six in one `headers()` block and the built
+`.next/routes-manifest.json` carries all six for `/(.*)`. The local standalone without nginx
+in the path drops the same three, so the layer is the Next runtime (16.2.11), not nginx, and
+the live nginx snapshot has no `proxy_hide_header`. The cause is not yet identified.
+Consequences today: no HSTS on the wire (the browser is never told to refuse plain HTTP; the
+nginx 80 to 443 redirect is the only guard), no `nosniff`, and clickjacking protection rests
+on `frame-ancestors` alone (fine on every current browser). `poweredByHeader: false` is not
+set. There is no full Content-Security-Policy, only the `frame-ancestors` directive. These
+are exactly the first lines a baseline scan prints, and the header drop needs no scanner to
+find or to fix, so it should be understood and fixed BEFORE the scan, or the report is
+dominated by it and the real findings underneath are harder to see.
+
+**Rules for the run.**
+- Never an active scan on production. An active scan submits every form: it would mint
+  registrations, fire SES sends, flood the admin-alert mail on every 500 (bounded at 30 an
+  hour, still a flood), create Stripe checkout sessions, and trip the nginx per-IP limit and
+  then the fail2ban ban within a minute. Production gets at most one passive baseline, and
+  even that is better run locally: it produces the same header findings with none of the
+  traffic.
+- Local standalone only, with a throwaway admin from `scripts/dev-create-admin.ts` for the
+  authenticated pass, deleted afterwards (the Sep 18 pattern).
+- Scope any active scan to the public surface first (`/e/*` and `/api/public/*`), which is
+  the unauthenticated attack surface anyway. The dashboard and MCP surfaces come later if the
+  first pass earns its triage time.
+- The Docker commands (`ghcr.io/zaproxy/zaproxy:stable zap-baseline.py` and
+  `zap-full-scan.py`) are the owner's to run; the report lands in the scratchpad, never in the
+  repo, and the confirmed findings are recorded here.
+- Reuse the preserved `.zap/rules.tsv` above only after resolving its two contradictions
+  (10020 versus 10038 on CSP, and the 40009 comment that names a library that does not
+  exist).
+
+**Cost.** The tool is free. A baseline passive scan is about ten minutes of runtime plus an
+hour of triage. A full authenticated active scan of 345 route files is hours of runtime and
+days of triage, most of it low-confidence noise; that is why the scope rule above exists.
+The manual alternative for the header half is one `curl -D -` against production, which is
+what found the drop on Sep 18 and takes five minutes; it is worth repeating after any Next
+upgrade.
+
+**Order when picked up.**
+1. Diagnose and fix the three dropped headers and set `poweredByHeader: false`. Verify with
+   the same `curl` on the local standalone, then on production after the deploy. This is a
+   code change to `next.config.ts` and ships as its own commit with the full gate.
+2. Baseline passive scan on the local standalone. Triage into confirmed and noise; fix the
+   confirmed set; record the noise as rules so the next run is quiet.
+3. Decide on an authenticated active scan of the public surface. Run it only if step 2 left
+   the report readable.
+4. Attach the final report summary to the posture document as the answer to the "has the
+   application been scanned" line, with the date and the scope stated plainly.
+
+CI integration stays out until an app can run inside CI with a seeded database (the
+"e2e-in-CI" item in [CI_PIPELINE.html](CI_PIPELINE.html)); a scan that needs a running app has
+nothing to point at in the current pipeline.
+
 ### Medium-Term (2–4 Months)
 
 | Feature | Description |
