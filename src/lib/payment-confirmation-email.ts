@@ -167,14 +167,17 @@ export async function sendPaymentConfirmationEmail(
     amount: `${currency} ${amount.toFixed(2)}`,
     currency,
     paymentDate,
-    receiptUrl: receiptUrl || undefined,
+    // Empty, never undefined, for every optional figure below: renderTemplate
+    // treats undefined as an unknown token, and an unknown token is a refused
+    // send. An offline payment has no receipt URL, a tax-free event no tax.
+    receiptUrl: receiptUrl || "",
     receiptBlock,
     subtotal: `${currency} ${subtotal.toFixed(2)}`,
-    discount: fin.discount > 0 ? `${currency} ${fin.discount.toFixed(2)}` : undefined,
+    discount: fin.discount > 0 ? `${currency} ${fin.discount.toFixed(2)}` : "",
     discountBlock,
-    taxRate: taxRate > 0 ? taxRate : undefined,
-    taxLabel: taxRate > 0 ? taxLabel : undefined,
-    taxAmount: taxRate > 0 ? `${currency} ${taxAmount.toFixed(2)}` : undefined,
+    taxRate: taxRate > 0 ? taxRate : "",
+    taxLabel: taxRate > 0 ? taxLabel : "",
+    taxAmount: taxRate > 0 ? `${currency} ${taxAmount.toFixed(2)}` : "",
     total: `${currency} ${total.toFixed(2)}`,
     taxBlock,
   };

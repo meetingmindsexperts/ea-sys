@@ -1,4 +1,5 @@
 import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { sanitizePdfText } from "@/lib/pdf/pdf-text";
 import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { randomBytes, randomUUID } from "crypto";
@@ -1094,7 +1095,11 @@ export function mergeAgreementHtml(html: string, ctx: SpeakerEmailContext): stri
     moderatorDetailsText: ctx.moderatorDetailsText,
   };
 
-  return html.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
+  // Editor-mangled tokens ({{<span>speakerName</span>}}) are collapsed first,
+  // the same rule the email renderer applies (September 18, 2026): this merge
+  // feeds the acceptance page and the attached PDF, where there is no
+  // unresolved-token refusal behind it, so a mangled token shipped literally.
+  return normalizeTemplateTokens(html).replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
     if (Object.prototype.hasOwnProperty.call(values, key)) {
       const v = values[key as keyof typeof values];
       return escapeHtmlForAgreement(v ?? "");

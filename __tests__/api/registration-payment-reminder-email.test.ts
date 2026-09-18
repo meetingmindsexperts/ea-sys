@@ -52,6 +52,8 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn().mockReturnValue({ email: "f@x.com" }),
   brandingCc: vi.fn().mockReturnValue([]),
   sendRegistrationConfirmation: vi.fn(),
+  // Real shape: the route spreads these into its vars (Sep 18, 2026).
+  eventLocationVars: (e: { city?: string | null; country?: string | null }) => ({ eventCity: e.city || "", eventCountry: e.country || "" }),
 }));
 vi.mock("@/lib/email-barcode", () => ({
   buildEntryBarcode: vi.fn(),
@@ -209,5 +211,28 @@ describe("saved template with {{rsvpLink}} (single send)", () => {
     res = await send({ type: "reminder" });
     expect(res.status).toBe(200);
     expect(mockDb.rsvpInvite.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("event reminder — the variables the editor advertises (Sep 18, 2026)", () => {
+  it("fills eventCity / eventCountry / organizerName / organizerEmail and an empty paymentBlock, like the bulk send", async () => {
+    // Before this the registration sheet's send left these out, so a template
+    // using {{eventCity}} (which the variable panel offers) sent fine from
+    // Communications and was refused here by the unresolved-token guard.
+    mockDb.event.findFirst.mockResolvedValue(event({ country: "United Arab Emirates" }));
+    mockDb.registration.findFirst.mockResolvedValue(tierRegistration());
+    mockDb.user.findUnique.mockResolvedValueOnce({ emailSignature: null, firstName: "Aisha", lastName: "Khan", email: "aisha@org.com" });
+    const res = await POST(
+      new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ type: "reminder", daysUntilEvent: 3 }) }),
+      { params },
+    );
+    expect(res.status).toBe(200);
+    const vars = capturedVars();
+    expect(vars.eventCity).toBe("Dubai");
+    expect(vars.eventCountry).toBe("United Arab Emirates");
+    expect(vars.organizerName).toBe("Aisha Khan");
+    expect(vars.organizerEmail).toBe("aisha@org.com");
+    expect(vars.paymentBlock).toBe("");
+    for (const [k, v] of Object.entries(vars)) expect(v, k).not.toBeUndefined();
   });
 });

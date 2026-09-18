@@ -71,3 +71,17 @@ describe("sendPaymentConfirmationEmail — combined documents packet", () => {
     expect(call.attachments).toBeUndefined();
   });
 });
+
+describe("sendPaymentConfirmationEmail — optional figures are empty, never undefined (Sep 18, 2026)", () => {
+  it("an offline payment with no receipt URL and no discount renders those tokens as empty strings", async () => {
+    const { renderAndWrap } = await import("@/lib/email");
+    await sendPaymentConfirmationEmail(registration, 105, "USD", null, null);
+    const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, unknown>;
+    // renderTemplate treats undefined as an unknown token, and an unknown
+    // token is a refused send; an organizer adding {{receiptUrl}} to the
+    // template would have had every manual capture refused.
+    expect(vars.receiptUrl).toBe("");
+    expect(vars.discount).toBe("");
+    for (const [k, v] of Object.entries(vars)) expect(v, k).not.toBeUndefined();
+  });
+});

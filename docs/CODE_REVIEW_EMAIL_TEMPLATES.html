@@ -61,6 +61,10 @@
   <div class="sub">September 18, 2026. Three-lens adversarial review (token resolution, template association, sender surface), read-only. Every claim was verified in source at commit <code>01bbce0b</code>; line numbers are from that commit. Production figures are read-only queries run the same day.</div>
 </header>
 
+<div class="note">
+  <strong>Status, September 18, 2026.</strong> Phase 0 shipped the same day (owner: "Phase 0 only"): findings 1, 2, 3, 4, 6, 9, 10 and 13 are fixed and pinned by tests, with the raw-key default and the bulk payment block mutation-verified. Findings 5, 7, 8, 11 and 12 and the lows are recorded under ROADMAP, "Email templates, tokens and senders", as Phases 1 to 3, each an owner decision.
+</div>
+
 <h2>1. Verdict in four lines</h2>
 <ul>
   <li><strong>The core is not spaghetti.</strong> One send choke point (<code>sendEmail</code>), one render engine with the token normalizer and the unresolved-token refusal, one template resolver (<code>getEventTemplate</code>), one branding wrapper with the global event variables, and shared builders for every complex block (speaker context, agreement, RSVP, survey, travel grant, barcode, payment reminder, abstract variables). These work and should not be touched.</li>
@@ -127,7 +131,7 @@
 <p>No BLOCKER. Ranked by the damage a real organizer action does today. "Live" means the failure is reachable from the UI on production data now; "latent" means it needs an organizer edit or an MCP call that has not happened yet.</p>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> 1. Bulk "Registration Confirmation" is refused on 23 of 29 events <span class="pill live">live</span></h3>
+  <h3><span class="sev high">High</span> 1. Bulk "Registration Confirmation" is refused on 23 of 29 events <span class="pill shipped">shipped</span> <span class="pill live">live</span></h3>
   <div class="loc"><code>src/lib/bulk-email.ts:388</code> (type to slug), <code>:1700-1745</code> (base variables), <code>:1864-1878</code> (the only place <code>paymentBlock</code> is set), <code>src/lib/email.ts:1800</code> (default template uses <code>{{paymentBlock}}</code>), <code>:728</code> (refusal)</div>
   <p>The dialog offers "Registration Confirmation" for registrations and the Communications "Welcome Paid" tile defaults to it. It maps to the <code>registration-confirmation</code> slug, whose default body carries <code>{{paymentBlock}}</code>. Bulk fills that token only inside the payment-reminder branch and has no default for it, so on the confirmation type the token is never resolved. Since the September 11 guard every recipient is refused with <code>unresolved_tokens: {{paymentBlock}}</code>, a FAILED row and an error alert; before the guard the literal token was delivered.</p>
   <div class="lbl">Evidence</div>
@@ -138,7 +142,7 @@
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> 2. Reviewers' "Review Invitation" previews one template and sends another <span class="pill latent">latent</span></h3>
+  <h3><span class="sev high">High</span> 2. Reviewers' "Review Invitation" previews one template and sends another <span class="pill shipped">shipped</span> <span class="pill latent">latent</span></h3>
   <div class="loc"><code>src/components/bulk-email-dialog.tsx:184</code> (option), <code>:265</code> (preview maps non-speakers to <code>custom-notification</code>), <code>src/lib/bulk-email.ts:386</code> (server maps <code>invitation</code> to <code>speaker-invitation</code> for every audience), precheck has no audience rule for it</div>
   <p>Pick reviewers, choose Review Invitation, Preview shows the custom notification, Send delivers the speaker invitation: subject "Speaker Invitation", body "You're Invited to Speak". Nothing refuses it because the speaker tokens default to empty strings for every audience.</p>
   <div class="lbl">Evidence</div>
@@ -148,7 +152,7 @@
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> 3. MCP <code>reset_email_template</code> deletes an organizer's custom template <span class="pill latent">latent</span></h3>
+  <h3><span class="sev high">High</span> 3. MCP <code>reset_email_template</code> deletes an organizer's custom template <span class="pill shipped">shipped</span> <span class="pill latent">latent</span></h3>
   <div class="loc"><code>src/lib/agent/tools/communications.ts:352-369</code>; compare REST <code>email-templates/[templateId]/route.ts:346-360</code></div>
   <p>The MCP tool finds the row by slug and deletes it, with no system-slug guard. For a system slug the next read seeds the default again, which is the intent. For one of the eight custom slugs on production (joining instructions, chairperson invitation, faculty confirmation and so on) the row is the only copy, and the message still says "default will be used". REST refuses the same request.</p>
   <div class="lbl">Fix</div>
@@ -156,7 +160,7 @@
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> 4. The automatic abstract decision email shows the reviewer-notes box as escaped source <span class="pill latent">latent</span></h3>
+  <h3><span class="sev high">High</span> 4. The automatic abstract decision email shows the reviewer-notes box as escaped source <span class="pill shipped">shipped</span> <span class="pill latent">latent</span></h3>
   <div class="loc"><code>src/lib/abstract-notifications.ts:144-153</code> (builds <code>reviewNotes</code> as HTML, the comment says to register it raw), <code>:386</code> (<code>renderAndWrap</code> called with no raw keys), <code>src/lib/email.ts:1055</code> (<code>DEFAULT_RAW_HTML_KEYS</code> has no <code>reviewNotes</code>), <code>src/lib/bulk-email.ts:1976</code> (bulk adds it, so the resend renders correctly)</div>
   <p>Accept or reject an abstract with notes and the author receives <code>&lt;div style="background: #e0f2fe ..."&gt;&lt;strong&gt;Reviewer Notes:</code> as visible text. The bulk "Resend Decision" for the same abstract renders the box. Same variable builder, two raw-key lists.</p>
   <div class="lbl">Evidence</div>
@@ -173,7 +177,7 @@
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> 6. Advertised tokens that one sender fills and another does not</h3>
+  <h3><span class="sev medium">Medium</span> 6. Advertised tokens that one sender fills and another does not<span class="pill shipped">shipped</span> </h3>
   <div class="loc"><code>registrations/[registrationId]/email/route.ts:368-385</code> (no <code>eventCity</code>, <code>eventCountry</code>, <code>organizerName</code>, <code>organizerEmail</code>, <code>eventDateRange</code>), <code>src/lib/email.ts:1548</code>, <code>:1699</code> (the editor advertises them), <code>src/lib/bulk-email.ts:1175</code> (bulk fills them)</div>
   <p>An organizer who adds <code>{{eventCity}}</code> to the Event Reminder, as the variable panel invites, sends fine from Communications and gets a refusal from the registration detail sheet. Same class: <code>reviewScore</code> is passed as <code>undefined</code> (<code>abstract-notifications.ts:154</code>) and <code>receiptUrl</code> as <code>undefined</code> (<code>payment-confirmation-email.ts:167</code>); <code>renderTemplate</code> treats <code>undefined</code> as unknown, so adding either token refuses every unscored decision or every offline payment confirmation. No production template uses these tokens on the affected slugs today. The "Dear {{title}} {{lastName}}" greeting that broke the survey thank-you on September 17 is still unfillable on document delivery, both reviewer notifies, the panelist invitation, the group confirmation and the reimbursement receipt.</p>
 </div>
@@ -191,13 +195,13 @@
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> 9. A scheduled saved-template send passes precheck and fails at fire time</h3>
+  <h3><span class="sev medium">Medium</span> 9. A scheduled saved-template send passes precheck and fails at fire time<span class="pill shipped">shipped</span> </h3>
   <div class="loc"><code>src/lib/bulk-email.ts:1042-1053</code> (precheck loads the template only for the RSVP check) vs <code>:1446-1455</code> (fire-time hard fail)</div>
   <p>Schedule a saved template, deactivate it later: green "queued" toast, FAILED row a minute later, the class the precheck exists to prevent. Known and deferred since the communications round 2 review (A3). Fix: the precheck resolves the slug through the same rule as the send.</p>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> 10. Certificate emails skip the event auto-CC and the bulk stream</h3>
+  <h3><span class="sev medium">Medium</span> 10. Certificate emails skip the event auto-CC and the bulk stream<span class="pill shipped">shipped</span> </h3>
   <div class="loc"><code>src/lib/certificates/bundle.ts:724-736</code> (never selects <code>emailCcAddresses</code>), <code>:866-873</code> (branding hand-built), <code>:948</code> (no <code>cc</code>, no <code>stream</code>)</div>
   <p>Every other attendee email goes through <code>brandingCc</code>. A thousand-certificate blast also lands in transactional SES metrics. Fix: hand the rendered cover to the shared send half.</p>
 </div>
@@ -215,7 +219,7 @@
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> 13. The agreement merges skip the token normalizer, with no guard behind them</h3>
+  <h3><span class="sev medium">Medium</span> 13. The agreement merges skip the token normalizer, with no guard behind them<span class="pill shipped">shipped</span> </h3>
   <div class="loc"><code>speaker-agreement.ts:1097</code>, <code>presenter-agreement.ts:100</code>, saves at <code>events/[eventId]/route.ts:87</code> store Tiptap output verbatim</div>
   <p>An editor-mangled <code>{{&lt;span&gt;speakerName&lt;/span&gt;}}</code> in Content, Speaker Agreement ships literally on the acceptance page and inside the PDF attached to every invitation. The email path is protected against exactly this since September 11; the agreement path is not.</p>
 </div>

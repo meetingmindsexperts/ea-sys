@@ -47,6 +47,11 @@ vi.mock("@/lib/email", () => ({
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
   brandingFrom: () => ({ email: "from@x.com", name: "Org" }),
+  // The event auto-CC, minus the recipient: the shape the real helper returns.
+  brandingCc: (branding: { emailCcAddresses?: string[] }, exclude?: { email: string }[]) =>
+    (branding.emailCcAddresses ?? [])
+      .filter((e) => !(exclude ?? []).some((x) => x.email.toLowerCase() === e.toLowerCase()))
+      .map((email) => ({ email })),
   loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: (e: string, slug: string) => mockGetEventTemplate(e, slug),
 }));
@@ -495,5 +500,35 @@ describe("buildCertCoverTemplatePreview (Email Templates editor)", () => {
     });
     expect(res).toBeNull();
     expect(mockDb.event.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendCertificateBundleEmail — event auto-CC and stream (Sep 18, 2026)", () => {
+  const args = {
+    eventId: "evt-1",
+    organizationId: "org-1",
+    recipientEmail: "jane@x.com",
+    recipientName: "Dr. Jane Doe",
+    registrationId: "reg-1",
+    speakerId: null,
+    certs: [{ serial: "ATT-1", type: "ATTENDANCE" as const, templateName: "T", pdfBuffer: Buffer.from("%PDF") }],
+    emailSubjectTemplate: "Subject",
+    emailBodyTemplate: "<p>Body</p>",
+    triggeredByUserId: "user-1",
+    event: { ...SEND_EVENT, emailCcAddresses: ["finance@x.com", "JANE@x.com"] },
+  };
+
+  it("CCs the event's auto-CC list minus the recipient, like every other attendee email", async () => {
+    await sendCertificateBundleEmail(args);
+    const sent = mockSend.mock.calls[0][0];
+    expect(sent.cc).toEqual([{ email: "finance@x.com" }]);
+  });
+
+  it("a run or a Communications send is a bulk stream; a single issue stays transactional", async () => {
+    await sendCertificateBundleEmail({ ...args, stream: "bulk" });
+    expect(mockSend.mock.calls[0][0].stream).toBe("bulk");
+    mockSend.mockClear();
+    await sendCertificateBundleEmail(args);
+    expect(mockSend.mock.calls[0][0].stream).toBe("transactional");
   });
 });

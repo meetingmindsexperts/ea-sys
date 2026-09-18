@@ -151,7 +151,9 @@ export function buildAbstractDecisionVars(
       ? "A reviewer has provided feedback on your abstract. Log in to view the details."
       : statusInfo.message,
     reviewNotes: reviewNotesHtml,
-    reviewScore: input.reviewScore ?? undefined,
+    // Empty, never undefined: renderTemplate treats undefined as an unknown
+    // token, and an unknown token is a refused send (September 18, 2026).
+    reviewScore: input.reviewScore ?? "",
   };
 }
 

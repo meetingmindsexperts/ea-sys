@@ -13,8 +13,8 @@ describe("buildAbstractDecisionVars", () => {
     expect(String(v.reviewNotes)).toContain("Reviewer Notes");
     expect(String(v.reviewNotes)).toContain("Fix &lt;i&gt;fig 2&lt;/i&gt;");
   });
-  it("no notes renders an empty block and no score stays undefined; feedback-only overrides the heading", () => {
-    expect(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null })).toMatchObject({ reviewNotes: "", reviewScore: undefined, statusHeading: "Abstract Accepted!" });
+  it("no notes renders an empty block and no score renders empty (never undefined, which the renderer treats as an unknown token and refuses); feedback-only overrides the heading", () => {
+    expect(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null })).toMatchObject({ reviewNotes: "", reviewScore: "", statusHeading: "Abstract Accepted!" });
     expect(buildAbstractDecisionVars({ status: "ACCEPTED", reviewNotes: null, reviewScore: null, feedbackOnly: true }).statusHeading).toBe("Reviewer Feedback Received");
   });
 });

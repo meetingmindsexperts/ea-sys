@@ -6,7 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { userEmailWhere, USER_EMAIL_ORDER_BY } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation, eventLocationVars } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { getTitleLabel } from "@/lib/utils";
@@ -364,7 +364,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // carrying the token rendered it as literal text (SIG-1, July 16, 2026).
     const sender = await db.user.findUnique({
       where: { id: session.user.id },
-      select: { emailSignature: true },
+      select: { emailSignature: true, firstName: true, lastName: true, email: true },
     });
 
     const vars: Record<string, string | number> = {
@@ -375,6 +375,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventDate,
       eventVenue: event.venue || "TBA",
       eventAddress: event.address || "",
+      // The tokens the editor advertises for these templates and the bulk
+      // send fills; this route left them out, so a template using
+      // {{eventCity}} sent from Communications and was refused from the
+      // registration sheet (September 18, 2026).
+      ...eventLocationVars(event),
+      organizerName:
+        sender?.firstName && sender?.lastName ? `${sender.firstName} ${sender.lastName}` : "Event Organizer",
+      organizerEmail: sender?.email ?? "",
       ticketType: registration.ticketType?.name || "General Admission",
       registrationId: registration.serialId != null
         ? String(registration.serialId).padStart(3, "0")
@@ -384,6 +392,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // uses {{entryBarcode}} and this is an in-person registration.
       entryBarcode: "",
       entryBarcodeText: "",
+      // Filled by the payment-reminder branch; empty otherwise so a saved
+      // template carrying the token is never refused on this path.
+      paymentBlock: "",
     };
 
     const slugMap: Record<string, string> = {

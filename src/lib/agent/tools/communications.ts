@@ -5,6 +5,7 @@ import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
+import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
 import {
   MAX_EMAIL_RECIPIENTS,
   type ToolExecutor,
@@ -354,31 +355,32 @@ const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
     const slug = String(input.slug ?? "").trim();
     if (!slug) return { error: "slug is required" };
 
-    const existing = await db.emailTemplate.findFirst({
-      where: { eventId: ctx.eventId, slug },
-      select: { id: true, slug: true },
-    });
-    if (!existing) {
+    // The SAME reset the dashboard runs (src/lib/email-template-reset.ts):
+    // overwrite a system template with its default, refuse a custom slug.
+    // This tool used to DELETE the row for any slug, which destroyed the
+    // only copy of an organizer-created template (September 18, 2026).
+    const result = await resetEmailTemplateToDefault({ eventId: ctx.eventId, slug });
+    if (!result.ok) return { error: result.message, code: result.code };
+    if (!result.template) {
       return {
         success: true,
-        message: `No event-level override exists for "${slug}" — already using default template`,
+        slug,
+        message: `No saved copy of "${slug}" exists for this event; the default template is already what sends.`,
       };
     }
-
-    await db.emailTemplate.delete({ where: { id: existing.id } });
 
     db.auditLog.create({
       data: {
         eventId: ctx.eventId,
         userId: ctx.userId,
-        action: "DELETE",
+        action: "UPDATE",
         entityType: "EmailTemplate",
-        entityId: existing.id,
-        changes: { source: "mcp", slug, note: "Reset to default — event-level override removed" },
+        entityId: result.template.id,
+        changes: { source: "mcp", slug, note: "Reset to default (content overwritten in place, template re-enabled)" },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:reset_email_template audit-log-failed"));
 
-    return { success: true, slug, message: "Event-level override removed. The default template will be used on next send." };
+    return { success: true, slug, template: result.template, message: "Template reset to the built-in default." };
   } catch (err) {
     apiLogger.error({ err }, "agent:reset_email_template failed");
     return { error: err instanceof Error ? err.message : "Failed to reset email template" };

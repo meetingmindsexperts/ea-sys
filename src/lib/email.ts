@@ -1092,6 +1092,20 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Promoted from per-caller rawHtmlKeys to the default set July 16, 2026,
   // when the token was rolled out to (almost) every default template.
   "organizerSignature",
+  // The three block tokens below are our own markup with the free text
+  // escaped INSIDE their builders. Each used to be listed only by the callers
+  // that remembered; a caller that forgot delivered the block as escaped
+  // source (the automatic abstract decision email, September 18, 2026:
+  // buildAbstractDecisionVars built the box, the bulk resend listed the key,
+  // the automatic sender did not). A raw key belongs with the builder, not
+  // with every caller.
+  // Reviewer-notes box (abstract-status-update): buildAbstractDecisionVars.
+  "reviewNotes",
+  // Reimbursement claim table (speaker-reimbursement-received): the public
+  // reimbursement route.
+  "claimSummary",
+  // Presenter fee block (submitter-welcome): presenter-signup.ts.
+  "presenterFeeBlock",
 ]);
 
 /**
@@ -3994,6 +4008,139 @@ export function buildEventDateTokens(
   };
 }
 
+/**
+ * The public confirmation-page link a registrant pays from. The confirmation
+ * email and the bulk Registration Confirmation resend build it here; the
+ * payment reminder builds its own (it carries the amount DUE, this one the
+ * list price the page re-derives from the server anyway).
+ */
+export function registrationPaymentLink(p: {
+  eventSlug: string;
+  registrationId: string;
+  firstName: string;
+  price: number | string;
+  currency: string;
+  appUrl?: string;
+}): string {
+  const appUrl = p.appUrl || process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
+  return `${appUrl}/e/${p.eventSlug}/confirmation?id=${p.registrationId}&name=${encodeURIComponent(p.firstName)}&price=${p.price}&currency=${p.currency}`;
+}
+
+export interface RegistrationPaymentBlockInput {
+  /** Set when a company payer covers this registration: renders the green note, never an amount. */
+  coveredByGroupPayerName?: string | null;
+  ticketPrice?: number | string | null;
+  ticketCurrency?: string | null;
+  discountAmount?: number | string | null;
+  promoCode?: string | null;
+  taxRate?: number | string | null;
+  taxLabel?: string | null;
+  /** Plan D3: an abstract submitter is told the amount but not invited to pay yet. */
+  suppressPayNow?: boolean;
+  paymentLink: string;
+  /**
+   * Whether the quote PDF rides on the email this block goes into. The
+   * confirmation attaches it; the bulk resend from Communications does not,
+   * so the sentence that points at the attachment is dropped there.
+   */
+  quoteAttached: boolean;
+}
+
+/**
+ * The `{{paymentBlock}}` of the registration-confirmation template, HTML and
+ * plain text: a green "covered by <payer>" note for a group member, an amber
+ * "Payment Pending" box (amount breakdown, optional Pay Now, the settle line)
+ * when money is owed, and nothing at all otherwise. ONE builder for the
+ * automatic confirmation and the bulk resend (September 18, 2026: bulk had no
+ * value for the token, so every resend on a default template was refused).
+ * Every dynamic string is escaped here; the result renders raw.
+ */
+export function buildRegistrationPaymentBlock(p: RegistrationPaymentBlockInput): { html: string; text: string } {
+  if (p.coveredByGroupPayerName) {
+    const payer = p.coveredByGroupPayerName;
+    return {
+      html: `<div style="background: #ecfdf5; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #10b981; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #065f46;">Registration covered by ${escapeHtml(payer)}</p>
+      <p style="margin: 0; font-size: 14px; color: #047857;">Your registration fee is part of a group registration paid by ${escapeHtml(payer)} — no payment is required from you.</p>
+    </div>`,
+      text: `Registration covered by ${payer}\nYour registration fee is part of a group registration paid by ${payer} — no payment is required from you.`,
+    };
+  }
+
+  const baseAmount = Number(p.ticketPrice ?? 0);
+  if (!(baseAmount > 0)) return { html: "", text: "" };
+
+  const currency = p.ticketCurrency || "USD";
+  // Promo discount is subtracted from the base before tax, mirroring the
+  // Stripe checkout (base − discount, then tax on the net) so the email, the
+  // attached quote, and the actual charge all agree.
+  const discount = Math.min(Number(p.discountAmount ?? 0), baseAmount);
+  const netAmount = Math.max(0, baseAmount - discount);
+  const taxRate = p.taxRate ? Number(p.taxRate) : 0;
+  const taxAmount = taxRate > 0 ? netAmount * (taxRate / 100) : 0;
+  const totalAmount = netAmount + taxAmount;
+  const taxLabel = p.taxLabel || "Tax";
+  const discountLabel = p.promoCode ? `Promo ${p.promoCode}` : "Discount";
+
+  let amountLine = "";
+  let amountLineText = "";
+  if (discount > 0 || taxRate > 0) {
+    // Full breakdown when there's a discount and/or tax to itemise.
+    const discountRow = discount > 0
+      ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #047857;">${escapeHtml(discountLabel)}: −${escapeHtml(currency)} ${discount.toFixed(2)}</p>`
+      : "";
+    const taxRow = taxRate > 0
+      ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">${escapeHtml(taxLabel)} (${taxRate}%): ${escapeHtml(currency)} ${taxAmount.toFixed(2)}</p>`
+      : "";
+    amountLine = `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">Subtotal: ${escapeHtml(currency)} ${baseAmount.toFixed(2)}</p>
+      ${discountRow}${taxRow}
+      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;"><strong>Total: ${escapeHtml(currency)} ${totalAmount.toFixed(2)}</strong></p>`;
+    const discountRowText = discount > 0 ? `\n${discountLabel}: -${currency} ${discount.toFixed(2)}` : "";
+    const taxRowText = taxRate > 0 ? `\n${taxLabel} (${taxRate}%): ${currency} ${taxAmount.toFixed(2)}` : "";
+    amountLineText = `Subtotal: ${currency} ${baseAmount.toFixed(2)}${discountRowText}${taxRowText}\nTotal: ${currency} ${totalAmount.toFixed(2)}`;
+  } else {
+    amountLine = `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${baseAmount.toFixed(2)}</strong></p>`;
+    amountLineText = `Amount due: ${currency} ${baseAmount.toFixed(2)}`;
+  }
+
+  // Plan D3: an abstract submitter is told the amount and gets the quote, but
+  // is not INVITED to pay yet, because most presenters are comped once their
+  // abstract is accepted and a payment taken now would need refunding. The
+  // quote still attaches (that is decided by price > 0, not here), so this
+  // drops only the Pay Now call to action and the "complete it now" framing.
+  // Organizers who do want payment up front flip
+  // settings.presenterRegistration.payNowEnabled.
+  const payNowCta = p.suppressPayNow
+    ? ""
+    : `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>
+      <a href="${escapeHtml(p.paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
+      <span style="font-size: 12px; color: #92400e; margin-left: 8px;">(This link must not be shared with others)</span>`;
+  const payNowCtaText = p.suppressPayNow
+    ? ""
+    : `\nShould you wish to complete the payment online, please use the online form below.\nPay Now: ${p.paymentLink} (This link must not be shared with others)`;
+  const settleLine = p.suppressPayNow
+    ? "The organizing team will confirm your registration fee once your submission has been reviewed."
+    : "Kindly note that your registration will be considered as complete only upon receipt of your payment.";
+  const quoteLine = p.quoteAttached
+    ? "Please find attached the quote to make the bank transfer if you have chosen to pay later."
+    : "";
+  const quoteRow = quoteLine
+    ? `<p style="margin: 0 0 8px 0; font-size: 14px; color: #78350f;">${quoteLine}</p>`
+    : "";
+  const heading = p.suppressPayNow ? "Registration Fee" : "Payment Pending";
+
+  return {
+    html: `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">${heading}</p>
+      ${amountLine}
+      ${quoteRow}
+      ${payNowCta}
+      <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;"><strong>IMPORTANT:</strong> ${settleLine}</p>
+    </div>`,
+    text: `${heading}\n${amountLineText}${quoteLine ? `\n${quoteLine}` : ""}${payNowCtaText}\nIMPORTANT: ${settleLine}`,
+  };
+}
+
 export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
   // {{eventDate}} is a DATE. It used to append hour+minute, which produced
   // "Friday, October 2, 2026 at 04:00 AM" in organizer templates that only ever
@@ -4018,84 +4165,33 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
     params.eventTimezone,
   );
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
   const paymentLink = params.eventSlug
-    ? `${appUrl}/e/${params.eventSlug}/confirmation?id=${params.registrationId}&name=${encodeURIComponent(params.firstName)}&price=${params.ticketPrice ?? 0}&currency=${params.ticketCurrency ?? "USD"}`
+    ? registrationPaymentLink({
+        eventSlug: params.eventSlug,
+        registrationId: params.registrationId,
+        firstName: params.firstName,
+        price: params.ticketPrice ?? 0,
+        currency: params.ticketCurrency ?? "USD",
+      })
     : "";
 
-  // Build payment block for paid tickets (HTML + plain text versions)
-  let paymentBlock = "";
-  let paymentBlockText = "";
-  if (params.coveredByGroupPayerName) {
-    const payer = params.coveredByGroupPayerName;
-    paymentBlock = `<div style="background: #ecfdf5; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #10b981; margin: 20px 0;">
-      <p style="margin: 0 0 8px 0; font-weight: 600; color: #065f46;">Registration covered by ${escapeHtml(payer)}</p>
-      <p style="margin: 0; font-size: 14px; color: #047857;">Your registration fee is part of a group registration paid by ${escapeHtml(payer)} — no payment is required from you.</p>
-    </div>`;
-    paymentBlockText = `Registration covered by ${payer}\nYour registration fee is part of a group registration paid by ${payer} — no payment is required from you.`;
-  } else if (params.ticketPrice && params.ticketPrice > 0) {
-    const currency = params.ticketCurrency || "USD";
-    const baseAmount = Number(params.ticketPrice);
-    // Promo discount is subtracted from the base before tax, mirroring the
-    // Stripe checkout (base − discount, then tax on the net) so the email, the
-    // attached quote, and the actual charge all agree.
-    const discount = Math.min(Number(params.discountAmount ?? 0), baseAmount);
-    const netAmount = Math.max(0, baseAmount - discount);
-    const taxRate = params.taxRate ? Number(params.taxRate) : 0;
-    const taxAmount = taxRate > 0 ? netAmount * (taxRate / 100) : 0;
-    const totalAmount = netAmount + taxAmount;
-    const taxLabel = params.taxLabel || "Tax";
-    const discountLabel = params.promoCode ? `Promo ${params.promoCode}` : "Discount";
-
-    let amountLine = "";
-    let amountLineText = "";
-    if (discount > 0 || taxRate > 0) {
-      // Full breakdown when there's a discount and/or tax to itemise.
-      const discountRow = discount > 0
-        ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #047857;">${escapeHtml(discountLabel)}: −${escapeHtml(currency)} ${discount.toFixed(2)}</p>`
-        : "";
-      const taxRow = taxRate > 0
-        ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">${escapeHtml(taxLabel)} (${taxRate}%): ${escapeHtml(currency)} ${taxAmount.toFixed(2)}</p>`
-        : "";
-      amountLine = `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">Subtotal: ${escapeHtml(currency)} ${baseAmount.toFixed(2)}</p>
-      ${discountRow}${taxRow}
-      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;"><strong>Total: ${escapeHtml(currency)} ${totalAmount.toFixed(2)}</strong></p>`;
-      const discountRowText = discount > 0 ? `\n${discountLabel}: -${currency} ${discount.toFixed(2)}` : "";
-      const taxRowText = taxRate > 0 ? `\n${taxLabel} (${taxRate}%): ${currency} ${taxAmount.toFixed(2)}` : "";
-      amountLineText = `Subtotal: ${currency} ${baseAmount.toFixed(2)}${discountRowText}${taxRowText}\nTotal: ${currency} ${totalAmount.toFixed(2)}`;
-    } else {
-      amountLine = `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${baseAmount.toFixed(2)}</strong></p>`;
-      amountLineText = `Amount due: ${currency} ${baseAmount.toFixed(2)}`;
-    }
-
-    // Plan D3: an abstract submitter is told the amount and gets the quote, but
-    // is not INVITED to pay yet, because most presenters are comped once their
-    // abstract is accepted and a payment taken now would need refunding. The
-    // quote still attaches (that is decided by price > 0, not here), so this
-    // drops only the Pay Now call to action and the "complete it now" framing.
-    // Organizers who do want payment up front flip
-    // settings.presenterRegistration.payNowEnabled.
-    const payNowCta = params.suppressPayNow
-      ? ""
-      : `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>
-      <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
-      <span style="font-size: 12px; color: #92400e; margin-left: 8px;">(This link must not be shared with others)</span>`;
-    const payNowCtaText = params.suppressPayNow
-      ? ""
-      : `\nShould you wish to complete the payment online, please use the online form below.\nPay Now: ${paymentLink} (This link must not be shared with others)`;
-    const settleLine = params.suppressPayNow
-      ? "The organizing team will confirm your registration fee once your submission has been reviewed."
-      : "Kindly note that your registration will be considered as complete only upon receipt of your payment.";
-
-    paymentBlock = `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
-      <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">${params.suppressPayNow ? "Registration Fee" : "Payment Pending"}</p>
-      ${amountLine}
-      <p style="margin: 0 0 8px 0; font-size: 14px; color: #78350f;">Please find attached the quote to make the bank transfer if you have chosen to pay later.</p>
-      ${payNowCta}
-      <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;"><strong>IMPORTANT:</strong> ${settleLine}</p>
-    </div>`;
-    paymentBlockText = `${params.suppressPayNow ? "Registration Fee" : "Payment Pending"}\n${amountLineText}\nPlease find attached the quote to make the bank transfer if you have chosen to pay later.${payNowCtaText}\nIMPORTANT: ${settleLine}`;
-  }
+  // The payment block (group-covered note, or amount due + Pay Now) comes
+  // from ONE builder shared with the bulk Registration Confirmation resend,
+  // so the two cannot disagree about what a registrant owes. This email
+  // attaches the quote PDF (decided by price > 0 below), so the block may
+  // refer to it.
+  const { html: paymentBlock, text: paymentBlockText } = buildRegistrationPaymentBlock({
+    coveredByGroupPayerName: params.coveredByGroupPayerName,
+    ticketPrice: params.ticketPrice,
+    ticketCurrency: params.ticketCurrency,
+    discountAmount: params.discountAmount,
+    promoCode: params.promoCode,
+    taxRate: params.taxRate,
+    taxLabel: params.taxLabel,
+    suppressPayNow: params.suppressPayNow,
+    paymentLink,
+    quoteAttached: true,
+  });
 
   const vars: Record<string, string | number | undefined> = {
     // Title rendered as the formatted prefix ("Dr.", "Prof.", "Mr.", etc.) —

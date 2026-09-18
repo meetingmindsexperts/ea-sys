@@ -4,7 +4,9 @@ import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { hashVerificationToken } from "./security";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow } from "./email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, type EmailBranding, eventLocationVars, loadActiveEventTemplateRow, buildRegistrationPaymentBlock, registrationPaymentLink } from "./email";
+import { readRegistrationBasePrice } from "./registration-financials";
+import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -39,6 +41,8 @@ import {
   ABSTRACT_NOT_RESENDABLE_STATUSES,
   ABSTRACT_REMINDER_STATUSES,
   defaultAbstractStatusFilter,
+  BULK_EMAIL_TEMPLATE_SLUGS,
+  bulkTemplateSlugFor,
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
@@ -382,23 +386,9 @@ export const NO_RECIPIENTS_CODE = "NO_RECIPIENTS";
  * ScheduledEmail rows and are still refused: a type that asserts a status
  * is the wrong shape.
  */
-const BULK_EMAIL_TEMPLATE_SLUGS: Partial<Record<BulkEmailType, string>> = {
-  invitation: "speaker-invitation",
-  agreement: "speaker-agreement",
-  confirmation: "registration-confirmation",
-  reminder: "event-reminder",
-  "payment-reminder": "payment-reminder",
-  custom: "custom-notification",
-  "webinar-confirmation": "webinar-confirmation",
-  "webinar-reminder-24h": "webinar-reminder-24h",
-  "webinar-reminder-1h": "webinar-reminder-1h",
-  "webinar-live-now": "webinar-live-now",
-  "webinar-thank-you": "webinar-thank-you",
-  "survey-invitation": "survey-invitation",
-  "abstract-confirmation": "abstract-submission-confirmation",
-  "abstract-decision": "abstract-status-update",
-  "abstract-reminder": "abstract-reminder",
-};
+// The type-to-slug map itself lives in bulk-email-audience.ts (client-safe), so
+// the send dialog's Preview and this send read ONE map (September 18, 2026).
+export { BULK_EMAIL_TEMPLATE_SLUGS, bulkTemplateSlugFor };
 
 /** Types that send one email per ABSTRACT rather than per submitter. */
 // The per-type status scope lives in bulk-email-audience.ts (client-safe) so
@@ -653,6 +643,11 @@ export function parsePaymentStatusFilter(value: string | undefined): PaymentStat
 /** Error code set on BulkEmailError for an unparsable filter value (review M7). */
 export const INVALID_FILTER_CODE = "INVALID_FILTER";
 
+/** A saved (custom) template that is missing or inactive: refused at enqueue and at fire time alike. */
+export const TEMPLATE_NOT_AVAILABLE_CODE = "TEMPLATE_NOT_AVAILABLE";
+export const savedTemplateUnavailableMessage = (slug: string) =>
+  `Saved template "${slug}" was not found or is inactive. Activate it under Communications, Email Templates.`;
+
 /** The no-filter sentinel some UI surfaces pass through ("All …" dropdowns). */
 const isAllSentinel = (v: string) => v.trim().toLowerCase() === "all";
 
@@ -765,6 +760,13 @@ interface ResolvedRecipient {
   pricingTier?: { price: unknown; currency: string } | null;
   ticketTypePricing?: { price: unknown; currency: string } | null;
   /**
+   * Registrations recipients only: the confirmation's {{paymentBlock}} shows
+   * an amount only while money is owed, and a "covered by <payer>" note for
+   * a group member instead of an amount.
+   */
+  paymentStatus?: string | null;
+  groupPayerName?: string | null;
+  /**
    * Speakers recipients only — drives the {{agreementBlock}} token (signed
    * speakers get an "already accepted" note instead of a Review & Agree CTA).
    */
@@ -848,9 +850,27 @@ export async function precheckBulkEmailViability(
   if (
     emailType !== "template" &&
     emailType !== "certificate" &&
-    !BULK_EMAIL_TEMPLATE_SLUGS[emailType]
+    !bulkTemplateSlugFor(emailType, recipientType)
   ) {
     throw new BulkEmailError(UNSUPPORTED_EMAIL_TYPE_MESSAGE(emailType), 400);
+  }
+
+  // A saved template must resolve NOW (comms R2 A3, September 18, 2026): a
+  // custom slug has no built-in to fall back to, and before this the precheck
+  // never asked whether the slug resolved, so scheduling a saved template and
+  // deactivating it later gave a green "queued" toast and a FAILED row a
+  // minute after, the exact class this precheck exists to prevent. The
+  // resolved row is reused by the RSVP-token check below.
+  let savedTemplate: { subject: string; htmlContent: string; textContent: string | null } | null = null;
+  if (emailType === "template") {
+    if (!filters?.templateSlug) {
+      throw new BulkEmailError("A saved-template send requires filters.templateSlug", 400);
+    }
+    savedTemplate = await loadActiveEventTemplateRow(eventId, filters.templateSlug);
+    if (!savedTemplate) {
+      apiLogger.warn({ msg: "bulk-email:saved-template-unavailable", eventId, recipientType, templateSlug: filters.templateSlug });
+      throw new BulkEmailError(savedTemplateUnavailableMessage(filters.templateSlug), 400, TEMPLATE_NOT_AVAILABLE_CODE);
+    }
   }
 
   // Speaker-agreement bulk sends need either an uploaded .docx template OR
@@ -1039,10 +1059,13 @@ export async function precheckBulkEmailViability(
   // this is refused at enqueue rather than sent with the literal token. Runs
   // at fire time too, since executeBulkEmail calls this precheck.
   if (!rsvpCampaign && emailType !== "certificate") {
-    const slug = emailType === "template" ? filters?.templateSlug : BULK_EMAIL_TEMPLATE_SLUGS[emailType];
-    const tpl = slug
-      ? (await loadActiveEventTemplateRow(eventId, slug)) || (emailType === "template" ? null : getDefaultTemplate(slug))
-      : null;
+    const slug = emailType === "template" ? filters?.templateSlug : bulkTemplateSlugFor(emailType, recipientType);
+    const tpl =
+      emailType === "template"
+        ? savedTemplate
+        : slug
+          ? (await loadActiveEventTemplateRow(eventId, slug)) || getDefaultTemplate(slug)
+          : null;
     if (templateUsesRsvpToken(tpl?.subject, tpl?.htmlContent, tpl?.textContent, customSubject, customMessage)) {
       apiLogger.warn({ msg: "bulk-email:rsvp-token-without-campaign", eventId, emailType, recipientType, templateSlug: slug });
       throw new BulkEmailError(
@@ -1360,6 +1383,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         pricingTier: { select: { name: true, price: true, currency: true } },
         ticketType: { select: { name: true, price: true, currency: true } },
         attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
+        // The confirmation's payment block: owed or not, and covered by whom.
+        paymentStatus: true,
+        group: { select: { billingAccount: { select: { name: true } } } },
       },
     });
     recipients = registrations.map((r) => ({
@@ -1377,6 +1403,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       discountAmount: r.discountAmount,
       pricingTier: r.pricingTier ? { price: r.pricingTier.price, currency: r.pricingTier.currency } : null,
       ticketTypePricing: r.ticketType ? { price: r.ticketType.price, currency: r.ticketType.currency } : null,
+      paymentStatus: r.paymentStatus,
+      groupPayerName: r.group?.billingAccount?.name ?? null,
     }));
   }
 
@@ -1431,7 +1459,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
     templateSlug = filters.templateSlug;
   } else {
-    const mapped = BULK_EMAIL_TEMPLATE_SLUGS[emailType];
+    const mapped = bulkTemplateSlugFor(emailType, recipientType);
     if (!mapped) {
       throw new BulkEmailError(UNSUPPORTED_EMAIL_TYPE_MESSAGE(emailType), 400);
     }
@@ -1447,10 +1475,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     (isCustomTemplate ? null : getDefaultTemplate(templateSlug));
   if (!loadedTpl) {
     throw new BulkEmailError(
-      isCustomTemplate
-        ? `Saved template "${templateSlug}" was not found or is inactive — activate it under Communications → Email Templates`
-        : `Email template not found for slug: ${templateSlug}`,
-      isCustomTemplate ? 400 : 500
+      isCustomTemplate ? savedTemplateUnavailableMessage(templateSlug) : `Email template not found for slug: ${templateSlug}`,
+      isCustomTemplate ? 400 : 500,
+      isCustomTemplate ? TEMPLATE_NOT_AVAILABLE_CODE : undefined,
     );
   }
 
@@ -1742,7 +1769,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // has a qrCode. Empty otherwise so the placeholder disappears.
       entryBarcode: "",
       entryBarcodeText: "",
+      // Filled below for the payment reminder and the registration
+      // confirmation; empty everywhere else so the token never survives to
+      // the unresolved-token refusal.
+      paymentBlock: "",
     };
+
+    if (recipientType === "reviewers") {
+      // The reviewer pool invitation's button (the same link the automatic
+      // "added as a reviewer" email carries).
+      vars.reviewLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`;
+    }
 
     if (recipientType === "abstracts") {
       // Every abstract email carries the author's management link; the
@@ -1875,6 +1912,40 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       });
       vars.amount = amount;
       vars.paymentBlock = paymentBlock;
+    }
+
+    // Registration Confirmation {{paymentBlock}}: the SAME builder the
+    // automatic confirmation uses (September 18, 2026: bulk had no value for
+    // the token, so a resend on the default template, and the Welcome Paid
+    // tile, were refused on every event still carrying it). A group member
+    // gets the "covered by <payer>" note; a registration that owes money gets
+    // the amount and Pay Now; a settled one gets nothing. No quote PDF rides
+    // on a bulk send, so the sentence that points at one is left out.
+    if (templateSlug === "registration-confirmation" && recipientType === "registrations") {
+      const owes = !!recipient.paymentStatus && !NO_PAYMENT_DUE_STATUSES.includes(recipient.paymentStatus as (typeof NO_PAYMENT_DUE_STATUSES)[number]);
+      const basePrice = readRegistrationBasePrice({
+        originalPrice: recipient.originalPrice,
+        pricingTier: recipient.pricingTier ?? null,
+        ticketType: recipient.ticketTypePricing ?? null,
+      });
+      const currency = recipient.pricingTier?.currency || recipient.ticketTypePricing?.currency || "USD";
+      vars.paymentBlock = buildRegistrationPaymentBlock({
+        coveredByGroupPayerName: recipient.groupPayerName,
+        ticketPrice: owes ? basePrice : 0,
+        ticketCurrency: currency,
+        discountAmount: recipient.discountAmount == null ? null : Number(recipient.discountAmount),
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+        paymentLink: registrationPaymentLink({
+          eventSlug: event.slug || event.id,
+          registrationId: recipient.id,
+          firstName: recipient.firstName,
+          price: basePrice,
+          currency,
+          appUrl,
+        }),
+        quoteAttached: false,
+      }).html;
     }
 
     if (emailType === "survey-invitation") {

@@ -430,6 +430,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       })),
       emailSubjectTemplate: cover.subject,
       emailBodyTemplate: cover.body,
+      stream: "bulk",
       triggeredByUserId: triggeredByUserId ?? null,
       event,
     });

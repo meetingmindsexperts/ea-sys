@@ -1,6 +1,7 @@
 "use client";
 
 import { templateUsesRsvpToken } from "@/lib/rsvp/button";
+import { bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
 
 import { useState } from "react";
 import {
@@ -181,7 +182,7 @@ const speakerEmailTypes: EmailTypeOption[] = [
 
 const reviewerEmailTypes: EmailTypeOption[] = [
   { value: "custom", label: "Custom Email", description: "Write a custom message to reviewers" },
-  { value: "invitation", label: "Review Invitation", description: "Invite to review abstracts" },
+  { value: "invitation", label: "Review Invitation", description: "Resend the reviewer pool invitation (the email a reviewer gets when added)" },
 ];
 
 const registrationEmailTypes: EmailTypeOption[] = [
@@ -253,46 +254,17 @@ function isAtLeastMinLeadTime(when: Date): boolean {
 }
 
 
-// Static map: emailType → template slug used by the preview endpoint.
-// Speaker invitations use a dedicated template; other types reuse common slugs.
+// emailType → template slug for the Preview. The SAME map the server sends
+// with (bulkTemplateSlugFor in bulk-email-audience.ts, September 18, 2026):
+// this component used to carry its own copy, and the two disagreed on
+// `invitation` for reviewers, so Preview showed one template and Send
+// delivered another.
 function emailTypeToSlug(emailType: string, recipientType: RecipientType): string | null {
   // Saved custom template — the slug is encoded in the option value.
   if (emailType.startsWith(SAVED_TEMPLATE_PREFIX)) {
     return emailType.slice(SAVED_TEMPLATE_PREFIX.length);
   }
-  switch (emailType) {
-    case "invitation":
-      return recipientType === "speakers" ? "speaker-invitation" : "custom-notification";
-    case "agreement":
-      return "speaker-agreement";
-    case "confirmation":
-      return "registration-confirmation";
-    case "reminder":
-      return "event-reminder";
-    case "custom":
-      return "custom-notification";
-    // Slug-identical types — mirrors the server's BULK_EMAIL_TEMPLATE_SLUGS
-    // (bulk-email.ts). payment-reminder was missing here (comms-R2 A11): a
-    // first-class money email whose slug exists showed "Preview isn't
-    // available" — e.g. selecting a single registration → Email → Payment
-    // Reminder → Preview.
-    case "payment-reminder":
-    case "survey-invitation":
-    case "abstract-reminder":
-    case "webinar-confirmation":
-    case "webinar-reminder-24h":
-    case "webinar-reminder-1h":
-    case "webinar-live-now":
-    case "webinar-thank-you":
-      return emailType;
-    // Abstract types (Sep 8, 2026): the slugs their sends render with.
-    case "abstract-confirmation":
-      return "abstract-submission-confirmation";
-    case "abstract-decision":
-      return "abstract-status-update";
-    default:
-      return null;
-  }
+  return bulkTemplateSlugFor(emailType, recipientType);
 }
 
 export function BulkEmailDialog({

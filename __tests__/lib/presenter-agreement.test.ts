@@ -78,3 +78,12 @@ describe("presenter-agreement", () => {
     });
   });
 });
+
+describe("mergePresenterAgreementHtml — editor-mangled tokens (Sep 18, 2026)", () => {
+  it("collapses a token the editor wrapped in a span before merging", () => {
+    const merged = mergePresenterAgreementHtml("<p>Dear {{<span>presenterName</span>}} of {{ presenter<em>Organization</em> }}.</p>", ctx());
+    expect(merged).toContain("Dr. Ada Lovelace");
+    expect(merged).toContain("Analytical Engines");
+    expect(merged).not.toContain("{{");
+  });
+});

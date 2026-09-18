@@ -392,3 +392,12 @@ describe("DEFAULT_SPEAKER_AGREEMENT_HTML — token coverage", () => {
     expect(leftover, `Unresolved tokens: ${leftover?.join(", ") ?? ""}`).toBeNull();
   });
 });
+
+describe("mergeAgreementHtml — editor-mangled tokens (Sep 18, 2026)", () => {
+  it("collapses {{<span>speakerName</span>}} before merging, so the acceptance page and the PDF never ship a literal token", () => {
+    const merged = mergeAgreementHtml("<p>Dear {{<span>speakerName</span>}}, {{ event<strong>Name</strong> }}.</p>", ctx);
+    expect(merged).toContain("Dr. Jane Smith");
+    expect(merged).toContain("International Cardiology Summit");
+    expect(merged).not.toContain("{{");
+  });
+});

@@ -37,6 +37,7 @@ vi.mock("@/lib/email", () => ({
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
   brandingFrom: () => ({ email: "from@x.com", name: "Org" }),
+  brandingCc: () => [],
   loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: (e: string, slug: string) => mockGetEventTemplate(e, slug),
 }));

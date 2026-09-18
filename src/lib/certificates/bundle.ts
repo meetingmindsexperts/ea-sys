@@ -35,6 +35,7 @@ import {
   wrapWithBranding,
   inlineCss,
   brandingFrom,
+  brandingCc,
   getEventTemplate,
   type EmailBranding,
 } from "@/lib/email";
@@ -608,6 +609,8 @@ export interface BundleEmailEvent {
   emailFooterHtml: string | null;
   emailFromAddress: string | null;
   emailFromName: string | null;
+  /** The event's auto-CC list; optional so older fixtures and callers still type. */
+  emailCcAddresses?: string[] | null;
   organization: { name: string };
 }
 
@@ -733,6 +736,7 @@ export async function loadBundleEmailEvent(eventId: string): Promise<BundleEmail
       emailFooterHtml: true,
       emailFromAddress: true,
       emailFromName: true,
+      emailCcAddresses: true,
       organization: { select: { name: true } },
     },
   });
@@ -869,6 +873,9 @@ export async function renderBundleEmailContent(args: {
     emailFooterHtml: event.emailFooterHtml,
     emailFromAddress: event.emailFromAddress,
     emailFromName: event.emailFromName ?? event.organization.name,
+    // The event auto-CC (September 18, 2026): every other attendee email
+    // went through brandingCc; certificates were the one send that did not.
+    emailCcAddresses: event.emailCcAddresses ?? [],
     eventName: event.name,
   };
   const wrappedHtml = inlineCss(wrapWithBranding(bodyHtml, branding));
@@ -901,6 +908,8 @@ export async function sendCertificateBundleEmail(args: {
   triggeredByUserId: string | null;
   /** Pre-loaded event (batch callers) — skips the per-recipient lookup. */
   event?: BundleEmailEvent | null;
+  /** "bulk" for a run or a Communications send; a single issue stays transactional. */
+  stream?: "transactional" | "bulk";
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (args.certs.length === 0) {
     apiLogger.warn({ msg: "cert-bundle:empty-send", eventId: args.eventId, recipientEmail: args.recipientEmail });
@@ -951,6 +960,8 @@ export async function sendCertificateBundleEmail(args: {
     htmlContent: wrappedHtml,
     textContent: bodyText,
     from: brandingFrom(branding),
+    cc: brandingCc(branding, [{ email: args.recipientEmail }]),
+    stream: args.stream ?? "transactional",
     attachments: args.certs.map((c) => ({
       name: `${c.serial}.pdf`,
       content: c.pdfBuffer.toString("base64"),

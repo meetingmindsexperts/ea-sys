@@ -6,7 +6,8 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
-import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { sendEmail, renderTemplate, renderTemplatePlain, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildCertCoverTemplatePreview } from "@/lib/certificates/bundle";
@@ -343,22 +344,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const defaultTpl = getDefaultTemplate(existing.slug);
-    if (!defaultTpl) {
-      return NextResponse.json({ error: "No default template for this slug" }, { status: 404 });
+    // ONE reset for the dashboard and the MCP tool (src/lib/email-template-reset.ts).
+    const result = await resetEmailTemplateToDefault({ eventId, slug: existing.slug });
+    if (!result.ok) {
+      return NextResponse.json({ error: "No default template for this slug", code: result.code }, { status: 404 });
     }
 
-    const template = await db.emailTemplate.update({
-      where: { id: templateId },
-      data: {
-        subject: defaultTpl.subject,
-        htmlContent: defaultTpl.htmlContent,
-        textContent: defaultTpl.textContent,
-        name: defaultTpl.name,
-        isActive: true,
-      },
-    });
-
+    const template = await db.emailTemplate.findFirst({ where: { id: templateId, eventId } });
     return NextResponse.json(template);
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error resetting email template" });

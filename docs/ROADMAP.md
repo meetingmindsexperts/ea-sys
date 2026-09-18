@@ -2,10 +2,81 @@
 
 **Project:** EA-SYS (Event Administration System)
 **Owner:** MeetingMinds Group
-**Last Updated:** August 21, 2026
+**Last Updated:** September 18, 2026
 **Platform URL:** events.meetingmindsgroup.com
 
 ---
+
+## Email templates, tokens and senders: the streamlining phases the owner deferred (Sep 18, 2026)
+
+The adversarial review in [CODE_REVIEW_EMAIL_TEMPLATES.html](CODE_REVIEW_EMAIL_TEMPLATES.html)
+found the core centralized (one send choke point, one render engine with the
+refusal guard, one resolver, one branding wrapper, shared block builders) and
+the edges duplicated: five type-to-slug maps, a token contract that is
+documentation only, and about twenty-two senders pasting the same
+resolve-render-brand-send block. **Phase 0 (the defects) shipped the same day.**
+The owner chose to hold the three structural phases; each is its own decision.
+
+**Phase 1, the contract (one to two days).** One typed registry per slug (kind,
+recipient type, sendable-from surfaces, bulk email type, variables, raw HTML
+keys, default subject and bodies, preview fixture) replacing `DEFAULT_TEMPLATES`,
+from which `SYSTEM_TEMPLATE_SLUGS`, `TEMPLATE_VARIABLES`, `DEFAULT_RAW_HTML_KEYS`,
+the remaining type-to-slug maps (speaker and registration single-send, the
+detail sheet, the Communications tiles), the dialog option lists, the Settings
+list and the preview samples are derived, with a generated client-safe leaf.
+Plus the missing drift test: each sender's variable map, built with fixtures,
+must cover its default template and its registry entry. Adding a system
+template becomes one entry instead of about twelve files. Also here: the nine
+system slugs with no `TEMPLATE_VARIABLES` entry (the webinar set,
+`abstract-reminder`, `survey-invitation`, `survey-thankyou`), and the template
+editor's preview rendering with no raw keys.
+
+**Phase 2, the senders (two to three days, one sender per commit).** One
+`sendEventTemplatedEmail({ eventId, slug, recipient, vars, attachments, bcc,
+emailType, stream, triggeredByUserId, templateTransform })` doing
+`getEventTemplate`, the optional transform (the travel-grant and fee-block
+token append), `renderAndWrap`, `brandingFrom`, `brandingCc` and `sendEmail`
+with a full log context; beside it `buildEventVars(event)` (the global keys plus
+city, country, address, start date, ONE venue shape, all through
+`buildEventDateTokens`) and `buildRecipientVars` for a registration or a
+speaker row, extracted from bulk's `generateEmailForRecipient`. About sixteen
+senders collapse onto them; the two single-send routes become "resolve one
+recipient, build vars, send". Closes the review's mediums that Phase 0 left:
+the registration completion email is hardcoded, unbranded and uneditable (a
+`registration-completion` entry sent through the normal path); five senders
+format `{{eventDate}}` in the server timezone and `{{eventVenue}}` three ways
+(delete the per-sender formatting so the event-timezone global block wins; two
+of 39 production events have an after-midnight-Dubai start, one upcoming);
+the registration single-send has no BCC or attachments while the speaker route
+and bulk do; bulk saved-template sends log `bulk-template` instead of the real
+slug; three definitions of "is this a custom template" (bulk, the registration
+route, `isCustomTemplateSlug`). Must stay bespoke: `sendRegistrationConfirmation`
+(payment block, quote PDF, inline barcode), operator mail, CRM sponsor mail.
+Blast radius is every organizer-facing email: a missed raw key turns a block
+into escaped source, a missed transform drops the travel-grant token, a helper
+bug is a total event-mail outage. Mitigation: one sender per commit, the
+per-sender tests plus the unresolved-token suite, a real send to the owner's
+inbox per sender.
+
+**Phase 3, owner call, additive schema.** Nullable `EmailTemplate.seedHash` and
+`customizedAt`: seed sites write the hash, PUT and MCP update stamp
+`customizedAt`, `getEventTemplate` serves the current code default when a row
+provably equals a default and was never customized, so a default improvement
+reaches untouched rows with no repair script (745 rows on 29 events today,
+none distinguishable from an edit); clone copies only customized rows. And the
+"disable" switch on a system template, which today means "send the built-in
+text" while the editor says "disable" and the preview keeps rendering the
+disabled edits: split it into "use my edited version" and "use the built-in",
+keep "disable" for custom templates, make the editor preview render what
+`getEventTemplate` would send.
+
+**Lows recorded, not scheduled:** nine `escapeHtml` copies for email (two skip
+the apostrophe); twelve pasted `|| getDefaultTemplate(slug)` fallbacks;
+`refund-confirmation` seeded on every event with no sender; the Settings tab's
+stale eight-slug list showing 27 system templates as "Custom"; nine CTA-button
+builders; seven inline token-mint copies; the registration single-send accepting
+any `templateSlug` without the custom-slug classifier. The certificate cover
+resolver and the agreement merges stay separate vocabularies on purpose.
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 

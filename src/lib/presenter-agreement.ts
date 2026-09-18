@@ -12,6 +12,7 @@
  * The PDF attachment reuses the shared `renderAgreementHtmlToPdf` renderer so
  * the online acceptance page and the emailed PDF read identical text.
  */
+import { normalizeTemplateTokens } from "@/lib/template-tokens";
 import { db } from "@/lib/db";
 import { renderAgreementHtmlToPdf, loadAgreementPdfImage } from "@/lib/speaker-agreement";
 import { DEFAULT_PRESENTER_AGREEMENT_HTML } from "@/lib/default-terms";
@@ -97,7 +98,8 @@ export function mergePresenterAgreementHtml(html: string, ctx: PresenterAgreemen
     themeNames: ctx.themeNames,
   };
 
-  return html.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
+  // Mangled tokens collapse first; see mergeAgreementHtml.
+  return normalizeTemplateTokens(html).replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
     if (Object.prototype.hasOwnProperty.call(values, key)) {
       return escapeHtmlForAgreement(values[key as keyof typeof values] ?? "");
     }

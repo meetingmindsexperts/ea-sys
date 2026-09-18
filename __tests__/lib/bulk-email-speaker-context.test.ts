@@ -34,7 +34,9 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return {
     ...actual,
   sendEmail: (args: unknown) => mockSendEmail(args),
-  loadActiveEventTemplateRow: vi.fn(),
+  // The precheck resolves a saved template through the row loader (Sep 18,
+  // 2026); answer with the same stub so a valid saved template stays valid.
+  loadActiveEventTemplateRow: (...args: unknown[]) => mockGetEventTemplate(...args),
   getEventTemplate: (...args: unknown[]) => mockGetEventTemplate(...args),
   getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
   renderMessageValue: vi.fn((m: string) => m),

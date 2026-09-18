@@ -376,3 +376,41 @@ describe("precheckBulkEmailViability: {{rsvpButton}} / {{rsvpLink}} without an R
     expect(res.rsvpCampaign).toEqual({ id: "camp-1", name: "Attendance" });
   });
 });
+
+describe("precheckBulkEmailViability — saved templates resolve at enqueue (comms R2 A3, Sep 18 2026)", () => {
+  it("a missing or inactive saved template is a 400 with TEMPLATE_NOT_AVAILABLE, before the event load", async () => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue(null);
+    await expect(
+      precheckBulkEmailViability({
+        eventId: "evt-1",
+        recipientType: "registrations",
+        emailType: "template",
+        filters: { templateSlug: "joining-instructions" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "TEMPLATE_NOT_AVAILABLE", message: expect.stringContaining("joining-instructions") });
+    expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("a saved template send with no slug is a 400", async () => {
+    await expect(
+      precheckBulkEmailViability({ eventId: "evt-1", recipientType: "registrations", emailType: "template", filters: {} }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an active saved template passes, and its row is read once", async () => {
+    vi.mocked(loadActiveEventTemplateRow).mockResolvedValue({ subject: "s", htmlContent: "<p>hi</p>", textContent: "hi" } as never);
+    const res = await precheckBulkEmailViability({
+      eventId: "evt-1",
+      recipientType: "registrations",
+      emailType: "template",
+      filters: { templateSlug: "joining-instructions" },
+    });
+    expect(res.event.id).toBe("evt-1");
+    expect(loadActiveEventTemplateRow).toHaveBeenCalledTimes(1);
+  });
+
+  it("a reviewer invitation is slug-mapped (reviewer-pool-invitation) and passes the type guard", async () => {
+    const res = await precheckBulkEmailViability({ eventId: "evt-1", recipientType: "reviewers", emailType: "invitation" });
+    expect(res.event.id).toBe("evt-1");
+  });
+});

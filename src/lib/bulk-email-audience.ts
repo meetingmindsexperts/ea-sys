@@ -147,3 +147,43 @@ export function abstractInSendScope(
   if ("in" in scope) return (scope.in as string[]).includes(abstractStatus);
   return !(scope.notIn as string[]).includes(abstractStatus);
 }
+
+/**
+ * Which template slug a bulk email TYPE renders with. Client-safe and shared
+ * with the send dialog's Preview (September 18, 2026): the dialog used to keep
+ * its own copy of this map, and the two disagreed on `invitation` for
+ * reviewers, so Preview showed the custom notification while Send delivered
+ * the speaker invitation ("You're Invited to Speak") to the reviewer pool.
+ * One map, keyed on the audience where the audience matters.
+ *
+ * `template` (a saved custom template, slug in filters.templateSlug) and
+ * `certificate` (its own pipeline) have no entry here on purpose.
+ */
+export const BULK_EMAIL_TEMPLATE_SLUGS: Readonly<Record<string, string>> = {
+  invitation: "speaker-invitation",
+  agreement: "speaker-agreement",
+  confirmation: "registration-confirmation",
+  reminder: "event-reminder",
+  "payment-reminder": "payment-reminder",
+  custom: "custom-notification",
+  "webinar-confirmation": "webinar-confirmation",
+  "webinar-reminder-24h": "webinar-reminder-24h",
+  "webinar-reminder-1h": "webinar-reminder-1h",
+  "webinar-live-now": "webinar-live-now",
+  "webinar-thank-you": "webinar-thank-you",
+  "survey-invitation": "survey-invitation",
+  "abstract-confirmation": "abstract-submission-confirmation",
+  "abstract-decision": "abstract-status-update",
+  "abstract-reminder": "abstract-reminder",
+};
+
+/**
+ * The slug for (type, audience), or null when the type has no fixed slug.
+ * A reviewer "invitation" is the reviewer pool invitation, the same email a
+ * reviewer receives when added to the event; every other audience gets the
+ * type's slug.
+ */
+export function bulkTemplateSlugFor(emailType: string, recipientType: string): string | null {
+  if (emailType === "invitation" && recipientType === "reviewers") return "reviewer-pool-invitation";
+  return BULK_EMAIL_TEMPLATE_SLUGS[emailType] ?? null;
+}

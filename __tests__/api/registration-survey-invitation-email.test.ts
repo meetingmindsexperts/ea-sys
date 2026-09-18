@@ -63,6 +63,7 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn(),
   brandingCc: vi.fn(),
   sendRegistrationConfirmation: vi.fn(),
+  eventLocationVars: (e: { city?: string | null; country?: string | null }) => ({ eventCity: e.city || "", eventCountry: e.country || "" }),
 }));
 vi.mock("@/lib/email-barcode", () => ({ buildEntryBarcode: vi.fn(), templateUsesEntryBarcode: () => false }));
 vi.mock("@/lib/email-change", () => ({ normalizeEmail: vi.fn(), repointOrgContactEmail: vi.fn() }));

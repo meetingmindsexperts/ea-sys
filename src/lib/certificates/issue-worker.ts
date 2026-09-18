@@ -843,6 +843,7 @@ async function processSendPhase(
         emailBodyTemplate,
         triggeredByUserId: runRow.triggeredByUserId,
         event,
+        stream: "bulk",
       });
       if (!result.success) {
         throw new Error(result.error ?? "sendEmail returned no message id");
