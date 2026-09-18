@@ -62,7 +62,8 @@
 </header>
 
 <div class="note">
-  <strong>Status, September 18, 2026.</strong> Phase 0 shipped the same day (owner: "Phase 0 only"): findings 1, 2, 3, 4, 6, 9, 10 and 13 are fixed and pinned by tests, with the raw-key default and the bulk payment block mutation-verified. Findings 5, 7, 8, 11 and 12 and the lows are recorded under ROADMAP, "Email templates, tokens and senders", as Phases 1 to 3, each an owner decision.
+  <strong>Status, September 18, 2026.</strong> Phase 0 shipped the same day (owner: "Phase 0 only"): findings 1, 2, 3, 4, 6, 9, 10 and 13 are fixed and pinned by tests, with the raw-key default and the bulk payment block mutation-verified. Findings 5, 7, 8, 11 and 12 and the lows are recorded under ROADMAP, "Email templates, tokens and senders", as Phases 1 to 3, each an owner decision.<br>
+  <strong>Phase 1 shipped later the same day</strong> (<code>f352fdee</code> the registry, <code>6a70e7de</code> the drift test, <code>0309636d</code> a CI-only secret stub): one typed registry now derives every list the review found hand-copied, the low "nine system slugs have no variable list" is closed (and four lists gained a token their own body uses), and the sender-to-template drift test runs every registered type and audience through the real templates on every push, so the class behind finding 6 is a CI failure from here on. Its first run found and fixed a defect the review had not: a token typed into the subject box was refused where the message box resolved it. <strong>Phase 2</strong> (findings 5, 7, 11 and the lows on the bulk-template log slug and the registration single-send) and <strong>Phase 3</strong> (findings 8 and 12) were deferred by the owner on September 18; the reasoning and the pick-up trigger are in ROADMAP.
 </div>
 
 <h2>1. Verdict in four lines</h2>
@@ -228,7 +229,7 @@
 <ul>
   <li>Nine <code>escapeHtml</code> copies for email; two four-character variants skip the apostrophe (<code>commitment-service.ts:427</code>, <code>daily-digest-worker.ts:563</code>).</li>
   <li>Twelve pasted <code>|| getDefaultTemplate(slug)</code> fallbacks after <code>getEventTemplate</code>, which already falls back; each then rebuilds a minimal branding that cannot fire today.</li>
-  <li>Nine system slugs have no <code>TEMPLATE_VARIABLES</code> entry, so <code>{{surveyLink}}</code>, <code>{{joinUrl}}</code>, <code>{{passcodeBlock}}</code> and the webinar tokens are undiscoverable in the editor. The pasted-share-link incident of September 17 is what that looks like.</li>
+  <li>Nine system slugs have no <code>TEMPLATE_VARIABLES</code> entry, so <code>{{surveyLink}}</code>, <code>{{joinUrl}}</code>, <code>{{passcodeBlock}}</code> and the webinar tokens are undiscoverable in the editor. The pasted-share-link incident of September 17 is what that looks like. <span class="pill shipped">shipped</span> Phase 1: every system slug has a variable list derived from the registry.</li>
   <li>The template editor's preview renders with no raw keys, so <code>claimSummary</code> and <code>presenterFeeBlock</code> show as escaped source in the editor while the sends render them.</li>
   <li>Bulk saved-template sends log <code>templateSlug: "bulk-template"</code>, never the real slug; Email History cannot say which template went.</li>
   <li>Settings, Email Templates classifies with a stale eight-slug list, so 27 system templates carry a "Custom" badge there.</li>
@@ -250,7 +251,7 @@
 
 <h2>5. Proposal, in phases</h2>
 
-<h3>Phase 0: the defects (about half a day, no structural change)</h3>
+<h3>Phase 0: the defects (about half a day, no structural change) <span class="pill shipped">shipped</span></h3>
 <ol>
   <li>Finding 1: build the payment block for bulk confirmation; test renders the default template through bulk.</li>
   <li>Finding 2: audience-keyed slug for <code>invitation</code>, or drop the reviewer option.</li>
@@ -262,7 +263,7 @@
 </ol>
 <p>Blast radius: seven senders, each change a few lines, each with a test. Safe to ship as one gated push.</p>
 
-<h3>Phase 1: the contract (one to two days)</h3>
+<h3>Phase 1: the contract (one to two days) <span class="pill shipped">shipped</span></h3>
 <p>A single typed registry replaces <code>DEFAULT_TEMPLATES</code>: one entry per slug with kind (system or custom), recipient type, sendable-from surfaces, its bulk email type, its variables, its raw HTML keys, its default subject and bodies, and an optional preview fixture. From it derive <code>SYSTEM_TEMPLATE_SLUGS</code>, <code>TEMPLATE_VARIABLES</code>, <code>DEFAULT_RAW_HTML_KEYS</code>, the five type-to-slug maps, the dialog option lists, the Settings list and the preview samples, with a generated client-safe leaf so no server import leaks. Then the missing drift test: build each sender's variable map with fixtures and assert it covers its default template and its registry entry. That is the test that would have caught the survey thank-you refusal, finding 1 and finding 6 before an organizer did. Adding a system template becomes one entry instead of twelve files.</p>
 
 <h3>Phase 2: the senders (two to three days, one sender per commit)</h3>
