@@ -4270,21 +4270,30 @@ they found were IDOR and tenant-scoping, the class ZAP is weakest at (its access
 add-on needs two authenticated users per role and is noisy). So the scan complements the
 reviews rather than repeating them.
 
-**The starting point, measured on Sep 18 before any scanner ran.** A plain `curl` of
-`/login` on production returns `Content-Security-Policy: frame-ancestors 'self'`,
-`Referrer-Policy` and `Permissions-Policy`, and returns `X-Powered-By: Next.js`. It does NOT
-return `X-Frame-Options`, `X-Content-Type-Options` or `Strict-Transport-Security`, although
-[next.config.ts](../next.config.ts) declares all six in one `headers()` block and the built
-`.next/routes-manifest.json` carries all six for `/(.*)`. The local standalone without nginx
-in the path drops the same three, so the layer is the Next runtime (16.2.11), not nginx, and
-the live nginx snapshot has no `proxy_hide_header`. The cause is not yet identified.
-Consequences today: no HSTS on the wire (the browser is never told to refuse plain HTTP; the
-nginx 80 to 443 redirect is the only guard), no `nosniff`, and clickjacking protection rests
-on `frame-ancestors` alone (fine on every current browser). `poweredByHeader: false` is not
-set. There is no full Content-Security-Policy, only the `frame-ancestors` directive. These
-are exactly the first lines a baseline scan prints, and the header drop needs no scanner to
-find or to fix, so it should be understood and fixed BEFORE the scan, or the report is
-dominated by it and the real findings underneath are harder to see.
+**The starting point, measured on Sep 18 before any scanner ran.** An unfiltered `curl -D -`
+of `/login` and `/health` on production returns all six headers `next.config.ts` declares
+(`X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors 'self'`,
+`X-Content-Type-Options: nosniff`, `Strict-Transport-Security` with `preload`,
+`Referrer-Policy`, `Permissions-Policy`), and the local standalone returns them on pages, API
+routes, static assets and the 404 alike. Two things a baseline will still print. First,
+`X-Powered-By: Next.js` is sent: `poweredByHeader: false` is not set, and nginx's
+`server_tokens off` hides only nginx's own version. That is a one-line config change. Second,
+there is no full Content-Security-Policy, only the `frame-ancestors` directive. That one is a
+project, not a header: the app loads Google Fonts, the Zoom SDK from Zoom's CDN, Stripe,
+Sentry, the YouTube and Vimeo lobby embeds and HLS, and Next's own inline scripts need a nonce
+or `'unsafe-inline'`, so a strict CSP shipped in one step would break pages silently in the
+browser with nothing in the server logs. If a CSP is wanted it starts as
+`Content-Security-Policy-Report-Only` with a reporting endpoint, for weeks, before enforcement,
+and it is not a prerequisite for the scan.
+
+**Correction, same day.** The first version of this entry claimed production was missing three
+of the six headers. It was not. The check that "found" it piped the header dump through a
+pattern that required a colon directly after `x-content-type`, `strict-transport` and
+`x-frame`, which the full header names never satisfy, so exactly those three vanished from the
+filtered output on production and on the local standalone alike, and the symmetry read as a
+runtime drop rather than a filter bug. An unfiltered dump showed all six. Kept here because
+the lesson is general: a claim that something is absent needs the unfiltered output as the
+evidence, never a filtered view of it.
 
 **Rules for the run.**
 - Never an active scan on production. An active scan submits every form: it would mint
@@ -4308,14 +4317,14 @@ dominated by it and the real findings underneath are harder to see.
 **Cost.** The tool is free. A baseline passive scan is about ten minutes of runtime plus an
 hour of triage. A full authenticated active scan of 345 route files is hours of runtime and
 days of triage, most of it low-confidence noise; that is why the scope rule above exists.
-The manual alternative for the header half is one `curl -D -` against production, which is
-what found the drop on Sep 18 and takes five minutes; it is worth repeating after any Next
-upgrade.
+The manual alternative for the header half is one unfiltered `curl -D -` against production,
+which is what verified the six headers on Sep 18 (and exposed the false alarm) and takes five
+minutes; it is worth repeating after any Next upgrade.
 
 **Order when picked up.**
-1. Diagnose and fix the three dropped headers and set `poweredByHeader: false`. Verify with
-   the same `curl` on the local standalone, then on production after the deploy. This is a
-   code change to `next.config.ts` and ships as its own commit with the full gate.
+1. Set `poweredByHeader: false` in `next.config.ts` (one line; it can ride the next code
+   deploy) and verify with an unfiltered `curl -D -` on production afterwards. Decide
+   separately, and later, whether a report-only CSP project is wanted.
 2. Baseline passive scan on the local standalone. Triage into confirmed and noise; fix the
    confirmed set; record the noise as rules so the next run is quiet.
 3. Decide on an authenticated active scan of the public surface. Run it only if step 2 left
