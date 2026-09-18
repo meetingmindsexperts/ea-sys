@@ -4,6 +4,13 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  // Do not advertise the framework in every response. nginx's server_tokens
+  // off hides nginx's own version, but the X-Powered-By: Next.js header the
+  // app emitted was untouched by it (verified with an unfiltered curl -D - on
+  // production, Sep 18, 2026). Removing it costs nothing and is the first
+  // line a header scanner prints.
+  poweredByHeader: false,
+
   // NOTE (Next ≥16.2): the Turbopack file tracer mirrors the whole repo into
   // .next/standalone (triggered by the log-archive module's env-overridable fs
   // root) and emits an "unexpected file in NFT list" build warning. Both
