@@ -684,6 +684,41 @@ EmailTemplates, seeded with the previous hardcoded wording (imported from
   uses a name part the caller did not pass: the Issue worker's run items
   keep only the full name, so that path would have printed "Dear ,".
 
+## The thank-you carries certificates issued without emailing; certificate emails CC the additional email (Sep 18, 2026)
+
+Found on OOPVF2026: an organizer issued a CME certificate from the
+registration page with "Send email" unticked (`emailSkipped: true` on the
+`CERT_ISSUED` audit row), the person then answered the survey, and the Survey
+Thank You, whose saved wording promised an attachment, went out with nothing
+attached and no CC. The thank-you carried only survey-issued certificates.
+Two owner decisions:
+
+- **What the thank-you attaches** (`selectCertsToAttach` in
+  [survey-thankyou-sweep.ts](../src/lib/certificates/survey-thankyou-sweep.ts)):
+  every rendered, unrevoked certificate the person holds on the event that
+  has never gone out in a sent email, whether the survey issued it or an
+  operator issued it from the registration page. The sent-email record is
+  the delivery marker: every certificate sender names its attachment
+  `<serial>.pdf`, so a `SENT` EmailLog row carrying that name means
+  delivered (rows before Aug 3, 2026 carry no attachment names, so a
+  certificate emailed before then could ride once more; harmless). A
+  survey-issued certificate whose cover email already went (`emailedAt` on
+  its run item) is not attached again. A certificate from a **manual
+  Issue-tab run** is left to that run: its review gate, its cover email and
+  Resend. The thank-you never bypasses an operator's review.
+- **CC** — `sendCertificateBundleEmail` and the thank-you pass the
+  recipient's `additionalEmail` to `brandingCc`, like every other attendee
+  email. Callers that hold the person pass `recipientAdditionalEmail`
+  (bulk sends carry it on `CertificateBulkRecipient`); a run item or a
+  resend does not, so the sender loads it (`resolveRecipientAdditionalEmail`,
+  failure-isolated: the email still goes to the primary address, with a
+  `cert-bundle:recipient-additional-email-load-failed` warning). This
+  reverses the Sep 9 "certificate delivery stays primary-only" note.
+
+Not code: on OOPVF2026 the Survey Thank You template still carries the OSH
+wording the clone brought over (Dubai Health Authority, the osh@ address); the
+organizer edits it under Communications → Email Templates.
+
 ## Preview-before-resend + sent-email audit copy (July 10, 2026)
 
 Both resend actions on the per-person Certificates card now show a

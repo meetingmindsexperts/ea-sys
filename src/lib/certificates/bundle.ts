@@ -793,6 +793,49 @@ async function completeRecipientNameParts(args: {
 }
 
 /**
+ * The recipient's second inbox (Attendee/Speaker.additionalEmail). The cover
+ * email CCs it like every other attendee email does (owner decision, Sep 18,
+ * 2026; until then certificates went to the primary address only). Callers
+ * that hold the person pass it; a run item or a resend does not, so the sender
+ * loads it. `undefined` = not known here, `null` = the person has none.
+ */
+async function resolveRecipientAdditionalEmail(args: {
+  recipientAdditionalEmail?: string | null;
+  registrationId: string | null;
+  speakerId: string | null;
+  eventId: string;
+}): Promise<string | null> {
+  if (args.recipientAdditionalEmail !== undefined) return args.recipientAdditionalEmail;
+  try {
+    if (args.registrationId) {
+      const reg = await db.registration.findUnique({
+        where: { id: args.registrationId },
+        select: { attendee: { select: { additionalEmail: true } } },
+      });
+      return reg?.attendee.additionalEmail ?? null;
+    }
+    if (args.speakerId) {
+      const speaker = await db.speaker.findUnique({
+        where: { id: args.speakerId },
+        select: { additionalEmail: true },
+      });
+      return speaker?.additionalEmail ?? null;
+    }
+    return null;
+  } catch (err) {
+    // The email still goes out, to the primary address alone.
+    apiLogger.warn({
+      err,
+      msg: "cert-bundle:recipient-additional-email-load-failed",
+      eventId: args.eventId,
+      registrationId: args.registrationId,
+      speakerId: args.speakerId,
+    });
+    return null;
+  }
+}
+
+/**
  * Render the cover email CONTENT for a bundle send — subject, branded
  * wrapped HTML, and the plain-text body — WITHOUT sending anything. The
  * exact pipeline the send below uses, factored out so the preview-before-
@@ -900,6 +943,10 @@ export async function sendCertificateBundleEmail(args: {
   /** Title enum value, or null when none is recorded. Leave undefined when
    *  the caller does not know it: the sender loads it (see below). */
   recipientTitle?: string | null;
+  /** The person's second inbox (Attendee/Speaker.additionalEmail), CC'd on
+   *  the cover email. Leave undefined when the caller does not hold it: the
+   *  sender loads it. null = the person has none. */
+  recipientAdditionalEmail?: string | null;
   registrationId: string | null;
   speakerId: string | null;
   certs: BundleEmailCert[];
@@ -933,7 +980,10 @@ export async function sendCertificateBundleEmail(args: {
   const event = args.event ?? (await loadBundleEmailEvent(args.eventId));
   if (!event) return { success: false, error: "Event not found" };
 
-  const names = await completeRecipientNameParts(args);
+  const [names, additionalEmail] = await Promise.all([
+    completeRecipientNameParts(args),
+    resolveRecipientAdditionalEmail(args),
+  ]);
   const { subject, wrappedHtml, bodyText, branding } = await renderBundleEmailContent({
     eventId: args.eventId,
     recipientName: args.recipientName,
@@ -960,7 +1010,7 @@ export async function sendCertificateBundleEmail(args: {
     htmlContent: wrappedHtml,
     textContent: bodyText,
     from: brandingFrom(branding),
-    cc: brandingCc(branding, [{ email: args.recipientEmail }]),
+    cc: brandingCc(branding, [{ email: args.recipientEmail }], [additionalEmail]),
     stream: args.stream ?? "transactional",
     attachments: args.certs.map((c) => ({
       name: `${c.serial}.pdf`,

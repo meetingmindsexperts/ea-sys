@@ -13,9 +13,11 @@
  *   - candidates = survey completers NOT yet thanked (no SENT `survey-thankyou`
  *     EmailLog row — that row IS the idempotency marker, so no schema change)
  *   - a cert still rendering AND < FALLBACK_MS since completion → DEFER
- *   - otherwise send the thank-you with any READY cert PDFs attached, and set
- *     `emailedAt` on those auto-run items so `tickAllRuns`' send phase skips
- *     them (→ no duplicate cover email)
+ *   - otherwise send the thank-you with every certificate the person holds
+ *     that has never gone out in a sent email attached (survey-issued, or
+ *     issued from the registration page without emailing; see
+ *     selectCertsToAttach), and set `emailedAt` on the auto-run items among
+ *     them so `tickAllRuns`' send phase skips them (→ no duplicate cover email)
  *   - a person with no eligible cert (or once the fallback elapses) gets the
  *     PLAIN thank-you. If a cert happens to render AFTER we sent plain, its
  *     auto-run item was never suppressed, so it still ships via the normal
@@ -102,7 +104,7 @@ const CANDIDATE_SELECT = {
   // The registration details a thank-you template may use. Before Sep 17,
   // 2026 only firstName was read, so a saved template greeting
   // "Dear {{title}} {{lastName}}" was refused on every tick (OOPVF2026).
-  attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
+  attendee: { select: { title: true, firstName: true, lastName: true, email: true, additionalEmail: true } },
   ticketType: { select: { name: true } },
   event: {
     select: {
@@ -295,12 +297,21 @@ async function processOne(reg: CandidateReg, now: Date): Promise<ProcessOutcome>
     ...(speakerId ? [{ speakerId }] : []),
   ];
 
-  // Auto-issued certs ready to attach (issuedByUserId null = survey-auto; not
-  // manual). pdfUrl set = rendered + stored.
-  const readyCerts = await db.issuedCertificate.findMany({
-    where: { eventId: reg.eventId, issuedByUserId: null, pdfUrl: { not: null }, OR: recipientOr },
-    select: { id: true, serial: true, pdfUrl: true },
+  // Every rendered, unrevoked certificate the person holds on the event, with
+  // the run item that produced it (none for a certificate issued from the
+  // registration page). pdfUrl set = rendered + stored.
+  const held = await db.issuedCertificate.findMany({
+    where: { eventId: reg.eventId, revokedAt: null, pdfUrl: { not: null }, OR: recipientOr },
+    select: {
+      id: true,
+      serial: true,
+      pdfUrl: true,
+      deliveredViaItem: { select: { emailedAt: true, run: { select: { autoIssue: true } } } },
+      // Pre-bundle (before July 10, 2026) certs carry only the legacy 1:1 link.
+      issueRunItem: { select: { emailedAt: true, run: { select: { autoIssue: true } } } },
+    },
   });
+  const readyCerts = await selectCertsToAttach(reg.eventId, held);
 
   // Auto-issue cert items still rendering (not yet ready to attach).
   const pendingCerts = await db.certificateIssueRunItem.count({
@@ -353,6 +364,51 @@ async function processOne(reg: CandidateReg, now: Date): Promise<ProcessOutcome>
   return attachments.length > 0 ? "sent-with-cert" : "sent-plain";
 }
 
+interface HeldCert {
+  id: string;
+  serial: string;
+  pdfUrl: string | null;
+  deliveredViaItem: { emailedAt: Date | null; run: { autoIssue: boolean } } | null;
+  issueRunItem: { emailedAt: Date | null; run: { autoIssue: boolean } } | null;
+}
+
+/**
+ * Which of a person's certificates the thank-you carries (owner decision,
+ * Sep 18, 2026): every one that has never gone out in a sent email, whether
+ * the survey issued it or an operator issued it from the registration page
+ * with "Send email" unticked. Before this, only survey-issued certificates
+ * rode on the thank-you, so on OOPVF2026 a person whose CME certificate had
+ * been issued that way got a thank-you promising an attachment with nothing
+ * attached.
+ *
+ * A certificate from a manual Issue-tab run is left to that run: its review
+ * gate, its cover email and Resend. The thank-you never bypasses an
+ * operator's review. A survey-issued certificate whose cover email already
+ * went (emailedAt on its run item) is not attached a second time.
+ *
+ * The sent-email record is the delivery marker: every certificate sender
+ * names its attachment "<serial>.pdf" (the cover email, this thank-you,
+ * Resend), so a SENT EmailLog row carrying that name means delivered. Rows
+ * logged before Aug 3, 2026 carry no attachment names, so a certificate
+ * emailed before then could ride once more; harmless.
+ */
+async function selectCertsToAttach(eventId: string, held: HeldCert[]): Promise<HeldCert[]> {
+  const candidates = held.filter((cert) => {
+    const item = cert.deliveredViaItem ?? cert.issueRunItem;
+    if (!item) return true; // issued from the registration page
+    if (!item.run.autoIssue) return false; // a manual run is the operator's flow
+    return item.emailedAt == null; // survey-issued, cover email not yet sent
+  });
+  if (candidates.length === 0) return [];
+  const names = candidates.map((cert) => `${cert.serial}.pdf`);
+  const sent = await db.emailLog.findMany({
+    where: { eventId, status: "SENT", attachmentNames: { hasSome: names } },
+    select: { attachmentNames: true },
+  });
+  const delivered = new Set(sent.flatMap((row) => row.attachmentNames));
+  return candidates.filter((cert) => !delivered.has(`${cert.serial}.pdf`));
+}
+
 async function sendThankYouEmail(
   reg: CandidateReg,
   email: string,
@@ -389,7 +445,9 @@ async function sendThankYouEmail(
 
   const result = await sendEmail({
     to: [{ email, name: reg.attendee?.firstName ?? undefined }],
-    cc: brandingCc(branding, [{ email }]),
+    // The second inbox rides along like on every other attendee email
+    // (owner decision, Sep 18, 2026).
+    cc: brandingCc(branding, [{ email }], [reg.attendee?.additionalEmail]),
     from: brandingFrom(branding),
     subject: rendered.subject,
     htmlContent: rendered.htmlContent,

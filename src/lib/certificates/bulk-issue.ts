@@ -55,6 +55,9 @@ export interface CertificateBulkRecipient {
   firstName: string;
   lastName: string;
   title?: string | null;
+  /** Second inbox, CC'd on the cover email. The bulk-email resolvers always
+   *  set it (null when none), so the sender never has to load it per person. */
+  additionalEmail?: string | null;
 }
 
 export interface CertificateBulkSendInput {
@@ -420,6 +423,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       recipientFirstName: recipient.firstName,
       recipientLastName: recipient.lastName,
       recipientTitle: recipient.title,
+      recipientAdditionalEmail: recipient.additionalEmail,
       registrationId: facets.registrationId,
       speakerId: facets.speakerId,
       certs: bundled.map((b) => ({

@@ -73,7 +73,14 @@ const APP_TPL: LoadedCertTemplate = {
   emailBody: null,
 };
 
-const REG_RECIPIENT = { id: "reg-1", email: "jane@x.com", firstName: "Jane", lastName: "Doe", title: "DR" };
+const REG_RECIPIENT = {
+  id: "reg-1",
+  email: "jane@x.com",
+  firstName: "Jane",
+  lastName: "Doe",
+  title: "DR",
+  additionalEmail: "jane.pa@x.com",
+};
 
 function okCert(templateId: string, serial: string, reused = false) {
   return {
@@ -118,6 +125,13 @@ beforeEach(() => {
 });
 
 describe("executeCertificateBulkSend", () => {
+  it("hands the recipient's additional email to the sender, so the cover email CCs it (Sep 18, 2026)", async () => {
+    await executeCertificateBulkSend(BASE);
+    expect(mockBundleSend).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: "jane@x.com", recipientAdditionalEmail: "jane.pa@x.com" }),
+    );
+  });
+
   it("bundles cross-category certs into ONE email when both facet tags match", async () => {
     mockLinkedSpeaker.mockResolvedValue({ id: "spk-1", linkedBy: "pointer" });
     const res = await executeCertificateBulkSend(BASE);

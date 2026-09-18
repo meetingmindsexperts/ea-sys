@@ -128,3 +128,53 @@ describe("noEntityContext: declaring an entity-less send", () => {
     expect(row.status).toBe("SENT");
   });
 });
+
+/**
+ * Sep 18, 2026: the row must record who was COPIED. Until now `cc` held the
+ * extra To recipients and `params.cc` was dropped, so a CC'd address that
+ * "got nothing" could not be checked against the Email History.
+ */
+describe("sendEmail — cc and bcc reach the EmailLog row", () => {
+  it("SENT row records the real CC and BCC lists", async () => {
+    sesSendMock.mockResolvedValue({ MessageId: "m1" });
+    await sendEmail({
+      ...BASE,
+      cc: [{ email: "pa@x.com" }],
+      bcc: [{ email: "me@x.com" }],
+      logContext: { entityType: "REGISTRATION", entityId: "reg-1" },
+    });
+    const row = (await lastLoggedRow()) as unknown as { cc: string | null; bcc: string | null };
+    expect(row.cc).toBe("pa@x.com");
+    expect(row.bcc).toBe("me@x.com");
+  });
+
+  it("extra To recipients stay in the cc column, ahead of the real CCs; none ⇒ null", async () => {
+    sesSendMock.mockResolvedValue({ MessageId: "m1" });
+    await sendEmail({
+      ...BASE,
+      to: [{ email: "jane@x.com" }, { email: "bob@x.com" }],
+      cc: [{ email: "pa@x.com" }],
+      logContext: { entityType: "REGISTRATION", entityId: "reg-1" },
+    });
+    let row = (await lastLoggedRow()) as unknown as { cc: string | null; bcc: string | null };
+    expect(row.cc).toBe("bob@x.com, pa@x.com");
+    expect(row.bcc).toBeNull();
+
+    logEmailSpy.mockClear();
+    await sendEmail({ ...BASE, logContext: { entityType: "REGISTRATION", entityId: "reg-1" } });
+    row = (await lastLoggedRow()) as unknown as { cc: string | null; bcc: string | null };
+    expect(row.cc).toBeNull();
+  });
+
+  it("a FAILED row records the CC list too", async () => {
+    sesSendMock.mockRejectedValue(new Error("MessageRejected"));
+    await sendEmail({
+      ...BASE,
+      cc: [{ email: "pa@x.com" }],
+      logContext: { entityType: "REGISTRATION", entityId: "reg-1" },
+    });
+    const row = (await lastLoggedRow()) as unknown as { status: string; cc: string | null };
+    expect(row.status).toBe("FAILED");
+    expect(row.cc).toBe("pa@x.com");
+  });
+});

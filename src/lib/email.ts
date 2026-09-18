@@ -713,6 +713,13 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
   // attached?" (e.g. invoice + receipt PDFs on a payment confirmation)
   // without any per-caller wiring. Names only; the bytes never reach the log.
   const attachmentNames = params.attachments?.map((a) => a.name) ?? [];
+  // The EmailLog row records the real CC and BCC lists (Sep 18, 2026). Until
+  // now it wrote the extra To recipients as "cc" and dropped params.cc, so the
+  // history could not show who was copied on a send, which is what made an
+  // organizer's "the CC address got nothing" report unanswerable from the log.
+  const ccForLog = [...toEmails.slice(1), ...(params.cc?.map((r) => r.email) ?? [])];
+  const loggedCc = ccForLog.length ? ccForLog.join(", ") : null;
+  const loggedBcc = params.bcc?.length ? params.bcc.map((r) => r.email).join(", ") : null;
 
   // ONE invariant for every sender (Sep 11, 2026): an email whose rendered
   // subject or body still carries a {{token}} is not sent. Before this, a
@@ -744,7 +751,8 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
       });
       void logEmail({
         to: primaryTo,
-        cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+        cc: loggedCc,
+      bcc: loggedBcc,
         subject: params.subject,
         provider: providerName,
         status: "FAILED",
@@ -821,7 +829,8 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
     apiLogger.warn({ msg: "email:circuit-open-short-circuit", stream, to: toEmails, subject: params.subject });
     void logEmail({
       to: primaryTo,
-      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      cc: loggedCc,
+      bcc: loggedBcc,
       subject: params.subject,
       provider: providerName,
       status: "FAILED",
@@ -847,7 +856,8 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
     // Fire-and-forget audit row. Never blocks the send.
     void logEmail({
       to: primaryTo,
-      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      cc: loggedCc,
+      bcc: loggedBcc,
       subject: params.subject,
       provider: providerName,
       providerMessageId: result.messageId ?? null,
@@ -918,7 +928,8 @@ export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult
       : message;
     void logEmail({
       to: primaryTo,
-      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      cc: loggedCc,
+      bcc: loggedBcc,
       subject: params.subject,
       provider: providerName,
       status: "FAILED",

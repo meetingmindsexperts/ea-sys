@@ -27,6 +27,9 @@ const {
     certificateTemplate: { findFirst: vi.fn() },
     issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     event: { findUnique: vi.fn() },
+    // The sender's own lookup of a recipient's additional email (Sep 18, 2026).
+    registration: { findUnique: vi.fn() },
+    speaker: { findUnique: vi.fn() },
   },
   mockSend: vi.fn().mockResolvedValue({ success: true, messageId: "m1" }),
   mockRender: vi.fn().mockResolvedValue(Buffer.from("%PDF fresh")),
@@ -47,11 +50,22 @@ vi.mock("@/lib/email", () => ({
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
   brandingFrom: () => ({ email: "from@x.com", name: "Org" }),
-  // The event auto-CC, minus the recipient: the shape the real helper returns.
-  brandingCc: (branding: { emailCcAddresses?: string[] }, exclude?: { email: string }[]) =>
-    (branding.emailCcAddresses ?? [])
-      .filter((e) => !(exclude ?? []).some((x) => x.email.toLowerCase() === e.toLowerCase()))
-      .map((email) => ({ email })),
+  // The event auto-CC plus the recipient's additional emails, minus the
+  // recipient, deduplicated: the shape the real helper returns.
+  brandingCc: (
+    branding: { emailCcAddresses?: string[] },
+    exclude?: { email: string }[],
+    additionalEmails?: (string | null | undefined)[],
+  ) => {
+    const excluded = new Set((exclude ?? []).map((x) => x.email.toLowerCase()));
+    const cc: { email: string }[] = [];
+    for (const raw of [...(branding.emailCcAddresses ?? []), ...(additionalEmails ?? [])]) {
+      const email = raw?.trim().toLowerCase();
+      if (!email || excluded.has(email) || cc.some((c) => c.email === email)) continue;
+      cc.push({ email });
+    }
+    return cc.length ? cc : undefined;
+  },
   loadActiveEventTemplateRow: vi.fn(),
   getEventTemplate: (e: string, slug: string) => mockGetEventTemplate(e, slug),
 }));
@@ -91,6 +105,7 @@ import {
   buildCertCoverEmailPreview,
   buildCertCoverTemplatePreview,
 } from "@/lib/certificates/bundle";
+import { apiLogger } from "@/lib/logger";
 
 const RECIPIENT = { title: "Dr.", firstName: "Jane", lastName: "Doe", fullName: "Dr. Jane Doe", organization: null, jobTitle: null, city: null, country: null };
 const EVENT_CTX = { name: "OSH", startDate: new Date("2026-06-17"), endDate: new Date("2026-06-17"), venue: null, city: null, country: null, organizationName: "MMG", organizationLogo: null, cmeHours: 4, accreditations: [], settings: {} };
@@ -530,5 +545,82 @@ describe("sendCertificateBundleEmail — event auto-CC and stream (Sep 18, 2026)
     mockSend.mockClear();
     await sendCertificateBundleEmail(args);
     expect(mockSend.mock.calls[0][0].stream).toBe("transactional");
+  });
+});
+
+/**
+ * Owner decision, Sep 18, 2026: certificate emails CC the recipient's
+ * additional email like every other attendee email does. Found on OOPVF2026,
+ * where the second inbox on a registration received neither the certificate
+ * nor the survey thank-you.
+ */
+describe("sendCertificateBundleEmail — the recipient's additional email is CC'd (Sep 18, 2026)", () => {
+  const args = {
+    eventId: "evt-1",
+    organizationId: "org-1",
+    recipientEmail: "jane@x.com",
+    recipientName: "Dr. Jane Doe",
+    recipientFirstName: "Jane",
+    recipientLastName: "Doe",
+    recipientTitle: "DR",
+    registrationId: "reg-1",
+    speakerId: null,
+    certs: [{ serial: "ATT-1", type: "ATTENDANCE" as const, templateName: "T", pdfBuffer: Buffer.from("%PDF") }],
+    emailSubjectTemplate: "Subject",
+    emailBodyTemplate: "<p>Body</p>",
+    triggeredByUserId: "user-1",
+    event: { ...SEND_EVENT, emailCcAddresses: ["finance@x.com"] },
+  };
+
+  beforeEach(() => {
+    mockDb.registration.findUnique.mockReset();
+    mockDb.speaker.findUnique.mockReset();
+  });
+
+  it("CCs the additional email a caller passes, after the event's list, with no lookup", async () => {
+    await sendCertificateBundleEmail({ ...args, recipientAdditionalEmail: "Jane.PA@x.com" });
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }, { email: "jane.pa@x.com" }]);
+    expect(mockDb.registration.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("loads it from the registration when the caller does not hold it (a run item, a resend)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { additionalEmail: "pa@x.com" } });
+    await sendCertificateBundleEmail(args);
+    expect(mockDb.registration.findUnique).toHaveBeenCalledWith({
+      where: { id: "reg-1" },
+      select: { attendee: { select: { additionalEmail: true } } },
+    });
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }, { email: "pa@x.com" }]);
+  });
+
+  it("loads it from the speaker for a speaker-only send", async () => {
+    mockDb.speaker.findUnique.mockResolvedValue({ additionalEmail: "office@x.com" });
+    await sendCertificateBundleEmail({ ...args, registrationId: null, speakerId: "spk-1" });
+    expect(mockDb.speaker.findUnique).toHaveBeenCalledWith({
+      where: { id: "spk-1" },
+      select: { additionalEmail: true },
+    });
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }, { email: "office@x.com" }]);
+  });
+
+  it("null means the person has none: nothing is loaded and only the event list is CC'd", async () => {
+    await sendCertificateBundleEmail({ ...args, recipientAdditionalEmail: null });
+    expect(mockDb.registration.findUnique).not.toHaveBeenCalled();
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }]);
+  });
+
+  it("never sends the recipient their own address as a CC", async () => {
+    await sendCertificateBundleEmail({ ...args, recipientAdditionalEmail: "JANE@x.com" });
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }]);
+  });
+
+  it("a failed lookup still sends the email, to the primary address, and is logged", async () => {
+    mockDb.registration.findUnique.mockRejectedValue(new Error("pool timeout"));
+    const res = await sendCertificateBundleEmail(args);
+    expect(res.success).toBe(true);
+    expect(mockSend.mock.calls[0][0].cc).toEqual([{ email: "finance@x.com" }]);
+    expect(vi.mocked(apiLogger.warn)).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "cert-bundle:recipient-additional-email-load-failed", registrationId: "reg-1" }),
+    );
   });
 });
