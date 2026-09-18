@@ -310,6 +310,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <a class="nav-a" href="#s10"><span class="nav-n">10</span>Sponsors</a>
     <div class="nav-lbl">Communications</div>
     <a class="nav-a" href="#s9"><span class="nav-n">9</span>Communications</a>
+    <a class="nav-a" href="#semail">Email how-tos</a>
     <a class="nav-a" href="#sdinner">RSVPs</a>
     <a class="nav-a" href="#s10c">Contacts</a>
     <a class="nav-a" href="#s10m">Media Library</a>
@@ -1482,7 +1483,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s9-3">
         <div class="sub-title">Customising a template</div>
-        <p>Each template can be customised per-event without affecting the default. <strong>Event Setup &rarr; Email Templates</strong> (or use the &ldquo;Email Templates&rdquo; card on the Setup hub) &rarr; pick a template &rarr; edit subject + body using the WYSIWYG editor. Template variables like <code>{{eventName}}</code>, <code>{{attendeeName}}</code>, <code>{{quoteAmount}}</code> are filled in at send time.</p>
+        <p>Each template can be customised per-event without affecting the default. <strong>Event Setup &rarr; Email Templates</strong> (or use the &ldquo;Email Templates&rdquo; card on the Setup hub) &rarr; pick a template &rarr; edit subject + body using the WYSIWYG editor. Template variables like <code>{{eventName}}</code>, <code>{{firstName}}</code>, <code>{{registrationId}}</code> are filled in at send time; use the <strong>Variables</strong> card in the editor for the exact list each template fills. Which template each send uses, which tokens fill where, and why a send is refused are covered in <a href="#semail">Emails: how-tos and troubleshooting</a>.</p>
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">An email with a leftover <code>{{token}}</code> is refused, and the message says which (Sep 11, 2026)</div><div class="c-text">If a rendered email still contains a merge field after all the values are filled in (a misspelt token such as <code>{{sessiondetails}}</code>, a field that particular email cannot fill, or a token the editor accidentally split with formatting), the send is <strong>refused</strong> and the message names the token, instead of the email going out with <code>{{&hellip;}}</code> printed in it. Bulk sends stop on the first such refusal and the Scheduled Emails row shows the reason. Fix the token here under Email Templates (or in your message) and send again. Formatting around a token no longer matters: a token wrapped or split by bold, a span or a stray space is repaired automatically when you save the template and again when the email is rendered.</div></div></div>
         <div class="callout c-tip"><div class="c-icon">&#x1F4C5;</div><div class="c-body"><div class="c-title">Saying &ldquo;when&rdquo; in an email: two tokens, no time (August 2026)</div><div class="c-text">Registration emails offer two ways to write the date, so pick the one you mean:<br><br><code>{{eventDate}}</code> or <code>{{eventStartDate}}</code> &rarr; <em>Friday, October 2, 2026</em> (the first day)<br><code>{{eventDateRange}}</code> &rarr; <em>October 2 &ndash; 3, 2026</em> (collapses to a single date on a one-day event)<br><br><strong>Neither prints a time any more.</strong> Confirmations used to read &ldquo;Friday, October 2, 2026 at 04:00 AM&rdquo;. That clock came from the event&rsquo;s start field, was shown in the wrong timezone, and means little on a multi-day conference where the real times live on the agenda. Dates are now shown in <em>your event&rsquo;s</em> timezone, so an early-morning start no longer risks naming the wrong day.<br><br>If you need to state a time, write it in the template text yourself, or point people at the agenda.</div></div></div>
 
@@ -1552,6 +1553,170 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="ic navy"><div class="ic-title">Auto-CC list</div><div class="ic-body">Always cc&rsquo;s a list of internal email addresses on every event email &mdash; useful for record-keeping. Combines with per-attendee <code>additionalEmail</code>.</div></div>
         </div>
         <p>Each organizer also has a personal <strong>email signature</strong> appended to speaker invitations and agreements they send personally &mdash; edited in their Profile.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- EMAIL HOW-TOS AND TROUBLESHOOTING -->
+    <div class="section" id="semail">
+      <div class="sec-hd"><div class="sec-num">&#x1F4E7;</div><div class="sec-meta">
+        <div class="sec-title">Emails: how-tos and troubleshooting</div>
+        <div class="sec-desc">Which template each email uses, which tokens fill where, why a send was refused, and what Active, Reset and Delete really do on a template.</div>
+        <span class="sec-badge b-event">Communications &amp; Marketing &middot; Delegate Support &middot; Speaker Management</span>
+      </div></div>
+
+      <p>This section answers the questions that come up once an event is live: &ldquo;which template did that email come from?&rdquo;, &ldquo;why does this token work in one email and not another?&rdquo;, &ldquo;why was my send refused?&rdquo; and &ldquo;what happens if I switch a template off?&rdquo;. For slow or missing emails see <a href="#s20">Section 20</a>; for the sending screens themselves see <a href="#s9">Section 9</a>.</p>
+
+      <div class="sub" id="semail-doors">
+        <div class="sub-title">Three ways an email leaves the system</div>
+        <p>Every email goes out through one of three doors. Knowing which door explains almost everything else on this page, because the door decides which template is used and which tokens can be filled.</p>
+        <table class="st">
+          <thead><tr><th>Door</th><th>What sends it</th><th>Examples</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Automatic</strong></td>
+              <td>The system, when something happens. Nobody clicks Send. You control the wording by editing the template.</td>
+              <td>Registration confirmation when someone registers (or when staff add a registration that owes money). Payment confirmation with the invoice and receipt after a payment. Abstract submission confirmation and the decision email. Submitter welcome. Reviewer assignment. Survey thank-you. Certificate delivery. The webinar sequence.</td>
+            </tr>
+            <tr>
+              <td><strong>One person</strong></td>
+              <td>You, from that person&rsquo;s record. Sent within the click.</td>
+              <td>A registration&rsquo;s <strong>Send Email</strong> menu: Registration Confirmation, Event Reminder, Payment Reminder, Custom Notification, Survey Invitation (when a survey is built), and each of your saved templates by name. A speaker&rsquo;s page: Speaker Invitation, Speaker Agreement, Abstract Confirmation (when they have abstracts), Send Saved Template, Custom Email; the reimbursement and profile-form links go from their cards on the same page.</td>
+            </tr>
+            <tr>
+              <td><strong>Many people</strong></td>
+              <td>You, from <strong>Communications</strong>. Queued and sent within about 90 seconds, or scheduled.</td>
+              <td>The audience cards (Registrations, Speakers, Abstract Submitters, Reviewers), the one-click tiles, the Send Email dialog with its email type and <strong>Filter recipients</strong>, your saved templates as tiles, and the RSVP console&rsquo;s send.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sub" id="semail-which">
+        <div class="sub-title">Which template each send uses</div>
+        <p>Every email type on a menu or in the dialog maps to exactly one template under <strong>Communications &rarr; Email Templates</strong>. Edit that template and every door that uses it changes at once.</p>
+        <table class="st">
+          <thead><tr><th>The send</th><th>The template it renders</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>Registration Confirmation (automatic, from the record, or from Communications)</td><td><strong>Registration Confirmation</strong></td><td>Carries the payment box and, when money is owed, the quote PDF. Someone who owes nothing gets no box.</td></tr>
+            <tr><td>Payment Reminder</td><td><strong>Payment Reminder</strong></td><td>Fills the amount due and the Pay Now button per person.</td></tr>
+            <tr><td>Event Reminder</td><td><strong>Event Reminder</strong></td><td></td></tr>
+            <tr><td>Custom Notification / Custom Email</td><td><strong>Custom Notification</strong></td><td>The subject and message you type fill <code>{{subject}}</code> and <code>{{message}}</code> in this template, so its header, footer and greeting come from the template.</td></tr>
+            <tr><td>Payment Confirmation (automatic, after a payment)</td><td><strong>Payment Confirmation</strong></td><td>The invoice and receipt PDFs ride on this one email.</td></tr>
+            <tr><td>Speaker Invitation</td><td><strong>Speaker Invitation</strong></td><td>Carries the Review &amp; Agree button when the template has <code>{{agreementBlock}}</code>.</td></tr>
+            <tr><td>Speaker Agreement</td><td><strong>Speaker Agreement</strong></td><td>Attaches the personalised agreement: the uploaded .docx if you have one, else a PDF from the inline agreement text.</td></tr>
+            <tr><td>Review Invitation (Reviewers card)</td><td><strong>Reviewer Pool Invitation</strong></td><td>The same email a reviewer receives when added to the event. Until September 18, 2026 this send previewed a custom notification and delivered the speaker invitation instead.</td></tr>
+            <tr><td>Abstract Confirmation, Abstract Decision, Submission Reminder</td><td><strong>Abstract Submission Confirmation</strong>, <strong>Abstract Status Update</strong>, <strong>Abstract Submission Reminder</strong></td><td>One email per abstract for the first two; the decision always states the abstract&rsquo;s current status.</td></tr>
+            <tr><td>Survey Invitation</td><td><strong>Survey Invitation</strong></td><td>A personal, single-use link is created for each recipient at send time. A pasted shareable link in the template is replaced by the personal one.</td></tr>
+            <tr><td>Send Certificates</td><td><strong>Certificate Delivery (Attendance)</strong> or <strong>(Appreciation)</strong> for one certificate, <strong>Certificate Delivery (Multiple Certificates)</strong> for a bundle</td><td>A certificate template&rsquo;s own saved cover wins over the Email Template. See <a href="#s18">Section 18</a>.</td></tr>
+            <tr><td>RSVP console send</td><td><strong>RSVP Invitation</strong>, or a saved template you pick</td><td>See <a href="#sdinner">RSVPs</a>.</td></tr>
+            <tr><td>Webinar confirmation, reminders, live now, thank-you</td><td>The <strong>Webinar</strong> templates</td><td>Listed only on webinar events.</td></tr>
+            <tr><td>One of your saved templates</td><td>That template</td><td>Offered by name on the person&rsquo;s menu, in the dialog and as a tile, as long as it is Active.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Two lists, one set of templates</div><div class="c-text">The <strong>Email Templates</strong> tab under Event Settings shows the eight most-used built-in templates plus your own. The full list (35 built-in templates, the certificate covers and the webinar sequence included) is under <strong>Communications &rarr; Email Templates</strong>; the Email Templates card on the Setup hub opens the same page. They edit the same rows.</div></div></div>
+      </div>
+
+      <div class="sub" id="semail-tokens">
+        <div class="sub-title">Tokens: what fills where</div>
+        <p>A token is a placeholder such as <code>{{firstName}}</code> that is replaced with a real value when the email is built. Three rules cover almost every case:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Spell it exactly.</strong> Tokens are case-sensitive and take no spaces: <code>{{eventName}}</code>, never <code>{{eventname}}</code> or <code>{{ eventName }}</code>. Use the click-to-insert <strong>Variables</strong> card in the template editor rather than typing.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Use the tokens listed for that template.</strong> The Variables card in each template&rsquo;s editor is the list of what that email can fill. A token copied from a different template is not filled, and an unfilled token means the email is refused (next section). If the card says &ldquo;No predefined variables for this template&rdquo;, stay with the event tokens and the name tokens below.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Some tokens only exist on certain sends.</strong> A link that is minted per person, a payment amount, a speaker&rsquo;s sessions: these are filled by the door that knows them and by no other. The table below is the list that catches people out.</div></div>
+        </div>
+        <table class="st">
+          <thead><tr><th>Token</th><th>Filled on</th><th>Anywhere else</th></tr></thead>
+          <tbody>
+            <tr><td><code>{{eventName}}</code> <code>{{eventDate}}</code> <code>{{eventDateRange}}</code> <code>{{eventVenue}}</code></td><td>Every email, from every door</td><td>Always filled.</td></tr>
+            <tr><td><code>{{title}}</code> <code>{{firstName}}</code> <code>{{lastName}}</code></td><td>Every email to a person</td><td>Always filled (the title is blank when none is recorded).</td></tr>
+            <tr><td><code>{{organizerSignature}}</code></td><td>Emails a person sends: from a record or from Communications. It is the sender&rsquo;s own signature from their Profile.</td><td>Empty on automatic emails, so the token is safe to leave in any template.</td></tr>
+            <tr><td><code>{{paymentBlock}}</code></td><td>The Registration Confirmation and the Payment Reminder</td><td>Empty. Someone who owes nothing gets an empty box even on those two.</td></tr>
+            <tr><td><code>{{amount}}</code></td><td>The Payment Reminder only</td><td>Refused. The confirmation shows the amount inside its payment box instead.</td></tr>
+            <tr><td><code>{{surveyLink}}</code></td><td>The <strong>Survey Invitation</strong> type only, from Communications or from one person&rsquo;s record</td><td>Refused. No other send creates the personal link, so a saved template carrying this token must be sent as a Survey Invitation, not as a template send.</td></tr>
+            <tr><td><code>{{rsvpLink}}</code> <code>{{rsvpButton}}</code></td><td>A Communications send with an RSVP chosen under <strong>RSVP link</strong>, the RSVP console, or a one-person send when that person holds exactly one open invitation</td><td>Refused with the reason: no invitation, the RSVP is closed, or the person is on more than one open RSVP.</td></tr>
+            <tr><td><code>{{presentationDetails}}</code> <code>{{moderatorDetails}}</code> <code>{{agreementBlock}}</code> <code>{{honorarium}}</code></td><td>Any email to a speaker: the speaker&rsquo;s page or the Speakers audience in Communications</td><td>Not available in emails to registrations.</td></tr>
+            <tr><td><code>{{entryBarcode}}</code></td><td>Emails to a registration that attends in person</td><td>Blank for a virtual attendee.</td></tr>
+            <tr><td><code>{{abstractNumber}}</code> <code>{{abstractTitle}}</code> <code>{{travelGrantBlock}}</code></td><td>The abstract emails, one abstract at a time</td><td>The travel-grant block appears only for an eligible overseas author; see <a href="#stravel">Travel Grants</a>.</td></tr>
+            <tr><td><code>{{certificateList}}</code> <code>{{certificateSerial}}</code> <code>{{recipientName}}</code></td><td>Certificate emails</td><td>Not available elsewhere.</td></tr>
+            <tr><td><code>{{joinUrl}}</code> <code>{{webinarDate}}</code> <code>{{webinarTime}}</code></td><td>The webinar sequence</td><td>Not available elsewhere.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout c-tip"><div class="c-icon">&#128161;</div><div class="c-body"><div class="c-title">Formatting inside a token is repaired for you</div><div class="c-text">If the editor wraps part of a token in bold or splits it with a span, the token still works: it is repaired when you save and again when the email is rendered. What cannot be repaired is a misspelt name or a token the send does not know.</div></div></div>
+      </div>
+
+      <div class="sub" id="semail-refused">
+        <div class="sub-title">&ldquo;Why was my email refused?&rdquo;</div>
+        <p>Since September 11, 2026 the system checks every email after the tokens are filled. If any <code>{{&hellip;}}</code> is still there, the email is <strong>not sent</strong>; it is recorded as failed with the reason <code>unresolved_tokens</code> followed by the tokens it could not fill. Nobody receives an email with braces printed in it.</p>
+        <p><strong>Where you see it:</strong></p>
+        <ul>
+          <li>On the person&rsquo;s record, <strong>Email History</strong>: a red <strong>Failed</strong> badge with the reason under the subject.</li>
+          <li><strong>Communications &rarr; Email Activity</strong>: filter by <strong>Failed</strong>; the reason sits under each subject.</li>
+          <li><strong>Communications &rarr; Scheduled Emails</strong>: a bulk send stops at the first person it cannot render, the row turns <strong>Failed</strong>, and <strong>View error</strong> names the tokens.</li>
+        </ul>
+        <p><strong>The three causes, and the fix for each:</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>A misspelt token.</strong> <code>{{sessiondetails}}</code> is not <code>{{presentationDetails}}</code>. Open the template under Communications &rarr; Email Templates, replace it using the Variables card, Save, send again.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>A token this send cannot fill.</strong> The token is real but belongs to another door (the table above). Either remove it from the template, or send from the door that fills it: a survey link as a Survey Invitation, an RSVP link with an RSVP chosen, a speaker block to speakers.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>A token typed in the message box.</strong> Tokens work in the subject and message you type in a dialog too, with the same rule: only what that send can fill.</div></div>
+        </div>
+        <p>After the fix, a one-person send is simply sent again. A bulk send is <strong>retried from the Scheduled Emails row</strong>: it continues where it stopped, and the people who were already emailed are not emailed twice.</p>
+        <div class="callout c-new"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Two sends that used to fail or mislead now work (September 18, 2026)</div><div class="c-text"><strong>Registration Confirmation from Communications</strong> (and the Welcome Paid tile) was refused for every recipient on most events, because the bulk send never filled the payment box the template carries. It now renders the same box the automatic confirmation does: amount due, tax, Pay Now, and nothing at all for someone who has paid, is complimentary, is sponsor-paid or was refunded. The group payer&rsquo;s name shows for a group member. The quote PDF is not attached on the bulk resend. <strong>Review Invitation</strong> to the Reviewers card now previews and sends the Reviewer Pool Invitation with each reviewer&rsquo;s link; it used to preview one email and send another.</div></div></div>
+      </div>
+
+      <div class="sub" id="semail-switches">
+        <div class="sub-title">Active, Reset and Delete: what each really does</div>
+        <p>The template editor has an <strong>Active</strong> switch, a <strong>Reset</strong> button and, for your own templates, <strong>Delete</strong>. They mean different things on a built-in template and on one you created.</p>
+        <table class="st">
+          <thead><tr><th></th><th>Built-in template (the 35 the system ships)</th><th>Your own template (created with New Template)</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Active switched off</strong></td>
+              <td>The email <strong>still sends</strong>, using the built-in wording instead of your edits. It does not stop the registration confirmation, the payment confirmation or any other automatic email. The editor&rsquo;s Preview keeps showing your edited text, so preview and send differ while it is off.</td>
+              <td>The template disappears from every menu, the dialog and the tiles. A scheduled send that still names it fails with &ldquo;Saved template &hellip; was not found or is inactive&rdquo;, and since September 18, 2026 the dialog refuses to queue a send with an inactive saved template.</td>
+            </tr>
+            <tr>
+              <td><strong>Reset</strong></td>
+              <td>Replaces your subject and body with the built-in wording and switches the template <strong>on</strong>. The template keeps its place in the list and its history. The same happens when the AI Agent resets a template.</td>
+              <td>Not offered: there is no built-in wording to go back to. Edit it, or delete it. (The AI Agent refuses to reset it for the same reason; before September 18, 2026 it deleted the template outright.)</td>
+            </tr>
+            <tr>
+              <td><strong>Delete</strong></td>
+              <td>Not offered.</td>
+              <td>Permanent, after a confirmation. Cancel or re-point any scheduled send that names it first, or that send fails at its time.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Switching a built-in template off is not a mute button</div><div class="c-text">There is no per-event switch that stops the registration confirmation or the payment confirmation. For a dry run, register with your own address, or import by CSV (an import sends nothing until you click Send Registration Forms).</div></div></div>
+      </div>
+
+      <div class="sub" id="semail-preview">
+        <div class="sub-title">Preview, test email, and the real send</div>
+        <p><strong>Preview</strong> and <strong>Send test email</strong> (it goes to your own address) render the template with this event&rsquo;s real details where a real value exists and with a representative sample where it does not: per-person links, payment amounts, certificate serials and the entry barcode are samples, because no honest real value exists before a send. They also fill <em>every</em> token they know. So a template can preview perfectly and still be refused on a send from a door that does not fill one of its tokens.</p>
+        <p>The surest check is a <strong>real send to one test person from the same door you will use</strong>: add yourself as a registration or a speaker, send from that record, and open its Email History. On speaker sends and on bulk sends you can also tick <strong>Send me a copy (BCC)</strong> to receive what each person received.</p>
+      </div>
+
+      <div class="sub" id="semail-checklist">
+        <div class="sub-title">Before a big send</div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Edit the template under <strong>Communications &rarr; Email Templates</strong>, inserting tokens from the Variables card. <strong>Save</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Preview</strong>, then send it to <strong>one test person</strong> from the door you will use, and check their Email History shows <strong>Sent</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">In <strong>Communications</strong>, pick the tile or the email type, set <strong>Filter recipients</strong>, and read the recipient count before you send.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Send now</strong> (queued, out within about 90 seconds) or <strong>Schedule for later</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Watch <strong>Scheduled Emails</strong>: Pending, Processing, Sent, with the sent and failed counts. On a failure, <strong>View error</strong>, fix the cause, <strong>Retry</strong>.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="semail-faq">
+        <div class="sub-title">Quick answers</div>
+        <ul>
+          <li><strong>&ldquo;Someone received an email with <code>{{something}}</code> printed in it.&rdquo;</strong> Emails sent before September 11, 2026 could go out that way; since then they are refused instead. Check the date on their Email History row. A recent one is worth reporting with that row.</li>
+          <li><strong>&ldquo;The count in the dialog is 0.&rdquo;</strong> The filters exclude everyone, or the type excludes them: a Payment Reminder never goes to cancelled registrations, a Survey Invitation needs a built survey. Open <strong>Filter recipients</strong> and loosen it.</li>
+          <li><strong>&ldquo;Where do replies go?&rdquo;</strong> To the sender address under Event Settings &rarr; Email Branding, for every email. See <a href="#s9">Section 9</a>.</li>
+          <li><strong>&ldquo;It says queued but nothing arrived.&rdquo;</strong> Give it two minutes, then read <a href="#s20">Section 20</a>: Scheduled Emails first, Email History second, the daily health email third.</li>
+          <li><strong>&ldquo;Can the same template be sent to registrations and speakers?&rdquo;</strong> Yes, if it uses only the tokens both doors fill: the event tokens and the name tokens. A speaker block or a payment box will be refused on the other audience.</li>
+        </ul>
       </div>
     </div>
 
