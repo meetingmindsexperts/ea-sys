@@ -125,6 +125,13 @@ const ABSTRACT_STATUS_FOR_TYPE: Record<string, string> = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The survey-invitation case mints a real token, and hashVerificationToken
+  // peppers it with NEXTAUTH_SECRET. Locally that is always set, because the
+  // Prisma client loads .env into process.env on import and bulk-email.ts
+  // imports its enums; the CI runner has no .env, so without this line the
+  // per-recipient mint throws and the case reads as a failed send (the Sep 17
+  // invitation test needed the same line).
+  process.env.NEXTAUTH_SECRET = "test-secret-email-drift";
   mockDb.event.findFirst.mockResolvedValue(EVENT);
   mockDb.emailTemplate.findUnique.mockResolvedValue(null);
   mockDb.registration.findMany.mockResolvedValue([REGISTRATION]);
