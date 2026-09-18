@@ -4322,8 +4322,9 @@ which is what verified the six headers on Sep 18 (and exposed the false alarm) a
 minutes; it is worth repeating after any Next upgrade.
 
 **Order when picked up.**
-1. Set `poweredByHeader: false` in `next.config.ts` (one line; it can ride the next code
-   deploy) and verify with an unfiltered `curl -D -` on production afterwards. Decide
+1. ~~Set `poweredByHeader: false` in `next.config.ts`~~ SHIPPED Sep 18, 2026 (`d598f127`,
+   run 35343678869): an unfiltered `curl -D -` on production afterwards shows no `X-Powered-By`
+   and all six security headers, pinned by `next-config-security-headers.test.ts`. Decide
    separately, and later, whether a report-only CSP project is wanted.
 2. Baseline passive scan on the local standalone. Triage into confirmed and noise; fix the
    confirmed set; record the noise as rules so the next run is quiet.
