@@ -19,7 +19,7 @@ import {
 // import { ServerClient as PostmarkServerClient } from "postmark";
 import { SESv2Client, SendEmailCommand, type SendEmailCommandInput } from "@aws-sdk/client-sesv2";
 import juice from "juice";
-import { EMAIL_TEMPLATE_SPECS, GLOBAL_RAW_HTML_KEYS } from "./email-template-registry";
+import { EMAIL_TEMPLATE_SPECS, GLOBAL_RAW_HTML_KEYS, GLOBAL_EVENT_VARIABLES } from "./email-template-registry";
 import { DEFAULT_TEMPLATE_BODIES } from "./email-template-defaults";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
@@ -1969,12 +1969,9 @@ export function buildEventPreviewVariables(
  * pasting is what produced the drift in the first place — adding the next
  * global token would mean 25 more edits and one of them would be missed.
  */
-export const GLOBAL_EVENT_VARIABLES: Array<{ key: string; description: string }> = [
-  { key: "eventName", description: "Event name" },
-  { key: "eventDate", description: "Event start date, in the event's timezone (e.g. Friday, January 15, 2027)" },
-  { key: "eventDateRange", description: "Event dates, collapsed on a single-day event (e.g. January 15 – 17, 2027)" },
-  { key: "eventVenue", description: "Venue and city (e.g. Raffles Hotel, Dubai)" },
-];
+// Declared in the client-safe registry (the template editor reads it too) and
+// re-exported here so every existing importer keeps working.
+export { GLOBAL_EVENT_VARIABLES };
 
 /**
  * The variables to advertise for one slug: the global event block first, then

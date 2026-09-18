@@ -8,7 +8,8 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
-import { normalizeTemplateTokens } from "@/lib/template-tokens";
+import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
+import { templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildCertCoverTemplatePreview } from "@/lib/certificates/bundle";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -52,6 +53,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // Global event block + this slug's own, so the editor lists every
       // token that will actually resolve.
       variables: templateVariablesFor(template.slug),
+      // The wider set the editor checks typed tokens against: the advertised
+      // ones plus what the bulk pipeline fills for every recipient and the
+      // *Text mirrors. Display list and check list are deliberately different
+      // (see templateAllowedTokenKeys).
+      allowedTokens: templateAllowedTokenKeys(template.slug),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email template" });
@@ -105,7 +111,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    return NextResponse.json(template);
+    // A token this template's senders do not fill is refused at SEND time by
+    // sendEmail's unresolved-token guard, which on Sep 18, 2026 meant 18
+    // silently failed thank-yous on a live event before anyone noticed. Say so
+    // here, at the moment it is typed. Deliberately a warning and not a
+    // refusal: organisers paste tokens while drafting, and the stored template
+    // is not what sends, so blocking the save would be the wrong trade.
+    const unfillable = unknownTemplateTokens(
+      templateAllowedTokenKeys(template.slug),
+      template.subject,
+      template.htmlContent,
+      template.textContent,
+    );
+    if (unfillable.length > 0) {
+      apiLogger.warn({
+        msg: "email-template:unfillable-tokens",
+        eventId,
+        templateId,
+        slug: template.slug,
+        tokens: unfillable,
+        userId: session.user.id,
+      });
+    }
+
+    return NextResponse.json({ ...template, unfillableTokens: unfillable });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating email template" });
     return NextResponse.json({ error: "Failed to update email template" }, { status: 500 });

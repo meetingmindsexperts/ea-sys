@@ -70,3 +70,21 @@ export function findUnresolvedTokens(...parts: Array<string | null | undefined>)
   }
   return out;
 }
+
+/**
+ * The tokens in `parts` that `allowed` does not cover: what an organiser has
+ * typed that this template's senders will not fill, so `sendEmail` would
+ * refuse the send.
+ *
+ * Deliberately built on `findUnresolvedTokens`, the SAME extractor the refusal
+ * uses, so the warning and the refusal can never disagree about what counts as
+ * a token. Callers normalize first (every template save does) so an
+ * editor-mangled `{{<span>x</span>}}` is judged by its name.
+ */
+export function unknownTemplateTokens(
+  allowed: Iterable<string>,
+  ...parts: Array<string | null | undefined>
+): string[] {
+  const allow = allowed instanceof Set ? allowed : new Set(allowed);
+  return findUnresolvedTokens(...parts).filter((t) => !allow.has(t));
+}

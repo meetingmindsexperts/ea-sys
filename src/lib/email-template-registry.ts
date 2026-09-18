@@ -914,6 +914,79 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
   },
 };
 
+/**
+ * The event block every email gets, whatever its slug (Aug 27, 2026). Lives
+ * here rather than in email.ts so a client component can read it; email.ts
+ * re-exports it under the same name.
+ */
+export const GLOBAL_EVENT_VARIABLES: ReadonlyArray<TemplateVariable> = [
+  { key: "eventName", description: "Event name" },
+  { key: "eventDate", description: "Event start date, in the event's timezone (e.g. Friday, January 15, 2027)" },
+  { key: "eventDateRange", description: "Event dates, collapsed on a single-day event (e.g. January 15 - 17, 2027)" },
+  { key: "eventVenue", description: "Venue and city (e.g. Raffles Hotel, Dubai)" },
+];
+
+/**
+ * What `executeBulkEmail` puts in `vars` for EVERY recipient of EVERY bulk
+ * send, before the per-type overrides. A bulk-surface template may therefore
+ * use any of these even when its own `variables` list does not advertise it,
+ * and a CUSTOM template (which has no registry entry and is only sendable
+ * through bulk) gets exactly this set plus the global event block.
+ *
+ * Pinned to the real object by `email-template-token-check.test.ts`, which
+ * reads bulk-email.ts and fails if a key here stops being set there. Keep the
+ * two in step: dropping one silently turns a working organiser template into
+ * a refused send.
+ */
+export const BULK_BASE_VARIABLES: readonly string[] = [
+  "title", "firstName", "lastName", "speakerName",
+  "eventName", "eventDate", "eventVenue", "eventCity", "eventCountry", "eventAddress",
+  "organizerName", "organizerEmail", "organizerSignature",
+  "personalMessage", "ticketType", "registrationId", "daysUntilEvent",
+  "presentationDetails", "presentationDetailsText",
+  "moderatorDetails", "moderatorDetailsText", "sessionDetails",
+  "agreementLink", "agreementBlock", "agreementBlockText", "agreementAttachment",
+  "entryBarcode", "entryBarcodeText", "paymentBlock",
+];
+
+/**
+ * Bulk tokens filled only when the sender picks an RSVP in the send dialog.
+ * Using one without choosing an RSVP is refused at enqueue with a message
+ * naming the fix, so it is a legitimate thing to write into a template and
+ * must not be reported as unfillable.
+ */
+export const BULK_CONDITIONAL_VARIABLES: readonly string[] = ["rsvpLink", "rsvpName", "rsvpButton"];
+
+/**
+ * Every token key a template's senders can fill, for the save-time check that
+ * warns an organiser before a send is refused.
+ *
+ * Why this exists: on Sep 18, 2026 an organiser put `{{certificateList}}`, a
+ * certificate-cover token, into a Survey Thank You. The thank-you sender fills
+ * six variables and not that one, so every thank-you on a live event was
+ * refused for 100 minutes. Preview did not catch it, because preview supplies
+ * a sample value for that token on every template and rendered it perfectly.
+ *
+ * A `*Text` mirror of an allowed block token is allowed too: the plain-text
+ * part is filled beside the HTML one and is deliberately not advertised.
+ *
+ * An unknown slug is a custom template, which is only sendable through bulk.
+ */
+export function templateAllowedTokenKeys(slug: string): string[] {
+  const allowed = new Set<string>(GLOBAL_EVENT_VARIABLES.map((v) => v.key));
+  const spec = isSystemTemplateSlug(slug) ? EMAIL_TEMPLATE_REGISTRY[slug] : null;
+  if (spec) {
+    for (const v of spec.variables) allowed.add(v.key);
+    for (const k of spec.rawHtmlKeys) allowed.add(k);
+  }
+  if (!spec || spec.surfaces.includes("bulk")) {
+    for (const k of BULK_BASE_VARIABLES) allowed.add(k);
+    for (const k of BULK_CONDITIONAL_VARIABLES) allowed.add(k);
+  }
+  for (const k of [...allowed]) allowed.add(`${k}Text`);
+  return [...allowed];
+}
+
 /** The specs in seed order. */
 export const EMAIL_TEMPLATE_SPECS: readonly EmailTemplateSpec[] = SYSTEM_TEMPLATE_SLUG_LIST.map((s) => EMAIL_TEMPLATE_REGISTRY[s]);
 

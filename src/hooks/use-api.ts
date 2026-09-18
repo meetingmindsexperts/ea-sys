@@ -1169,9 +1169,13 @@ export function useEmailTemplate(eventId: string, templateId: string) {
   return useQuery({
     queryKey: queryKeys.emailTemplate(eventId, templateId),
     queryFn: () =>
-      fetchApi<{ template: any; variables: { key: string; description: string }[] }>(
-        `/api/events/${eventId}/email-templates/${templateId}`
-      ),
+      fetchApi<{
+        template: any;
+        /** Advertised in the editor's Variables panel. */
+        variables: { key: string; description: string }[];
+        /** The wider set the save-time token check runs against. */
+        allowedTokens: string[];
+      }>(`/api/events/${eventId}/email-templates/${templateId}`),
     enabled: !!eventId && !!templateId,
   });
 }
@@ -1180,7 +1184,10 @@ export function useUpdateEmailTemplate(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ templateId, data }: { templateId: string; data: any }) =>
-      fetchApi(`/api/events/${eventId}/email-templates/${templateId}`, {
+      // `unfillableTokens`: tokens the saved template uses that its senders do
+      // not fill, so a send would be refused. Recomputed server-side after
+      // token normalization.
+      fetchApi<{ unfillableTokens?: string[] }>(`/api/events/${eventId}/email-templates/${templateId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

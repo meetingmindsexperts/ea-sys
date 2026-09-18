@@ -23,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  AlertTriangle,
   ArrowLeft,
   Save,
   Eye,
@@ -43,6 +44,7 @@ import {
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
 import { toast } from "sonner";
 import { stripDocumentWrapper } from "@/lib/email-utils";
 
@@ -90,14 +92,25 @@ export default function EmailTemplateEditorPage() {
     setEditorKey((k) => k + 1);
   }
 
+  const allowedTokens: string[] = data?.allowedTokens ?? [];
+
   const handleSave = useCallback(async () => {
     try {
-      await updateMutation.mutateAsync({
+      const saved = await updateMutation.mutateAsync({
         templateId,
         data: { subject, htmlContent, textContent, isActive },
       });
       setDirty(false);
-      toast.success("Template saved");
+      // The server recomputes this after normalizing, so the toast reports what
+      // the stored template will actually do rather than what was on screen.
+      const unfillable: string[] = saved?.unfillableTokens ?? [];
+      if (unfillable.length > 0) {
+        toast.warning(
+          `Saved, but ${unfillable.map((t) => `{{${t}}}`).join(", ")} ${unfillable.length === 1 ? "is" : "are"} not filled for this template. Sends using it will be refused.`,
+        );
+      } else {
+        toast.success("Template saved");
+      }
     } catch (err) {
       console.error("[email-template] operation failed", err);
       toast.error("Failed to save template");
@@ -202,6 +215,21 @@ export default function EmailTemplateEditorPage() {
 
   const template = data.template;
   const variables = data.variables || [];
+
+  // Tokens the organiser has typed that this template's senders cannot fill.
+  // Computed from what is on screen, not from what was saved, so it appears as
+  // it is typed rather than after a send has already been refused. The same
+  // normalization the save does runs first, so a token the editor wrapped in
+  // markup is judged by its name.
+  const unfillableTokens =
+    allowedTokens.length === 0
+      ? []
+      : unknownTemplateTokens(
+          allowedTokens,
+          normalizeTemplateTokens(subject),
+          normalizeTemplateTokens(htmlContent),
+          normalizeTemplateTokens(textContent),
+        );
   // Same shared classifier as the list + send dialogs — Reset for system
   // defaults, Delete for organizer-created custom templates.
   const isSystemTemplate = !isCustomTemplateSlug(template.slug);
@@ -302,6 +330,36 @@ export default function EmailTemplateEditorPage() {
           </Button>
         </div>
       </div>
+
+      {unfillableTokens.length > 0 && (
+        /* Sep 18, 2026: a certificate token typed into a Survey Thank You was
+           refused on every send for 100 minutes on a live event, and Preview
+           showed it rendering correctly because preview fills tokens from a
+           sample pool whatever the template. This panel is the only place that
+           knows what the SENDER fills. */
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div className="space-y-1">
+            <p>
+              <span className="font-semibold">
+                {unfillableTokens.length === 1 ? "This token is not filled" : "These tokens are not filled"}
+              </span>{" "}
+              for this template:{" "}
+              {unfillableTokens.map((t, i) => (
+                <span key={t}>
+                  <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">{`{{${t}}}`}</code>
+                  {i < unfillableTokens.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </p>
+            <p className="text-amber-800">
+              Sending is refused outright rather than delivering visible braces, so every email using
+              this template will fail until the token is removed or replaced with one from Variables.
+              Preview will not show this: it fills any token from sample data.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         {/* Editor */}
