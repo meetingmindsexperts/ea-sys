@@ -318,18 +318,18 @@ WEBINAR-type events only.
 
 Sponsorship pipeline. Registered from inside the CRM module (`src/crm/agent-tools.ts`) rather than the core registrar, which is why an earlier hand-maintained count missed all 26 of them.
 
-### Not on MCP: `list_zoom_meetings` and `create_zoom_meeting`
+### Not on MCP: nothing, since September 21, 2026
 
-Both exist and work, but only for the **in-app AI Agent** at
-`/events/[eventId]/agent`. They are in `TOOL_EXECUTOR_MAP` and in
-`WEBINAR_TOOL_DEFINITIONS`, and they are **not** registered on the MCP server,
-so an MCP call to either gets `Unknown tool`. This reference listed them as MCP
-tools until Sep 2 2026, when the inventory gate's removal check found them.
-
-Note the direction, because the mirror image has happened too: in July, five
-session tools were registered on MCP and missing from the agent's definitions,
-so n8n could call what the in-app agent could not discover. **Two surfaces, and
-each can silently omit what the other has.**
+`list_zoom_meetings` and `create_zoom_meeting` were the last two tools on one
+door only (the in-app AI Agent) until Event Agent Phase 1 registered them here
+on September 21, 2026. Phase 4 the same day deleted the in-app door's own
+hand-written definition list, so a tool now has ONE registration, in
+`src/lib/agent/register-mcp-tools.ts`, and both doors read it. The mirror-image
+drift this section used to warn about (in July, five session tools were on
+MCP and missing from the agent's list, so n8n could call what the in-app agent
+could not discover) can no longer happen: an executor that is not registered is
+reachable by neither door, and `__tests__/lib/mcp-tool-inventory.test.ts` pins
+this reference against what is registered.
 
 ## What MCP cannot do, and why
 

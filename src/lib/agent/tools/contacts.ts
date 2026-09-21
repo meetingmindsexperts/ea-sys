@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -183,41 +182,6 @@ const updateContact: ToolExecutor = async (input, ctx) => {
 // breaking public URLs, email scheduling, Zoom provisioning, or timezone math.
 // slug + startDate + endDate + eventType + timezone are intentionally excluded
 // because they cascade to registered URLs, scheduled-email fire times, webinar
-
-export const CONTACT_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_contacts",
-    description: "List contacts in the organization. Optionally filter by tag or search.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        search: { type: "string", description: "Search by name or email" },
-        tag: { type: "string", description: "Filter by tag" },
-        limit: { type: "number", description: "Max results (default 50, max 200)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "create_contact",
-    description: "Create a new contact in the organization.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        email: { type: "string" },
-        firstName: { type: "string" },
-        lastName: { type: "string" },
-        organization: { type: "string" },
-        jobTitle: { type: "string" },
-        phone: { type: "string" },
-        city: { type: "string" },
-        country: { type: "string" },
-        tags: { type: "array", items: { type: "string" }, description: "Tags to assign" },
-      },
-      required: ["email", "firstName", "lastName"],
-    },
-  },
-];
 
 export const CONTACT_EXECUTORS: Record<string, ToolExecutor> = {
   list_contacts: listContacts,

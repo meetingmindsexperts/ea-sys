@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -231,8 +230,6 @@ const deletePromoCode: ToolExecutor = async (input, ctx) => {
     return { error: err instanceof Error ? err.message : "Failed to delete promo code" };
   }
 };
-
-export const PROMO_CODE_TOOL_DEFINITIONS: Tool[] = [];
 
 export const PROMO_CODE_EXECUTORS: Record<string, ToolExecutor> = {
   list_promo_codes: listPromoCodes,

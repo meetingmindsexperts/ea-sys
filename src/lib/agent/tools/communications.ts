@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
@@ -388,62 +387,6 @@ const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
 };
 
 // ─── Tranche 2: bulk creates + update_contact + update_event ─────────────────
-
-export const COMMUNICATION_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "send_bulk_email",
-    description:
-      "Send a bulk email to speakers or registrants through the shared send pipeline (per-event branding + the custom-notification template are applied; an unparsable status/payment filter is rejected instead of widening the audience). IMPORTANT: Before calling this tool, inform the user what you plan to send and to how many recipients. Specify recipientType (speakers or registrations), a subject, and HTML message content.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        recipientType: {
-          type: "string",
-          enum: ["speakers", "registrations"],
-          description: "Who to send the email to",
-        },
-        emailType: {
-          type: "string",
-          enum: ["custom", "invitation", "confirmation", "reminder"],
-          description: "Type of email",
-        },
-        subject: { type: "string", description: "Email subject line" },
-        htmlMessage: {
-          type: "string",
-          description: "HTML content of the email body",
-        },
-        statusFilter: {
-          type: "string",
-          description:
-            "Optional registration/speaker status filter (PENDING/CONFIRMED/CANCELLED/WAITLISTED/CHECKED_IN for registrations, INVITED/CONFIRMED/DECLINED/CANCELLED for speakers). Cannot filter by payment status — use paymentStatusFilter for that.",
-        },
-        paymentStatusFilter: {
-          type: "string",
-          enum: ["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"],
-          description:
-            "Optional payment status filter — registrations recipient only. Closes W2-F4: use paymentStatusFilter='UNPAID' for the unpaid-chase workflow. Combinable with statusFilter (e.g. CONFIRMED + UNPAID).",
-        },
-      },
-      required: ["recipientType", "emailType", "subject", "htmlMessage"],
-    },
-  },
-  {
-    name: "list_media",
-    description: "List media files in the organization library. Optionally filter by event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        limit: { type: "number", description: "Max results (default 50)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "list_email_templates",
-    description: "List email templates configured for this event.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-];
 
 export const COMMUNICATION_EXECUTORS: Record<string, ToolExecutor> = {
   send_bulk_email: sendBulkEmail,

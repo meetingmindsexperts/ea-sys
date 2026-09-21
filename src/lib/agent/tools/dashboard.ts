@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
@@ -326,20 +325,6 @@ const getEventAnalytics: ToolExecutor = async (_input, ctx) => {
 };
 
 // ─── Tranche B: Action / update tools ─────────────────────────────────────────
-
-export const DASHBOARD_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "get_event_stats",
-    description: "Get comprehensive event statistics: registration counts by status, payment breakdown, speaker counts, session counts, abstract counts.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "get_event_analytics",
-    description:
-      "Get operational analytics for the event: registration funnel (by status/type/tier/day), check-in metrics (rate, no-shows, by-hour rush curve, peak hour, by-staff) PLUS a per-attendee check-in log (name, email, time, who, scanned/manual), badge-print stats (printed vs registered, reprints), and revenue (collected by currency, outstanding). Use this for reporting / 'how did the event go' questions.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-];
 
 export const DASHBOARD_EXECUTORS: Record<string, ToolExecutor> = {
   get_event_dashboard: getEventDashboard,

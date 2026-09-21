@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -573,41 +572,6 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
 };
 
 // ─── A4: Invoice CREATE / SEND flow ───────────────────────────────────────────
-
-export const ACCOMMODATION_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_hotels",
-    description: "List hotels configured for this event.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "create_hotel",
-    description: "Add a hotel for this event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Hotel name" },
-        address: { type: "string" },
-        stars: { type: "number", description: "Star rating (1-5)" },
-        contactEmail: { type: "string" },
-        contactPhone: { type: "string" },
-      },
-      required: ["name"],
-    },
-  },
-  {
-    name: "list_accommodations",
-    description: "List room bookings for this event with guest details.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        status: { type: "string", enum: ["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"] },
-        limit: { type: "number", description: "Max results (default 50, max 200)" },
-      },
-      required: [],
-    },
-  },
-];
 
 export const ACCOMMODATION_EXECUTORS: Record<string, ToolExecutor> = {
   list_hotels: listHotels,

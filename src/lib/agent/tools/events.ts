@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -464,47 +463,6 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
     return { error: err instanceof Error ? err.message : "Failed to update event" };
   }
 };
-
-export const EVENT_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_event_info",
-    description:
-      "Get current event details including name, dates, venue, status, specialty, and counts of registrations, speakers, sessions, and tracks.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "list_tracks",
-    description:
-      "List all tracks for this event with their names, colors, descriptions, and session counts.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "create_track",
-    description:
-      "Create a new track for organizing sessions. Provide a name, optional color (hex like #3B82F6), and optional description.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Track name" },
-        color: {
-          type: "string",
-          description: "Hex color code, e.g. #3B82F6",
-          pattern: "^#[0-9A-Fa-f]{6}$",
-        },
-        description: { type: "string", description: "Optional description" },
-      },
-      required: ["name"],
-    },
-  },
-];
 
 export const EVENT_EXECUTORS: Record<string, ToolExecutor> = {
   list_event_info: listEventInfo,

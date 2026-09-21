@@ -53,6 +53,11 @@ as a Zod schema in `register-mcp-tools.ts` for the MCP door. The inventory test
 pins the two name sets against each other, not the parameters, so a parameter
 added on one side and not the other passes CI.
 
+*(Phase 4, later the same day: `AGENT_TOOL_DEFINITIONS` and the fourteen
+per-domain lists were deleted, 1,029 lines. The in-app door reads the Zod
+registrations through `tool-registry.ts`, so each tool has one schema and the
+paragraph above describes a state that no longer exists.)*
+
 The April 2026 "Distributed Multi-Agent Architecture" proposal is a different
 question (many specialised agents with skills and learning). This page is about
 one agent's doors and is the smaller step that would come first either way.

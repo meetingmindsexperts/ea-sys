@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -768,97 +767,6 @@ const researchSponsor: ToolExecutor = async (input, ctx) => {
     return { error: err instanceof Error ? err.message : "Failed to research sponsor" };
   }
 };
-
-export const WEBINAR_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_zoom_meetings",
-    description: "List all sessions that have a linked Zoom meeting or webinar. Shows meeting type, status, join URL.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "create_zoom_meeting",
-    description: "Create a Zoom meeting or webinar linked to an existing session. Requires Zoom to be configured for the organization and enabled for the event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        sessionId: { type: "string", description: "ID of the session to link the Zoom meeting to" },
-        meetingType: { type: "string", enum: ["MEETING", "WEBINAR", "WEBINAR_SERIES"], description: "Type of Zoom meeting (default: MEETING)" },
-        passcode: { type: "string", description: "Optional meeting passcode (max 10 chars)" },
-        waitingRoom: { type: "boolean", description: "Enable waiting room (default: true)" },
-      },
-      required: ["sessionId"],
-    },
-  },
-  {
-    name: "get_webinar_info",
-    description: "Get webinar configuration: settings.webinar + anchor session + linked ZoomMeeting (join URL, passcode, recording status).",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "list_webinar_attendance",
-    description: "Webinar attendance KPIs (registered / attended / rate / avg watch time) + top N attendee rows sorted by duration.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        limit: { type: "number", description: "Max attendee rows to return (default 20)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "list_webinar_engagement",
-    description: "Webinar engagement: polls with per-question data + all Q&A with asker/question/answer.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "list_sponsors",
-    description: "List event sponsors grouped by tier (platinum/gold/silver/bronze/partner/exhibitor).",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "research_sponsor",
-    description: "Fetch a sponsor's public website and propose SponsorEntry fields (name, websiteUrl, logoUrl, description). Does NOT save — review the proposal, ask the user to pick a tier, then call upsert_sponsors. Tier is NEVER inferred. Rate limited to 30/hr/user/event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Sponsor name hint. Used as fallback if the site has no <title>/og:site_name." },
-        websiteUrl: { type: "string", description: "Absolute http(s) URL of the sponsor's public site. Required for scraping — without it only the name is echoed back." },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "upsert_sponsors",
-    description: "Update the sponsor list for this event. mode='replace' (default — matches existing dashboard PUT behaviour) deletes anything not in the passed array; mode='merge' overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything. Use merge when you only have a few rows to add or change and don't want to accidentally wipe the rest. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        mode: {
-          type: "string",
-          enum: ["replace", "merge"],
-          description: "replace (default) deletes anything not in the array; merge overlays by id or (name,tier) and appends. Default is replace for backwards-compatibility with existing callers.",
-        },
-        sponsors: {
-          type: "array",
-          description: "Sponsors to upsert. In replace mode, this is the full final list. In merge mode, this is the delta.",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "Existing sponsor id (omit to create a new one)." },
-              name: { type: "string" },
-              tier: { type: "string", enum: ["platinum", "gold", "silver", "bronze", "partner", "exhibitor"] },
-              logoUrl: { type: "string", description: "http(s) URL or relative /uploads/... path." },
-              websiteUrl: { type: "string", description: "Absolute http(s) URL." },
-              description: { type: "string" },
-            },
-            required: ["name"],
-          },
-        },
-      },
-      required: ["sponsors"],
-    },
-  },
-];
 
 export const WEBINAR_EXECUTORS: Record<string, ToolExecutor> = {
   list_zoom_meetings: listZoomMeetings,

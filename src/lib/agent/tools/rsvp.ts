@@ -10,7 +10,6 @@
 // is grouped BY campaign, and `campaignId` narrows it.
 //
 // Docs: docs/RSVP.md.
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -179,30 +178,6 @@ const listRsvps: ToolExecutor = async (input, ctx) => {
     return { error: "Failed to load RSVPs" };
   }
 };
-
-export const RSVP_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_rsvps",
-    description:
-      "List the event's RSVPs (a gala dinner, parallel workshops, a site visit — an event can run several, each with its own guest list). Returns each RSVP with its items, per-item headcounts (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses (which items they're attending, guest counts, dietary needs). Optional campaignId to narrow to one RSVP, status filter (PENDING / RESPONDED) and limit (default 200, max 500).",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        campaignId: {
-          type: "string",
-          description: "Narrow to a single RSVP by its id. Omit to return every RSVP on the event.",
-        },
-        status: {
-          type: "string",
-          enum: ["PENDING", "RESPONDED"],
-          description: "Filter invitees by response status.",
-        },
-        limit: { type: "number", description: "Max invitees to return (default 200, max 500)." },
-      },
-      required: [],
-    },
-  },
-];
 
 export const RSVP_EXECUTORS: Record<string, ToolExecutor> = {
   list_rsvps: listRsvps,

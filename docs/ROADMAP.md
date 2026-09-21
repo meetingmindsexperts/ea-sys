@@ -134,10 +134,9 @@ policy with a harness suite and the CI-gate entry, the recorder in
 lane), the `agent-run-prune` job at 180 days, an AI agent card on the infra
 page and three digest lines. Conversation history stays in the browser (a
 server-side history keyed per conversation is an owner option; the runs make
-it possible). **Next:** Phase 4 (delete the hand-written
-`AGENT_TOOL_DEFINITIONS`; the registry already derives every schema from
-Zod, so this is a deletion), then the drawer form of the chat if the owner
-wants it. The floating agent button shipped on Sep 21, 2026
+it possible). Phase 4 shipped on Sep 21, 2026 (the hand-written definitions deleted,
+1,029 lines; each tool has one schema, its Zod registration). **Next:** the
+drawer form of the chat if the owner wants it. The floating agent button shipped on Sep 21, 2026
 (`src/lib/agent/launcher.ts` holds the rule).
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)

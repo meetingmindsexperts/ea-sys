@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { AbstractStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -582,93 +581,6 @@ const listReviewers: ToolExecutor = async (_input, ctx) => {
 };
 
 // ─── Invoice Executor ─────────────────────────────────────────────────────────
-
-export const ABSTRACT_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_abstract_themes",
-    description: "List abstract themes configured for this event.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "create_abstract_theme",
-    description: "Create an abstract theme for this event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Theme name" },
-      },
-      required: ["name"],
-    },
-  },
-  {
-    name: "list_review_criteria",
-    description: "List review criteria configured for this event, including weights.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "create_review_criterion",
-    description: "Create a review criterion for this event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Criterion name (e.g. Originality, Methodology)" },
-        weight: { type: "number", description: "Integer weight 1–100 for scoring; weights are meant to sum to 100 across the event's criteria. Higher = more important." },
-      },
-      required: ["name", "weight"],
-    },
-  },
-  {
-    name: "update_review_criterion",
-    description: "Update a review criterion (name, weight, and/or sortOrder). Provide at least one field to change.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        criterionId: { type: "string", description: "ID of the criterion to update" },
-        name: { type: "string" },
-        weight: { type: "number", description: "Integer weight 1–100 (weights are meant to sum to 100 across criteria)" },
-        sortOrder: { type: "number", description: "Display order (non-negative integer)" },
-      },
-      required: ["criterionId"],
-    },
-  },
-  {
-    name: "list_abstracts",
-    description: "List abstract submissions for this event. Optionally filter by status or theme.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        status: {
-          type: "string",
-          enum: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"],
-        },
-        themeId: { type: "string", description: "Filter by abstract theme ID" },
-        limit: { type: "number", description: "Max results (default 50, max 200)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "update_abstract_status",
-    description: "Update the status of an abstract submission (e.g. accept, reject, request revision).",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        abstractId: { type: "string", description: "Abstract ID" },
-        status: {
-          type: "string",
-          enum: ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"],
-        },
-        reviewNotes: { type: "string", description: "Optional notes for the author" },
-      },
-      required: ["abstractId", "status"],
-    },
-  },
-  {
-    name: "list_reviewers",
-    description: "List reviewers assigned to this event.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-];
 
 export const ABSTRACT_EXECUTORS: Record<string, ToolExecutor> = {
   list_abstract_themes: listAbstractThemes,

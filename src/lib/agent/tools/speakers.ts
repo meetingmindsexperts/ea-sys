@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -666,93 +665,6 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
     return { error: err instanceof Error ? err.message : "Failed to bulk-create speakers" };
   }
 };
-
-export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_speakers",
-    description:
-      "List speakers for this event. Optionally filter by status: INVITED, CONFIRMED, DECLINED, or CANCELLED.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        status: {
-          type: "string",
-          enum: ["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"],
-          description: "Filter by speaker status",
-        },
-        createdAfter: {
-          type: "string",
-          description: "Only rows created at/after this ISO 8601 datetime (inclusive)",
-        },
-        createdBefore: {
-          type: "string",
-          description: "Only rows created at/before this ISO 8601 datetime (inclusive)",
-        },
-        updatedAfter: {
-          type: "string",
-          description: "Only rows updated at/after this ISO 8601 datetime (inclusive) — the incremental-sync checkpoint",
-        },
-        updatedBefore: {
-          type: "string",
-          description: "Only rows updated at/before this ISO 8601 datetime (inclusive)",
-        },
-        limit: {
-          type: "number",
-          description: "Max results to return (default 50, max 200)",
-        },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "create_speaker",
-    description:
-      "Add a new speaker to the event. Email, firstName, and lastName are required. Notifies org admins and syncs to the org-wide Contact store.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        email: { type: "string", description: "Speaker email address" },
-        firstName: { type: "string" },
-        lastName: { type: "string" },
-        title: {
-          type: "string",
-          enum: ["DR", "MR", "MRS", "MS", "PROF"],
-          description: "Honorific title",
-        },
-        role: {
-          type: "string",
-          enum: ["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS"],
-          description: "Speaker demographic/professional role. Same enum as Attendee/Contact.",
-        },
-        additionalEmail: {
-          type: "string",
-          description: "Secondary email (cc on notifications). Optional.",
-        },
-        bio: { type: "string" },
-        organization: { type: "string" },
-        jobTitle: { type: "string" },
-        phone: { type: "string" },
-        city: { type: "string" },
-        state: { type: "string" },
-        zipCode: { type: "string" },
-        country: { type: "string" },
-        photo: { type: "string", description: "Photo URL or relative path (e.g. /uploads/photos/...)" },
-        specialty: { type: "string" },
-        customSpecialty: {
-          type: "string",
-          description: "Free-text specialty when `specialty` is 'Others'.",
-        },
-        registrationType: { type: "string" },
-        status: {
-          type: "string",
-          enum: ["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"],
-          description: "Default is INVITED",
-        },
-      },
-      required: ["email", "firstName", "lastName"],
-    },
-  },
-];
 
 export const SPEAKER_EXECUTORS: Record<string, ToolExecutor> = {
   list_speakers: listSpeakers,

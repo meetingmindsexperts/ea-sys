@@ -1,4 +1,3 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -174,22 +173,6 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) =>
   });
 
 // ─── A5: Email template editing ───────────────────────────────────────────────
-
-export const INVOICE_TOOL_DEFINITIONS: Tool[] = [
-  {
-    name: "list_invoices",
-    description: "List invoices, receipts, and credit notes for this event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        type: { type: "string", enum: ["INVOICE", "RECEIPT", "CREDIT_NOTE"] },
-        status: { type: "string", enum: ["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"] },
-        limit: { type: "number", description: "Max results (default 50, max 200)" },
-      },
-      required: [],
-    },
-  },
-];
 
 export const INVOICE_EXECUTORS: Record<string, ToolExecutor> = {
   list_invoices: listInvoices,
