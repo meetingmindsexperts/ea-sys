@@ -85,6 +85,21 @@ builders; seven inline token-mint copies; the registration single-send accepting
 any `templateSlug` without the custom-slug classifier. The certificate cover
 resolver and the agreement merges stay separate vocabularies on purpose.
 
+## Event Agent: one agent, two doors (Sep 21, 2026): reviewed, build not started
+
+Owner question: the in-app agent sits inside an event, cannot create one, and
+Medhat wants the team using it. [AGENT_ARCHITECTURE_REVIEW.md](AGENT_ARCHITECTURE_REVIEW.md)
+is the read-only answer: the in-app door is event-bound in five places by
+construction, the MCP door (claude.ai) already holds the org-level tools and is
+the one the team uses (1,014 requests in 30 days against 5 in-app tool calls),
+and the fix is one context type with the event optional plus one guardrail
+layer both doors share. Five phases, about two weeks: 0 harden (the readiness
+review's G2 to G5 and G9), 1 the org-level door and `/agent` page (answers
+"create an event"), 2 approvals, 3 runs and a digest line, 4 one schema per
+tool. Recommendation on the team question: claude.ai seats plus a one-page
+connector guide now (zero code), the in-app door after phases 0 and 1. Five
+owner decisions in the review's §8; nothing starts without a pick.
+
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 
 When the app upstream is unreachable, nginx returns its own bare
