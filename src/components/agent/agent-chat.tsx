@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { ApprovalCard, type ApprovalMessage } from "./approval-card";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ type ChatMessage =
   | { id: string; role: "assistant"; content: string; isStreaming?: boolean }
   | { id: string; role: "tool_start"; name: string; input: unknown; toolUseId: string }
   | { id: string; role: "tool_result"; name: string; result: unknown; toolUseId: string }
+  | ({ id: string; role: "approval" } & ApprovalMessage)
   | { id: string; role: "error"; message: string };
 
 type ApiMessage = { role: "user" | "assistant"; content: string };
@@ -40,6 +42,7 @@ type SSEEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; name: string; input: unknown; toolUseId: string }
   | { type: "tool_result"; name: string; result: unknown; toolUseId: string }
+  | { type: "needs_approval"; toolName: string; label: string; input: Record<string, unknown>; token: string; expiresAt: string; toolUseId: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -74,6 +77,7 @@ function getToolResultSummary(name: string, result: unknown): string {
   if (!result || typeof result !== "object") return "Completed";
   const r = result as Record<string, unknown>;
 
+  if (r.code === "APPROVAL_REQUIRED") return "Waiting for your approval";
   if ("error" in r) return `Error: ${r.error}`;
 
   if (name === "create_track" && r.track)
@@ -170,7 +174,10 @@ function ToolChip({
   const [expanded, setExpanded] = useState(false);
   const label = getToolLabel(name);
   const summary = isDone && result !== undefined ? getToolResultSummary(name, result) : null;
-  const isError = isDone && result && typeof result === "object" && "error" in result;
+  // The approval pause answers the model with an error-shaped result so it
+  // stops; on the page it is a wait, not a failure.
+  const isError =
+    isDone && result && typeof result === "object" && "error" in result && (result as { code?: unknown }).code !== "APPROVAL_REQUIRED";
 
   return (
     <div className="my-1 max-w-full">
@@ -382,6 +389,22 @@ export function AgentChat({
         ]);
         break;
 
+      case "needs_approval":
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "approval",
+            toolName: data.toolName,
+            label: data.label,
+            input: data.input,
+            token: data.token,
+            expiresAt: data.expiresAt,
+            status: "pending",
+          },
+        ]);
+        break;
+
       case "error":
         setMessages((prev) => [
           ...prev,
@@ -394,7 +417,10 @@ export function AgentChat({
     }
   }, []);
 
-  async function sendMessage(userMessage: string) {
+  async function sendMessage(
+    userMessage: string,
+    approval?: { toolName: string; input: Record<string, unknown>; token: string },
+  ) {
     if (!userMessage.trim() || isRunning) return;
 
     const ac = new AbortController();
@@ -419,7 +445,7 @@ export function AgentChat({
       const res = await fetch("/api/agent/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, history, eventId }),
+        body: JSON.stringify({ message: userMessage, history, eventId, ...(approval ? { approval } : {}) }),
         signal: ac.signal,
       });
 
@@ -476,6 +502,15 @@ export function AgentChat({
           .filter((m) => !(m.id === assistantId && m.role === "assistant" && !m.content))
       );
     }
+  }
+
+  function approve(msg: Extract<ChatMessage, { role: "approval" }>) {
+    setMessages((prev) => prev.map((m) => (m.id === msg.id && m.role === "approval" ? { ...m, status: "approved" } : m)));
+    void sendMessage(`Approved: ${msg.label}.`, { toolName: msg.toolName, input: msg.input, token: msg.token });
+  }
+
+  function cancelApproval(id: string) {
+    setMessages((prev) => prev.map((m) => (m.id === id && m.role === "approval" ? { ...m, status: "cancelled" } : m)));
   }
 
   function handleStop() {
@@ -575,6 +610,17 @@ export function AgentChat({
               // Skip tool_start if the result already arrived (show only the result chip)
               if (msg.role === "tool_start" && completedToolIds.has(msg.toolUseId)) {
                 return null;
+              }
+              if (msg.role === "approval") {
+                return (
+                  <ApprovalCard
+                    key={msg.id}
+                    approval={msg}
+                    disabled={isRunning}
+                    onApprove={() => approve(msg)}
+                    onCancel={() => cancelApproval(msg.id)}
+                  />
+                );
               }
               // Render pending tool_start as a chip
               if (msg.role === "tool_start") {

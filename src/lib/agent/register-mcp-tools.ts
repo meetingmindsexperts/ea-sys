@@ -15,6 +15,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import type { AgentSource } from "@/lib/agent/tools/_shared";
+import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, requiresApproval } from "@/lib/agent/approvals";
 import { apiLogger } from "@/lib/logger";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -738,11 +739,35 @@ export function registerAllMcpTools(
 
   // Register all event-level tools (scoped to authenticated org)
   for (const t of [...readTools, ...writeTools]) {
+    // The actions that cannot be undone, or that reach many people at once,
+    // pause for the person: an MCP client must ask them and call again with
+    // confirm: true (the in-app door strips this parameter from what its
+    // model sees and sets it only after the Approve click). See approvals.ts.
+    const needsApproval = requiresApproval(t.name);
+    const params = needsApproval
+      ? {
+          ...t.params,
+          [APPROVAL_CONFIRM_PARAM]: z
+            .boolean()
+            .optional()
+            .describe("This action needs the person's explicit approval. Tell them exactly what will happen, wait for their yes, then call again with confirm: true."),
+        }
+      : t.params;
     server.tool(
       t.name, t.description,
-      { eventId: z.string().describe("Event ID"), ...t.params },
+      { eventId: z.string().describe("Event ID"), ...params },
       async (args) => safeTool(t.name, async () => {
-        const { eventId, ...input } = args;
+        const { eventId, ...rest } = args;
+        const input = rest as Record<string, unknown>;
+        const confirmed = input[APPROVAL_CONFIRM_PARAM] === true;
+        delete input[APPROVAL_CONFIRM_PARAM];
+        if (needsApproval && !confirmed) {
+          apiLogger.info({ msg: "mcp:approval-required", tool: t.name, eventId, organizationId, source: SOURCE });
+          return JSON.stringify({
+            error: `"" needs the person's explicit approval. Tell them exactly what will happen (who is affected, how many), wait for their yes, then call it again with confirm: true.`,
+            code: APPROVAL_REQUIRED_CODE,
+          }, null, 2);
+        }
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
         return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: SOURCE, counters: { creates: 0, emailsSent: 0 } });
       }),

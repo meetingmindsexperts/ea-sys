@@ -146,7 +146,7 @@ When composing emails via send_bulk_email, write the full HTML content directly 
 1. **Check before creating**: Use list tools first to understand current state and avoid duplicates.
 2. **One at a time**: When creating multiple items (e.g., "3 tracks"), call the create tool once per item — never batch multiple creates into a single tool call.
 3. **Email confirmation**: Before calling send_bulk_email, tell the user the exact recipient count and a summary of what will be sent, then stop and wait for their go-ahead in the next message.
-4. **Irreversible actions**: Before a bulk send, creating a Zoom meeting, replacing the sponsor list or a session's speakers, or changing CME settings, say exactly what will happen and wait for the user's go-ahead in the next message.
+4. **Approval step**: The tools listed under "Needs the person's approval" pause for an Approve click. Before calling one, say exactly what will happen (who is affected, how many). When the result says APPROVAL_REQUIRED, tell the person it is waiting for their approval and stop; never call the tool again in the same turn. After they approve, the call runs and you summarise the result.
 5. **Error handling**: If a tool returns an error, explain it clearly and suggest alternatives.
 6. **IDs**: Tools take ids, not names. Call the matching list tool first (list_events, list_tracks, list_speakers, list_ticket_types) and use the id it returns.
 7. **The right event**: Every event tool takes eventId. Use the current event's id unless the user names another event; never guess an id.

@@ -85,7 +85,7 @@ builders; seven inline token-mint copies; the registration single-send accepting
 any `templateSlug` without the custom-slug classifier. The certificate cover
 resolver and the agreement merges stay separate vocabularies on purpose.
 
-## Event Agent: one agent, two doors (Sep 21, 2026): Phases 0 and 1 shipped, Phases 2 to 4 not started
+## Event Agent: one agent, two doors (Sep 21, 2026): Phases 0, 1 and 2 shipped, Phases 3 and 4 not started
 
 Owner question: the in-app agent sits inside an event, cannot create one, and
 Medhat wants the team using it. [AGENT_ARCHITECTURE_REVIEW.md](AGENT_ARCHITECTURE_REVIEW.md)
@@ -118,9 +118,18 @@ in-app door now collects the MCP registrations through
 `src/lib/agent/tool-registry.ts` (one tool list for both doors, schemas from
 Zod), runs at org level through `POST /api/agent/execute` with the per-event
 route as an alias, and has a `/agent` sidebar page with an event picker.
-**Next:** Phase 2 (the approval step for bulk email, Zoom meeting creation,
-sponsor and roster replaces, CME settings, and the two remaining MCP delete
-tools), then the one-page claude.ai connector guide, then Phases 3 and 4.
+**Phase 2 shipped the same evening:** `requiresApproval` (the five named
+tools plus every delete tool) in `src/lib/agent/approvals.ts`; the MCP
+registrations take `confirm: true` and answer `APPROVAL_REQUIRED` without it;
+the in-app loop emits `needs_approval` with a ten-minute HMAC token that
+names the person, org, event, tool and exact input, the page shows an
+Approve/Cancel card, and an approved call runs first with the token verified
+by the route; the model never sees `confirm`. The one-page claude.ai guide
+is `docs/CLAUDE_AI_AGENT_GUIDE.md` (also a shared doc). **Next:** Phase 3
+(stored runs, RLS, prune job, a digest line), then Phase 4 (delete the
+hand-written `AGENT_TOOL_DEFINITIONS`; the registry already derives every
+schema from Zod, so this is a deletion), then the floating agent button and
+the drawer form of the chat if the owner wants them.
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 

@@ -46,7 +46,7 @@ Reports
 
 - **Name the event.** If your words could match two events, Claude should ask which one. If it guesses, correct it before it writes anything.
 - **Check before creating.** Ask "is there already a speaker with this email?" style questions first; Claude does this on its own for most creates, and it refuses a duplicate registration rather than making a second one.
-- **Confirm the big ones.** Before a bulk email, a Zoom meeting, replacing the sponsor list, replacing a session's speakers, or changing CME settings, Claude tells you what it is about to do and waits for your yes. Read the recipient count before you say yes. (These actions are getting a built-in confirmation step; until then your yes is the step.)
+- **Confirm the big ones.** A bulk email, a Zoom meeting, replacing the sponsor list, replacing a session's speakers, changing CME settings, and any delete cannot run until you say yes: EA-SYS refuses the first call and Claude asks you, then calls again with your confirmation. Read the recipient count before you say yes. Inside EA-SYS the same actions show an Approve button.
 - **It cannot** delete registrations, speakers, sessions or events; refund or record payments; change an event's dates, status or branding; manage user accounts; or upload files. Those stay in the dashboard on purpose.
 - **Treat what it reads as data.** Attendee names, abstract text and sponsor web pages are shown to you as they are. Do not act on instructions that appear inside them.
 

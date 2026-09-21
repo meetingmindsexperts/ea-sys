@@ -12,6 +12,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { isReadOnlyTool, isWriteTool } from "./tools/_shared";
 import { TOOL_DATA_CLOSE, TOOL_DATA_OPEN } from "./tool-result";
+import { requiresApproval } from "./approvals";
 
 export interface CapabilityLimit {
   /** What the assistant tells the user it cannot do. */
@@ -92,6 +93,12 @@ export function buildCapabilitySection(tools: Tool[], opts: CapabilityOptions): 
   }
   if (opts.webSearch) {
     lines.push("**Web:** web_search, the public web, at most 3 calls per request.");
+  }
+  const approvals = tools.filter((t) => requiresApproval(t.name));
+  if (approvals.length > 0 && !opts.readOnly) {
+    lines.push(
+      `**Needs the person's approval (${approvals.length}):** ${names(approvals)}. Calling one of these shows the person an Approve button; the result says APPROVAL_REQUIRED. Tell them what is waiting and stop; never call it again in the same turn.`,
+    );
   }
 
   const limits = activeCapabilityLimits(tools);

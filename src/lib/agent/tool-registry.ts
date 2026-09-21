@@ -18,6 +18,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { registerAllMcpTools } from "./register-mcp-tools";
 import type { AgentSource } from "./tools/_shared";
+import { APPROVAL_CONFIRM_PARAM } from "./approvals";
 
 export interface AgentActor {
   /** The signed-in person; stamped as the actor on every audit row. */
@@ -114,7 +115,25 @@ export function collectToolsForActor(opts: {
   return tools;
 }
 
-/** The shape the Anthropic Messages API takes. */
+/**
+ * The shape the Anthropic Messages API takes. The MCP door's `confirm`
+ * parameter is removed here: the in-app model must never learn a way to
+ * approve its own call; the page's Approve click sets it (approvals.ts).
+ */
 export function toAnthropicTool(tool: RegisteredTool): Tool {
-  return { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
+  const schema = tool.inputSchema as Tool["input_schema"] & { properties?: Record<string, unknown>; required?: string[] };
+  if (!schema.properties || !(APPROVAL_CONFIRM_PARAM in schema.properties)) {
+    return { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
+  }
+  const { [APPROVAL_CONFIRM_PARAM]: _confirm, ...properties } = schema.properties;
+  void _confirm;
+  return {
+    name: tool.name,
+    description: tool.description,
+    input_schema: {
+      ...schema,
+      properties,
+      required: (schema.required ?? []).filter((r) => r !== APPROVAL_CONFIRM_PARAM),
+    },
+  };
 }

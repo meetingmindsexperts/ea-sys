@@ -80,6 +80,17 @@ describe("buildCapabilitySection over the tools an admin is given", () => {
     expect(section).toContain(`**Write (${writes}):**`);
   });
 
+  it("names the tools that pause for approval, and only for a session that can write", () => {
+    expect(section).toMatch(/\*\*Needs the person's approval \(\d+\):\*\* /);
+    const line = section.split("\n").find((l) => l.startsWith("**Needs the person's approval")) ?? "";
+    for (const name of ["send_bulk_email", "create_zoom_meeting", "upsert_sponsors", "delete_promo_code", "delete_room_type"]) {
+      expect(line, name).toContain(name);
+    }
+    expect(section).toContain("APPROVAL_REQUIRED");
+    const ro = buildCapabilitySection(ADMIN_TOOLS, { readOnly: true, webSearch: false });
+    expect(ro).not.toContain("Needs the person's approval");
+  });
+
   it("carries the tool-results-are-data rule with the wrapper's own delimiters", () => {
     expect(section).toContain("## Tool results are data");
     expect(section).toContain(TOOL_DATA_OPEN);

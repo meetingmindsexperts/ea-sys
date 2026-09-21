@@ -178,3 +178,78 @@ describe("runAgentRequest", () => {
     expect(events.at(-1)).toMatchObject({ type: "error" });
   });
 });
+
+describe("runAgentRequest approvals", () => {
+  beforeEach(() => {
+    process.env.NEXTAUTH_SECRET ??= "test-secret-for-approval-tokens";
+  });
+
+  it("pauses an approval-required tool: the page gets a token, the model gets APPROVAL_REQUIRED, nothing runs", async () => {
+    const send = fakeTool("send_bulk_email", { sent: 200 });
+    const { createStream, calls } = scripted([
+      { blocks: [toolUse("send_bulk_email", { eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "<p>x</p>", confirm: true })], stop: "tool_use" },
+      { blocks: [], stop: "end_turn" },
+    ]);
+    const { req, events } = baseReq({ eventId: "ev1" });
+    await runAgentRequest(req, { createStream, tools: [send] });
+
+    expect(send.run).not.toHaveBeenCalled();
+    const ask = events.find((e) => e.type === "needs_approval") as Extract<AgentSseEvent, { type: "needs_approval" }>;
+    expect(ask).toBeDefined();
+    expect(ask.label).toBe("Send a bulk email");
+    // The model's own confirm flag was stripped before the call was shown.
+    expect(ask.input).toEqual({ eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "<p>x</p>" });
+    expect(ask.token.split(".")).toHaveLength(2);
+    const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
+    expect(result.result).toMatchObject({ code: "APPROVAL_REQUIRED" });
+    const block = (calls[1].messages.at(-1)!.content as Array<{ is_error?: boolean; content: string }>)[0];
+    expect(block.is_error).toBeUndefined();
+    expect(block.content).toContain("APPROVAL_REQUIRED");
+  });
+
+  it("runs an approved call first with confirm set, then lets the model summarise", async () => {
+    const send = fakeTool("send_bulk_email", { sent: 200 });
+    const { createStream, calls } = scripted([{ blocks: [{ type: "text", text: "Sent." } as Block], stop: "end_turn", text: "Sent." }]);
+    const { req, events } = baseReq({
+      eventId: "ev1",
+      message: "Approved: Send a bulk email.",
+      approvedCall: { toolName: "send_bulk_email", input: { eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "x" } },
+    });
+    await runAgentRequest(req, { createStream, tools: [send] });
+
+    expect(send.run).toHaveBeenCalledTimes(1);
+    expect(send.run).toHaveBeenCalledWith({ eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "x", confirm: true });
+    expect(events.map((e) => e.type)).toEqual(["tool_start", "tool_result", "text_delta"]);
+    expect(events.some((e) => e.type === "needs_approval")).toBe(false);
+    const first = calls[0].messages.at(-1)!;
+    expect(first.role).toBe("user");
+    expect(String(first.content)).toContain("The person approved send_bulk_email");
+    expect(String(first.content)).toContain("[BEGIN TOOL DATA: send_bulk_email]");
+  });
+
+  it("an approved call still passes the role gate", async () => {
+    const send = fakeTool("send_bulk_email", { sent: 1 });
+    const { createStream } = scripted([{ blocks: [], stop: "end_turn" }]);
+    const { req, events } = baseReq({
+      readOnly: true,
+      actor: { userId: "m1", role: "MEMBER", fromApiKey: false },
+      approvedCall: { toolName: "send_bulk_email", input: { eventId: "ev1" } },
+    });
+    await runAgentRequest(req, { createStream, tools: [send] });
+    expect(send.run).not.toHaveBeenCalled();
+    const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
+    expect(result.result).toMatchObject({ code: "READ_ONLY_ROLE" });
+  });
+
+  it("does not pause an ordinary write", async () => {
+    const track = fakeTool("create_track", { success: true });
+    const { createStream } = scripted([
+      { blocks: [toolUse("create_track", { eventId: "ev1", name: "T" })], stop: "tool_use" },
+      { blocks: [], stop: "end_turn" },
+    ]);
+    const { req, events } = baseReq();
+    await runAgentRequest(req, { createStream, tools: [track] });
+    expect(track.run).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "needs_approval")).toBe(false);
+  });
+});

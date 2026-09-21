@@ -162,3 +162,64 @@ describe("the two route files", () => {
     expect(mockExecute.mock.calls[0][2]).toBe("org1");
   });
 });
+
+describe("approved calls through the handler", () => {
+  beforeEach(() => {
+    process.env.NEXTAUTH_SECRET ??= "test-secret-for-approval-tokens";
+    mockRun.mockReset();
+    mockRun.mockImplementation(async (req: { send: (e: unknown) => void }) => req.send({ type: "done" }));
+    mockEventFindFirst.mockReset();
+    mockEventFindFirst.mockResolvedValue({ id: "ev1" });
+    mockRateLimit.mockReset();
+    mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+  });
+
+  it("passes a call whose token names it, for this person and event", async () => {
+    const { mintApprovalToken } = await import("@/lib/agent/approval-token");
+    const input = { eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "x" };
+    const { token } = mintApprovalToken({ userId: "u1", organizationId: "org1", eventId: "ev1", toolName: "send_bulk_email", input });
+    const res = await executeAgentRequest(
+      post({ message: "Approved.", eventId: "ev1", approval: { toolName: "send_bulk_email", input, token } }),
+      session("ADMIN"),
+      "org1",
+      { route: "t" },
+    );
+    expect(res.status).toBe(200);
+    await readSse(res);
+    expect(mockRun.mock.calls[0][0]).toMatchObject({ approvedCall: { toolName: "send_bulk_email", input } });
+  });
+
+  it("refuses a token minted for someone else, another call, or that has expired", async () => {
+    const { mintApprovalToken } = await import("@/lib/agent/approval-token");
+    const input = { eventId: "ev1" };
+    const theirs = mintApprovalToken({ userId: "u2", organizationId: "org1", eventId: "ev1", toolName: "delete_room_type", input }).token;
+    const res1 = await executeAgentRequest(
+      post({ message: "Approved.", eventId: "ev1", approval: { toolName: "delete_room_type", input, token: theirs } }),
+      session("ADMIN"),
+      "org1",
+      { route: "t" },
+    );
+    expect(res1.status).toBe(400);
+    expect(await res1.json()).toMatchObject({ code: "APPROVAL_INVALID" });
+
+    const mine = mintApprovalToken({ userId: "u1", organizationId: "org1", eventId: "ev1", toolName: "delete_room_type", input }).token;
+    const res2 = await executeAgentRequest(
+      post({ message: "Approved.", eventId: "ev1", approval: { toolName: "delete_room_type", input: { eventId: "ev1", roomTypeId: "other" }, token: mine } }),
+      session("ADMIN"),
+      "org1",
+      { route: "t" },
+    );
+    expect(res2.status).toBe(400);
+
+    const old = mintApprovalToken({ userId: "u1", organizationId: "org1", eventId: "ev1", toolName: "delete_room_type", input }, Date.now() - 11 * 60 * 1000).token;
+    const res3 = await executeAgentRequest(
+      post({ message: "Approved.", eventId: "ev1", approval: { toolName: "delete_room_type", input, token: old } }),
+      session("ADMIN"),
+      "org1",
+      { route: "t" },
+    );
+    expect(res3.status).toBe(400);
+    expect((await res3.json()).error).toMatch(/expired/);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+});

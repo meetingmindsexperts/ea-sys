@@ -1,6 +1,6 @@
 # Event Agent architecture review: one agent, two doors
 
-**Status:** reviewed September 21, 2026; Phases 0 (hardening) and 1 (the org-level door) shipped the same day, Phases 2 to 4 not started. Addendum to
+**Status:** reviewed September 21, 2026; Phases 0 (hardening), 1 (the org-level door) and 2 (approvals) shipped the same day, Phases 3 and 4 not started. Addendum to
 [EVENT_AGENT_READINESS.html](EVENT_AGENT_READINESS.html) (September 18), which
 graded the agent against the UAE AI Award and found nine gaps (G1 to G9); this
 page answers the owner's next question, "the agent sits inside an event, you

@@ -121,3 +121,36 @@ describe("inputSchemaFromShape", () => {
     expect(props.status.enum).toEqual(["A", "B"]);
   });
 });
+
+describe("approval on the MCP registrations", () => {
+  beforeEach(() => {
+    mockExec.mockReset();
+    mockExec.mockResolvedValue({ success: true });
+    mockEventFindFirst.mockReset();
+    mockEventFindFirst.mockResolvedValue({ organizationId: "org1" });
+  });
+
+  it("an approval-required tool answers APPROVAL_REQUIRED until confirm is true, and never passes confirm on", async () => {
+    const tools = collect("ADMIN");
+    const del = tools.find((t) => t.name === "delete_promo_code")!;
+    expect((del.inputSchema.properties as Record<string, unknown>).confirm).toBeDefined();
+    const first = await del.run({ eventId: "ev1", promoCodeId: "p1" });
+    expect(first.text).toContain("APPROVAL_REQUIRED");
+    expect(mockEventFindFirst).not.toHaveBeenCalled();
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it("an ordinary write has no confirm parameter and runs at once", async () => {
+    const track = collect("ADMIN").find((t) => t.name === "create_track")!;
+    expect((track.inputSchema.properties as Record<string, unknown>).confirm).toBeUndefined();
+    await track.run({ eventId: "ev1", name: "T" });
+    expect(mockExec).toHaveBeenCalledTimes(1);
+  });
+
+  it("the in-app model never sees the confirm parameter", () => {
+    const del = collect("ADMIN").find((t) => t.name === "delete_promo_code")!;
+    const anthropic = toAnthropicTool(del);
+    expect((anthropic.input_schema.properties as Record<string, unknown>).confirm).toBeUndefined();
+    expect(anthropic.input_schema.required).not.toContain("confirm");
+  });
+});

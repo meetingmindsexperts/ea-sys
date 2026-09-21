@@ -14,6 +14,7 @@ import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { runAgentRequest, type AgentSseEvent } from "./run-agent";
+import { verifyApprovalToken } from "./approval-token";
 
 import { AGENT_ROLES } from "./agent-roles";
 
@@ -31,6 +32,14 @@ export const agentExecuteBodySchema = z.object({
     .optional(),
   /** Org-level door only: the event the conversation is about, if any. */
   eventId: z.string().min(1).max(64).nullable().optional(),
+  /** The call the person approved on the page, with the token the loop minted for it. */
+  approval: z
+    .object({
+      toolName: z.string().min(1).max(100),
+      input: z.record(z.string(), z.unknown()),
+      token: z.string().min(16).max(4000),
+    })
+    .optional(),
 });
 
 export interface ExecuteAgentOptions {
@@ -87,6 +96,20 @@ export async function executeAgentRequest(
     }
   }
 
+  let approvedCall: { toolName: string; input: Record<string, unknown> } | undefined;
+  if (parsed.data.approval) {
+    const { toolName, input, token } = parsed.data.approval;
+    const verdict = verifyApprovalToken(token, { userId: session.user.id, organizationId: orgId, eventId, toolName, input });
+    if (!verdict.ok) {
+      apiLogger.warn({ msg: "agent:approval-rejected", route: opts.route, userId: session.user.id, eventId, tool: toolName, reason: verdict.reason });
+      return NextResponse.json(
+        { error: verdict.reason === "expired" ? "This approval has expired. Ask again and approve within ten minutes." : "This approval does not match the call.", code: "APPROVAL_INVALID" },
+        { status: 400 },
+      );
+    }
+    approvedCall = { toolName, input };
+  }
+
   const history: MessageParam[] = (parsed.data.history ?? [])
     .filter((m) => m.content.length > 0)
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MSG_LENGTH) }))
@@ -111,6 +134,7 @@ export async function executeAgentRequest(
           history,
           readOnly,
           blockFinance,
+          approvedCall,
           send,
         });
         send({ type: "done" });
