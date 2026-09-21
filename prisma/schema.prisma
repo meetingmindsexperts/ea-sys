@@ -2482,6 +2482,103 @@ model HelpChatQuery {
   @@index([organizationId, createdAt])
 }
 
+// ==================== AGENT RUNS ====================
+
+/// How an Event Agent request ended. RUNNING is the row's state while the
+/// loop is live; a row left RUNNING past its lifetime is a crashed process,
+/// which the digest counts as an error a day later.
+enum AgentRunOutcome {
+  RUNNING
+  COMPLETED
+  ERROR
+  TURN_LIMIT
+}
+
+/// What happened to one tool call inside a run.
+enum AgentStepOutcome {
+  RAN
+  ERROR
+  REFUSED
+  APPROVAL_REQUESTED
+  UNKNOWN_TOOL
+}
+
+/// One request to the in-app Event Agent (docs/AGENT_ARCHITECTURE_REVIEW.md
+/// §4.6, the readiness review's O1). Names, counts, tokens and outcomes only:
+/// the message text, the tool inputs and the tool results are NEVER stored,
+/// because they carry attendee data. The message is recorded as a length.
+///
+/// People are scalar ids, never foreign keys (the LoginEvent convention), so
+/// a run outlives the account and the event it named. organizationId is NOT
+/// NULL: the route requires an org-bound actor, so every row has a lane.
+/// Written by src/lib/agent/run-store.ts inside runWithTenant; pruned after
+/// 180 days by the agent-run-prune job.
+model AgentRun {
+  id             String          @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String
+  eventId        String?
+  /// Which door: "org" (/api/agent/execute) or "event" (the per-event alias).
+  route          String
+  source         String          @default("agent")
+  /// Length of the person's message in characters; the text is never stored.
+  messageLength  Int
+  historyPairs   Int             @default(0)
+  /// The tool the request carried an approved call for, if any.
+  approvedTool   String?
+  model          String?
+  outcome        AgentRunOutcome @default(RUNNING)
+  /// A short class for ERROR rows ("provider", "unexpected"), never the message.
+  errorClass     String?
+  turns          Int             @default(0)
+  toolCalls      Int             @default(0)
+  writes         Int             @default(0)
+  refusals       Int             @default(0)
+  approvalsRequested Int         @default(0)
+  approvalsRun   Int             @default(0)
+  toolErrors     Int             @default(0)
+  inputTokens    Int             @default(0)
+  outputTokens   Int             @default(0)
+  cacheReadTokens     Int        @default(0)
+  cacheCreationTokens Int        @default(0)
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+  durationMs     Int?
+
+  steps AgentStep[]
+
+  @@index([organizationId, startedAt])
+  @@index([userId, startedAt])
+  @@index([eventId, startedAt])
+  @@index([startedAt])
+}
+
+/// One tool call inside a run: the tool's name, whether it was a write, whether
+/// the person had approved it, how it ended and how long it took. The
+/// organizationId is denormalized from the run so the row has its own lane.
+model AgentStep {
+  id             String           @id @default(cuid())
+  runId          String
+  organizationId String
+  seq            Int
+  tool           String
+  outcome        AgentStepOutcome
+  /// A short machine code (READ_ONLY_ROLE, WRITE_LIMIT, APPROVAL_REQUIRED, a
+  /// tool's own error code); free text never lands here.
+  code           String?
+  write          Boolean          @default(false)
+  approved       Boolean          @default(false)
+  durationMs     Int
+  createdAt      DateTime         @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, seq])
+  @@index([organizationId, createdAt])
+  @@index([tool, createdAt])
+}
+
 // ==================== IMPORT LOGS ====================
 
 model ImportLog {

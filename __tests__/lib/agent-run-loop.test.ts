@@ -253,3 +253,84 @@ describe("runAgentRequest approvals", () => {
     expect(events.some((e) => e.type === "needs_approval")).toBe(false);
   });
 });
+
+describe("runAgentRequest stored-run recording", () => {
+  function recorder() {
+    return { id: "run1", step: vi.fn(), turn: vi.fn(), finish: vi.fn(async () => {}) };
+  }
+
+  it("records one step per tool call with the outcome, the write flag and a code, never the input or the result", async () => {
+    const list = fakeTool("list_events", [{ id: "e1", name: "Dr Jane Smith summit" }]);
+    const create = fakeTool("create_event", { success: true });
+    const failing: RegisteredTool = {
+      ...fakeTool("create_track", {}),
+      run: vi.fn(async () => ({ text: JSON.stringify({ error: "Track for jane@x.com exists", code: "TRACK_EXISTS" }), isError: true })),
+    };
+    const { createStream } = scripted([
+      {
+        blocks: [
+          toolUse("list_events", {}, "a"),
+          toolUse("create_event", { name: "Summit" }, "b"),
+          toolUse("create_track", { eventId: "e1", name: "T" }, "c"),
+          toolUse("frobnicate", {}, "d"),
+          toolUse("send_bulk_email", { eventId: "e1" }, "e"),
+        ],
+        stop: "tool_use",
+      },
+      { blocks: [], stop: "end_turn" },
+    ]);
+    const run = recorder();
+    const { req } = baseReq({ run });
+    process.env.NEXTAUTH_SECRET ??= "test-secret-for-approval-tokens";
+    const ended = await runAgentRequest(req, { createStream, tools: [list, create, failing, fakeTool("send_bulk_email", {})] });
+
+    expect(ended).toBe("completed");
+    const steps = run.step.mock.calls.map((c) => c[0]);
+    expect(steps.map((s) => [s.tool, s.outcome, s.code ?? null, s.write, s.approved])).toEqual([
+      ["list_events", "RAN", null, false, false],
+      ["create_event", "RAN", null, true, false],
+      ["create_track", "ERROR", "TRACK_EXISTS", true, false],
+      ["frobnicate", "UNKNOWN_TOOL", "UNKNOWN_TOOL", true, false],
+      ["send_bulk_email", "APPROVAL_REQUESTED", "APPROVAL_REQUIRED", true, false],
+    ]);
+    for (const s of steps) expect(typeof s.durationMs).toBe("number");
+    // Nothing a step carries names a person, an address or a payload.
+    const serialized = JSON.stringify(steps);
+    expect(serialized).not.toContain("Jane");
+    expect(serialized).not.toContain("jane@x.com");
+    expect(serialized).not.toContain("Summit");
+    expect(run.turn).toHaveBeenCalledTimes(2);
+  });
+
+  it("records a refusal with the gate's code and an approved call as approved", async () => {
+    const send = fakeTool("send_bulk_email", { sent: 1 });
+    const create = fakeTool("create_event", {});
+    const { createStream } = scripted([
+      { blocks: [toolUse("create_event", { name: "X" })], stop: "tool_use" },
+      { blocks: [], stop: "end_turn" },
+    ]);
+    const run = recorder();
+    const { req } = baseReq({
+      run,
+      readOnly: true,
+      actor: { userId: "m1", role: "MEMBER", fromApiKey: false },
+      approvedCall: { toolName: "send_bulk_email", input: { eventId: "e1" } },
+    });
+    await runAgentRequest(req, { createStream, tools: [send, create] });
+    const steps = run.step.mock.calls.map((c) => c[0]);
+    // The approved call runs first; a MEMBER's approved write is still refused by the gate.
+    expect(steps[0]).toMatchObject({ tool: "send_bulk_email", outcome: "REFUSED", code: "READ_ONLY_ROLE", approved: true });
+    expect(steps[1]).toMatchObject({ tool: "create_event", outcome: "REFUSED", code: "READ_ONLY_ROLE", approved: false });
+  });
+
+  it("reports the step limit as its own ending and hands each turn's usage to the recorder", async () => {
+    const t = fakeTool("list_events", []);
+    const { createStream } = scripted([{ blocks: [toolUse("list_events", {})], stop: "tool_use" }]);
+    const run = recorder();
+    const { req } = baseReq({ run });
+    const ended = await runAgentRequest(req, { createStream, tools: [t] });
+    expect(ended).toBe("turn_limit");
+    expect(run.turn).toHaveBeenCalledTimes(MAX_TURNS);
+    expect(run.step).toHaveBeenCalledTimes(MAX_TURNS);
+  });
+});

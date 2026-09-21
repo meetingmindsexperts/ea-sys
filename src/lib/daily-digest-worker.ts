@@ -119,6 +119,7 @@ const SECTION_LABELS: Record<string, string> = {
   emailFailures: "failed emails",
   deploys: "deploys",
   alerts: "alert settings",
+  agent: "AI agent usage",
 };
 
 function pct(n: number | null): string {
@@ -173,6 +174,19 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
         detail: `Not ticking on schedule: ${snap.worker.info.staleJobs.join(", ")}.`,
       });
     }
+  }
+
+  // ── AI agent usage ────────────────────────────────────────────────────
+  // Counted, never judged: a run that failed on the provider already paged
+  // through agent:execute failed. A run stuck RUNNING for an hour is the one
+  // shape nothing else reports (a process died mid-request), so it is a finding.
+  note("agent", snap.agent);
+  if (snap.agent.status === "ok" && snap.agent.info && snap.agent.info.stuck24h > 0) {
+    findings.push({
+      severity: "warn",
+      label: `${snap.agent.info.stuck24h} AI agent run(s) never finished`,
+      detail: "Marked RUNNING an hour or more after starting: the process died mid-request. Check the app container's restarts.",
+    });
   }
 
   // ── Cron job outcomes ──────────────────────────────────────────────────
@@ -599,6 +613,18 @@ export function buildFacts(snap: InfraSnapshot): string[] {
     const ok = snap.jobs.rows.reduce((n, j) => n + j.ok24h, 0);
     const failed = snap.jobs.rows.reduce((n, j) => n + j.failed24h, 0);
     lines.push(`Scheduled job runs (24h): ${ok} ok, ${failed} failed`);
+  }
+
+  if (snap.agent.status === "ok" && snap.agent.info) {
+    const a = snap.agent.info;
+    lines.push(`AI agent runs (24h): ${a.runs24h} (${a.failed24h} failed, ${a.turnLimit24h} hit the step limit)`);
+    if (a.runs24h > 0) {
+      lines.push(
+        `AI agent tool calls (24h): ${a.toolCalls24h} (${a.writes24h} writes, ${a.refusals24h} refused, ` +
+          `${a.approvalsRequested24h} approvals asked, ${a.approvalsRun24h} approved, ${a.toolErrors24h} errors)`,
+      );
+      lines.push(`AI agent tokens (24h): ${a.tokens24h.toLocaleString("en-US")} across ${a.people24h} ${a.people24h === 1 ? "person" : "people"}`);
+    }
   }
 
   if (snap.backup.status === "ok" && snap.backup.info) {

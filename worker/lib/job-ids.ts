@@ -36,6 +36,7 @@ export const JOB_IDS = {
   EMAIL_ATTACHMENT_PRUNE: 1019,
   MIRROR_ARCHIVE: 1020,
   APPROVAL_ESCALATION: 1021,
+  AGENT_RUN_PRUNE: 1022,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

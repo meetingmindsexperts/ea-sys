@@ -12,6 +12,7 @@ import { useSession } from "next-auth/react";
 import {
   RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer, ScrollText, MailWarning,
   Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio, Activity, HardDrive,
+  Bot,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -44,6 +45,7 @@ interface Snapshot {
   metrics: { status: string; error?: string; instanceId: string | null; values: { label: string; value: number | null; unit: string }[] };
   jobs: { status: string; error?: string; workerLastSeen: string | null; rows: { job: string; cadence: string; lastStatus: string | null; lastRunAt: string | null; lastDurationMs: number | null; lastError: string | null; ok24h: number; failed24h: number }[] };
   recentErrors: { status: string; error?: string; rows: { level: string; module: string; message: string; at: string }[] };
+  agent: { status: string; error?: string; info: null | { runs24h: number; failed24h: number; turnLimit24h: number; stuck24h: number; toolCalls24h: number; writes24h: number; refusals24h: number; approvalsRequested24h: number; approvalsRun24h: number; toolErrors24h: number; people24h: number; tokens24h: number; runs7d: number } };
   emailFailures: { status: string; error?: string; rows: { to: string; subject: string; error: string | null; templateSlug: string | null; at: string }[] };
 }
 
@@ -714,6 +716,37 @@ export default function InfraPage() {
                     <div key={r.label} className="flex items-center justify-between gap-2 text-sm" title={r.hint}>
                       <span className="text-muted-foreground">{r.label}</span>
                       <span className="font-mono tabular-nums">{r.value.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* AI agent usage: what the stored runs say. Counts only; nothing
+              here names a person, an event or a message. */}
+          <Card id="agent" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Bot className="h-4 w-4 text-primary" /> AI agent (24h)</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.agent.status} error={snap.agent.error} unconfiguredHint="No runs recorded." />
+              {snap.agent.status === "ok" && snap.agent.info && (
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      ["Runs", snap.agent.info.runs24h, `${snap.agent.info.runs7d} in the last 7 days.`],
+                      ["Failed runs", snap.agent.info.failed24h, "Provider or unexpected errors. Each one also reached the error log."],
+                      ["Stopped at the step limit", snap.agent.info.turnLimit24h, "The model kept calling tools until the cap. Usually a request that should be split."],
+                      ["Never finished", snap.agent.info.stuck24h, "Still marked running an hour later: the process died mid-request."],
+                      ["Tool calls", snap.agent.info.toolCalls24h, `${snap.agent.info.writes24h} writes, ${snap.agent.info.toolErrors24h} errors.`],
+                      ["Refused by the gate", snap.agent.info.refusals24h, "Read-only role, finance, roster or the write cap."],
+                      ["Approvals asked / approved", `${snap.agent.info.approvalsRequested24h} / ${snap.agent.info.approvalsRun24h}`, "Calls that paused for the person, and the ones the person approved."],
+                      ["People", snap.agent.info.people24h, "Distinct signed-in users who sent a request."],
+                      ["Tokens", snap.agent.info.tokens24h, "Input, output and cache tokens across every run."],
+                    ] as const
+                  ).map(([label, value, hint]) => (
+                    <div key={label} className="flex items-center justify-between gap-2 text-sm" title={hint}>
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-mono tabular-nums">{typeof value === "number" ? value.toLocaleString() : value}</span>
                     </div>
                   ))}
                 </div>

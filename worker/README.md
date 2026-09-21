@@ -35,9 +35,10 @@ nothing enforces this table, so it is the one that rots.
 | `daily-digest` | `30 5 * * *` (daily 05:30 UTC) | 1015 | `src/lib/daily-digest-worker.ts` → `runDailyDigestTick` |
 | `hr-year-roll` | `5 1 * * *` (daily 01:05 UTC; acts in January only) | 1018 | `src/hr/hr-year-roll-worker.ts` → `runHrYearRollTick` |
 | `approval-escalation` | `*/10 * * * *` (every 10 min) | 1021 | `src/lib/approvals/approval-notifications-worker.ts` → `runApprovalNotificationsTick` |
+| `agent-run-prune` | `30 4 * * *` (daily 04:30 UTC) | 1022 | `src/lib/agent-run-prune-worker.ts` → `runAgentRunPruneTick` |
 
-> The three retention sweeps + the digest are deliberately staggered
-> (03:45 → 04:15 → 04:45 → 05:30) so they neither contend for the same DB
+> The four retention sweeps + the digest are deliberately staggered
+> (03:45 → 04:15 → 04:30 → 04:45 → 05:30) so they neither contend for the same DB
 > window nor let the digest report mid-prune numbers.
 
 > `daily-digest` is the only job whose output is a **human** rather than a state

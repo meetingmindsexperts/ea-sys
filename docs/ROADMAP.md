@@ -125,11 +125,19 @@ the in-app loop emits `needs_approval` with a ten-minute HMAC token that
 names the person, org, event, tool and exact input, the page shows an
 Approve/Cancel card, and an approved call runs first with the token verified
 by the route; the model never sees `confirm`. The one-page claude.ai guide
-is `docs/CLAUDE_AI_AGENT_GUIDE.md` (also a shared doc). **Next:** Phase 3
-(stored runs, RLS, prune job, a digest line), then Phase 4 (delete the
-hand-written `AGENT_TOOL_DEFINITIONS`; the registry already derives every
-schema from Zod, so this is a deletion), then the floating agent button and
-the drawer form of the chat if the owner wants them.
+is `docs/CLAUDE_AI_AGENT_GUIDE.md` (also a shared doc). **Phase 3 shipped
+the same night:** `AgentRun` and `AgentStep` (org-stamped, scalar user and
+event ids, a message length and tool names with machine codes, never a
+message or a tool's data), an additive idempotent migration, the flat RLS
+policy with a harness suite and the CI-gate entry, the recorder in
+`src/lib/agent/run-store.ts` (failure-isolated, every write in the actor's
+lane), the `agent-run-prune` job at 180 days, an AI agent card on the infra
+page and three digest lines. Conversation history stays in the browser (a
+server-side history keyed per conversation is an owner option; the runs make
+it possible). **Next:** Phase 4 (delete the hand-written
+`AGENT_TOOL_DEFINITIONS`; the registry already derives every schema from
+Zod, so this is a deletion), then the floating agent button and the drawer
+form of the chat if the owner wants them.
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 

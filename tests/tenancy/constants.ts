@@ -361,6 +361,22 @@ export const ANALYTICS_A_ID = "tenancy-analytics-a";
 export const ANALYTICS_B_ID = "tenancy-analytics-b";
 export const SHARED_ANALYTICS_PATH = "/e/tenancy-fixture/register";
 
+/**
+ * Event Agent stored runs (born tenancy-compliant, Sep 21, 2026). AgentRun has
+ * no per-org unique field, so scoping is proved the MediaFile way: both orgs
+ * carry a run for the SAME scalar userId (no FK), and the by-user read
+ * resolving to one lane's run is the proof. Each run carries one step on the
+ * SAME tool name, which proves the 2-hop scoping through the run id. No FKs
+ * to anything but each other, so rows survive the org cascade and are
+ * cleaned explicitly in the seed's main().
+ */
+export const AGENT_RUN_A_ID = "tenancy-agentrun-a";
+export const AGENT_RUN_B_ID = "tenancy-agentrun-b";
+export const AGENT_STEP_A_ID = "tenancy-agentstep-a";
+export const AGENT_STEP_B_ID = "tenancy-agentstep-b";
+export const SHARED_AGENT_USER_ID = "tenancy-agent-user";
+export const SHARED_AGENT_TOOL = "list_events";
+
 export const HELP_QUERY_A_ID = "tenancy-helpq-a";
 export const HELP_QUERY_B_ID = "tenancy-helpq-b";
 export const HELP_QUERY_NULLORG_ID = "tenancy-helpq-nullorg";

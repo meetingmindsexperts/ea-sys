@@ -223,3 +223,92 @@ describe("approved calls through the handler", () => {
     expect(mockRun).not.toHaveBeenCalled();
   });
 });
+
+// ── Stored runs: the handler opens a run before the stream and closes it ──
+const { mockStartRun, mockRecorder } = vi.hoisted(() => {
+  const mockRecorder = { id: "run1", step: vi.fn(), turn: vi.fn(), finish: vi.fn(async () => {}) };
+  return { mockStartRun: vi.fn<(input: Record<string, unknown>) => Promise<typeof mockRecorder>>(async () => mockRecorder), mockRecorder };
+});
+vi.mock("@/lib/agent/run-store", () => ({ startAgentRun: mockStartRun }));
+vi.mock("@/lib/ai/config", () => ({ getModelConfig: () => ({ model: "claude-test", maxTokens: 1, temperature: 0 }) }));
+
+describe("executeAgentRequest stored runs", () => {
+  beforeEach(() => {
+    mockStartRun.mockClear();
+    mockRecorder.finish.mockClear();
+    mockRun.mockReset();
+    mockRun.mockImplementation(async () => "completed");
+    mockEventFindFirst.mockReset();
+    mockEventFindFirst.mockResolvedValue({ id: "ev1" });
+    mockRateLimit.mockReset();
+    mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+  });
+
+  it("opens the run with the door, the event, a message LENGTH and the history size, and hands the recorder to the loop", async () => {
+    await readSse(
+      await executeAgentRequest(
+        post({ message: "find the summit", history: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] }),
+        session("ADMIN"),
+        "org1",
+        { route: "t", eventIdFromRoute: "ev1" },
+      ),
+    );
+    expect(mockStartRun).toHaveBeenCalledTimes(1);
+    expect(mockStartRun.mock.calls[0][0]).toEqual({
+      organizationId: "org1",
+      userId: "u1",
+      role: "ADMIN",
+      eventId: "ev1",
+      route: "event",
+      messageLength: "find the summit".length,
+      historyPairs: 1,
+      approvedTool: null,
+      model: "claude-test",
+    });
+    expect(JSON.stringify(mockStartRun.mock.calls[0][0])).not.toContain("find the summit");
+    expect(mockRun.mock.calls[0][0].run).toBe(mockRecorder);
+    expect(mockRecorder.finish).toHaveBeenCalledWith("COMPLETED");
+  });
+
+  it("names the org door and the approved tool", async () => {
+    process.env.NEXTAUTH_SECRET ??= "test-secret-for-approval-tokens";
+    const { mintApprovalToken } = await import("@/lib/agent/approval-token");
+    const input = { eventId: "ev1", recipientType: "speakers" };
+    const { token } = mintApprovalToken({ userId: "u1", organizationId: "org1", eventId: null, toolName: "send_bulk_email", input });
+    await readSse(
+      await executeAgentRequest(
+        post({ message: "Approved.", approval: { toolName: "send_bulk_email", input, token } }),
+        session("ADMIN"),
+        "org1",
+        { route: "t" },
+      ),
+    );
+    expect(mockStartRun.mock.calls[0][0]).toMatchObject({ route: "org", eventId: null, approvedTool: "send_bulk_email" });
+  });
+
+  it("closes the run as TURN_LIMIT when the loop hit its cap", async () => {
+    mockRun.mockImplementation(async () => "turn_limit");
+    await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
+    expect(mockRecorder.finish).toHaveBeenCalledWith("TURN_LIMIT");
+  });
+
+  it("closes the run as ERROR with a class, and still tells the page", async () => {
+    mockRun.mockImplementation(async () => {
+      throw new Error("boom");
+    });
+    const body = await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
+    expect(body).toContain('"type":"error"');
+    expect(mockRecorder.finish).toHaveBeenCalledWith("ERROR", "unexpected");
+  });
+
+  it("never opens a run for a request the gates refuse", async () => {
+    await executeAgentRequest(post({ message: "hi" }), session("ONSITE"), "org1", { route: "t" });
+    mockRateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 9 });
+    await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" });
+    mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+    await executeAgentRequest(post({ message: "" }), session("ADMIN"), "org1", { route: "t" });
+    mockEventFindFirst.mockResolvedValue(null);
+    await executeAgentRequest(post({ message: "hi", eventId: "nope" }), session("ADMIN"), "org1", { route: "t" });
+    expect(mockStartRun).not.toHaveBeenCalled();
+  });
+});

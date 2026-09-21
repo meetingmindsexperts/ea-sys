@@ -171,7 +171,26 @@ function healthySnapshot(): InfraSnapshot {
     jobs: { status: "ok", workerLastSeen: "x", rows: [] },
     recentErrors: { status: "ok", rows: [] },
     emailFailures: { status: "ok", rows: [] },
+    agent: { status: "ok", info: healthyAgent() },
   } as InfraSnapshot;
+}
+
+function healthyAgent(): NonNullable<InfraSnapshot["agent"]["info"]> {
+  return {
+    runs24h: 0,
+    failed24h: 0,
+    turnLimit24h: 0,
+    stuck24h: 0,
+    toolCalls24h: 0,
+    writes24h: 0,
+    refusals24h: 0,
+    approvalsRequested24h: 0,
+    approvalsRun24h: 0,
+    toolErrors24h: 0,
+    people24h: 0,
+    tokens24h: 0,
+    runs7d: 0,
+  };
 }
 
 beforeEach(() => {
@@ -510,6 +529,38 @@ describe("renderDigest", () => {
 });
 
 describe("buildFacts", () => {
+  it("prints the AI agent's day: the runs line always, the detail lines only when someone used it", () => {
+    const quiet = healthySnapshot();
+    const quietFacts = buildFacts(quiet).join("\n");
+    expect(quietFacts).toContain("AI agent runs (24h): 0 (0 failed, 0 hit the step limit)");
+    expect(quietFacts).not.toContain("AI agent tool calls");
+    expect(quietFacts).not.toContain("AI agent tokens");
+
+    const busy = healthySnapshot();
+    busy.agent.info = {
+      ...healthyAgent(),
+      runs24h: 3,
+      failed24h: 1,
+      turnLimit24h: 0,
+      toolCalls24h: 12,
+      writes24h: 4,
+      refusals24h: 1,
+      approvalsRequested24h: 2,
+      approvalsRun24h: 1,
+      toolErrors24h: 0,
+      people24h: 2,
+      tokens24h: 45210,
+    };
+    const facts = buildFacts(busy).join("\n");
+    expect(facts).toContain("AI agent runs (24h): 3 (1 failed, 0 hit the step limit)");
+    expect(facts).toContain("AI agent tool calls (24h): 12 (4 writes, 1 refused, 2 approvals asked, 1 approved, 0 errors)");
+    expect(facts).toContain("AI agent tokens (24h): 45,210 across 2 people");
+
+    const unread = healthySnapshot();
+    unread.agent = { status: "error", error: "x", info: null };
+    expect(buildFacts(unread).join("\n")).not.toContain("AI agent");
+  });
+
   it("skips sections that failed rather than printing bogus zeroes", () => {
     const s = healthySnapshot();
     s.metrics = { status: "error", error: "x", instanceId: null, values: [] };
@@ -751,5 +802,31 @@ describe("assessInfra — uploads storage", () => {
     const broken = healthySnapshot();
     broken.uploads = { status: "error", error: "boom", info: null };
     expect(assessInfra(broken).unavailable).toContain("uploads storage");
+  });
+});
+
+describe("assessInfra — the AI agent section", () => {
+  it("reports a run left RUNNING for an hour as a finding, since nothing else does", () => {
+    const s = healthySnapshot();
+    s.agent.info = { ...healthyAgent(), runs24h: 2, stuck24h: 1 };
+    const a = assessInfra(s);
+    expect(a.verdict).toBe("warn");
+    expect(a.findings.map((f) => f.label)).toContain("1 AI agent run(s) never finished");
+  });
+
+  it("does not turn failed or capped runs into findings: those already reached the error log", () => {
+    const s = healthySnapshot();
+    s.agent.info = { ...healthyAgent(), runs24h: 5, failed24h: 2, turnLimit24h: 1 };
+    const a = assessInfra(s);
+    expect(a.verdict).toBe("ok");
+    expect(a.findings).toEqual([]);
+  });
+
+  it("lists an unreadable agent section as unchecked under its human name", () => {
+    const s = healthySnapshot();
+    s.agent = { status: "error", error: "relation does not exist", info: null };
+    const a = assessInfra(s);
+    expect(a.unavailable).toContain("AI agent usage");
+    expect(a.verdict).toBe("ok");
   });
 });

@@ -13,8 +13,10 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { getModelConfig } from "@/lib/ai/config";
 import { runAgentRequest, type AgentSseEvent } from "./run-agent";
 import { verifyApprovalToken } from "./approval-token";
+import { startAgentRun } from "./run-store";
 
 import { AGENT_ROLES } from "./agent-roles";
 
@@ -115,6 +117,20 @@ export async function executeAgentRequest(
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MSG_LENGTH) }))
     .slice(-MAX_HISTORY_PAIRS * 2);
 
+  // The stored run (names, counts, tokens; never the message or a tool's
+  // data). A recording failure hands back a no-op recorder; the request runs.
+  const run = await startAgentRun({
+    organizationId: orgId,
+    userId: session.user.id,
+    role,
+    eventId,
+    route: opts.eventIdFromRoute ? "event" : "org",
+    messageLength: parsed.data.message.length,
+    historyPairs: Math.floor(history.length / 2),
+    approvedTool: approvedCall?.toolName ?? null,
+    model: getModelConfig("agent").model,
+  });
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -126,7 +142,7 @@ export async function executeAgentRequest(
         }
       };
       try {
-        await runAgentRequest({
+        const ended = await runAgentRequest({
           organizationId: orgId,
           eventId,
           actor: { userId: session.user.id, role, fromApiKey: false },
@@ -135,17 +151,20 @@ export async function executeAgentRequest(
           readOnly,
           blockFinance,
           approvedCall,
+          run,
           send,
         });
         send({ type: "done" });
+        await run.finish(ended === "turn_limit" ? "TURN_LIMIT" : "COMPLETED");
       } catch (err) {
         apiLogger.error({ err, route: opts.route, eventId, userId: session.user.id }, "agent:execute failed");
+        const providerErr = err instanceof Anthropic.APIError ? err : null;
         // Mask provider-specific details; never leak API internals to the client.
-        const msg =
-          err instanceof Anthropic.APIError
-            ? `AI provider error (${err.status}). Please try again.`
-            : "An unexpected error occurred. Please try again.";
+        const msg = providerErr
+          ? `AI provider error (${providerErr.status}). Please try again.`
+          : "An unexpected error occurred. Please try again.";
         send({ type: "error", message: msg });
+        await run.finish("ERROR", providerErr ? "provider" : "unexpected");
       } finally {
         try {
           controller.close();

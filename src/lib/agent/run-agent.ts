@@ -17,6 +17,9 @@ import { wrapToolResultAsData } from "./tool-result";
 import { collectToolsForActor, toAnthropicTool, type AgentActor, type RegisteredTool } from "./tool-registry";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, approvalLabel, requiresApproval } from "./approvals";
 import { mintApprovalToken } from "./approval-token";
+import { isWriteTool } from "./tools/_shared";
+import { stepCodeFromResult, type AgentRunRecorder } from "./run-store";
+import type { AgentStepOutcome } from "@prisma/client";
 
 export const MAX_TURNS = 25;
 
@@ -64,8 +67,13 @@ export interface AgentRequest {
   blockFinance: boolean;
   /** A call the person approved on the page; the route verified its token. */
   approvedCall?: ApprovedCall;
+  /** The stored-run recorder; absent means nothing is recorded. */
+  run?: AgentRunRecorder;
   send: (event: AgentSseEvent) => void;
 }
+
+/** How the loop ended: the model finished, or the step limit stopped it. */
+export type AgentLoopEnd = "completed" | "turn_limit";
 
 /** What the loop needs from the model: async events, then the final message. */
 export type ModelStream = AsyncIterable<MessageStreamEvent> & { finalMessage(): Promise<Message> };
@@ -103,7 +111,7 @@ export function approvalRequiredResult(toolName: string): string {
   });
 }
 
-export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): Promise<void> {
+export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): Promise<AgentLoopEnd> {
   const tools = deps.tools ?? collectToolsForActor({ organizationId: req.organizationId, actor: req.actor, source: "agent" });
   const byName = new Map(tools.map((t) => [t.name, t]));
   const definitions = tools.map(toAnthropicTool);
@@ -137,14 +145,20 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     const tool = byName.get(toolName);
     let text: string;
     let isError: boolean;
+    let stepOutcome: AgentStepOutcome;
+    let stepCode: string | null = null;
 
     const decision = tool ? gateToolCall(toolName, { readOnly: req.readOnly, blockFinance: req.blockFinance, writesSoFar }) : null;
     if (!tool || decision === null) {
       text = JSON.stringify({ error: `Unknown tool: ${toolName}`, code: "UNKNOWN_TOOL" });
       isError = true;
+      stepOutcome = "UNKNOWN_TOOL";
+      stepCode = "UNKNOWN_TOOL";
     } else if (decision.kind === "refuse") {
       text = JSON.stringify(decision.result);
       isError = true;
+      stepOutcome = "REFUSED";
+      stepCode = decision.result.code;
     } else if (requiresApproval(toolName) && !opts.approved) {
       // The pause. The page gets the proposed call and a token that names
       // exactly this call for this person; the model gets told to stop.
@@ -166,12 +180,27 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
       });
       text = approvalRequiredResult(toolName);
       isError = false;
+      stepOutcome = "APPROVAL_REQUESTED";
+      stepCode = APPROVAL_REQUIRED_CODE;
     } else {
       if (decision.write) writesSoFar++;
       const ran = await tool.run(opts.approved ? { ...toolInput, [APPROVAL_CONFIRM_PARAM]: true } : toolInput);
       text = req.blockFinance ? redactToolText(ran.text) : ran.text;
       isError = ran.isError;
+      stepOutcome = isError ? "ERROR" : "RAN";
+      stepCode = isError ? stepCodeFromResult(ran.text) : null;
     }
+
+    // The stored step: the tool's name, how it ended and how long it took.
+    // Never the input, never the result.
+    req.run?.step({
+      tool: toolName,
+      outcome: stepOutcome,
+      code: stepCode,
+      write: isWriteTool(toolName),
+      approved: opts.approved,
+      durationMs: Date.now() - started,
+    });
 
     const log = {
       tool: toolName,
@@ -235,9 +264,10 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
 
     const response = await stream.finalMessage();
     messages.push({ role: "assistant", content: response.content });
+    req.run?.turn(response.usage);
 
-    if (response.stop_reason === "end_turn") return;
-    if (response.stop_reason !== "tool_use") return;
+    if (response.stop_reason === "end_turn") return "completed";
+    if (response.stop_reason !== "tool_use") return "completed";
 
     const toolResults: MessageParam["content"] = [];
 
@@ -266,4 +296,5 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     type: "error",
     message: "The agent reached its maximum number of steps. Please try a simpler request or break it into smaller parts.",
   });
+  return "turn_limit";
 }

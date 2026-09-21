@@ -347,6 +347,30 @@ export interface UploadsStorage {
   accessLogs: UploadsAccessLogs;
 }
 
+/**
+ * The Event Agent's use over the last 24 hours (docs/AGENT_ARCHITECTURE_REVIEW.md
+ * §4.6): what the stored runs say, org-scoped for a tenant, totals for the
+ * operator. Counts only; nothing here names a person or an event.
+ */
+export interface AgentUsage {
+  runs24h: number;
+  /** Runs that ended in a provider or unexpected error. */
+  failed24h: number;
+  /** Runs stopped by the step limit. */
+  turnLimit24h: number;
+  /** Runs still marked RUNNING an hour or more after they started: a crashed process. */
+  stuck24h: number;
+  toolCalls24h: number;
+  writes24h: number;
+  refusals24h: number;
+  approvalsRequested24h: number;
+  approvalsRun24h: number;
+  toolErrors24h: number;
+  people24h: number;
+  tokens24h: number;
+  runs7d: number;
+}
+
 export interface InfraSnapshot {
   /**
    * Who this snapshot was built for. The page needs it: a tenant is shown a
@@ -374,6 +398,7 @@ export interface InfraSnapshot {
   jobs: { status: SourceStatus; error?: string; workerLastSeen: string | null; rows: JobStatus[] };
   recentErrors: { status: SourceStatus; error?: string; rows: LogRow[] };
   emailFailures: { status: SourceStatus; error?: string; rows: EmailFailRow[] };
+  agent: { status: SourceStatus; error?: string; info: AgentUsage | null };
 }
 
 /**
@@ -702,6 +727,61 @@ async function fetchJobs(): Promise<InfraSnapshot["jobs"]> {
   } catch (err) {
     apiLogger.warn({ err }, "infra:jobs-failed");
     return { status: "error", error: (err as Error).message, workerLastSeen: null, rows: [] };
+  }
+}
+
+async function fetchAgentUsage(scope: InfraScope): Promise<InfraSnapshot["agent"]> {
+  try {
+    const now = Date.now();
+    const dayAgo = new Date(now - 24 * 3600_000);
+    const weekAgo = new Date(now - 7 * 24 * 3600_000);
+    const hourAgo = new Date(now - 3600_000);
+    const c = scopedClient(scope);
+    // Both tables carry a NOT NULL organizationId, so the plain org filter fits.
+    const org = scopeWhere(scope);
+    const day = { ...org, startedAt: { gte: dayAgo } };
+    const [runs24h, failed24h, turnLimit24h, stuck24h, runs7d, people, tokens, steps, writes24h, approvalsRun24h] =
+      await inScope(scope, () =>
+        Promise.all([
+          c.agentRun.count({ where: day }),
+          c.agentRun.count({ where: { ...day, outcome: "ERROR" } }),
+          c.agentRun.count({ where: { ...day, outcome: "TURN_LIMIT" } }),
+          c.agentRun.count({ where: { ...day, outcome: "RUNNING", startedAt: { gte: dayAgo, lt: hourAgo } } }),
+          c.agentRun.count({ where: { ...org, startedAt: { gte: weekAgo } } }),
+          c.agentRun.findMany({ where: day, select: { userId: true }, distinct: ["userId"] }),
+          c.agentRun.aggregate({
+            where: day,
+            _sum: { inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheCreationTokens: true },
+          }),
+          c.agentStep.groupBy({ by: ["outcome"], where: { ...org, createdAt: { gte: dayAgo } }, _count: { _all: true } }),
+          c.agentStep.count({ where: { ...org, createdAt: { gte: dayAgo }, write: true, outcome: { in: ["RAN", "ERROR"] } } }),
+          c.agentStep.count({ where: { ...org, createdAt: { gte: dayAgo }, approved: true, outcome: { in: ["RAN", "ERROR"] } } }),
+        ]),
+      );
+    const byOutcome = new Map(steps.map((g) => [g.outcome, g._count._all]));
+    const sum = tokens._sum;
+    return {
+      status: "ok",
+      info: {
+        runs24h,
+        failed24h,
+        turnLimit24h,
+        stuck24h,
+        toolCalls24h: [...byOutcome.values()].reduce((n, v) => n + v, 0),
+        writes24h,
+        refusals24h: byOutcome.get("REFUSED") ?? 0,
+        approvalsRequested24h: byOutcome.get("APPROVAL_REQUESTED") ?? 0,
+        approvalsRun24h,
+        toolErrors24h: (byOutcome.get("ERROR") ?? 0) + (byOutcome.get("UNKNOWN_TOOL") ?? 0),
+        people24h: people.length,
+        tokens24h:
+          (sum.inputTokens ?? 0) + (sum.outputTokens ?? 0) + (sum.cacheReadTokens ?? 0) + (sum.cacheCreationTokens ?? 0),
+        runs7d,
+      },
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:agent-failed");
+    return { status: "error", error: (err as Error).message, info: null };
   }
 }
 
@@ -1820,7 +1900,7 @@ export async function getInfraSnapshot(
     Promise.resolve({ status: "operator-only" as const, ...empty });
 
   const instanceId = isOperator ? await getInstanceId() : null;
-  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr, uploads] =
+  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr, uploads, agent] =
     await Promise.all([
       isOperator ? fetchDeploys() : notForTenants({ runs: [] }),
       isOperator ? fetchAlarms() : notForTenants({ inAlarm: [] }),
@@ -1839,6 +1919,7 @@ export async function getInfraSnapshot(
       fetchAbuse(scope),
       isOperator ? fetchDr() : notForTenants({ rows: [] }),
       isOperator ? fetchUploads() : notForTenants({ info: null }),
+      fetchAgentUsage(scope),
     ]);
   const snap: InfraSnapshot = {
     scope: scope.kind,
@@ -1862,6 +1943,7 @@ export async function getInfraSnapshot(
     jobs,
     recentErrors,
     emailFailures,
+    agent,
   };
   cache.set(key, { at: Date.now(), snap });
   return snap;

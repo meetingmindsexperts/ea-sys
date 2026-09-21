@@ -1,6 +1,6 @@
 # Event Agent architecture review: one agent, two doors
 
-**Status:** reviewed September 21, 2026; Phases 0 (hardening), 1 (the org-level door) and 2 (approvals) shipped the same day, Phases 3 and 4 not started. Addendum to
+**Status:** reviewed September 21, 2026; Phases 0 (hardening), 1 (the org-level door), 2 (approvals) and 3 (stored runs) shipped the same day, Phase 4 not started. Addendum to
 [EVENT_AGENT_READINESS.html](EVENT_AGENT_READINESS.html) (September 18), which
 graded the agent against the UAE AI Award and found nine gaps (G1 to G9); this
 page answers the owner's next question, "the agent sits inside an event, you
@@ -137,6 +137,22 @@ stamped, RLS policy, CI-gate entry, a prune job like the email-log prune.
 Store tool names and counts, never tool results, so attendee data stays out.
 This is the readiness review's O1 and it is what makes Medhat's push
 measurable: today the baseline is a CloudWatch query.
+
+**Built September 21, 2026.** `AgentRun` and `AgentStep` (migration
+`20260921120000_add_agent_runs`, `prisma/rls/agentrun.sql`, the harness suite
+`tests/tenancy/agentrun-rls.test.ts`, the model list in
+`check-tenant-als.sh`), the recorder `src/lib/agent/run-store.ts` (the
+handler opens a run before the stream and closes it with the loop's outcome;
+the loop records a step per tool call with the tool's name, the gate's or the
+tool's machine code, the write flag, whether the person had approved it and
+the duration; every write in the actor's lane, failure-isolated so a run that
+cannot be recorded still runs), the `agent-run-prune` job (04:30 UTC, 180
+days, steps go with their run through the FK cascade), an AI agent card on
+the infra page and three lines in the daily digest, with a run left RUNNING
+for an hour reported as a finding. Two things the plan named are not stored:
+cost, because the code does not know the model's price and tokens are the
+durable figure; and the MCP door's calls, which are logged per call but have
+no run to belong to. Conversation history stays in the browser.
 
 ### 4.7 Model
 

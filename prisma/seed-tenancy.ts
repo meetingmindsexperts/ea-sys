@@ -149,6 +149,12 @@ import {
   SHARED_ANALYTICS_PATH,
   HELP_QUERY_A_ID,
   HELP_QUERY_B_ID,
+  AGENT_RUN_A_ID,
+  AGENT_RUN_B_ID,
+  AGENT_STEP_A_ID,
+  AGENT_STEP_B_ID,
+  SHARED_AGENT_USER_ID,
+  SHARED_AGENT_TOOL,
   HELP_QUERY_NULLORG_ID,
   SHARED_HELP_QUESTION,
   SHARED_CRM_EMAIL_KEY,
@@ -348,6 +354,10 @@ async function seedOrg(
   // path (no per-org unique field on AnalyticsEvent). NO FKs, so rows always
   // survive the org cascade — cleaned explicitly in main().
   analyticsHitId?: string,
+  // Event Agent stored runs (born-compliant, Sep 21 2026): one run per org on
+  // the SHARED scalar userId with one step on the SHARED tool name. FKs only
+  // between the two (step -> run cascade); cleaned explicitly in main().
+  agentRun?: { runId: string; stepId: string },
 ) {
   await db.organization.create({
     data: {
@@ -935,6 +945,31 @@ async function seedOrg(
       },
     });
   }
+  if (agentRun) {
+    await db.agentRun.create({
+      data: {
+        id: agentRun.runId,
+        organizationId: orgId,
+        userId: SHARED_AGENT_USER_ID,
+        role: "ADMIN",
+        route: "org",
+        messageLength: 24,
+        outcome: "COMPLETED",
+        turns: 2,
+        toolCalls: 1,
+        steps: {
+          create: {
+            id: agentRun.stepId,
+            organizationId: orgId,
+            seq: 0,
+            tool: SHARED_AGENT_TOOL,
+            outcome: "RAN",
+            durationMs: 12,
+          },
+        },
+      },
+    });
+  }
   // Group-registration fixtures (review L4). Runs after the billing block —
   // the FK to BillingAccount is Restrict, so the payer must already exist.
   for (const g of groups ?? []) {
@@ -1151,6 +1186,21 @@ async function main() {
       },
     },
   });
+  // Event Agent run fixtures: the step -> run FK cascades, so deleting the
+  // runs (incl. the write-probe ids) removes their steps too.
+  await db.agentRun.deleteMany({
+    where: {
+      id: {
+        in: [
+          AGENT_RUN_A_ID,
+          AGENT_RUN_B_ID,
+          "tenancy-agentrun-writer-probe",
+          "tenancy-agentrun-smuggled",
+          "tenancy-agentrun-smuggled-many",
+        ],
+      },
+    },
+  });
   await db.helpChatQuery.deleteMany({
     where: {
       id: {
@@ -1331,6 +1381,7 @@ async function main() {
     HELP_QUERY_A_ID,
     [{ id: GROUP_A_ID, eventId: EVENT_A_SHARED_ID, billingAccountId: BILLING_A_SHARED_ID }],
     ANALYTICS_A_ID,
+    { runId: AGENT_RUN_A_ID, stepId: AGENT_STEP_A_ID },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1489,6 +1540,7 @@ async function main() {
       { id: GROUP_B_ONLY_ID, eventId: EVENT_B_SHARED_ID, billingAccountId: BILLING_B_SHARED_ID },
     ],
     ANALYTICS_B_ID,
+    { runId: AGENT_RUN_B_ID, stepId: AGENT_STEP_B_ID },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
     companyId: CRM_CO_B_ID,
