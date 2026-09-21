@@ -13,9 +13,11 @@
  *     rejected, so an empty string is still refused and nothing that worked
  *     before stops working. A fix that quietly tightened the contract would be
  *     a behaviour change wearing a validation costume.
- *   - `slug` is not accepted on UPDATE. It already wasn't, but it is the key
- *     every sender routes on, so a test says so on purpose rather than leaving
- *     it to whoever next edits the destructure.
+ *
+ * This file covers CREATE only. The UPDATE and preview/test handlers live in
+ * the `[templateId]` route, whose import graph is much wider; their body
+ * validation is tested in email-template-test-send.test.ts, which already
+ * carries every mock that route needs.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 

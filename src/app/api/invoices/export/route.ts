@@ -11,6 +11,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import {
   INVOICE_EXPORT_SELECT,
   invoiceDateFilter,
+  parseInvoiceEnumFilters,
   buildInvoiceCsv,
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
@@ -69,8 +70,24 @@ export async function GET(req: Request) {
     const year = url.searchParams.get("year") ? Number(url.searchParams.get("year")) : undefined;
     const month = url.searchParams.get("month") ? Number(url.searchParams.get("month")) : undefined;
     const eventId = url.searchParams.get("eventId") || undefined;
-    const type = url.searchParams.get("type") || undefined;
-    const status = url.searchParams.get("status") || undefined;
+    // The page copies the list's query string into this URL verbatim, so the
+    // two MUST agree on what a bad `type`/`status` means. Same parser as the
+    // list (Sep 21, 2026 review): a value the list refuses with a 400 was a
+    // Postgres 500 here.
+    const enumFilters = parseInvoiceEnumFilters(url.searchParams);
+    if (!enumFilters.ok) {
+      apiLogger.warn({
+        msg: "org-invoices:export-invalid-filter",
+        filter: enumFilters.filter,
+        userId: session.user.id,
+        organizationId,
+      });
+      return NextResponse.json(
+        { error: `Unknown invoice ${enumFilters.filter}`, code: "INVALID_FILTER", valid: enumFilters.valid },
+        { status: 400 },
+      );
+    }
+    const { type, status } = enumFilters;
 
     const currentYear = new Date().getUTCFullYear();
     const earliest = await db.invoice.aggregate({ where: { organizationId }, _min: { issueDate: true } });
@@ -80,8 +97,8 @@ export async function GET(req: Request) {
     const where: Prisma.InvoiceWhereInput = {
       organizationId,
       ...(eventId && { eventId }),
-      ...(type && { type: type as Prisma.EnumInvoiceTypeFilter["equals"] }),
-      ...(status && { status: status as Prisma.EnumInvoiceStatusFilter["equals"] }),
+      ...(type && { type }),
+      ...(status && { status }),
       ...(dateAnd.length > 0 && { AND: dateAnd }),
     };
 

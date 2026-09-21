@@ -31,13 +31,15 @@ const MAX_BADGES_PER_REQUEST = 2500;
  * a hostile array could not reach another event's rows — only the shape was
  * untyped.
  *
- * The array cap ties to the existing MAX_BADGES_PER_REQUEST rather than
- * inventing a second number: the query already refuses beyond it, so a larger
- * list can only ever be rejected, and capping at parse time keeps a 100k-id
- * payload out of the Postgres `IN` clause entirely.
+ * The array cap is a SANITY bound, set well above MAX_BADGES_PER_REQUEST on
+ * purpose. The route's own cap below is what refuses a realistic overflow,
+ * and it does so with an actionable BADGE_LIMIT_EXCEEDED ("select a batch,
+ * then print again"); a schema cap at the same number would intercept that
+ * case first with a generic "Invalid input", which review flagged. This one
+ * exists only to keep a 100k-id payload out of the Postgres `IN` clause.
  */
 const badgeRequestSchema = z.object({
-  registrationIds: z.array(z.string()).max(MAX_BADGES_PER_REQUEST).optional(),
+  registrationIds: z.array(z.string()).max(MAX_BADGES_PER_REQUEST * 4).optional(),
   all: z.boolean().optional(),
 });
 

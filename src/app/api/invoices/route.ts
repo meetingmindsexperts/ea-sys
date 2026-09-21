@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { Prisma, InvoiceType, InvoiceStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { invoiceDateFilter } from "@/lib/invoice-export";
+import { invoiceDateFilter, parseInvoiceEnumFilters } from "@/lib/invoice-export";
 import { runWithTenant } from "@/lib/tenant-context";
 
 /**
@@ -26,14 +26,6 @@ import { runWithTenant } from "@/lib/tenant-context";
  * Query params (all optional): year, month (1-12), eventId, type, status, search.
  * Returns `{ invoices, earliestYear }` — earliestYear seeds the page's Year filter.
  */
-/**
- * Valid filter values, derived from the Prisma enums rather than hand-listed,
- * so a new InvoiceType/InvoiceStatus is accepted the day it is added and can
- * never drift (Sep 21, 2026 security review, finding #6).
- */
-const INVOICE_TYPES: ReadonlySet<string> = new Set(Object.values(InvoiceType));
-const INVOICE_STATUSES: ReadonlySet<string> = new Set(Object.values(InvoiceStatus));
-
 export async function GET(req: Request) {
   try {
     const session = await auth();
@@ -61,45 +53,29 @@ export async function GET(req: Request) {
     const yearRaw = url.searchParams.get("year");
     const monthRaw = url.searchParams.get("month");
     const eventId = url.searchParams.get("eventId") || undefined;
-    const type = url.searchParams.get("type") || undefined;
-    const status = url.searchParams.get("status") || undefined;
     const search = url.searchParams.get("search")?.trim() || undefined;
 
-    // `as Prisma.Enum...Filter["equals"]` used to sit on these two straight
+    // `as Prisma.Enum...Filter["equals"]` used to sit on type/status straight
     // from the URL. A cast converts nothing; it only switches off the one
     // check that would have caught a bad value, so `?status=banana` compiled,
-    // reached Postgres as an invalid enum and threw — a 500 on the org's
-    // invoice ledger for whoever sent it.
-    //
-    // Refuse rather than drop: silently ignoring an unparseable filter WIDENS
-    // the result set (every type instead of the one asked for), which is the
-    // same class `parseDateRangeFilters` and `assertValidBulkEmailFilters`
-    // already refuse on. The valid set is listed back instead of echoing the
-    // caller's value, so nothing user-supplied is reflected.
-    if (type && !INVOICE_TYPES.has(type)) {
+    // reached Postgres as an invalid enum and threw. ONE parser now serves
+    // this route, its export, and the two per-event siblings (they share the
+    // page's query string), so a bad value is the same logged 400 on all four
+    // instead of a 400 here and a 500 next door. See parseInvoiceEnumFilters.
+    const enumFilters = parseInvoiceEnumFilters(url.searchParams);
+    if (!enumFilters.ok) {
       apiLogger.warn({
         msg: "org-invoices:invalid-filter",
-        filter: "type",
+        filter: enumFilters.filter,
         userId: session.user.id,
         organizationId,
       });
       return NextResponse.json(
-        { error: "Unknown invoice type", code: "INVALID_FILTER", valid: [...INVOICE_TYPES] },
+        { error: `Unknown invoice ${enumFilters.filter}`, code: "INVALID_FILTER", valid: enumFilters.valid },
         { status: 400 },
       );
     }
-    if (status && !INVOICE_STATUSES.has(status)) {
-      apiLogger.warn({
-        msg: "org-invoices:invalid-filter",
-        filter: "status",
-        userId: session.user.id,
-        organizationId,
-      });
-      return NextResponse.json(
-        { error: "Unknown invoice status", code: "INVALID_FILTER", valid: [...INVOICE_STATUSES] },
-        { status: 400 },
-      );
-    }
+    const { type, status } = enumFilters;
 
     const year = yearRaw ? Number(yearRaw) : undefined;
     const month = monthRaw ? Number(monthRaw) : undefined;
@@ -122,11 +98,9 @@ export async function GET(req: Request) {
     const where: Prisma.InvoiceWhereInput = {
       organizationId,
       ...(eventId && { eventId }),
-      // Casts are honest now: membership against the Prisma enum was checked
-      // above, so these are narrowing a verified value rather than asserting
-      // over an unverified one.
-      ...(type && { type: type as InvoiceType }),
-      ...(status && { status: status as InvoiceStatus }),
+      // Already narrowed to the Prisma enum by parseInvoiceEnumFilters; no cast.
+      ...(type && { type }),
+      ...(status && { status }),
       ...(search && {
         OR: [
           { invoiceNumber: { contains: search, mode: "insensitive" } },

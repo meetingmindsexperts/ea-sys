@@ -48,7 +48,12 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/auth-guards", () => ({ denyFinance: (...a: unknown[]) => mockDenyFinance(...a) }));
-vi.mock("@/lib/invoice-export", () => ({ invoiceDateFilter: () => [] }));
+// Keep the REAL module (the enum parser under test lives there) and stub only
+// the date filter, so the where stays free of date clauses.
+vi.mock("@/lib/invoice-export", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/invoice-export")>("@/lib/invoice-export")),
+  invoiceDateFilter: () => [],
+}));
 // Pass-through: the lane is exercised by the tenancy harness, not here.
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: string, fn: () => unknown) => fn(),

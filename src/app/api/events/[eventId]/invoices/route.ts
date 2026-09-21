@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createInvoice , GroupMemberInvoiceError } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
+import { parseInvoiceEnumFilters } from "@/lib/invoice-export";
 import { z } from "zod";
 
 interface RouteParams {
@@ -43,15 +44,24 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const url = new URL(req.url);
-    const type = url.searchParams.get("type") || undefined;
-    const status = url.searchParams.get("status") || undefined;
+    // Same parser as the org ledger and both exports (Sep 21, 2026 review): a
+    // bad value was a Postgres 500 here and a 400 on the org list beside it.
+    const enumFilters = parseInvoiceEnumFilters(url.searchParams);
+    if (!enumFilters.ok) {
+      apiLogger.warn({ msg: "invoices:list:invalid-filter", filter: enumFilters.filter, eventId, userId: session.user.id });
+      return NextResponse.json(
+        { error: `Unknown invoice ${enumFilters.filter}`, code: "INVALID_FILTER", valid: enumFilters.valid },
+        { status: 400 },
+      );
+    }
+    const { type, status } = enumFilters;
     const search = url.searchParams.get("search") || undefined;
 
     const invoices = await db.invoice.findMany({
       where: {
         eventId,
-        ...(type && { type: type as "INVOICE" | "RECEIPT" | "CREDIT_NOTE" }),
-        ...(status && { status: status as "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "CANCELLED" | "REFUNDED" }),
+        ...(type && { type }),
+        ...(status && { status }),
         ...(search && {
           OR: [
             { invoiceNumber: { contains: search, mode: "insensitive" as const } },

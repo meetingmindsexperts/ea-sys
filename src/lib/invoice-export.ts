@@ -6,7 +6,7 @@
  * Pure: takes already-fetched rows (shaped by INVOICE_EXPORT_SELECT), returns
  * a CSV string. No Prisma / I/O here — the routes own the query + HTTP layer.
  */
-import { Prisma } from "@prisma/client";
+import { Prisma, InvoiceType, InvoiceStatus } from "@prisma/client";
 
 /**
  * The Prisma `select` both export routes use, so the two fetch the exact same
@@ -159,6 +159,45 @@ export function invoiceDateFilter(
 }
 
 // ── CSV primitives ───────────────────────────────────────────────────────────
+/**
+ * The valid `?type=` / `?status=` filter values, derived from the Prisma enums
+ * so a new value is accepted the day it is added and the set can never drift.
+ */
+const INVOICE_TYPES: ReadonlySet<string> = new Set(Object.values(InvoiceType));
+const INVOICE_STATUSES: ReadonlySet<string> = new Set(Object.values(InvoiceStatus));
+
+export type InvoiceEnumFilters =
+  | { ok: true; type?: InvoiceType; status?: InvoiceStatus }
+  | { ok: false; filter: "type" | "status"; valid: string[] };
+
+/**
+ * Parse the `type` and `status` query params of an invoice listing/export.
+ *
+ * ONE implementation for the four routes that take them (Sep 21, 2026 review,
+ * finding #6 + its LOW 4): the org ledger and its export share the page's
+ * query string verbatim, and the two per-event routes copy the same shape, so
+ * until this existed a bad value was a clean 400 on one and a Postgres 500 on
+ * the one beside it. The casts they used to carry converted nothing; they only
+ * switched off the check that would have caught it.
+ *
+ * REFUSES rather than drops. Silently ignoring an unparseable filter WIDENS
+ * the result set (every type instead of the one asked for), the same class
+ * `parseDateRangeFilters` and `assertValidBulkEmailFilters` refuse on. The
+ * caller's value is never echoed back; the valid set is listed instead.
+ */
+export function parseInvoiceEnumFilters(searchParams: URLSearchParams): InvoiceEnumFilters {
+  const type = searchParams.get("type") || undefined;
+  const status = searchParams.get("status") || undefined;
+  if (type && !INVOICE_TYPES.has(type)) {
+    return { ok: false, filter: "type", valid: [...INVOICE_TYPES] };
+  }
+  if (status && !INVOICE_STATUSES.has(status)) {
+    return { ok: false, filter: "status", valid: [...INVOICE_STATUSES] };
+  }
+  // Honest narrowing: membership was checked above.
+  return { ok: true, type: type as InvoiceType | undefined, status: status as InvoiceStatus | undefined };
+}
+
 export function csvCell(v: unknown): string {
   let s = v == null ? "" : String(v);
   // Formula-injection guard: Excel / QuickBooks / Google Sheets treat a cell

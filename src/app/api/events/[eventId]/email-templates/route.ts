@@ -40,10 +40,13 @@ const createTemplateSchema = z.object({
     .regex(/^[a-z0-9-]+$/, "Slug may contain only lowercase letters, numbers and hyphens"),
   name: z.string().min(1).max(200),
   subject: z.string().min(1).max(500),
+  // No size cap on the two content fields: the columns are @db.Text and the
+  // middleware already bounds every API body at 1 MB (src/lib/body-limits.ts),
+  // so a cap here could only ever be a NEW restriction the column never had.
   htmlContent: z.string().min(1),
   // Kept nullish rather than defaulted: the write below preserves null vs
   // undefined vs "" exactly as it did before, and callers rely on that.
-  textContent: z.string().max(100_000).nullish(),
+  textContent: z.string().nullish(),
 });
 
 export async function GET(_req: Request, { params }: RouteParams) {

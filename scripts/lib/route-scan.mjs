@@ -45,18 +45,44 @@ export function stripComments(src) {
 }
 
 /**
- * Split a file into its exported HTTP handlers.
- * Returns [{ method, body }]. A handler's body runs to the next top-level
- * export, or to EOF for the last one.
+ * Split a file into its exported HTTP handlers. Returns [{ method, body }].
+ *
+ * Two things the first version got wrong, both found by mutation in the
+ * Sep 21, 2026 review of check-request-validation.mjs:
+ *
+ *   - It only recognised `export async function POST`. The arrow and alias
+ *     forms (`export const POST = async (req) => …`, `export const POST = run`)
+ *     were invisible, so a body read inside one was either dropped or folded
+ *     into the previous handler and attributed to the wrong method.
+ *
+ *   - A handler's body ran to the next HTTP-handler export, so a trailing
+ *     module-level helper was folded into the LAST handler and its safeParse
+ *     (or its auth() call) vouched for a handler that never called it.
+ *
+ * A body now ends at the next column-0 declaration of ANY kind. The codebase
+ * is Prettier-formatted, so column 0 is a reliable top-level marker; the
+ * handler's own closing `}` is not a declaration and stays inside.
  */
+const METHOD_ALT = HTTP_METHODS.join("|");
+const HANDLER_START = new RegExp(
+  String.raw`^export\s+(?:(?:async\s+)?function\s+(${METHOD_ALT})\b|const\s+(${METHOD_ALT})\s*=)`,
+  "gm"
+);
+const TOP_LEVEL_DECL = /^(?:export\s|async\s+function\s|function\s|const\s|let\s|var\s|interface\s|type\s|class\s|enum\s)/gm;
+
 export function splitHandlers(code) {
-  const re = new RegExp(
-    String.raw`export\s+(?:async\s+)?function\s+(${HTTP_METHODS.join("|")})\b`,
-    "g"
-  );
-  const starts = [...code.matchAll(re)].map((m) => ({ method: m[1], index: m.index }));
-  return starts.map((s, i) => ({
-    method: s.method,
-    body: code.slice(s.index, i + 1 < starts.length ? starts[i + 1].index : code.length),
+  const starts = [...code.matchAll(HANDLER_START)].map((m) => ({
+    method: m[1] ?? m[2],
+    index: m.index,
   }));
+  return starts.map((s) => {
+    // Search for the next top-level declaration from the line AFTER the
+    // handler's own opening line, so its own `export` is not the match.
+    const lineEnd = code.indexOf("\n", s.index);
+    const from = lineEnd === -1 ? code.length : lineEnd + 1;
+    TOP_LEVEL_DECL.lastIndex = from;
+    const next = TOP_LEVEL_DECL.exec(code);
+    const end = next ? next.index : code.length;
+    return { method: s.method, body: code.slice(s.index, end) };
+  });
 }

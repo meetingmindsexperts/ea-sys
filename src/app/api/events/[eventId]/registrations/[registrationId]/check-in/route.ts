@@ -325,7 +325,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       actorUserId: session.user.id,
       attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
       source: "rest-qr",
-      auditExtras: { qrCode, ip: getClientIp(req), ...(isKiosk && { kiosk: true }) },
+      // `scanned`, not the raw `qrCode`: the audit row must record the same
+      // value the match ran on, and the raw one may be a number.
+      auditExtras: { qrCode: scanned, ip: getClientIp(req), ...(isKiosk && { kiosk: true }) },
     });
 
     return NextResponse.json(updatedRegistration);

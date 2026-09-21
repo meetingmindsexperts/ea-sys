@@ -11,6 +11,7 @@ import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import {
   INVOICE_EXPORT_SELECT,
+  parseInvoiceEnumFilters,
   buildInvoiceCsv,
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
@@ -55,15 +56,22 @@ export async function GET(req: Request, { params }: RouteParams) {
     const url = new URL(req.url);
     // Backward-compat: no `format` → the original ZIP-of-PDFs behavior.
     const format = (url.searchParams.get("format") || "pdf").toLowerCase();
-    const type = url.searchParams.get("type") || undefined;
-    const status = url.searchParams.get("status") || undefined;
+    // Same parser as the org ledger, its export and the per-event list
+    // (Sep 21, 2026 review): one definition of a valid filter, one 400.
+    const enumFilters = parseInvoiceEnumFilters(url.searchParams);
+    if (!enumFilters.ok) {
+      apiLogger.warn({ msg: "invoices:export:invalid-filter", filter: enumFilters.filter, eventId, userId: session.user.id });
+      return NextResponse.json(
+        { error: `Unknown invoice ${enumFilters.filter}`, code: "INVALID_FILTER", valid: enumFilters.valid },
+        { status: 400 },
+      );
+    }
+    const { type, status } = enumFilters;
 
     const where: Prisma.InvoiceWhereInput = {
       eventId,
-      ...(type && { type: type as "INVOICE" | "RECEIPT" | "CREDIT_NOTE" }),
-      ...(status && {
-        status: status as "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "CANCELLED" | "REFUNDED",
-      }),
+      ...(type && { type }),
+      ...(status && { status }),
     };
 
     // CSV / QuickBooks — shared formatters, byte-identical to the org-level

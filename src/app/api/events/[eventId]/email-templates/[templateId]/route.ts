@@ -41,8 +41,12 @@ interface RouteParams {
 const updateTemplateSchema = z.object({
   name: z.string().max(200).optional(),
   subject: z.string().max(500).optional(),
-  htmlContent: z.string().max(500_000).optional(),
-  textContent: z.string().max(500_000).nullable().optional(),
+  // No size cap on the content fields: @db.Text columns, and the middleware
+  // bounds every API body at 1 MB already. A cap here would be a restriction
+  // the column never had (review: a pasted HTML email with inline images can
+  // legitimately run to several hundred KB).
+  htmlContent: z.string().optional(),
+  textContent: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

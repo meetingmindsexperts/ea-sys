@@ -289,9 +289,22 @@ describe("badge PDF — body validation", () => {
     expect(mockDb.registration.findMany).not.toHaveBeenCalled();
   });
 
-  it("caps the id list at parse time, before the IN clause is built", async () => {
+  it("a selection just over the ROUTE cap still reaches the route, so its actionable message is what the operator sees", async () => {
+    // Review LOW: a schema cap AT the route cap intercepted a 2,501-id
+    // selection with a generic "Invalid input" before the route could answer
+    // with BADGE_LIMIT_EXCEEDED ("select a batch, then print again"). The
+    // schema bound now sits well above, so this reaches the query.
     const res = await BADGES_POST(
       badgeBodyReq({ registrationIds: Array.from({ length: 2501 }, (_, i) => `r${i}`) }),
+      badgeParams,
+    );
+    expect(res.status).not.toBe(400);
+    expect(mockDb.registration.findMany).toHaveBeenCalled();
+  });
+
+  it("still refuses an absurd id list at parse time, before the IN clause is built", async () => {
+    const res = await BADGES_POST(
+      badgeBodyReq({ registrationIds: Array.from({ length: 10_001 }, (_, i) => `r${i}`) }),
       badgeParams,
     );
     expect(res.status).toBe(400);

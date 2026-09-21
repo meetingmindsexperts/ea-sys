@@ -21,7 +21,7 @@ const { mockAuth, mockDb, mockApiLogger, mockSendEmail, mockCertPreview } = vi.h
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
-    emailTemplate: { findFirst: vi.fn() },
+    emailTemplate: { findFirst: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
   },
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -73,7 +73,7 @@ vi.mock("@/lib/email", () => ({
   buildEventPreviewVariables: vi.fn(() => ({})),
 }));
 
-import { POST } from "@/app/api/events/[eventId]/email-templates/[templateId]/route";
+import { POST, PUT } from "@/app/api/events/[eventId]/email-templates/[templateId]/route";
 
 const params = Promise.resolve({ eventId: "ev-1", templateId: "tpl-1" });
 const session = { user: { id: "user-9", role: "ADMIN", organizationId: "orgA" } };
@@ -199,5 +199,106 @@ describe("certificate cover templates render the way a certificate email does", 
       subject: `[TEST] ${CERT_RENDER.subject}`,
       htmlContent: CERT_RENDER.htmlContent,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Body validation on the SAME route's PUT (edit) and POST (preview/test)
+// (Sep 21, 2026 security review, finding #5). This file already carries every
+// mock the route's import graph needs, which is why these live here and not
+// in email-template-validation.test.ts (create only).
+// ─────────────────────────────────────────────────────────────────────────────
+const putRequest = (body: unknown) =>
+  new Request("http://t", {
+    method: "PUT",
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+
+const postRequest = (body: unknown) =>
+  new Request("http://t", {
+    method: "POST",
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+
+describe("PUT [templateId] — body validation", () => {
+  beforeEach(() => {
+    mockDb.emailTemplate.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "tpl-1",
+      slug: "registration-confirmation",
+      subject: "Your registration for {{eventName}}",
+      htmlContent: "<p>hi</p>",
+      textContent: null,
+      isActive: true,
+      ...data,
+    }));
+  });
+
+  it("refuses a non-boolean isActive instead of publishing on a truthy string", async () => {
+    // `isActive: "no"` is truthy; the old destructure would have set it and
+    // Prisma would have thrown a raw validation error as a 500.
+    const res = await PUT(putRequest({ isActive: "no" }), { params });
+    expect(res.status).toBe(400);
+    expect(mockDb.emailTemplate.update).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalled();
+  });
+
+  it("refuses a wrong-typed subject", async () => {
+    const res = await PUT(putRequest({ subject: 123 }), { params });
+    expect(res.status).toBe(400);
+    expect(mockDb.emailTemplate.update).not.toHaveBeenCalled();
+  });
+
+  it("still clears textContent with null (a legitimate write to a nullable column)", async () => {
+    const res = await PUT(putRequest({ textContent: null }), { params });
+    expect(res.status).toBe(200);
+    const { data } = mockDb.emailTemplate.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).toHaveProperty("textContent", null);
+  });
+
+  it("still deactivates with a real boolean", async () => {
+    const res = await PUT(putRequest({ isActive: false }), { params });
+    expect(res.status).toBe(200);
+    const { data } = mockDb.emailTemplate.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).toHaveProperty("isActive", false);
+  });
+
+  it("never lets a PUT move the slug, even when one is sent", async () => {
+    // The slug is the key every sender routes on. It was already excluded
+    // from the destructure; this pins that the schema does not readmit it.
+    const res = await PUT(putRequest({ slug: "somewhere-else", subject: "ok" }), { params });
+    expect(res.status).toBe(200);
+    const { data } = mockDb.emailTemplate.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).not.toHaveProperty("slug");
+    expect(data).toHaveProperty("subject", "ok");
+  });
+
+  it("malformed JSON is a 400, not a 500", async () => {
+    const res = await PUT(putRequest("{broken"), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+    expect(mockDb.emailTemplate.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST [templateId] — action validation", () => {
+  it("refuses a typo'd action instead of silently previewing when a send was meant", async () => {
+    const res = await POST(postRequest({ action: "sned" }), { params });
+    expect(res.status).toBe(400);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("an absent action still defaults to preview (the historical fall-through)", async () => {
+    const res = await POST(postRequest({}), { params });
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("malformed JSON is a 400, not a 500", async () => {
+    const res = await POST(postRequest("{broken"), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 });
