@@ -191,8 +191,9 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
       stepCode = isError ? stepCodeFromResult(ran.text) : null;
     }
 
-    // The stored step: the tool's name, how it ended and how long it took.
-    // Never the input, never the result.
+    // The stored step: the tool's name, how it ended, how long it took and,
+    // since the messages page (owner decision, Sep 21, 2026), the exact
+    // input. Never the result.
     req.run?.step({
       tool: toolName,
       outcome: stepOutcome,
@@ -200,6 +201,7 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
       write: isWriteTool(toolName),
       approved: opts.approved,
       durationMs: Date.now() - started,
+      input: toolInput,
     });
 
     const log = {

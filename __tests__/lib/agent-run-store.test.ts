@@ -1,8 +1,9 @@
 /**
  * The Event Agent's stored-run recorder: names, counts, tokens and outcomes
- * reach the tables; the message, the inputs and the results never do. Every
- * write is failure-isolated, because a run that cannot be recorded must
- * still run.
+ * reach the tables, and since the messages page (owner decision, Sep 21,
+ * 2026) the message, the reply and each tool's input do too, bounded; tool
+ * RESULTS still never do. Every write is failure-isolated, because a run that
+ * cannot be recorded must still run.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -31,6 +32,10 @@ import {
   stepCodeFromResult,
   countStep,
   emptyCounters,
+  boundStepInput,
+  MAX_STORED_MESSAGE_LENGTH,
+  MAX_STORED_REPLY_LENGTH,
+  MAX_STORED_INPUT_CHARS,
 } from "@/lib/agent/run-store";
 
 const START = {
@@ -39,6 +44,7 @@ const START = {
   role: "ADMIN",
   eventId: null,
   route: "org" as const,
+  message: "find the summit",
   messageLength: 42,
   historyPairs: 3,
   approvedTool: null,
@@ -56,13 +62,18 @@ beforeEach(() => {
 });
 
 describe("startAgentRun", () => {
-  it("creates the run on the actor's lane with a length, never the message", async () => {
+  it("creates the run on the actor's lane with the message and its length", async () => {
     const run = await startAgentRun(START);
     expect(run.id).toBe("run1");
     expect(lanes).toEqual(["org1"]);
     const data = mockDb.agentRun.create.mock.calls[0][0].data;
-    expect(data).toMatchObject({ organizationId: "org1", userId: "u1", role: "ADMIN", route: "org", messageLength: 42, historyPairs: 3, source: "agent", model: "claude-x" });
-    expect(JSON.stringify(data)).not.toMatch(/message":/);
+    expect(data).toMatchObject({ organizationId: "org1", userId: "u1", role: "ADMIN", route: "org", message: "find the summit", messageLength: 42, historyPairs: 3, source: "agent", model: "claude-x" });
+  });
+
+  it("cuts a message past the storage bound rather than failing the insert", async () => {
+    await startAgentRun({ ...START, message: "x".repeat(MAX_STORED_MESSAGE_LENGTH + 500) });
+    const data = mockDb.agentRun.create.mock.calls[0][0].data;
+    expect(data.message).toHaveLength(MAX_STORED_MESSAGE_LENGTH);
   });
 
   it("hands back a no-op recorder when the insert fails, and the request goes on", async () => {
@@ -79,16 +90,31 @@ describe("startAgentRun", () => {
 });
 
 describe("the recorder", () => {
-  it("writes each step in order on the run's lane, with the code but never an input or result", async () => {
+  it("writes each step in order on the run's lane, with the code and the input, never a result", async () => {
     const run = await startAgentRun(START);
     run.step({ tool: "list_events", outcome: "RAN", write: false, approved: false, durationMs: 12.6 });
-    run.step({ tool: "create_event", outcome: "ERROR", code: "EVENT_CODE_TAKEN", write: true, approved: false, durationMs: 30 });
+    run.step({ tool: "create_event", outcome: "ERROR", code: "EVENT_CODE_TAKEN", write: true, approved: false, durationMs: 30, input: { name: "Summit", code: "SUM26" } });
     await flush();
     expect(mockDb.agentStep.create).toHaveBeenCalledTimes(2);
     const [a, b] = mockDb.agentStep.create.mock.calls.map((c) => c[0].data);
+    // No input handed in: no input key on the row, so the column stays NULL.
     expect(a).toEqual({ runId: "run1", organizationId: "org1", seq: 0, tool: "list_events", outcome: "RAN", code: null, write: false, approved: false, durationMs: 13 });
-    expect(b).toMatchObject({ seq: 1, tool: "create_event", outcome: "ERROR", code: "EVENT_CODE_TAKEN", write: true });
+    expect(b).toMatchObject({ seq: 1, tool: "create_event", outcome: "ERROR", code: "EVENT_CODE_TAKEN", write: true, input: { name: "Summit", code: "SUM26" } });
     expect(lanes.every((l) => l === "org1")).toBe(true);
+  });
+
+  it("the stored reply is what finish is handed, cut at the bound, null when empty", async () => {
+    const run = await startAgentRun(START);
+    await run.finish("COMPLETED", undefined, { reply: "Created the event." });
+    expect(mockDb.agentRun.updateMany.mock.calls[0][0].data.reply).toBe("Created the event.");
+
+    const long = await startAgentRun(START);
+    await long.finish("COMPLETED", undefined, { reply: "y".repeat(MAX_STORED_REPLY_LENGTH + 1) });
+    expect(mockDb.agentRun.updateMany.mock.calls[1][0].data.reply).toHaveLength(MAX_STORED_REPLY_LENGTH);
+
+    const none = await startAgentRun(START);
+    await none.finish("ERROR", "provider", { reply: "" });
+    expect(mockDb.agentRun.updateMany.mock.calls[2][0].data.reply).toBeNull();
   });
 
   it("a failed step write is logged and swallowed", async () => {
@@ -132,6 +158,8 @@ describe("the recorder", () => {
     });
     expect(call.data.finishedAt).toBeInstanceOf(Date);
     expect(typeof call.data.durationMs).toBe("number");
+    // finish without a reply writes NULL, never undefined (Prisma would skip it).
+    expect(call.data.reply).toBeNull();
   });
 
   it("finish records the error class and never throws", async () => {
@@ -165,6 +193,27 @@ describe("step codes", () => {
     expect(stepCodeFromResult(JSON.stringify({ error: "boom" }))).toBeNull();
     expect(stepCodeFromResult("not json")).toBeNull();
     expect(stepCodeFromResult("null")).toBeNull();
+  });
+});
+
+describe("boundStepInput", () => {
+  it("passes plain JSON through and drops what JSON cannot carry", () => {
+    expect(boundStepInput({ eventId: "e1", tags: ["a"], n: 1, fn: () => 1, u: undefined })).toEqual({ eventId: "e1", tags: ["a"], n: 1 });
+  });
+  it("writes nothing for a missing or null input", () => {
+    expect(boundStepInput(undefined)).toBeUndefined();
+    expect(boundStepInput(null)).toBeUndefined();
+  });
+  it("replaces an oversized input with a marker that says how big it was", () => {
+    const big = { rows: "z".repeat(MAX_STORED_INPUT_CHARS) };
+    const out = boundStepInput(big) as { truncated: boolean; chars: number };
+    expect(out.truncated).toBe(true);
+    expect(out.chars).toBeGreaterThan(MAX_STORED_INPUT_CHARS);
+  });
+  it("marks an input that cannot be serialised instead of throwing", () => {
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    expect(boundStepInput(loop)).toEqual({ unserializable: true });
   });
 });
 

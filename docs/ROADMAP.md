@@ -127,16 +127,19 @@ Approve/Cancel card, and an approved call runs first with the token verified
 by the route; the model never sees `confirm`. The one-page claude.ai guide
 is `docs/CLAUDE_AI_AGENT_GUIDE.md` (also a shared doc). **Phase 3 shipped
 the same night:** `AgentRun` and `AgentStep` (org-stamped, scalar user and
-event ids, a message length and tool names with machine codes, never a
-message or a tool's data), an additive idempotent migration, the flat RLS
+event ids, a message length and tool names with machine codes; since the
+messages page later that day, the message, the reply and each tool's input
+too, bounded, tool results never), an additive idempotent migration, the flat RLS
 policy with a harness suite and the CI-gate entry, the recorder in
 `src/lib/agent/run-store.ts` (failure-isolated, every write in the actor's
 lane), the `agent-run-prune` job at 180 days, an AI agent card on the infra
 page and three digest lines. Conversation history stays in the browser (a
 server-side history keyed per conversation is an owner option; the runs make
 it possible). Phase 4 shipped on Sep 21, 2026 (the hand-written definitions deleted,
-1,029 lines; each tool has one schema, its Zod registration). **Next:** the
-drawer form of the chat if the owner wants it. The floating agent button shipped on Sep 21, 2026
+1,029 lines; each tool has one schema, its Zod registration). The messages page
+shipped on Sep 21, 2026 (`/admin/agent-messages`, SUPER_ADMIN only, owner: "I need
+messages list"). **Held by the owner ("hold off on chat"):** the drawer form of the
+chat and server-side conversation history. The floating agent button shipped on Sep 21, 2026
 (`src/lib/agent/launcher.ts` holds the rule).
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)

@@ -16,7 +16,7 @@ import { canViewFinance } from "@/lib/finance-visibility";
 import { getModelConfig } from "@/lib/ai/config";
 import { runAgentRequest, type AgentSseEvent } from "./run-agent";
 import { verifyApprovalToken } from "./approval-token";
-import { startAgentRun } from "./run-store";
+import { MAX_STORED_REPLY_LENGTH, startAgentRun } from "./run-store";
 
 import { AGENT_ROLES } from "./agent-roles";
 
@@ -117,14 +117,16 @@ export async function executeAgentRequest(
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MSG_LENGTH) }))
     .slice(-MAX_HISTORY_PAIRS * 2);
 
-  // The stored run (names, counts, tokens; never the message or a tool's
-  // data). A recording failure hands back a no-op recorder; the request runs.
+  // The stored run: names, counts, tokens, and since the messages page
+  // (owner decision, Sep 21, 2026) the message itself. A recording failure
+  // hands back a no-op recorder; the request runs.
   const run = await startAgentRun({
     organizationId: orgId,
     userId: session.user.id,
     role,
     eventId,
     route: opts.eventIdFromRoute ? "event" : "org",
+    message: parsed.data.message,
     messageLength: parsed.data.message.length,
     historyPairs: Math.floor(history.length / 2),
     approvedTool: approvedCall?.toolName ?? null,
@@ -132,9 +134,19 @@ export async function executeAgentRequest(
   });
 
   const encoder = new TextEncoder();
+  // The agent's reply, assembled from the text the page receives, for the
+  // stored run. Capped at what the recorder keeps so a runaway stream cannot
+  // grow this buffer; a partial reply on an error is exactly what the
+  // messages page wants to show.
+  const replyParts: string[] = [];
+  let replyChars = 0;
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: AgentSseEvent) => {
+        if (event.type === "text_delta" && replyChars < MAX_STORED_REPLY_LENGTH) {
+          replyParts.push(event.text);
+          replyChars += event.text.length;
+        }
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -155,7 +167,7 @@ export async function executeAgentRequest(
           send,
         });
         send({ type: "done" });
-        await run.finish(ended === "turn_limit" ? "TURN_LIMIT" : "COMPLETED");
+        await run.finish(ended === "turn_limit" ? "TURN_LIMIT" : "COMPLETED", undefined, { reply: replyParts.join("") });
       } catch (err) {
         apiLogger.error({ err, route: opts.route, eventId, userId: session.user.id }, "agent:execute failed");
         const providerErr = err instanceof Anthropic.APIError ? err : null;
@@ -164,7 +176,7 @@ export async function executeAgentRequest(
           ? `AI provider error (${providerErr.status}). Please try again.`
           : "An unexpected error occurred. Please try again.";
         send({ type: "error", message: msg });
-        await run.finish("ERROR", providerErr ? "provider" : "unexpected");
+        await run.finish("ERROR", providerErr ? "provider" : "unexpected", { reply: replyParts.join("") });
       } finally {
         try {
           controller.close();

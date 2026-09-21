@@ -5,9 +5,10 @@ import { apiLogger } from "@/lib/logger";
  * agent-run-prune — retention for the Event Agent's stored runs.
  *
  * `AgentRun` and `AgentStep` hold names, counts, tokens and outcomes for every
- * in-app agent request (docs/AGENT_ARCHITECTURE_REVIEW.md §4.6). They carry no
- * message text and no tool data, but they do record who used the agent and
- * when, and that should not accumulate into a permanent record either.
+ * in-app agent request (docs/AGENT_ARCHITECTURE_REVIEW.md §4.6), and since
+ * Sep 21, 2026 (owner decision) the message, the agent's reply and each tool
+ * call's input as well, which can name attendees. This sweep is what keeps
+ * that from becoming a permanent record.
  *
  * This DELETES runs older than the cutoff; their steps go with them through
  * the FK's ON DELETE CASCADE, so one statement per batch removes both. The

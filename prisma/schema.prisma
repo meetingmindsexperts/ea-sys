@@ -2522,8 +2522,14 @@ model AgentRun {
   /// Which door: "org" (/api/agent/execute) or "event" (the per-event alias).
   route          String
   source         String          @default("agent")
-  /// Length of the person's message in characters; the text is never stored.
+  /// Length of the person's message in characters (kept for the counts).
   messageLength  Int
+  /// The person's message and the agent's reply. Stored since Sep 21, 2026
+  /// (owner decision: "I need messages list") for the SUPER_ADMIN
+  /// /admin/agent-messages page. Both carry attendee data; they leave with
+  /// the row in the 180-day agent-run prune. Bounded by the recorder.
+  message        String?         @db.Text
+  reply          String?         @db.Text
   historyPairs   Int             @default(0)
   /// The tool the request carried an approved call for, if any.
   approvedTool   String?
@@ -2570,6 +2576,10 @@ model AgentStep {
   write          Boolean          @default(false)
   approved       Boolean          @default(false)
   durationMs     Int
+  /// The tool's exact input, stored since Sep 21, 2026 (owner decision);
+  /// never the result. Bounded by the recorder (a very large input is
+  /// replaced by a marker).
+  input          Json?
   createdAt      DateTime         @default(now())
 
   run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)

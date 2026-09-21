@@ -30,18 +30,10 @@ import { auth } from "@/lib/auth";
 import { dbOperator } from "@/lib/db";
 import { denyNonOperator } from "@/lib/platform-operator";
 import { apiLogger } from "@/lib/logger";
+import { escapeLike } from "@/lib/like-escape";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-
-/**
- * Escape Postgres LIKE/ILIKE metacharacters so a `%` or `_` typed into the
- * search box matches literally instead of silently widening the result set
- * (Prisma's `contains` does NOT escape them — the registration-export lesson).
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
 
 export async function GET(req: NextRequest) {
   const session = await auth();

@@ -449,6 +449,7 @@ OPERATOR_LANE_ALLOWLIST=(
   # route calls denyNonOperator(); aws-ops is scope-aware and only takes the
   # privileged path for the platform view, so its caller decides the audience.
   "src/app/api/help-chat/queries/route.ts"   # operator-global captured Q&A
+  "src/app/api/agent/messages/route.ts"      # operator-global Event Agent conversations (Sep 21, 2026)
   "src/lib/infra/aws-ops.ts"                 # platform-scope business counters
   # id → name resolver behind /admin/lookup. Cross-tenant BY DESIGN: an id in
   # a log line may belong to any tenant, so a single lane would return zero

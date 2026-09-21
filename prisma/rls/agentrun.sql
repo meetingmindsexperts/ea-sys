@@ -15,9 +15,14 @@
 --     finish() is a compound updateMany({ id, organizationId }) so the org
 --     bind is atomic with the write (defence #1, RLS-independent).
 --   - Readers: the infra snapshot's agent section (org-scoped reads run in the
---     tenant's lane; the platform operator's totals use dbOperator) and the
+--     tenant's lane; the platform operator's totals use dbOperator), the
 --     agent-run-prune job (age-based, across every org, on the privileged
---     lane like the other retention sweeps).
+--     lane like the other retention sweeps) and, since Sep 21, 2026, the
+--     SUPER_ADMIN messages page (/api/agent/messages, dbOperator, cross-tenant
+--     by design like the help-chat queries route).
+--   - Since Sep 21, 2026 (owner decision) the run carries the message and the
+--     reply and each step carries the tool's input, so these rows hold
+--     attendee data; the policy and the 180-day prune are what bound it.
 --   - AgentStep -> AgentRun is ON DELETE CASCADE, so the prune deletes runs
 --     and Postgres removes their steps.
 

@@ -229,7 +229,7 @@ const { mockStartRun, mockRecorder } = vi.hoisted(() => {
   const mockRecorder = { id: "run1", step: vi.fn(), turn: vi.fn(), finish: vi.fn(async () => {}) };
   return { mockStartRun: vi.fn<(input: Record<string, unknown>) => Promise<typeof mockRecorder>>(async () => mockRecorder), mockRecorder };
 });
-vi.mock("@/lib/agent/run-store", () => ({ startAgentRun: mockStartRun }));
+vi.mock("@/lib/agent/run-store", () => ({ startAgentRun: mockStartRun, MAX_STORED_REPLY_LENGTH: 20_000 }));
 vi.mock("@/lib/ai/config", () => ({ getModelConfig: () => ({ model: "claude-test", maxTokens: 1, temperature: 0 }) }));
 
 describe("executeAgentRequest stored runs", () => {
@@ -244,7 +244,7 @@ describe("executeAgentRequest stored runs", () => {
     mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   });
 
-  it("opens the run with the door, the event, a message LENGTH and the history size, and hands the recorder to the loop", async () => {
+  it("opens the run with the door, the event, the message and its length and the history size, and hands the recorder to the loop", async () => {
     await readSse(
       await executeAgentRequest(
         post({ message: "find the summit", history: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] }),
@@ -260,14 +260,45 @@ describe("executeAgentRequest stored runs", () => {
       role: "ADMIN",
       eventId: "ev1",
       route: "event",
+      message: "find the summit",
       messageLength: "find the summit".length,
       historyPairs: 1,
       approvedTool: null,
       model: "claude-test",
     });
-    expect(JSON.stringify(mockStartRun.mock.calls[0][0])).not.toContain("find the summit");
     expect(mockRun.mock.calls[0][0].run).toBe(mockRecorder);
-    expect(mockRecorder.finish).toHaveBeenCalledWith("COMPLETED");
+    expect(mockRecorder.finish).toHaveBeenCalledWith("COMPLETED", undefined, { reply: "" });
+  });
+
+  it("closes the run with the reply the page received, assembled from the text deltas only", async () => {
+    mockRun.mockImplementation(async (req: { send: (e: unknown) => void }) => {
+      req.send({ type: "text_delta", text: "Crea" });
+      req.send({ type: "tool_start", name: "create_event", input: { name: "Summit" }, toolUseId: "t1" });
+      req.send({ type: "tool_result", name: "create_event", result: { id: "e1" }, toolUseId: "t1" });
+      req.send({ type: "text_delta", text: "ted it." });
+      return "completed";
+    });
+    await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
+    expect(mockRecorder.finish).toHaveBeenCalledWith("COMPLETED", undefined, { reply: "Created it." });
+  });
+
+  it("stops collecting the reply at the storage bound so a runaway stream cannot grow the buffer", async () => {
+    mockRun.mockImplementation(async (req: { send: (e: unknown) => void }) => {
+      for (let i = 0; i < 5; i++) req.send({ type: "text_delta", text: "x".repeat(10_000) });
+      return "completed";
+    });
+    await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
+    const reply = (mockRecorder.finish.mock.calls[0] as unknown[])[2] as { reply: string };
+    expect(reply.reply).toHaveLength(20_000);
+  });
+
+  it("hands a partial reply to an ERROR finish, since where it stopped is the point", async () => {
+    mockRun.mockImplementation(async (req: { send: (e: unknown) => void }) => {
+      req.send({ type: "text_delta", text: "Looking up" });
+      throw new Error("boom");
+    });
+    await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
+    expect(mockRecorder.finish).toHaveBeenCalledWith("ERROR", "unexpected", { reply: "Looking up" });
   });
 
   it("names the org door and the approved tool", async () => {
@@ -289,7 +320,7 @@ describe("executeAgentRequest stored runs", () => {
   it("closes the run as TURN_LIMIT when the loop hit its cap", async () => {
     mockRun.mockImplementation(async () => "turn_limit");
     await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
-    expect(mockRecorder.finish).toHaveBeenCalledWith("TURN_LIMIT");
+    expect(mockRecorder.finish).toHaveBeenCalledWith("TURN_LIMIT", undefined, { reply: "" });
   });
 
   it("closes the run as ERROR with a class, and still tells the page", async () => {
@@ -298,7 +329,7 @@ describe("executeAgentRequest stored runs", () => {
     });
     const body = await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));
     expect(body).toContain('"type":"error"');
-    expect(mockRecorder.finish).toHaveBeenCalledWith("ERROR", "unexpected");
+    expect(mockRecorder.finish).toHaveBeenCalledWith("ERROR", "unexpected", { reply: "" });
   });
 
   it("never opens a run for a request the gates refuse", async () => {

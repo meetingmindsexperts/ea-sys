@@ -159,6 +159,17 @@ cost, because the code does not know the model's price and tokens are the
 durable figure; and the MCP door's calls, which are logged per call but have
 no run to belong to. Conversation history stays in the browser.
 
+**Amended later the same day (owner: "yes please, I need messages list, hold
+off on chat").** The run now also carries the person's message and the
+agent's reply, and each step carries the tool's exact input, all bounded in
+the recorder; tool results are still never stored. They are read on ONE
+surface, `/admin/agent-messages` (SUPER_ADMIN, cross-tenant like the
+help-chat queries page), and leave with the same 180-day prune. This reverses
+the "names and counts only" line above for the message and the inputs, by
+decision, because the product question the page answers (what do people ask,
+where does the agent fail) cannot be answered from counts. The drawer form of
+the chat and server-side history stay held.
+
 ### 4.7 Model
 
 The route calls `src/lib/ai`'s config (`AiFeature = "agent"` already exists

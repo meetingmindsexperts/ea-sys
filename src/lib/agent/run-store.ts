@@ -1,14 +1,19 @@
 // Stored runs for the in-app Event Agent (docs/AGENT_ARCHITECTURE_REVIEW.md
 // §4.6, the readiness review's O1): one AgentRun per request, one AgentStep
-// per tool call. Names, counts, tokens and outcomes only. The message text,
-// the tool inputs and the tool results never reach these tables, because
-// they carry attendee data; the message is recorded as a length.
+// per tool call. Names, counts, tokens and outcomes, and since Sep 21, 2026
+// (owner decision: "I need messages list, hold off on chat") the person's
+// message, the agent's reply and each tool call's input, for the SUPER_ADMIN
+// /admin/agent-messages page. Tool RESULTS are still never stored: they are
+// the largest attendee-data payload and nobody asked for them. The text that
+// is stored carries attendee data, which is why the page is operator-only and
+// the rows leave with the 180-day prune; the bounds below keep one runaway
+// request from writing megabytes.
 //
 // Failure-isolated by contract: a run that cannot be recorded still runs.
 // startAgentRun returns a no-op recorder when the insert fails, every step
 // write is fire-and-forget with a logged catch, and finish() never throws.
 
-import type { AgentRunOutcome, AgentStepOutcome } from "@prisma/client";
+import type { AgentRunOutcome, AgentStepOutcome, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -20,7 +25,9 @@ export interface AgentRunStart {
   eventId: string | null;
   /** Which door the request came through. */
   route: "org" | "event";
-  /** Length of the person's message; the text itself is never stored. */
+  /** The person's message, stored up to MAX_STORED_MESSAGE_LENGTH. */
+  message: string;
+  /** Length of the person's message, kept for the counts. */
   messageLength: number;
   historyPairs: number;
   /** The tool the request carried an approved call for, if any. */
@@ -36,7 +43,22 @@ export interface AgentStepRecord {
   write: boolean;
   approved: boolean;
   durationMs: number;
+  /** The tool's exact input; bounded by boundStepInput before it is written. */
+  input?: unknown;
 }
+
+/** What finish() may add to the row beyond the outcome. */
+export interface AgentRunFinishExtra {
+  /** The agent's reply as the page received it; empty means none. */
+  reply?: string;
+}
+
+/** The handler caps the message at 2,000; this is the storage bound behind it. */
+export const MAX_STORED_MESSAGE_LENGTH = 4000;
+/** Characters of the reply kept; a longer one is cut, not dropped. */
+export const MAX_STORED_REPLY_LENGTH = 20_000;
+/** Serialised characters of a step input kept; a larger one becomes a marker. */
+export const MAX_STORED_INPUT_CHARS = 50_000;
 
 /** The subset of the SDK's usage block the run keeps. */
 export interface AgentTurnUsage {
@@ -53,7 +75,7 @@ export interface AgentRunRecorder {
   readonly id: string | null;
   step(record: AgentStepRecord): void;
   turn(usage: AgentTurnUsage | null | undefined): void;
-  finish(outcome: AgentRunEnd, errorClass?: string): Promise<void>;
+  finish(outcome: AgentRunEnd, errorClass?: string, extra?: AgentRunFinishExtra): Promise<void>;
 }
 
 /** Codes are identifiers (READ_ONLY_ROLE, WRITE_LIMIT, EVENT_NOT_FOUND); free text is not. */
@@ -71,6 +93,27 @@ export function stepCodeFromResult(text: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The JSON that lands in AgentStep.input for a tool's input: the input itself
+ * when it is plain JSON of a sane size, a marker when it is not. `undefined`
+ * means "write nothing", which the row then stores as NULL. A JSON null is
+ * treated the same way, since Prisma needs a special value to store one and
+ * a null input carries nothing worth a column.
+ */
+export function boundStepInput(input: unknown): Prisma.InputJsonValue | undefined {
+  if (input === undefined || input === null) return undefined;
+  let text: string;
+  try {
+    text = JSON.stringify(input);
+  } catch {
+    return { unserializable: true };
+  }
+  if (text === undefined || text === "null") return undefined;
+  if (text.length > MAX_STORED_INPUT_CHARS) return { truncated: true, chars: text.length };
+  // The round trip drops functions and undefined members, leaving plain JSON.
+  return JSON.parse(text) as Prisma.InputJsonValue;
 }
 
 export const NOOP_RECORDER: AgentRunRecorder = {
@@ -135,6 +178,7 @@ export async function startAgentRun(input: AgentRunStart): Promise<AgentRunRecor
           eventId: input.eventId,
           route: input.route,
           source: "agent",
+          message: input.message.slice(0, MAX_STORED_MESSAGE_LENGTH),
           messageLength: input.messageLength,
           historyPairs: input.historyPairs,
           approvedTool: input.approvedTool ?? null,
@@ -158,6 +202,7 @@ export async function startAgentRun(input: AgentRunStart): Promise<AgentRunRecor
     id,
     step(record) {
       countStep(c, record);
+      const boundedInput = boundStepInput(record.input);
       const row = {
         runId: id,
         organizationId: input.organizationId,
@@ -168,6 +213,7 @@ export async function startAgentRun(input: AgentRunStart): Promise<AgentRunRecor
         write: record.write,
         approved: record.approved,
         durationMs: Math.max(0, Math.round(record.durationMs)),
+        ...(boundedInput !== undefined ? { input: boundedInput } : {}),
       };
       void runWithTenant(input.organizationId, () => db.agentStep.create({ data: row, select: { id: true } })).catch((err) => {
         apiLogger.warn({ err, msg: "agent-run:step-write-failed", runId: id, tool: row.tool });
@@ -181,10 +227,11 @@ export async function startAgentRun(input: AgentRunStart): Promise<AgentRunRecor
       c.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
       c.cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
     },
-    async finish(outcome, errorClass) {
+    async finish(outcome, errorClass, extra) {
       if (finished) return;
       finished = true;
       const finishedAt = new Date();
+      const reply = extra?.reply ? extra.reply.slice(0, MAX_STORED_REPLY_LENGTH) : null;
       try {
         // Compound where: the org bind is atomic with the write.
         const res = await runWithTenant(input.organizationId, () =>
@@ -193,6 +240,7 @@ export async function startAgentRun(input: AgentRunStart): Promise<AgentRunRecor
             data: {
               outcome,
               errorClass: errorClass ?? null,
+              reply,
               ...c,
               finishedAt,
               durationMs: finishedAt.getTime() - startedAt.getTime(),

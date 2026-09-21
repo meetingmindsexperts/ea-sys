@@ -259,7 +259,7 @@ describe("runAgentRequest stored-run recording", () => {
     return { id: "run1", step: vi.fn(), turn: vi.fn(), finish: vi.fn(async () => {}) };
   }
 
-  it("records one step per tool call with the outcome, the write flag and a code, never the input or the result", async () => {
+  it("records one step per tool call with the outcome, the write flag, a code and the tool's input, never the result", async () => {
     const list = fakeTool("list_events", [{ id: "e1", name: "Dr Jane Smith summit" }]);
     const create = fakeTool("create_event", { success: true });
     const failing: RegisteredTool = {
@@ -294,11 +294,15 @@ describe("runAgentRequest stored-run recording", () => {
       ["send_bulk_email", "APPROVAL_REQUESTED", "APPROVAL_REQUIRED", true, false],
     ]);
     for (const s of steps) expect(typeof s.durationMs).toBe("number");
-    // Nothing a step carries names a person, an address or a payload.
+    // The input rides on the step (owner decision, Sep 21, 2026)...
+    expect(steps[1].input).toEqual({ name: "Summit" });
+    expect(steps[2].input).toEqual({ eventId: "e1", name: "T" });
+    // ...and the RESULT never does: neither the name a read returned nor the
+    // address in a tool's error text reaches the recorder.
     const serialized = JSON.stringify(steps);
+    expect(serialized).toContain("Summit");
     expect(serialized).not.toContain("Jane");
     expect(serialized).not.toContain("jane@x.com");
-    expect(serialized).not.toContain("Summit");
     expect(run.turn).toHaveBeenCalledTimes(2);
   });
 

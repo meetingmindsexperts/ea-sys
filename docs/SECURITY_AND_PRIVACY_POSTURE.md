@@ -98,6 +98,8 @@ Everything below is accurate as it stands.
 
 **Operational:** entry barcode, DTCM compliance barcode (Dubai events), check-in timestamps, badge type, accommodation and room assignment, survey responses, certificates issued.
 
+**AI assistant conversations (staff use, added September 2026):** what a staff member typed to the in-app AI Agent, the agent's reply, and the arguments of each action it took, which can name attendees; the results those actions returned are not stored. Readable only by the platform super administrator on one page, kept 180 days then deleted. The separate help assistant keeps each question and answer under the same restriction.
+
 **MM Group staff (HR module, added August 2026, internal use only):** employee name and code, joining and leaving dates, leave entitlement and carry-over, and a per-day attendance record whose codes include **sick leave**, which is health-adjacent personal data about named employees. This module is confined to the MM Group instance (it is switched off by configuration for any other tenant), readable only by the two HR roles or by a named per-person grant (an ordinary administrator cannot read it), refuses API keys entirely, sits behind its own row-level database policies, and writes an audit trail that records codes, dates and counts but never the free-text remarks where medical detail would land. Its activity is kept out of the general administrative activity feed for the same reason. **No retention rule is defined for these records yet**; see the gaps in §5.
 
 **Account and security:** password (stored only as a bcrypt hash), sign-in timestamps, **IP address**, browser user-agent, and an approximate city/country derived from the IP address. Every administrative action is recorded with the acting user and their IP.
@@ -228,6 +230,7 @@ The full matrix, verified against the code on 2026-09-21 and pinned by an automa
 | System logs | 30 days | Daily prune job |
 | Sent-email content | 180 days (the record of the send is kept; the message body is erased) | Daily prune job |
 | Sign-in history | 180 days, then fully deleted | Daily prune job |
+| AI agent conversations (message, reply, each action's arguments) | 180 days, then fully deleted | Daily prune job |
 | Database backups (Singapore) | 30 days | S3 lifecycle rule |
 | Unclaimed uploaded documents | Nightly cleanup of files never attached to a registration | Nightly prune job |
 | Historical log archive | Compressed and retained | Monthly archive job |

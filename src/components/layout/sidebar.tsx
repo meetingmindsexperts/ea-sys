@@ -27,6 +27,7 @@ import {
   ScrollText,
   ScanSearch,
   MessageCircleQuestion,
+  MessagesSquare,
   ScanBarcode,
   Activity,
   Mail,
@@ -109,6 +110,9 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // superAdminOnly, and the API re-checks the platform-operator boundary.
   { name: "Backups", href: "/admin/backups", icon: DatabaseBackup, superAdminOnly: true },
   { name: "Help Queries", href: "/admin/help-queries", icon: MessageCircleQuestion, superAdminOnly: true },
+  // The Event Agent's stored conversations (message, reply, each tool's
+  // input): attendee data, so operator-only like Help Queries.
+  { name: "Agent Messages", href: "/admin/agent-messages", icon: MessagesSquare, superAdminOnly: true },
   // adminOnly, NOT superAdminOnly: the /activity page itself has always allowed
   // ADMIN, so a SUPER_ADMIN-only link left org admins reaching it by URL alone.
   // It also now hosts the Sign-in Activity tab, whose own gate
