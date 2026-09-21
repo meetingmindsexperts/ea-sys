@@ -100,6 +100,20 @@ const registrationSchema = z.object({
   utmSource: z.string().max(255).optional(),
   utmMedium: z.string().max(255).optional(),
   utmCampaign: z.string().max(255).optional(),
+  // Terms consent (Sep 21, 2026). REQUIRED, and never destructured below —
+  // it is a gate, not a column.
+  //
+  // WHY THIS HAD TO BE HERE. The tick-box was enforced only in the browser,
+  // while `ensureRegistrantAccount` wrote `termsAcceptedAt` + `termsAcceptedIp`
+  // unconditionally. Zod's default strip discarded the field the client does
+  // send, so the server recorded a consent it had never been told about: a POST
+  // straight to this endpoint (curl, a bot, a stale JS bundle) registered fine
+  // AND got a consent record. That makes the stored timestamp and IP useless as
+  // evidence in a refund dispute, because the code writes them either way.
+  //
+  // The sibling public door already had this rule (complete-registration
+  // :299) — two hand-written copies of nearly the same schema, one drifted.
+  agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
 }).refine(
   (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
   {

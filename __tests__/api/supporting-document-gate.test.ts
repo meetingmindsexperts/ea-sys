@@ -87,6 +87,10 @@ function body(extra: Record<string, unknown> = {}) {
     city: "Al Ain",
     country: "United Arab Emirates",
     specialty: "Cardiology",
+    // Required by the server schema since Sep 21, 2026. The real form always
+    // sends it; a fixture that omits it is rejected before the gate under test
+    // ever runs, which is the point of the rule.
+    agreeTerms: true,
     ...extra,
   };
 }

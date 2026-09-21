@@ -84,6 +84,8 @@ function request(extra: Record<string, unknown> = {}) {
       city: "Muscat",
       country: "Oman",
       specialty: "Oncology",
+      // Required by the server schema since Sep 21, 2026 (see the route).
+      agreeTerms: true,
       ...extra,
     }),
   });
