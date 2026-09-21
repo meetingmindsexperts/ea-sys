@@ -55,7 +55,7 @@ interface ContactFields {
 export interface CreateCrmContactInput extends ContactFields {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
 
@@ -63,7 +63,7 @@ export interface UpdateCrmContactInput extends Partial<ContactFields> {
   crmContactId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }
 
 export type CrmContactErrorCode =
@@ -387,7 +387,7 @@ export async function linkToEventContact(input: {
   contactId: string | null;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<CrmContactResult> {
   try {
     if (input.contactId) {
@@ -465,7 +465,7 @@ export async function setCrmContactArchived(input: {
   crmContactId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   archived: boolean;
 }): Promise<CrmContactResult> {
   try {

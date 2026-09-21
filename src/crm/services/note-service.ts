@@ -28,7 +28,7 @@ import { apiLogger } from "@/lib/logger";
 export interface CreateNoteInput {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 
   body: string;
@@ -44,7 +44,7 @@ export interface UpdateNoteInput {
   userId: string | null;
   /** Admins may delete any note; only the author may edit one. */
   isAdmin: boolean;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 
   body?: string;
   activityType?: CrmActivityType;
@@ -268,7 +268,7 @@ export async function deleteNote(input: {
   organizationId: string;
   userId: string | null;
   isAdmin: boolean;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<{ ok: true } | Fail> {
   try {
     const existing = await db.crmNote.findFirst({

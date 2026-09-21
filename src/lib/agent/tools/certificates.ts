@@ -11,7 +11,6 @@
  *   - list_certificate_templates    GET  all templates + CME settings
  *   - create_certificate_template   POST a new template row (name + category)
  *   - update_certificate_template   PATCH a specific template by id
- *   - delete_certificate_template   DELETE a template (blocked if issued)
  *   - update_cme_settings           PATCH event-level cmeHours + accreditations
  *
  * Asset URLs must be a `/uploads/certificates/...` path or an https
@@ -435,64 +434,6 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   return { ok: true, template: updated };
 }
 
-// ── Tool: delete_certificate_template ───────────────────────────────────────
-
-async function deleteCertificateTemplate(input: Record<string, unknown>, ctx: AgentContext) {
-  if (typeof input.templateId !== "string" || input.templateId.length === 0) {
-    return { error: "templateId is required", code: "INVALID_FIELD" };
-  }
-  const templateId = input.templateId;
-
-  // tenancy: swept CertificateTemplate read runs inside the caller's org.
-  const template = await runWithTenant(ctx.organizationId, () =>
-    db.certificateTemplate.findFirst({
-      where: {
-        id: templateId,
-        event: { id: ctx.eventId, organizationId: ctx.organizationId },
-      },
-      include: { _count: { select: { issuedCertificates: true, issueRuns: true } } },
-    }),
-  );
-  if (!template) return { error: "Template not found", code: "TEMPLATE_NOT_FOUND" };
-
-  if (template._count.issuedCertificates > 0 || template._count.issueRuns > 0) {
-    return {
-      error: `Cannot delete — ${template._count.issuedCertificates} certs issued + ${template._count.issueRuns} runs reference this template. Audit trail must stay intact.`,
-      code: "TEMPLATE_HAS_HISTORY",
-      issuedCount: template._count.issuedCertificates,
-      runCount: template._count.issueRuns,
-    };
-  }
-
-  // tenancy: swept CertificateTemplate delete runs inside the caller's org.
-  // Compound-where (review L3, defence #1): org bind atomic with the delete.
-  await runWithTenant(ctx.organizationId, () =>
-    db.certificateTemplate.delete({ where: { id: templateId, organizationId: ctx.organizationId } }),
-  );
-
-  db.auditLog
-    .create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "DELETE",
-        entityType: "CertificateTemplate",
-        entityId: templateId,
-        changes: { source: ctx.source, name: template.name, category: template.category },
-      },
-    })
-    .catch((err) => apiLogger.warn({ err, msg: "cert-template-mcp:audit-failed-delete" }));
-
-  apiLogger.info({
-    msg: "cert-template-mcp:deleted",
-    eventId: ctx.eventId,
-    userId: ctx.userId,
-    templateId,
-  });
-
-  return { ok: true };
-}
-
 // ── Tool: update_cme_settings ───────────────────────────────────────────────
 
 async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentContext) {
@@ -735,18 +676,6 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
     },
   },
   {
-    name: "delete_certificate_template",
-    description:
-      "Delete a template by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references this template — audit trail must stay intact. Renaming the template is the alternative (mark as retired in the name).",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        templateId: { type: "string", description: "ID of the template to delete" },
-      },
-      required: ["templateId"],
-    },
-  },
-  {
     name: "update_cme_settings",
     description:
       "Patch event-level CME hours and accrediting bodies. Rendered into cert templates via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens. Independent of template editing.",
@@ -778,6 +707,5 @@ export const CERTIFICATE_EXECUTORS: Record<string, ToolExecutor> = {
   list_certificate_templates: listCertificateTemplates,
   create_certificate_template: createCertificateTemplate,
   update_certificate_template: updateCertificateTemplate,
-  delete_certificate_template: deleteCertificateTemplate,
   update_cme_settings: updateCmeSettings,
 };

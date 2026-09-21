@@ -158,6 +158,12 @@ export interface CrmMcpActor {
   role: string | null;
   /** API keys stay admin-equivalent — they are minted by an admin. */
   fromApiKey: boolean;
+  /**
+   * Which door the registrations serve: an MCP client (default) or the
+   * in-app Event Agent, which reuses the same registrations. Stamped on
+   * every CrmActivity row a write leaves.
+   */
+  source?: "agent" | "mcp";
 }
 
 export function registerCrmMcpTools(
@@ -169,6 +175,7 @@ export function registerCrmMcpTools(
   // Registering nothing is the right failure mode: a tool the caller may not use
   // should not appear in their tool list at all, rather than 403 on call.
   if (!canViewCrm(actor.role, actor.fromApiKey)) return;
+  const auditSource = actor.source ?? "mcp";
   const canSeeValues = canViewDealValues(actor.role, actor.fromApiKey);
   const canWrite = canOwnDeals(actor.role, actor.fromApiKey);
 
@@ -344,7 +351,7 @@ export function registerCrmMcpTools(
           const company = await findOrCreateCompany({
             organizationId,
             userId: systemUserId,
-            source: "mcp",
+            source: auditSource,
             name: input.companyName,
           });
           if (!company.ok) fail(company.message);
@@ -361,7 +368,7 @@ export function registerCrmMcpTools(
         const res = await createDeal({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           name: input.name,
           stageId: stageRow.id,
           companyId,
@@ -409,7 +416,7 @@ export function registerCrmMcpTools(
         const res = await updateDeal({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           dealId: input.dealId,
           dealTypeId,
           name: input.name,
@@ -455,7 +462,7 @@ export function registerCrmMcpTools(
         const res = await moveDealStage({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           dealId,
           fromStageId: current.stageId,
           toStageId: target.id,
@@ -478,7 +485,7 @@ export function registerCrmMcpTools(
         const res = await closeDeal({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           dealId,
           outcome,
           lostReason: lostReason ?? null,
@@ -539,7 +546,7 @@ export function registerCrmMcpTools(
         const res = await findOrCreateCompany({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           name,
         });
         if (!res.ok) fail(res.message);
@@ -618,7 +625,7 @@ export function registerCrmMcpTools(
         const res = await createTask({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           title: input.title,
           description: input.description ?? null,
           dueAt: due,
@@ -639,7 +646,7 @@ export function registerCrmMcpTools(
     { taskId: z.string().min(1) },
     async ({ taskId }) =>
       safeTool("complete_crm_task", async () => {
-        const res = await completeTask({ organizationId, userId: systemUserId, source: "mcp", taskId });
+        const res = await completeTask({ organizationId, userId: systemUserId, source: auditSource, taskId });
         if (!res.ok) fail(res.message);
         return `Task completed: ${res.task.title}`;
       }),
@@ -664,7 +671,7 @@ export function registerCrmMcpTools(
         const res = await createNote({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           body: input.body,
           activityType: input.activityType,
           dealId: input.dealId ?? null,
@@ -817,7 +824,7 @@ export function registerCrmMcpTools(
         const res = await findOrCreateCrmContact({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           firstName: input.firstName,
           lastName: input.lastName,
           email: input.email,
@@ -867,7 +874,7 @@ export function registerCrmMcpTools(
         const res = await updateCrmContact({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           crmContactId: input.crmContactId,
           firstName: input.firstName,
           lastName: input.lastName,
@@ -963,7 +970,7 @@ export function registerCrmMcpTools(
         const res = await updateCompany({
           organizationId,
           userId: systemUserId,
-          source: "mcp",
+          source: auditSource,
           companyId: input.companyId,
           name: input.name,
           industry: input.industry,

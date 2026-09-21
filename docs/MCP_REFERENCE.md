@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** September 2, 2026. **113 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** September 21, 2026. **113 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -18,6 +18,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 - No behavior change when the params are omitted — existing calls are byte-identical.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
+
+**September 21, 2026: `delete_review_criterion` and `delete_certificate_template` were removed from the server** (owner decision with the Event Agent architecture review: deletes happen in the dashboard, where the record and its dependants are in view; the in-app agent lost the same two tools). Connected clients reconnect to drop them from their lists.
 
 **No tools were removed and no signatures broke — every MCP tool still does what it did before.** These are behavioral shifts callers should be aware of:
 
@@ -178,7 +180,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_tracks` | All tracks with session counts |
 | `create_track` | Name + color + description |
 
-### Abstracts & reviews (14)
+### Abstracts & reviews (13)
 
 | Tool | Description |
 |---|---|
@@ -189,7 +191,6 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_review_criteria` | Scoring criteria with weights |
 | `create_review_criterion` | Create a criterion (integer weight 1-100; weights are meant to sum to 100 across criteria) |
 | `update_review_criterion` | Update a criterion's name/weight/sortOrder |
-| `delete_review_criterion` | Delete a criterion |
 | `list_reviewers` | Users assigned via `event.settings.reviewerUserIds` |
 | `assign_reviewer_to_abstract` | Assign a reviewer to a specific abstract; **upserts** the role on re-call (PRIMARY/SECONDARY/CONSULTING) |
 | `unassign_reviewer_from_abstract` | Remove a per-abstract reviewer assignment (preserves any submission) |
@@ -211,13 +212,15 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `create_accommodation` | Book a room for a registrant or speaker — atomic overbooking guard |
 | `update_accommodation_status` | PENDING/CONFIRMED/CHECKED_IN/CHECKED_OUT/CANCELLED (releases room on cancel) |
 
-### Webinar (3)
+### Webinar (5)
 
 | Tool | Description |
 |---|---|
 | `get_webinar_info` | `settings.webinar` + anchor session + linked ZoomMeeting (join URL, passcode, recording status) |
 | `list_webinar_attendance` | KPIs (registered/attended/rate/avg watch time) + top-N attendee rows |
 | `list_webinar_engagement` | Polls with per-question data + Q&A list |
+| `list_zoom_meetings` | Sessions with a linked Zoom meeting or webinar: type, status, join URL (was in-app only until Sep 21, 2026) |
+| `create_zoom_meeting` | Create a Zoom meeting or webinar linked to a session (`sessionId`, optional `meetingType`, `passcode`, `waitingRoom`). Needs Zoom configured for the org and enabled for the event |
 
 WEBINAR-type events only.
 
@@ -264,14 +267,13 @@ WEBINAR-type events only.
 | `list_scheduled_emails` | PENDING/PROCESSING/SENT/FAILED/CANCELLED with send stats |
 | `cancel_scheduled_email` | PENDING → CANCELLED |
 
-### Certificates (5)
+### Certificates (4)
 
 | Tool | Description |
 |---|---|
 | `list_certificate_templates` | All templates per category (ATTENDANCE / APPRECIATION) + event-level CME hours + accreditations. Each template carries `backgroundPdfUrl` and `textBoxes[]` (positioned overlays with `{{tokens}}`). The cover email is the event's Certificate Delivery email template (see `update_email_template`), not a field on the certificate template (the per-template cover was removed Sep 18, 2026). |
 | `create_certificate_template` | New template — `name`, `category`, optional `backgroundPdfUrl` (upload via POST `/api/upload/pdf` first to get a `/uploads/...` URL), optional `textBoxes[]`, optional `role` + `cmeHours`, optional `autoIssueOnSurvey` + `autoIssueTag` (survey-gated auto-issue). PNG/JPG uploads server-convert to single-page PDFs. |
 | `update_certificate_template` | Patch by `templateId` — change name / backgroundPdfUrl / textBoxes / sortOrder / `role` / `cmeHours` / `autoIssueOnSurvey` / `autoIssueTag`. Pass `null` on `role`/`cmeHours`/`autoIssueTag` to clear. The cover email is edited on the event's Certificate Delivery email template (`update_email_template`). Category is immutable post-create. |
-| `delete_certificate_template` | Delete by `templateId`. Blocked with 409 if any `IssuedCertificate` or `CertificateIssueRun` references the template (audit-trail integrity). |
 | `update_cme_settings` | Event-level CME hours + accrediting bodies. Read by the `{{cmeHours}}` / `{{accreditationBody}}` / `{{accreditationReference}}` tokens on either category. |
 
 ### Media + misc (1)

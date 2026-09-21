@@ -31,7 +31,7 @@ type Fail = { ok: false; code: "DEAL_NOT_FOUND" | "DEAL_ARCHIVED" | "DOCUMENT_NO
 interface Ctx {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }
 
 async function loadDeal(organizationId: string, dealId: string) {

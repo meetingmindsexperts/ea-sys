@@ -66,7 +66,7 @@ export interface QuoteFail {
 interface Actor {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }
 
 const QUOTE_SELECT = {

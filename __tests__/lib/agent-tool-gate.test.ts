@@ -1,20 +1,24 @@
 /**
  * The Event Agent's write cap used to key on a hand-written list of 14
  * tool names, which missed 11 write tools (agent readiness gap G2). The
- * cap now derives from the registry's own read-only predicate, so this
- * suite pins two things: which tools count as writes, over the REAL tool
- * list the model is given, and that the gate refuses the 21st write no
- * matter which write tool it is.
+ * cap now derives from the registry's read-only predicate, so this suite
+ * pins two things over the REAL tool list an admin is given: which tools
+ * count as writes, and that the gate refuses the 21st write whichever
+ * write tool it is.
  */
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ db: {}, dbOperator: {} }));
 
-import { AGENT_TOOL_DEFINITIONS } from "@/lib/agent/event-tools";
+import { collectToolsForActor } from "@/lib/agent/tool-registry";
 import { isReadOnlyTool, isWriteTool, NON_MUTATING_NON_READ_TOOLS } from "@/lib/agent/tools/_shared";
 import { gateToolCall, MAX_WRITES_PER_REQUEST } from "@/lib/agent/tool-gate";
 
-const NAMES = AGENT_TOOL_DEFINITIONS.map((t) => t.name);
+const NAMES = collectToolsForActor({
+  organizationId: "org1",
+  actor: { userId: "u1", role: "ADMIN", fromApiKey: false },
+  source: "agent",
+}).map((t) => t.name);
 
 /** The route's former hand list. */
 const FORMER_LIST = [
@@ -25,7 +29,8 @@ const FORMER_LIST = [
   "upsert_sponsors",
 ];
 
-/** The 11 write tools the former list missed. */
+/** The write tools the former list missed and that still exist (the two
+ *  delete tools were removed from both doors on Sep 21, 2026). */
 const FORMERLY_UNCAPPED = [
   "add_speaker_to_session",
   "remove_speaker_from_session",
@@ -34,14 +39,13 @@ const FORMERLY_UNCAPPED = [
   "create_zoom_meeting",
   "create_certificate_template",
   "update_certificate_template",
-  "delete_certificate_template",
   "update_review_criterion",
-  "delete_review_criterion",
   "update_cme_settings",
 ];
 
-describe("isWriteTool over the in-app tool list", () => {
+describe("isWriteTool over the tools an admin is given", () => {
   it("classifies every tool exactly once: read, write, or lookup-without-writing", () => {
+    expect(NAMES.length).toBeGreaterThan(80);
     for (const name of NAMES) {
       const read = isReadOnlyTool(name);
       const write = isWriteTool(name);
@@ -50,11 +54,18 @@ describe("isWriteTool over the in-app tool list", () => {
     }
   });
 
-  it("counts the former list and the 11 it missed as writes", () => {
+  it("counts the former list and the writes it missed as writes", () => {
     for (const name of [...FORMER_LIST, ...FORMERLY_UNCAPPED]) {
-      expect(NAMES, `${name} is no longer an in-app tool`).toContain(name);
+      expect(NAMES, `${name} is no longer offered`).toContain(name);
       expect(isWriteTool(name), name).toBe(true);
     }
+  });
+
+  it("offers exactly the two delete tools that were never in the readiness list, and not the two that were removed", () => {
+    // delete_room_type and delete_promo_code (a soft delete) have been on the
+    // MCP door since their modules shipped; delete_review_criterion and
+    // delete_certificate_template were removed from both doors on Sep 21, 2026.
+    expect(NAMES.filter((n) => /^delete_/.test(n)).sort()).toEqual(["delete_promo_code", "delete_room_type"]);
   });
 
   it("never counts a read as a write", () => {
@@ -98,8 +109,8 @@ describe("gateToolCall", () => {
     if (refused.kind === "refuse") expect(refused.result.code).toBe("WRITE_LIMIT");
   });
 
-  it("caps every write tool, including the 11 the old list missed", () => {
-    for (const name of [...FORMER_LIST, ...FORMERLY_UNCAPPED]) {
+  it("caps every write tool, including the ones the old list missed", () => {
+    for (const name of [...FORMER_LIST, ...FORMERLY_UNCAPPED, "create_event", "update_event", "update_registration"]) {
       const d = gateToolCall(name, { ...open, writesSoFar: 20, maxWrites: 20 });
       expect(d.kind, name).toBe("refuse");
     }
@@ -114,18 +125,17 @@ describe("gateToolCall", () => {
 
   it("refuses every non-read for a read-only role before the cap is considered", () => {
     for (const name of NAMES.filter((n) => !isReadOnlyTool(n))) {
-      const d = gateToolCall(name, { readOnly: true, blockFinance: true, writesSoFar: 0 });
+      const d = gateToolCall(name, { readOnly: true, blockFinance: false, writesSoFar: 0 });
       expect(d.kind, name).toBe("refuse");
       if (d.kind === "refuse") expect(d.result.code).toBe("READ_ONLY_ROLE");
     }
   });
 
-  it("refuses the RSVP roster and the finance-only reads for MEMBER", () => {
-    const roster = gateToolCall("list_rsvps", { readOnly: true, blockFinance: true, writesSoFar: 0 });
+  it("refuses the RSVP roster and the finance-only reads when the role lacks them", () => {
+    const roster = gateToolCall("list_rsvps", { readOnly: true, blockFinance: false, writesSoFar: 0 });
     expect(roster.kind === "refuse" && roster.result.code).toBe("ROSTER_FORBIDDEN");
-    const finance = gateToolCall("list_invoices", { readOnly: true, blockFinance: true, writesSoFar: 0 });
+    const finance = gateToolCall("list_invoices", { readOnly: false, blockFinance: true, writesSoFar: 0 });
     expect(finance.kind === "refuse" && finance.result.code).toBe("FINANCE_FORBIDDEN");
-    // A finance-capable read-only role (none exists today) would still read invoices.
     expect(gateToolCall("list_invoices", { readOnly: true, blockFinance: false, writesSoFar: 0 })).toEqual({
       kind: "run",
       write: false,

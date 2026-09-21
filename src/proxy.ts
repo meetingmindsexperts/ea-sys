@@ -200,6 +200,7 @@ export default auth((req) => {
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/settings") ||
       pathname.startsWith("/logs") ||
+      pathname.startsWith("/agent") ||
       pathname.startsWith("/contacts") ||
       pathname === "/events/new"
     ) {
@@ -241,6 +242,7 @@ export default auth((req) => {
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/settings") ||
       pathname.startsWith("/logs") ||
+      pathname.startsWith("/agent") ||
       pathname.startsWith("/contacts") ||
       pathname.startsWith("/crm") ||
       pathname.startsWith("/admin") ||
@@ -269,6 +271,7 @@ export default auth((req) => {
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/settings") ||
     pathname.startsWith("/logs") ||
+    pathname.startsWith("/agent") ||
     pathname.startsWith("/profile")
   ) {
     const redirectUrl = req.nextUrl.clone();
@@ -326,6 +329,9 @@ export const config = {
     "/contacts/:path*",
     "/profile/:path*",
     "/logs/:path*",
+    // The org-level Event Agent page (Sep 21, 2026): the confined roles and
+    // the org-null roles are redirected like every other org surface.
+    "/agent/:path*",
     // Org-wide invoice ledger — needed so the WEBINARS (and CRM_USER)
     // confinement branches actually run on it (review H-1: it was outside
     // the matcher, so NO role branch ever executed there).

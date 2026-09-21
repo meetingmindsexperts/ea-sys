@@ -149,27 +149,6 @@ const updateReviewCriterion: ToolExecutor = async (input, ctx) => {
   }
 };
 
-const deleteReviewCriterion: ToolExecutor = async (input, ctx) => {
-  try {
-    return await runWithTenant(ctx.organizationId, async () => {
-    const criterionId = String(input.criterionId ?? "").trim();
-    if (!criterionId) return { error: "criterionId is required" };
-
-    const existing = await db.reviewCriterion.findFirst({
-      where: { id: criterionId, eventId: ctx.eventId },
-      select: { id: true },
-    });
-    if (!existing) return { error: `Review criterion ${criterionId} not found in this event` };
-
-    await db.reviewCriterion.delete({ where: { id: criterionId } });
-    return { success: true };
-    });
-  } catch (err) {
-    apiLogger.error({ err }, "agent:delete_review_criterion failed");
-    return { error: "Failed to delete review criterion" };
-  }
-};
-
 const listAbstracts: ToolExecutor = async (input, ctx) => {
   try {
     return await runWithTenant(ctx.organizationId, async () => {
@@ -653,17 +632,6 @@ export const ABSTRACT_TOOL_DEFINITIONS: Tool[] = [
     },
   },
   {
-    name: "delete_review_criterion",
-    description: "Delete a review criterion from this event.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        criterionId: { type: "string", description: "ID of the criterion to delete" },
-      },
-      required: ["criterionId"],
-    },
-  },
-  {
     name: "list_abstracts",
     description: "List abstract submissions for this event. Optionally filter by status or theme.",
     input_schema: {
@@ -708,7 +676,6 @@ export const ABSTRACT_EXECUTORS: Record<string, ToolExecutor> = {
   list_review_criteria: listReviewCriteria,
   create_review_criterion: createReviewCriterion,
   update_review_criterion: updateReviewCriterion,
-  delete_review_criterion: deleteReviewCriterion,
   list_abstracts: listAbstracts,
   update_abstract_status: updateAbstractStatus,
   list_reviewers: listReviewers,

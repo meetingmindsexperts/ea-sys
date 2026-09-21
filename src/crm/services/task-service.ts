@@ -24,7 +24,7 @@ const TASK_DIFF_KEYS = ["title", "description", "dueAt", "remindAt", "ownerId"] 
 export interface CreateTaskInput {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 
   title: string;
@@ -41,7 +41,7 @@ export interface UpdateTaskInput {
   taskId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 
   title?: string;
   description?: string | null;
@@ -309,7 +309,7 @@ export async function completeTask(input: {
   taskId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<TaskResult> {
   try {
     const claim = await db.crmTask.updateMany({
@@ -366,7 +366,7 @@ export async function reopenTask(input: {
   taskId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<TaskResult> {
   try {
     const claim = await db.crmTask.updateMany({
@@ -413,7 +413,7 @@ export async function setTaskArchived(input: {
   taskId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   archived: boolean;
 }): Promise<TaskResult> {
   try {

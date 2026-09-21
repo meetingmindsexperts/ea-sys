@@ -292,7 +292,6 @@ Security guards:
 | `list_certificate_templates` | List all templates + CME settings |
 | `create_certificate_template` | Create template (name, category, optional bg + boxes + email defaults) |
 | `update_certificate_template` | Patch template fields by id (incl. cover-email defaults) |
-| `delete_certificate_template` | Delete template (blocked if issued certs reference it) |
 | `update_cme_settings` | Patch event cmeHours + accreditations |
 
 The Issue flow itself is NOT exposed via MCP — operator-only, requires

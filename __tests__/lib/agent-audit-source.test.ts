@@ -36,13 +36,14 @@ describe("audit source comes from the context", () => {
   });
 
   it("the in-app route stamps source agent and the MCP door stamps mcp", () => {
-    const route = readFileSync(
-      path.join(process.cwd(), "src/app/api/events/[eventId]/agent/execute/route.ts"),
-      "utf8",
-    );
-    expect(route).toMatch(/source:\s*"agent"/);
+    // The in-app loop collects the registrations with source "agent"; the
+    // route files only authenticate and delegate.
+    const loop = readFileSync(path.join(process.cwd(), "src/lib/agent/run-agent.ts"), "utf8");
+    expect(loop).toMatch(/source: "agent"/);
+    // The registrations default to "mcp" and take "agent" only from the
+    // in-app door's registry capture (agent-tool-registry.test.ts).
     const mcp = readFileSync(path.join(process.cwd(), "src/lib/agent/register-mcp-tools.ts"), "utf8");
-    expect(mcp).toMatch(/source:\s*"mcp"/);
+    expect(mcp).toMatch(/options\?\.source \?\? "mcp"/);
     expect(mcp).not.toMatch(/source:\s*"agent"/);
   });
 

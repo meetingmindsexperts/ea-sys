@@ -1,6 +1,6 @@
 # Event Agent architecture review: one agent, two doors
 
-**Status:** reviewed September 21, 2026; Phase 0 (§6, hardening) shipped the same day, Phases 1 to 4 not started. Addendum to
+**Status:** reviewed September 21, 2026; Phases 0 (hardening) and 1 (the org-level door) shipped the same day, Phases 2 to 4 not started. Addendum to
 [EVENT_AGENT_READINESS.html](EVENT_AGENT_READINESS.html) (September 18), which
 graded the agent against the UAE AI Award and found nine gaps (G1 to G9); this
 page answers the owner's next question, "the agent sits inside an event, you
@@ -191,6 +191,19 @@ model; Phase 3 before the first number is reported to Medhat.
 | Which roles reach the org-level door? | The same four; CRM tools appear for roles `canViewCrm` admits and Budgets tools for `canViewProcurement`, the rules the MCP door already applies. |
 | Where does conversation history live? | The browser until Phase 3, the server after, keyed per conversation. |
 | Model | Stay on `claude-sonnet-4-6` until the readiness review's eval comparison (E5) says otherwise. |
+
+**Decisions taken, September 21, 2026 (owner):** both doors, with the
+claude.ai guide written after Phase 1; the two delete tools are removed from
+both doors rather than gated; the approval list stands as written minus the
+removed deletes (the MCP door's `delete_promo_code` and `delete_room_type`,
+which this review never named, join it); the org-level door follows the MCP
+door's role rules for CRM and Budgets tools; history stays in the browser
+until Phase 3; the model stays. Phase 1 as built differs from §4.1 in one
+way: `AgentContext` keeps a required `eventId` for the executors, and the
+event-optional context lives one level up, in the registry capture that
+binds `eventId` from the tool input through `getOrgIdSecure` exactly as the
+MCP door does. That is what let the in-app door adopt the MCP registrations
+without touching an executor.
 
 ---
 

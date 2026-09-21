@@ -48,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canViewCrm } from "@/crm/lib/crm-roles";
+import { canUseAgent } from "@/lib/agent/agent-roles";
 import { canViewHr } from "@/lib/hr-visibility";
 import { canViewProcurement, hasAnyProcurementGrant } from "@/lib/procurement-visibility";
 import { useRuntimeFlags } from "@/components/runtime-flags";
@@ -75,7 +76,7 @@ import {
 // entry (see crmOnlyNavigation below).
 const CRM_IN_SIDEBAR = true;
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; hrOnly?: boolean; procurementOnly?: boolean; external?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; agentOnly?: boolean; hrOnly?: boolean; procurementOnly?: boolean; external?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
@@ -95,6 +96,9 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Budgets",   href: "/procurement", icon: Wallet, procurementOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
+  // The org-level door of the Event Agent (Sep 21, 2026): the same four
+  // roles the per-event entry admits; canUseAgent is the one list.
+  { name: "AI Agent",  href: "/agent",     icon: Bot, agentOnly: true },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
   // Sits under Logs because that is where the need arises: log lines name
@@ -240,6 +244,7 @@ export function Sidebar() {
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
   const canCrm        = canViewCrm(session?.user?.role);
+  const canAgent      = canUseAgent(session?.user?.role);
   // Read at request time on the server and handed down, because a NEXT_PUBLIC_
   // constant is baked at build and master and the platform share one image.
   const { hrEnabled, procurementEnabled } = useRuntimeFlags();
@@ -330,6 +335,7 @@ export function Sidebar() {
           if (item.adminOnly && !isAdmin) return false;
           if (item.financeOnly && !canFinance) return false;
           if (item.crmOnly && (!canCrm || !CRM_IN_SIDEBAR)) return false;
+          if (item.agentOnly && !canAgent) return false;
           // Organizers run events, not the sales pipeline or budgets (owner, Sep 15 2026).
           // SIDEBAR ONLY, by owner decision: the pages and APIs still answer an organizer
           // as before. An organizer holding a procurement grant still sees Budgets.

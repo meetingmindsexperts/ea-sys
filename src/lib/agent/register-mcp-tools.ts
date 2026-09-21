@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
+import type { AgentSource } from "@/lib/agent/tools/_shared";
 import { apiLogger } from "@/lib/logger";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,12 +39,13 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: AgentC
         tool: name,
         eventId: ctx.eventId,
         organizationId: ctx.organizationId,
+        source: ctx.source,
         durationMs,
         err: typeof errObj.error === "string" ? errObj.error : JSON.stringify(errObj.error),
         code: typeof errObj.code === "string" ? errObj.code : undefined,
       });
     } else {
-      apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs });
+      apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, source: ctx.source, durationMs });
     }
     return typeof result === "string" ? result : JSON.stringify(result, null, 2);
   } catch (err) {
@@ -71,9 +73,13 @@ async function getOrgIdSecure(eventId: string, authenticatedOrgId: string): Prom
 export function registerAllMcpTools(
   server: McpServer,
   organizationId: string,
-  options?: { systemUserId?: string; actor?: CrmMcpActor },
+  options?: { systemUserId?: string; actor?: CrmMcpActor; source?: AgentSource },
 ): void {
   const SYSTEM_USER_ID = options?.systemUserId ?? DEFAULT_SYSTEM_USER_ID;
+  // Which door these registrations serve. The MCP transports never pass it;
+  // the in-app Event Agent collects the same registrations with "agent" so
+  // its audit rows say who acted (readiness gap G5).
+  const SOURCE: AgentSource = options?.source ?? "mcp";
   // Defaults to admin-equivalent so the API-key path (an admin-minted org key)
   // is byte-identical to before. Only the OAuth path passes a real role.
   const actor: CrmMcpActor = options?.actor ?? { role: null, fromApiKey: true };
@@ -160,7 +166,7 @@ export function registerAllMcpTools(
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
-        source: "mcp",
+        source: SOURCE,
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -215,7 +221,7 @@ export function registerAllMcpTools(
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
-        source: "mcp",
+        source: SOURCE,
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -246,7 +252,7 @@ export function registerAllMcpTools(
         eventId: input.eventId as string,
         organizationId,
         userId: SYSTEM_USER_ID,
-        source: "mcp",
+        source: SOURCE,
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -328,6 +334,9 @@ export function registerAllMcpTools(
     { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
       hotelId: z.string().optional(),
     }},
+    // The in-app Event Agent reaches every tool through these registrations
+    // (Sep 21, 2026); the two Zoom tools were in-app only before that.
+    { name: "list_zoom_meetings", description: "List all sessions that have a linked Zoom meeting or webinar. Shows meeting type, status, join URL.", params: {} },
   ];
 
   // ── Event-level write tools ──
@@ -376,7 +385,6 @@ export function registerAllMcpTools(
     { name: "create_abstract_theme", description: "Create an abstract theme.", params: { name: z.string() }},
     { name: "create_review_criterion", description: "Create a review criterion (weight 1-100; weights are meant to sum to 100 across criteria).", params: { name: z.string(), weight: z.number() }},
     { name: "update_review_criterion", description: "Update a review criterion's name, weight (1-100), and/or sortOrder. Provide at least one field.", params: { criterionId: z.string(), name: z.string().optional(), weight: z.number().optional(), sortOrder: z.number().optional() }},
-    { name: "delete_review_criterion", description: "Delete a review criterion.", params: { criterionId: z.string() }},
     { name: "update_abstract_status", description: "Update abstract status. ACCEPTED/REJECTED require event.settings.requiredReviewCount submissions first; set force=true to bypass (logged as chair-override).", params: {
       abstractId: z.string(), status: z.enum(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]),
       force: z.boolean().optional(),
@@ -630,9 +638,6 @@ export function registerAllMcpTools(
       autoIssueOnSurvey: z.boolean().optional(),
       autoIssueTag: z.string().max(120).nullable().optional(),
     }},
-    { name: "delete_certificate_template", description: "Delete a CertificateTemplate by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references it — audit trail must stay intact. Rename the template instead to mark as retired.", params: {
-      templateId: z.string().min(1),
-    }},
     { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. Event-level data consumed via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens on either cert type's text boxes (not a separate cert type any more — collapsed 2026-06-02). Provide at least one of cmeHours or accreditations.", params: {
       cmeHours: z.number().min(0).max(999.9).nullable().optional(),
       accreditations: z.array(z.object({
@@ -723,6 +728,12 @@ export function registerAllMcpTools(
         status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
       })).min(1).max(100),
     }},
+    { name: "create_zoom_meeting", description: "Create a Zoom meeting or webinar linked to an existing session. Requires Zoom to be configured for the organization and enabled for the event. Irreversible on the Zoom side: confirm with the person first.", params: {
+      sessionId: z.string().describe("ID of the session to link the Zoom meeting to"),
+      meetingType: z.enum(["MEETING", "WEBINAR", "WEBINAR_SERIES"]).optional().describe("Type of Zoom meeting (default: MEETING)"),
+      passcode: z.string().max(10).optional().describe("Optional meeting passcode (max 10 chars)"),
+      waitingRoom: z.boolean().optional().describe("Enable waiting room (default: true)"),
+    }},
   ];
 
   // Register all event-level tools (scoped to authenticated org)
@@ -733,7 +744,7 @@ export function registerAllMcpTools(
       async (args) => safeTool(t.name, async () => {
         const { eventId, ...input } = args;
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
-        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: "mcp", counters: { creates: 0, emailsSent: 0 } });
+        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: SOURCE, counters: { creates: 0, emailsSent: 0 } });
       }),
     );
   }
@@ -987,7 +998,7 @@ export function registerAllMcpTools(
   // ── CRM (sponsorship pipeline) ──
   // Registered from inside the CRM module (src/crm/agent-tools.ts) so the tool
   // logic stays behind the import boundary; this file is the named exemption.
-  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, actor);
+  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, { ...actor, source: SOURCE });
 
   // ── Budget & Procurement (dark until PROCUREMENT_MODULE_ENABLED) ──
   // Same shape as the CRM: the module hands core one registration function,

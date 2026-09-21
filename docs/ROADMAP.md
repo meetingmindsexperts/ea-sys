@@ -85,7 +85,7 @@ builders; seven inline token-mint copies; the registration single-send accepting
 any `templateSlug` without the custom-slug classifier. The certificate cover
 resolver and the agreement merges stay separate vocabularies on purpose.
 
-## Event Agent: one agent, two doors (Sep 21, 2026): Phase 0 shipped, Phases 1 to 4 not started
+## Event Agent: one agent, two doors (Sep 21, 2026): Phases 0 and 1 shipped, Phases 2 to 4 not started
 
 Owner question: the in-app agent sits inside an event, cannot create one, and
 Medhat wants the team using it. [AGENT_ARCHITECTURE_REVIEW.md](AGENT_ARCHITECTURE_REVIEW.md)
@@ -109,6 +109,18 @@ contradicts them), every executor stamps `ctx.source` so the trail says
 "agent" or "mcp", and the model comes from `getModelConfig("agent")`. The
 next step is Phase 1, the org-level door, which needs the §8 picks; the one
 real fork before Phase 2 is whether the two delete tools stay.
+
+**Phase 1 shipped the same day, with the §8 picks taken** (tool scope follows
+the MCP door's role rules; `delete_review_criterion` and
+`delete_certificate_template` removed from both doors; the approval list
+accepted; history stays in the browser until Phase 3; the model stays). The
+in-app door now collects the MCP registrations through
+`src/lib/agent/tool-registry.ts` (one tool list for both doors, schemas from
+Zod), runs at org level through `POST /api/agent/execute` with the per-event
+route as an alias, and has a `/agent` sidebar page with an event picker.
+**Next:** Phase 2 (the approval step for bulk email, Zoom meeting creation,
+sponsor and roster replaces, CME settings, and the two remaining MCP delete
+tools), then the one-page claude.ai connector guide, then Phases 3 and 4.
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 

@@ -46,7 +46,7 @@ const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "compa
 export interface CreateDealInput {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 
   name: string;
@@ -76,7 +76,7 @@ export interface UpdateDealInput {
   dealId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 
   name?: string;
@@ -95,7 +95,7 @@ export interface MoveDealStageInput {
   dealId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   /** The stage the caller BELIEVED the deal was in — the concurrency precondition. */
   fromStageId: string;
   toStageId: string;
@@ -105,7 +105,7 @@ export interface CloseDealInput {
   dealId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   outcome: "WON" | "LOST";
   lostReason?: string | null;
 }
@@ -726,7 +726,7 @@ export async function setDealArchived(input: {
   dealId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   archived: boolean;
 }): Promise<{ ok: true; deal: CrmDeal } | Fail> {
   try {
@@ -827,7 +827,7 @@ export async function addDealContact(input: {
   role?: CrmDealContactRole;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<{ ok: true } | Fail> {
   try {
     // Both ids come from the client. Bind BOTH to the caller's org before writing —
@@ -900,7 +900,7 @@ export async function removeDealContact(input: {
   crmContactId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 }): Promise<{ ok: true } | Fail> {
   try {
     const deal = await db.crmDeal.findFirst({

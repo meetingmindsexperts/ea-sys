@@ -22,27 +22,23 @@ export interface CapabilityLimit {
 
 export const CAPABILITY_LIMITS: readonly CapabilityLimit[] = [
   {
-    text: "Delete registrations, speakers, sessions, tracks, hotels, sponsors or contacts",
-    contradictedBy: /^delete_(registration|speaker|session|track|hotel|sponsor|contact)/,
+    text: "Delete any record",
+    contradictedBy: /^delete_/,
   },
   {
-    text: "Edit an existing registration, speaker, contact or ticket type",
-    contradictedBy: /^update_(registration|speaker|contact|ticket_type)$/,
+    text: "Change a ticket type's price or a pricing tier",
+    contradictedBy: /^update_(ticket_type|pricing_tier)|^(create|delete)_pricing_tier/,
   },
   {
-    text: "Change ticket prices or pricing tiers",
-    contradictedBy: /^(create|update|delete)_pricing_tier|^update_ticket_type/,
+    text: "Change an event's dates, slug, type or timezone, or publish it (update_event refuses those fields; use Settings)",
+    contradictedBy: /^(update_event_(dates|schedule)|publish_event|change_event_status)/,
   },
   {
-    text: "Create events or change event settings (dates, venue, status, branding)",
-    contradictedBy: /^(create|update)_event$/,
+    text: "Record, refund or cancel payments, or issue credit notes",
+    contradictedBy: /^(record_payment|refund_|cancel_registration|issue_credit_note)/,
   },
   {
-    text: "Record, refund or cancel payments",
-    contradictedBy: /^(record_payment|refund_|cancel_registration)/,
-  },
-  {
-    text: "Access or modify user accounts or permissions",
+    text: "Access or modify user accounts, roles or permissions",
     contradictedBy: /^(list|create|update|delete|invite)_(user|users|team_member|role)s?$/,
   },
   {

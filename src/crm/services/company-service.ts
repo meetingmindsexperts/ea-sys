@@ -48,7 +48,7 @@ interface CompanyFields {
 export interface FindOrCreateCompanyInput extends CompanyFields {
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api" | "backfill";
+  source: "rest" | "mcp" | "agent" | "api" | "backfill";
   requestIp?: string;
 }
 
@@ -56,7 +56,7 @@ export interface UpdateCompanyInput extends Partial<CompanyFields> {
   companyId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
   /** Clear the fuzzy-duplicate flag once a human has confirmed it's distinct. */
   needsReview?: boolean;
@@ -332,7 +332,7 @@ export async function setCompanyArchived(input: {
   companyId: string;
   organizationId: string;
   userId: string | null;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   archived: boolean;
 }): Promise<{ ok: true; company: CrmCompany } | { ok: false; code: CompanyErrorCode; message: string }> {
   try {

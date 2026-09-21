@@ -243,10 +243,6 @@ const HAND_VALIDATED = [
     "RFC 7009 token revocation, same URLSearchParams coercion as the token endpoint above",
   ],
   [
-    "src/app/api/events/[eventId]/agent/execute/route.ts::POST",
-    "bespoke per-message validation of the chat history: `Array.isArray` plus a `typeof` check on each message's role and content, which a flat schema would not express as clearly",
-  ],
-  [
     "src/app/api/admin/backups/route.ts::POST",
     "single field, guarded by `typeof body?.key === 'string'` with a non-string falling back to ''; the key is then matched against ONE exact shape (mirror-archives/*.zip) before any AWS call, and malformed JSON is already a logged 400",
   ],
