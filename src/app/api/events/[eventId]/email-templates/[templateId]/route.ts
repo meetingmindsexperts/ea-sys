@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { zodErrorResponse } from "@/lib/api-errors";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
@@ -17,6 +19,43 @@ import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 interface RouteParams {
   params: Promise<{ eventId: string; templateId: string }>;
 }
+
+/**
+ * Edit a template (Sep 21, 2026 security review, finding #5).
+ *
+ * Every field is optional because the write below is a partial patch
+ * (`...(x !== undefined && { x })`), and each one is type-checked ONLY — no
+ * `.min(1)` — so this rejects exactly what it rejected before and no more.
+ * Tightening emptiness here would be a product decision (an organiser who
+ * clears the subject box would start getting a 400), and that is not what this
+ * fix is for. The change is that `isActive: "no"` no longer reads as truthy
+ * and silently publishes a template, and a wrong-typed field is a logged 400
+ * naming it rather than a 500 reading "Failed to update email template".
+ *
+ * `slug` is deliberately absent and must stay absent. It is the key every
+ * sender routes on (`getEventTemplate(eventId, slug)`, the bulk-email dialog's
+ * saved-template picker, `isCustomTemplateSlug`), so letting a PUT move it
+ * would silently redirect or orphan live sends. It was already excluded; this
+ * comment is here so it is excluded on purpose rather than by accident.
+ */
+const updateTemplateSchema = z.object({
+  name: z.string().max(200).optional(),
+  subject: z.string().max(500).optional(),
+  htmlContent: z.string().max(500_000).optional(),
+  textContent: z.string().max(500_000).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+
+/**
+ * Preview / test-send action. The only caller (`usePreviewEmailTemplate`)
+ * already types this as `"preview" | "test"`, so the union matches the real
+ * contract rather than narrowing it. `.default("preview")` keeps the existing
+ * fall-through for a body with no action; the change is that a TYPO'd action
+ * is now refused instead of silently previewing when the caller asked to send.
+ */
+const previewActionSchema = z.object({
+  action: z.enum(["preview", "test"]).default("preview"),
+});
 
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -94,8 +133,27 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-    const { subject, htmlContent, textContent, isActive, name } = body;
+    const raw = await req.json().catch(() => null);
+    if (raw === null) {
+      apiLogger.warn({
+        msg: "events/[eventId]/email-templates/[templateId]:PUT-invalid-json",
+        eventId,
+        templateId,
+        userId: session.user.id,
+      });
+      return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
+    }
+
+    const parsed = updateTemplateSchema.safeParse(raw);
+    if (!parsed.success) {
+      return zodErrorResponse(parsed, {
+        route: "events/[eventId]/email-templates/[templateId]:PUT",
+        eventId,
+        templateId,
+        userId: session.user.id,
+      });
+    }
+    const { subject, htmlContent, textContent, isActive, name } = parsed.data;
 
     const template = await db.emailTemplate.update({
       where: { id: templateId },
@@ -105,7 +163,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // see {{x}} (Sep 11, 2026; src/lib/template-tokens.ts).
         ...(subject !== undefined && { subject: normalizeTemplateTokens(subject) }),
         ...(htmlContent !== undefined && { htmlContent: normalizeTemplateTokens(htmlContent) }),
-        ...(textContent !== undefined && { textContent: normalizeTemplateTokens(textContent) }),
+        // `null` is a legitimate clear (the column is nullable) and must not
+        // reach the normalizer, whose signature takes a string. It passed
+        // before only because `body` was untyped `any`.
+        ...(textContent !== undefined && {
+          textContent: textContent === null ? null : normalizeTemplateTokens(textContent),
+        }),
         ...(isActive !== undefined && { isActive }),
         ...(name !== undefined && { name }),
       },
@@ -262,8 +325,26 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventName: event?.name,
     };
 
-    const body = await req.json();
-    const { action } = body; // "preview" or "test"
+    const rawAction = await req.json().catch(() => null);
+    if (rawAction === null) {
+      apiLogger.warn({
+        msg: "events/[eventId]/email-templates/[templateId]:POST-invalid-json",
+        eventId,
+        templateId,
+        userId: session.user.id,
+      });
+      return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
+    }
+    const parsedAction = previewActionSchema.safeParse(rawAction);
+    if (!parsedAction.success) {
+      return zodErrorResponse(parsedAction, {
+        route: "events/[eventId]/email-templates/[templateId]:POST",
+        eventId,
+        templateId,
+        userId: session.user.id,
+      });
+    }
+    const { action } = parsedAction.data; // "preview" or "test"
 
     // Render with REAL event data (name, dates, venue, organizer, ticket type,
     // sessions, abstracts) so the preview/test reflects this event, not samples.

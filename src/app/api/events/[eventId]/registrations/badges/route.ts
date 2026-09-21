@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { zodErrorResponse } from "@/lib/api-errors";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
@@ -18,6 +20,26 @@ interface RouteParams {
 // can't build a multi-thousand-page PDF on the box that serves the live
 // scanner. Well above a realistic single event (MM Group runs 500-2000).
 const MAX_BADGES_PER_REQUEST = 2500;
+
+/**
+ * Badge request body (Sep 21, 2026 security review, finding #7).
+ *
+ * `body as { registrationIds?: string[] }` is an assertion, not a parse: at
+ * runtime the array could hold numbers or objects and went into
+ * `id: { in: ... }` as-is, surfacing as a 500 rather than a 400. The
+ * authorisation was never the problem — the `where` is bound to `eventId`, so
+ * a hostile array could not reach another event's rows — only the shape was
+ * untyped.
+ *
+ * The array cap ties to the existing MAX_BADGES_PER_REQUEST rather than
+ * inventing a second number: the query already refuses beyond it, so a larger
+ * list can only ever be rejected, and capping at parse time keeps a 100k-id
+ * payload out of the Postgres `IN` clause entirely.
+ */
+const badgeRequestSchema = z.object({
+  registrationIds: z.array(z.string()).max(MAX_BADGES_PER_REQUEST).optional(),
+  all: z.boolean().optional(),
+});
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -44,11 +66,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-    const { registrationIds, all } = body as {
-      registrationIds?: string[];
-      all?: boolean;
-    };
+    const raw = await req.json().catch(() => null);
+    if (raw === null) {
+      apiLogger.warn({ msg: "badges:invalid-json", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
+    }
+    const parsed = badgeRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return zodErrorResponse(parsed, { route: "badges:POST", eventId, userId: session.user.id });
+    }
+    const { registrationIds, all } = parsed.data;
 
     // Virtual attendees have no venue presence (and no qrCode) — never badge
     // them, even if explicitly selected.

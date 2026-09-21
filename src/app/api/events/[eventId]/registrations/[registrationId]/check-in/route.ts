@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { zodErrorResponse } from "@/lib/api-errors";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
@@ -12,6 +14,33 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
 }
+
+/**
+ * Scan body for the QR/barcode handler (Sep 21, 2026 security review, #7).
+ *
+ * Deliberately bug-compatible, because this runs the door on event morning and
+ * a scanner integration I cannot inspect is a worse thing to break than an
+ * untyped field is to leave. Two specific concessions:
+ *
+ *   - `qrCode` accepts a number as well as a string, because a scanner
+ *     integration POSTing a numeric barcode is plausible and this is the door.
+ *     (It did NOT actually work before: the entry-barcode arm stringified but
+ *     the DTCM arm compared the raw value, so a number 500'd on the second
+ *     arm. Both arms share one stringified value now, so accepting a number
+ *     here turns a 500 into a working scan rather than preserving a bug.)
+ *   - emptiness is still decided by the existing `if (!qrCode)` guard below,
+ *     not by `.min(1)` here, so "" and 0 reject exactly as they already did.
+ *   - `kiosk` stays `unknown` so the existing `=== true` narrowing keeps
+ *     ignoring a malformed value rather than turning it into a refusal. It
+ *     only tags the audit row, so a 400 would be a pure downgrade.
+ *
+ * The change is therefore narrow on purpose: objects and arrays can no longer
+ * reach Prisma, and nothing that works today stops working.
+ */
+const scanSchema = z.object({
+  qrCode: z.union([z.string(), z.number()]).optional(),
+  kiosk: z.unknown().optional(),
+});
 
 // The business gates (cancelled / payment-required / already-checked-in) and
 // the commit + audit + notify fan-out live in src/lib/check-in.ts — shared
@@ -164,11 +193,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-    const { qrCode } = body;
+    const raw = await req.json().catch(() => null);
+    if (raw === null) {
+      apiLogger.warn({ msg: "check-in-qr:invalid-json", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
+    }
+    const parsed = scanSchema.safeParse(raw);
+    if (!parsed.success) {
+      return zodErrorResponse(parsed, {
+        route: "check-in-qr:PUT",
+        eventId,
+        userId: session.user.id,
+      });
+    }
+    const { qrCode } = parsed.data;
     // Self-service kiosk scans tag themselves so the audit trail distinguishes
     // an attendee-driven kiosk check-in from a staff scanner check-in.
-    const isKiosk = body.kiosk === true;
+    const isKiosk = parsed.data.kiosk === true;
 
     if (!qrCode) {
       apiLogger.warn({ msg: "check-in-qr:missing-code", eventId, userId: session.user.id });
@@ -179,7 +220,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // `{qrCode}-{serialId}` (so a raw scanner dump identifies the person);
     // the stored value is the bare code, so the suffixed scan also tries its
     // bare prefix. DTCM values (external, arbitrary) always match as-is.
-    const qrCandidates = scannedEntryCodeCandidates(String(qrCode));
+    // Stringify ONCE and use it for both arms below. The DTCM arm used to
+    // compare the raw value, so a numeric barcode reached Prisma as a number
+    // and 500'd — the entry-barcode arm was already stringified, so the two
+    // disagreed about the type of the same input.
+    const scanned = String(qrCode);
+    const qrCandidates = scannedEntryCodeCandidates(scanned);
     // findMany, not findFirst: DTCM codes stopped being unique on Aug 27 2026
     // (two registrations may deliberately share one), so a DTCM scan can match
     // more than one person and `findFirst` would silently check in whichever row
@@ -191,7 +237,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         eventId,
         OR: [
           { qrCode: { in: qrCandidates } },
-          { dtcmBarcode: qrCode },
+          { dtcmBarcode: scanned },
         ],
       },
       include: {

@@ -171,6 +171,16 @@ jobs:
       - name: Every API route handler establishes identity
         run: node scripts/check-route-auth.mjs
 
+      # Same class of absence, one layer in: a handler that reads req.json()
+      # and destructures it is holding attacker-shaped data typed `any`, which
+      # surfaces as an unhelpful 500 rather than a 400 naming the field. The
+      # April 2026 sweep that fixed 44 silent-400 sites could not see these,
+      # because it grepped for "Invalid input" — the symptom of validation
+      # ALREADY existing — so routes with none at all matched nothing and
+      # survived until a review read them by hand (Sep 21, 2026).
+      - name: Every API route handler validates its JSON body
+        run: node scripts/check-request-validation.mjs
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something

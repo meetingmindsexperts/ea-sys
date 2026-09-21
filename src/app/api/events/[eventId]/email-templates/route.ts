@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { zodErrorResponse } from "@/lib/api-errors";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
@@ -12,6 +14,37 @@ import { normalizeTemplateTokens } from "@/lib/template-tokens";
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
+
+/**
+ * Create a custom email template (Sep 21, 2026 security review, finding #5).
+ *
+ * This used to be a truthiness check on the destructured body, which is not a
+ * type check: `slug: 12345` is truthy, reached Prisma, and surfaced as a raw
+ * PrismaClientValidationError — a 500 reading "Failed to create email
+ * template", which tells the organiser nothing and puts nothing useful in
+ * /logs either. The required set below is byte-identical to the old check
+ * (`.min(1)` rejects the empty string exactly as falsiness did), so the happy
+ * path is unchanged; the difference is that a malformed request is now a
+ * logged 400 naming the field instead of an opaque 500.
+ *
+ * The slug format matches what the only client already sends: the templates
+ * page slugifies the typed name to `[a-z0-9-]` before POSTing. It is a KEY,
+ * not a label — `eventId_slug` is unique, `isCustomTemplateSlug` classifies on
+ * it, and the bulk-email dialog sends by it — so it is worth pinning.
+ */
+const createTemplateSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z0-9-]+$/, "Slug may contain only lowercase letters, numbers and hyphens"),
+  name: z.string().min(1).max(200),
+  subject: z.string().min(1).max(500),
+  htmlContent: z.string().min(1),
+  // Kept nullish rather than defaulted: the write below preserves null vs
+  // undefined vs "" exactly as it did before, and callers rely on that.
+  textContent: z.string().max(100_000).nullish(),
+});
 
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -124,15 +157,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-    const { slug, name, subject, htmlContent, textContent } = body;
-
-    if (!slug || !name || !subject || !htmlContent) {
-      return NextResponse.json(
-        { error: "slug, name, subject, and htmlContent are required" },
-        { status: 400 }
-      );
+    // Unparseable JSON is a client error, not a server fault: without this it
+    // fell to the catch below and reported a 500.
+    const raw = await req.json().catch(() => null);
+    if (raw === null) {
+      apiLogger.warn({ msg: "email-templates:create-invalid-json", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_JSON" }, { status: 400 });
     }
+
+    const parsed = createTemplateSchema.safeParse(raw);
+    if (!parsed.success) {
+      return zodErrorResponse(parsed, {
+        route: "email-templates:create",
+        eventId,
+        userId: session.user.id,
+      });
+    }
+    const { slug, name, subject, htmlContent, textContent } = parsed.data;
 
     const existing = await db.emailTemplate.findUnique({
       where: { eventId_slug: { eventId, slug } },

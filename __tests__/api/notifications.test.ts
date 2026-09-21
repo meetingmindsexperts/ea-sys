@@ -181,3 +181,68 @@ describe("PUT /api/notifications", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Body validation (Sep 21, 2026 security review, finding #7).
+//
+// `body as { ids?: string[] }` is an ASSERTION, not a parse: at runtime the
+// array could hold anything and went into `id: { in: ... }` untyped, so a
+// malformed request 500'd instead of 400'ing.
+//
+// The authorisation was never the problem and these cases say so — the `where`
+// pins `userId` to the session, so the fix is about the shape and the error,
+// not about who can reach what.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PUT — body validation", () => {
+  beforeEach(() => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.notification.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("refuses a non-string element instead of passing it to Prisma", async () => {
+    const res = await PUT(makeRequest("PUT", { ids: ["ok", 42, { evil: true }] }));
+    expect(res.status).toBe(400);
+    expect(mockDb.notification.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-boolean `all`", async () => {
+    const res = await PUT(makeRequest("PUT", { all: "yes" }));
+    expect(res.status).toBe(400);
+    expect(mockDb.notification.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an over-long id list rather than building a huge IN clause", async () => {
+    const res = await PUT(makeRequest("PUT", { ids: Array.from({ length: 1001 }, (_, i) => `n${i}`) }));
+    expect(res.status).toBe(400);
+    expect(mockDb.notification.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("still marks a valid id list read, scoped to the caller's own userId", async () => {
+    const res = await PUT(makeRequest("PUT", { ids: ["n1", "n2"] }));
+    expect(res.status).toBe(200);
+    expect(mockDb.notification.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["n1", "n2"] }, userId: "user-1" },
+      data: { isRead: true },
+    });
+  });
+
+  it("still supports all: true", async () => {
+    const res = await PUT(makeRequest("PUT", { all: true }));
+    expect(res.status).toBe(200);
+    expect(mockDb.notification.updateMany).toHaveBeenCalledWith({
+      where: { userId: "user-1", isRead: false },
+      data: { isRead: true },
+    });
+  });
+
+  it("malformed JSON is a 400, not a 500", async () => {
+    const bad = new Request("http://localhost/api/notifications", {
+      method: "PUT",
+      body: "{nope",
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(bad);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+  });
+});

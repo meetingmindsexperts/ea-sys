@@ -64,9 +64,12 @@
  * Usage: node scripts/check-route-auth.mjs [--verbose]
  * Exit:  0 clean, 1 violation.
  */
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Shared with check-request-validation.mjs — see scripts/lib/route-scan.mjs
+// for why these are not typed twice.
+import { HTTP_METHODS, walkRoutes, stripComments, splitHandlers } from "./lib/route-scan.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API_DIR = path.join(ROOT, "src/app/api");
@@ -114,9 +117,6 @@ const GUARD_MODULES = [
   "src/procurement/lib/route-helpers.ts",
 ];
 
-/** HTTP methods Next.js treats as route handlers. */
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-
 /**
  * Routes that are unauthenticated BY DESIGN. Each needs a REASON, and the
  * reason is load-bearing — see "Maintaining it" above.
@@ -133,11 +133,6 @@ const EXEMPT = [
 
 function fail(msg) {
   console.error(msg);
-}
-
-/** Strip comments so prose about auth cannot satisfy a rule about auth. */
-function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
 /** Every exported function name in a guard module. */
@@ -161,32 +156,6 @@ function exportedNames(relPath) {
     for (const id of m[1].matchAll(/[A-Za-z0-9_]+/g)) names.add(id[0]);
   }
   return names;
-}
-
-function walkRoutes(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const p = path.join(dir, entry);
-    if (statSync(p).isDirectory()) walkRoutes(p, out);
-    else if (entry === "route.ts") out.push(p);
-  }
-  return out;
-}
-
-/**
- * Split a file into its exported HTTP handlers.
- * Returns [{ method, body }]. A handler's body runs to the next top-level
- * export, or to EOF for the last one.
- */
-function splitHandlers(code) {
-  const re = new RegExp(
-    String.raw`export\s+(?:async\s+)?function\s+(${HTTP_METHODS.join("|")})\b`,
-    "g"
-  );
-  const starts = [...code.matchAll(re)].map((m) => ({ method: m[1], index: m.index }));
-  return starts.map((s, i) => ({
-    method: s.method,
-    body: code.slice(s.index, i + 1 < starts.length ? starts[i + 1].index : code.length),
-  }));
 }
 
 /**

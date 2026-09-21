@@ -247,3 +247,73 @@ describe("admin barcode PNG route", () => {
     expect(renderQrSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Badge request body validation (Sep 21, 2026 security review, finding #7).
+//
+// `body as { registrationIds?: string[] }` is an assertion, not a parse: a
+// hostile array reached `id: { in: ... }` untyped and 500'd on a route that
+// also builds a multi-page PDF on the box serving the live scanner.
+//
+// Authorisation was never the gap — the `where` is bound to eventId — so these
+// pin the SHAPE and the error code, plus the array cap, which keeps a huge id
+// list out of the Postgres IN clause rather than relying on the row cap after
+// the query has already run.
+// ─────────────────────────────────────────────────────────────────────────────
+const badgeBodyReq = (body: unknown) =>
+  new Request("http://t/api/events/ev1/registrations/badges", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+
+describe("badge PDF — body validation", () => {
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      badgeVerticalOffset: 0,
+      requiresDtcmBarcode: false,
+    });
+    mockDb.registration.findMany.mockResolvedValue([regRow("r1", null)]);
+  });
+
+  it("refuses a non-string id instead of passing it to Prisma", async () => {
+    const res = await BADGES_POST(badgeBodyReq({ registrationIds: ["ok", 42] }), badgeParams);
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-boolean `all`", async () => {
+    const res = await BADGES_POST(badgeBodyReq({ all: "yes" }), badgeParams);
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("caps the id list at parse time, before the IN clause is built", async () => {
+    const res = await BADGES_POST(
+      badgeBodyReq({ registrationIds: Array.from({ length: 2501 }, (_, i) => `r${i}`) }),
+      badgeParams,
+    );
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a valid selection and scopes the query to the event", async () => {
+    const res = await BADGES_POST(badgeBodyReq({ registrationIds: ["r1"] }), badgeParams);
+    expect(res.status).toBe(200);
+    const where = mockDb.registration.findMany.mock.calls[0][0].where as Record<string, unknown>;
+    expect(where.eventId).toBe("ev1");
+    expect(where.id).toEqual({ in: ["r1"] });
+  });
+
+  it("malformed JSON is a 400, not a 500", async () => {
+    const bad = new Request("http://t/api/events/ev1/registrations/badges", {
+      method: "POST",
+      body: "{oops",
+      headers: { "content-type": "application/json" },
+    });
+    const res = await BADGES_POST(bad, badgeParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+  });
+});

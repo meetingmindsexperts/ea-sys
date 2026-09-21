@@ -233,3 +233,79 @@ describe("PUT (scan check-in) — kiosk audit tagging", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT — body validation (Sep 21, 2026 security review, finding #7).
+//
+// The handler used to read `await req.json()` untyped, so a non-string qrCode
+// reached Prisma as-is. The fix parses the body, and the parse is DELIBERATELY
+// permissive about numbers: this is the door on event morning, and refusing a
+// scanner integration that POSTs a numeric barcode would be a worse failure
+// than the untyped read ever was.
+//
+// These cases pin that concession. Without them, a later "tighten this to
+// z.string()" looks like an obvious cleanup and silently breaks the door.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("PUT (scan check-in) — body validation", () => {
+  beforeEach(() => {
+    // `vi.clearAllMocks()` in the outer hook clears CALLS but keeps
+    // implementations, so the ALREADY_CHECKED_IN return value set by the
+    // previous describe leaks in here and every scan reads as a 400. Re-assert
+    // the pass-through default rather than relying on the reset.
+    mockGate.mockReturnValue(null);
+    mockExecute.mockResolvedValue({
+      ok: true,
+      registration: { id: "reg1", status: "CHECKED_IN", checkedInAt: new Date() },
+    });
+    mockDb.registration.findMany.mockResolvedValue([{
+      id: "reg1",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      checkedInAt: null,
+      ticketType: { name: "Standard", price: 100 },
+      pricingTier: null,
+      attendee: { firstName: "A", lastName: "B" },
+    }]);
+  });
+
+  it("accepts a NUMERIC barcode and stringifies it for BOTH match arms", async () => {
+    const res = await PUT(kioskReq({ qrCode: 1753791234567123 }), params);
+    expect(res.status).toBe(200);
+    const where = mockDb.registration.findMany.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
+    // The DTCM arm used to compare the RAW value, so a number reached Prisma
+    // as a number and 500'd while the entry-barcode arm beside it had already
+    // been stringified — the two disagreed about the type of one input.
+    expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123"] } });
+    expect(where.OR[1]).toEqual({ dtcmBarcode: "1753791234567123" });
+  });
+
+  it("refuses an object barcode with a 400 instead of passing it to Prisma", async () => {
+    const res = await PUT(kioskReq({ qrCode: { evil: true } }), params);
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("refuses an array barcode", async () => {
+    const res = await PUT(kioskReq({ qrCode: ["a", "b"] }), params);
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still rejects an empty barcode the way it always did (400, no query)", async () => {
+    const res = await PUT(kioskReq({ qrCode: "" }), params);
+    expect(res.status).toBe(400);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("malformed JSON is a 400, not a 500", async () => {
+    const bad = new Request("http://localhost/x", {
+      method: "PUT",
+      body: "{not json",
+      headers: { "content-type": "application/json" },
+    });
+    const res = await PUT(bad, params);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+  });
+});
