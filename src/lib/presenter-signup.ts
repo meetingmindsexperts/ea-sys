@@ -72,19 +72,50 @@ export interface PresenterSignupInput {
 }
 
 /**
+ * What this event's presenter-rate configuration says about a signup.
+ *
+ * WHY A UNION AND NOT `| null` (Sep 21, 2026 security review, finding #1).
+ *
+ * `resolvePresenterRate` used to return null for THREE different situations,
+ * and the caller could not tell them apart:
+ *
+ *   1. the event offers no presenter rates          -> free comp is CORRECT (D4)
+ *   2. the event offers rates, none was chosen      -> free comp is a GIVEAWAY
+ *   3. the event offers rates, the choice is closed -> free comp is a GIVEAWAY
+ *
+ * All three collapsed to the D4 comp branch, so omitting one optional field
+ * from an unauthenticated POST bought a free COMPLIMENTARY Faculty
+ * registration on an event that charges presenters USD 100-125. The rule
+ * requiring the field lived only in the browser, and the client comment even
+ * claimed it was "Enforced again server-side, since a form can be bypassed" —
+ * it was not.
+ *
+ * Collapsing distinct states into one sentinel is the actual defect; naming
+ * them is the fix, and it is what lets the door refuse while the D4 fallback
+ * keeps working untouched for every event that charges nothing.
+ */
+export type PresenterRateSelection =
+  /** No presenter rates configured on this event. D4: comp companion. */
+  | { kind: "none" }
+  /** A rate is on sale and the submitter's choice resolved to it. */
+  | { kind: "resolved"; ticketTypeId: string; pricingTierId: string }
+  /**
+   * This event DOES charge presenters, but no usable rate was chosen — either
+   * the field was absent, or it named a type whose presenter tier is closed,
+   * sold out or does not exist. Never a comp.
+   */
+  | { kind: "required"; availableCount: number };
+
+/**
  * Resolve the presenter tier for a chosen registration type SERVER-side.
  * The client sends only a type id: the tier and the price are never taken from
  * the browser, and sharing `presenterRateOptions` with the form is what keeps
  * the rate a submitter was shown identical to the one they are charged.
- *
- * Returns null when this event offers no presenter rates, or the chosen type
- * has none open, which routes to the D4 comp fallback.
  */
-export async function resolvePresenterRate(
+export async function resolvePresenterRateSelection(
   eventId: string,
   ticketTypeId: string | null | undefined,
-): Promise<{ ticketTypeId: string; pricingTierId: string } | null> {
-  if (!ticketTypeId) return null;
+): Promise<PresenterRateSelection> {
   const ticketTypes = await db.ticketType.findMany({
     where: { eventId, isActive: true, isFaculty: false },
     select: {
@@ -130,8 +161,56 @@ export async function resolvePresenterRate(
       })),
     })),
   );
+  // Empty is meaningful, not an error: this event charges presenters nothing,
+  // so the D4 comp companion is the right outcome and always has been.
+  if (options.length === 0) return { kind: "none" };
+
+  // From here the event DOES charge presenters, so a missing or unusable
+  // choice is a refusal — never a free registration.
+  if (!ticketTypeId) return { kind: "required", availableCount: options.length };
+
   const chosen = options.find((o) => o.ticketTypeId === ticketTypeId);
-  return chosen ? { ticketTypeId: chosen.ticketTypeId, pricingTierId: chosen.tierId } : null;
+  if (!chosen) return { kind: "required", availableCount: options.length };
+
+  return { kind: "resolved", ticketTypeId: chosen.ticketTypeId, pricingTierId: chosen.tierId };
+}
+
+/**
+ * The door's pre-flight check, shared by BOTH abstract doors (`/submitter`
+ * for a new account, `/abstract-start` for an existing one).
+ *
+ * It exists as its own function because the refusal has to happen BEFORE the
+ * account and speaker row are committed. `ensureSubmitterRegistration` runs
+ * after that commit and is failure-isolated by contract, so by the time it
+ * could notice the problem it is far too late to answer the request with a
+ * 400 — it can only decline to create a registration.
+ *
+ * Returns errors-as-values; the route maps to HTTP, so this file never imports
+ * next/server.
+ */
+export async function checkPresenterRateSelection(
+  eventId: string,
+  source: string,
+  ticketTypeId: string | null | undefined,
+): Promise<
+  | { ok: true }
+  | { ok: false; code: "REGISTRATION_TYPE_REQUIRED"; message: string; availableCount: number }
+> {
+  // Session proposals create no registration at all (Aug 5), so a presenter
+  // rate is not a thing they can or should choose.
+  if (source === "proposal") return { ok: true };
+
+  const selection = await resolvePresenterRateSelection(eventId, ticketTypeId);
+  if (selection.kind !== "required") return { ok: true };
+
+  return {
+    ok: false,
+    code: "REGISTRATION_TYPE_REQUIRED",
+    message: ticketTypeId
+      ? "That registration type is no longer available. Please reload the page and choose again."
+      : "Please choose a registration type.",
+    availableCount: selection.availableCount,
+  };
 }
 
 /**
@@ -150,13 +229,39 @@ export async function ensureSubmitterRegistration(
       return null;
     }
 
-    const rate = await resolvePresenterRate(speaker.eventId, input.ticketTypeId);
-    if (!rate) {
-      // D4: this event has no presenter rates (or the chosen one closed).
-      // Behave exactly as before.
+    const selection = await resolvePresenterRateSelection(speaker.eventId, input.ticketTypeId);
+
+    if (selection.kind === "none") {
+      // D4: this event has no presenter rates. Behave exactly as before.
       await ensureSpeakerCompanionRegistration(speaker, { expectedLink });
       return null;
     }
+
+    if (selection.kind === "required") {
+      // DEFENCE IN DEPTH. Both doors refuse this before creating an account,
+      // so reaching here means either a tier closed in the milliseconds since
+      // that check, or a future caller forgot it.
+      //
+      // The old code minted a free COMPLIMENTARY companion here, which is the
+      // giveaway the review found. Linking only is the safe failure: the
+      // person keeps their account and can submit, the organizer sees the log
+      // and grants the right paid registration from the Grant button. Never
+      // hand out a free pass on an event that charges.
+      apiLogger.error(
+        {
+          msg: "presenter-signup:rate-required-but-unresolved",
+          eventId: speaker.eventId,
+          speakerId: speaker.id,
+          chosenTicketTypeId: input.ticketTypeId ?? null,
+          availableCount: selection.availableCount,
+        },
+        "presenter-signup:rate-required-but-unresolved",
+      );
+      await ensureSpeakerCompanionRegistration(speaker, { linkOnly: true, expectedLink });
+      return null;
+    }
+
+    const rate = selection;
 
     const outcome = await createAndLinkPayableRegistration({
       eventId: speaker.eventId,

@@ -19,6 +19,10 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy } = vi.h
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     registration: { findFirst: vi.fn() },
+    // No presenter rates on this event -> the D4 comp path, which is what this
+    // file asserts. The route asks BEFORE the transaction (Sep 21, 2026), so
+    // the mock has to answer.
+    ticketType: { findMany: vi.fn().mockResolvedValue([]) },
   },
   ensureCompanionSpy: vi.fn(),
   upsertSpy: vi.fn(),

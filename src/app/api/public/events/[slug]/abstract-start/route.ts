@@ -9,7 +9,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
-import { ensureSubmitterRegistration } from "@/lib/presenter-signup";
+import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/presenter-signup";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -139,6 +139,30 @@ export async function POST(req: Request, { params }: RouteParams) {
     const att = registration?.attendee ?? null;
     const firstName = att?.firstName || user.firstName || "";
     const lastName = att?.lastName || user.lastName || "";
+
+    // Presenter rate: REQUIRED when this event charges presenters (Sep 21,
+    // 2026 security review, finding #1). The SAME hole existed on this door as
+    // on /submitter — both take `ticketTypeId` as optional and both fell
+    // through to the free comp when it was missing.
+    //
+    // Must run BEFORE the transaction: the registration decision happens in
+    // `ensureSubmitterRegistration` below, which is failure-isolated and runs
+    // post-commit, so it can never answer this request with a 400.
+    const rateCheck = await checkPresenterRateSelection(
+      event.id,
+      parsed.data.source,
+      parsed.data.ticketTypeId,
+    );
+    if (!rateCheck.ok) {
+      apiLogger.warn({
+        msg: "public/abstract-start:presenter-rate-required",
+        eventId: event.id,
+        chosenTicketTypeId: parsed.data.ticketTypeId ?? null,
+        availableCount: rateCheck.availableCount,
+        ip,
+      });
+      return NextResponse.json({ error: rateCheck.message, code: rateCheck.code }, { status: 400 });
+    }
 
     let speakerId = "";
     await tenantTransaction(async (tx) => {

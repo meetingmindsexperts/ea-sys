@@ -50,9 +50,11 @@ vi.mock("@/lib/presenter-registration", () => ({
 
 import {
   ensureSubmitterRegistration,
-  resolvePresenterRate,
+  resolvePresenterRateSelection,
   buildPresenterFeeEmailExtras,
 } from "@/lib/presenter-signup";
+// The mocked instance — asserting the refusal is VISIBLE, not just correct.
+import { apiLogger } from "@/lib/logger";
 
 const SPEAKER = {
   id: "spk1",
@@ -119,20 +121,61 @@ beforeEach(() => {
   });
 });
 
-describe("D4: an event with no presenter rates keeps today's behaviour", () => {
-  it("mints the complimentary companion when no type was chosen", async () => {
+/**
+ * THE GIVEAWAY THESE TWO CASES USED TO PIN (Sep 21, 2026 security review).
+ *
+ * They lived in the D4 block below, titled "an event with NO presenter rates"
+ * — while `beforeEach` gives the event an OPEN presenter rate. The block's
+ * name and its fixture disagreed, so what actually got asserted was:
+ *
+ *     event charges presenters + no rate chosen -> mint a free comp
+ *
+ * which is the bypass. One of them went further and pinned the early-out that
+ * CAUSED it ("does not even query ticket types"), making the giveaway look
+ * like a deliberate optimisation.
+ *
+ * Worth more than the fix: a test can protect a bug while reading as though it
+ * protects a feature, and the tell was never the assertion — it was that the
+ * describe block described a fixture it did not have.
+ */
+describe("an event that DOES charge presenters never hands out a free comp", () => {
+  it("links only, instead of minting a comp, when no type was chosen", async () => {
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: null });
-    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+
     expect(createAndLinkSpy).not.toHaveBeenCalled();
-    // Not linkOnly: it must actually create, exactly as before.
-    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).not.toBe(true);
+    // Still linked (so a self-registered person keeps their row), but linkOnly
+    // — the helper is forbidden from CREATING a free registration here.
+    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
   });
 
-  it("does not even query ticket types when no type was chosen", async () => {
+  it("links only when the chosen type is not one of the rates on offer", async () => {
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-not-a-real-type" });
+
+    expect(createAndLinkSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+  });
+
+  it("logs at error so the organizer can grant the paid registration by hand", async () => {
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: null });
-    expect(findManySpy).not.toHaveBeenCalled();
+
+    // Silence here would be the worst outcome: no registration, no signal.
+    expect(apiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "presenter-signup:rate-required-but-unresolved" }),
+      expect.any(String),
+    );
   });
 
+  it("must query the ticket types — it cannot know the event charges without asking", async () => {
+    // Supersedes "does not even query ticket types when no type was chosen".
+    // That early-out is precisely what made "no rates configured" and "no rate
+    // chosen" indistinguishable.
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: null });
+    expect(findManySpy).toHaveBeenCalled();
+  });
+});
+
+describe("D4: an event with no presenter rates keeps today's behaviour", () => {
   it("falls back when the chosen type has no presenter tier", async () => {
     findManySpy.mockResolvedValue([
       { id: "tt-phys", name: "Physician", isActive: true, pricingTiers: [
@@ -250,13 +293,28 @@ describe("failure isolation", () => {
   });
 });
 
-describe("resolvePresenterRate", () => {
-  it("returns null for an unknown type rather than guessing another", async () => {
-    expect(await resolvePresenterRate("ev1", "tt-nope")).toBeNull();
+describe("resolvePresenterRateSelection", () => {
+  // These two used to assert `null` for both cases, which is exactly the
+  // collapse the Sep 21 review found: "no rates configured" and "rates exist
+  // but none was chosen" are different facts, and only the first may end in a
+  // free registration. They now assert the DISTINCTION.
+  it("says a choice is REQUIRED for an unknown type rather than guessing another", async () => {
+    const sel = await resolvePresenterRateSelection("ev1", "tt-nope");
+    expect(sel.kind).toBe("required");
   });
 
-  it("returns null when nothing was chosen", async () => {
-    expect(await resolvePresenterRate("ev1", null)).toBeNull();
+  it("says a choice is REQUIRED when nothing was chosen but rates exist", async () => {
+    const sel = await resolvePresenterRateSelection("ev1", null);
+    expect(sel.kind).toBe("required");
+  });
+
+  it("resolves a valid choice to its tier", async () => {
+    const sel = await resolvePresenterRateSelection("ev1", "tt-phys");
+    expect(sel).toEqual({
+      kind: "resolved",
+      ticketTypeId: "tt-phys",
+      pricingTierId: expect.any(String),
+    });
   });
 });
 

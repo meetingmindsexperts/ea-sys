@@ -11,7 +11,7 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
-import { ensureSubmitterRegistration } from "@/lib/presenter-signup";
+import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/presenter-signup";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -204,6 +204,30 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 401 }
         );
       }
+    }
+
+    // Presenter rate: REQUIRED when this event charges presenters (Sep 21,
+    // 2026 security review, finding #1).
+    //
+    // This has to run BEFORE the transaction below. `ensureSubmitterRegistration`
+    // is failure-isolated by contract and only runs once the account and the
+    // speaker row are committed, so it can decline to create a registration but
+    // it can never answer this request with a 400.
+    //
+    // The rule used to live only in the browser — the client comment claimed it
+    // was "Enforced again server-side", and it was not — so omitting this one
+    // optional field bought a free COMPLIMENTARY Faculty registration on an
+    // event charging presenters USD 100-125.
+    const rateCheck = await checkPresenterRateSelection(event.id, data.source, data.ticketTypeId);
+    if (!rateCheck.ok) {
+      apiLogger.warn({
+        msg: "public/submitter:presenter-rate-required",
+        eventId: event.id,
+        chosenTicketTypeId: data.ticketTypeId ?? null,
+        availableCount: rateCheck.availableCount,
+        ip: clientIp,
+      });
+      return NextResponse.json({ error: rateCheck.message, code: rateCheck.code }, { status: 400 });
     }
 
     // Hash password

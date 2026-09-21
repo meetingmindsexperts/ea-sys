@@ -21,6 +21,10 @@ const { mockDb, ensureCompanionSpy } = vi.hoisted(() => {
       event: { findFirst: vi.fn() },
       user: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       speaker: { findUnique: vi.fn().mockResolvedValue({ id: "sp1", sourceRegistrationId: null }) },
+      // No presenter rates on this event -> the D4 comp path, which is what
+      // every assertion in this file is about. The route asks BEFORE creating
+      // the account (Sep 21, 2026), so the mock has to answer.
+      ticketType: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
       _tx: tx,
     },
@@ -91,6 +95,87 @@ beforeEach(() => {
   mockDb.speaker.findUnique.mockResolvedValue({ id: "sp1", sourceRegistrationId: null });
   mockDb._tx.speaker.findUnique.mockResolvedValue(null);
   mockDb._tx.speaker.create.mockResolvedValue({ id: "sp1" });
+  // Re-assert the DEFAULT (no presenter rates) every test. `clearAllMocks`
+  // clears calls but KEEPS implementations, so a case that gives the event a
+  // presenter rate would otherwise leak into every test after it — which is
+  // exactly what happened the first time these were added.
+  mockDb.ticketType.findMany.mockResolvedValue([]);
+});
+
+/**
+ * THE BYPASS (Sep 21, 2026 security review, finding #1).
+ *
+ * `ticketTypeId` is optional in the schema, and when it was absent
+ * `resolvePresenterRate` returned null — the SAME null it returns for "this
+ * event has no presenter rates". Both fell through to the D4 comp branch, so
+ * omitting one field from an unauthenticated POST bought a free COMPLIMENTARY
+ * Faculty registration on an event charging presenters USD 100-125.
+ *
+ * The rule lived only in the browser. The client comment even asserted it was
+ * "Enforced again server-side, since a form can be bypassed" — it was not.
+ *
+ * These cases pin the refusal at the DOOR, before any account exists, because
+ * that is the only place it can be a 400: `ensureSubmitterRegistration` runs
+ * post-commit and is failure-isolated by contract.
+ */
+describe("submitter route — presenter rate is required when the event charges", () => {
+  /** The event now offers one open presenter rate. */
+  function withPresenterRate() {
+    mockDb.ticketType.findMany.mockResolvedValue([
+      {
+        id: "tt-phys",
+        name: "Physician",
+        isActive: true,
+        pricingTiers: [
+          { id: "tier-p", name: "Presenter", price: 125, currency: "USD", sortOrder: 3,
+            quantity: 999999, soldCount: 0, salesStart: null, salesEnd: null },
+        ],
+      },
+    ]);
+  }
+
+  it("400s an abstract signup that omits the rate — and creates NO account", async () => {
+    withPresenterRate();
+    const res = await POST(makeReq(validBody), { params });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("REGISTRATION_TYPE_REQUIRED");
+    // The whole point of checking before the transaction.
+    expect(mockDb._tx.user.create).not.toHaveBeenCalled();
+    expect(mockDb._tx.speaker.create).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  it("400s a rate that is not on offer, rather than silently comping", async () => {
+    withPresenterRate();
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-not-real" }), { params });
+
+    expect(res.status).toBe(400);
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets a valid rate through", async () => {
+    withPresenterRate();
+    const res = await POST(makeReq({ ...validBody, ticketTypeId: "tt-phys" }), { params });
+
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("does NOT ask a proposal signup for a rate — proposals create nothing", async () => {
+    withPresenterRate();
+    const res = await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it("leaves an event with no presenter rates completely alone (D4)", async () => {
+    // The regression that would matter most: every live event is in this
+    // state, so a wrong guard here breaks abstract signup everywhere.
+    const res = await POST(makeReq(validBody), { params });
+
+    expect(res.status).toBeLessThan(400);
+    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("submitter route — companion registration", () => {
