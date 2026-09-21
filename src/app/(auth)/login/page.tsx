@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
+import { safeInternalPath } from "@/lib/safe-redirect";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,7 +39,13 @@ type LoginForm = z.infer<typeof loginSchema>;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  // Same-origin paths ONLY (Sep 21, 2026 security review, finding #3). This
+  // was read raw and pushed, so a crafted link landed a signed-in ADMIN on an
+  // attacker's page — on the real domain, with the real login, right after
+  // they typed a real password, which is what makes a second "session expired"
+  // prompt believable. The two sibling doors already guarded it; this one was
+  // missed. Fails closed to the dashboard.
+  const callbackUrl = safeInternalPath(searchParams.get("callbackUrl"), "/dashboard");
   // Set by the global session-expiry redirect (src/lib/session-expiry.ts).
   // Without it, being bounced here from a working page reads as a fault.
   const sessionExpired = searchParams.get("reason") === "expired";

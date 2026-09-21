@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 interface Event {
   id: string;
@@ -118,14 +119,14 @@ function EventLoginForm() {
       // Route based on context. A full internal path (e.g. the gated webinar
       // session page `/e/[slug]/session/[id]`) takes precedence so attendees
       // return to where they came from instead of being bounced to a default
-      // by role-based middleware. Only same-origin relative paths are honored
-      // (must start with a single "/") — guards against open-redirect.
-      const isSafeInternalPath =
-        !!redirectParam &&
-        redirectParam.startsWith("/") &&
-        !redirectParam.startsWith("//") &&
-        !redirectParam.startsWith("/\\");
-      if (isSafeInternalPath) {
+      // by role-based middleware.
+      //
+      // Same-origin only, via the shared guard (Sep 21, 2026). The hand-rolled
+      // version this replaces passed "/\t/evil.example": it starts with "/"
+      // and does NOT start with "//", so the check said safe — and the browser
+      // then strips the tab, leaving a protocol-relative URL pointing at
+      // another origin.
+      if (isSafeInternalPath(redirectParam)) {
         router.push(redirectParam);
       } else if (redirectParam === "registration") {
         router.push(`/e/${slug}/my-registration`);

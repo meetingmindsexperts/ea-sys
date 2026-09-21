@@ -40,6 +40,7 @@ import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-
 import { isProfileIncomplete, missingProfileFields } from "@/lib/submitter-profile-completeness";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { abstractStatusColor, abstractStatusLabel, PRESENTATION_TYPE_LABELS } from "../abstracts/abstract-enums";
+import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 interface AbstractRow {
   id: string;
@@ -237,13 +238,11 @@ export default function SubmitterProfilePage() {
       // page (?next=…), completing the profile sends them straight back.
       // Same-origin relative paths only — never an absolute/protocol-relative
       // URL (open-redirect guard).
+      // Same-origin only, via the shared guard (Sep 21, 2026) — the
+      // hand-rolled version here let "/\t/evil.example" through, because the
+      // browser strips the tab AFTER the "//" check has passed it.
       const next = new URLSearchParams(window.location.search).get("next");
-      if (
-        next &&
-        next.startsWith("/") &&
-        !next.startsWith("//") &&
-        !isProfileIncomplete(saved)
-      ) {
+      if (isSafeInternalPath(next) && !isProfileIncomplete(saved)) {
         router.push(next);
       }
     } catch (err) {
