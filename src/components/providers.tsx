@@ -116,7 +116,14 @@ export function Providers({ children }: ProvidersProps) {
         <ActiveOrgProvider>
           <OrgTheme />
           {children}
-          <Toaster />
+          {/* Toasts stack above the floating AI Agent button's corner (a
+              56px button at 24px from the bottom on desktop, 48px at 16px on
+              phones), so a toast never covers it. Sonner's own defaults are
+              24px and 16px on every side. */}
+          <Toaster
+            offset={{ top: 24, right: 24, bottom: 88, left: 24 }}
+            mobileOffset={{ top: 16, right: 16, bottom: 76, left: 16 }}
+          />
         </ActiveOrgProvider>
       </SessionProvider>
     </QueryClientProvider>

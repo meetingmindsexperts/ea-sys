@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { SidebarProvider } from "@/contexts/sidebar-context";
 import { HelpChatProvider } from "@/components/help-chat/help-chat-provider";
+import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { RuntimeFlagsProvider } from "@/components/runtime-flags";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 
@@ -36,6 +37,9 @@ export default async function DashboardLayout({
             <main className="flex-1 overflow-auto bg-muted/30 p-6">{children}</main>
           </div>
         </div>
+        {/* The floating AI Agent button: fixed bottom right, role-gated and
+            absent on the agent, check-in and log pages (src/lib/agent/launcher.ts). */}
+        <AgentLauncher />
       </HelpChatProvider>
       </SidebarProvider>
     </RuntimeFlagsProvider>

@@ -136,8 +136,9 @@ page and three digest lines. Conversation history stays in the browser (a
 server-side history keyed per conversation is an owner option; the runs make
 it possible). **Next:** Phase 4 (delete the hand-written
 `AGENT_TOOL_DEFINITIONS`; the registry already derives every schema from
-Zod, so this is a deletion), then the floating agent button and the drawer
-form of the chat if the owner wants them.
+Zod, so this is a deletion), then the drawer form of the chat if the owner
+wants it. The floating agent button shipped on Sep 21, 2026
+(`src/lib/agent/launcher.ts` holds the rule).
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 
