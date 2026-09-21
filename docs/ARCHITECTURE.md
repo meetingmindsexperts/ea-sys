@@ -97,31 +97,40 @@ the two entry points.
 Three-layer enforcement for role-based access:
 
 ```
-Layer 1: API Guards
-  └─ denyReviewer(session) on all POST/PUT/DELETE (except abstracts, registrant self-edit)
-  └─ Returns 403 for REVIEWER, SUBMITTER, and REGISTRANT roles
+Layer 1: API guards
+  └─ denyReviewer(session) on every non-abstract write: only SUPER_ADMIN, ADMIN and
+     ORGANIZER pass (WRITE_ROLES, an allow-list); desk routes opt ONSITE, MEMBER and
+     WEBINARS back in; ~55 webinar routes opt WEBINARS in on WEBINAR-type events
+  └─ every event lookup goes through buildEventAccessWhere() (assignment-gated for
+     ONSITE, two surfaces for WEBINARS, none for CRM_USER and HR_USER)
+  └─ field-level boundaries (money, barcodes, contacts, exports, sign-in activity,
+     supporting documents, Zoom host credentials) are separate predicates that
+     deliberately disagree
 
-Layer 2: Middleware
-  └─ Redirects restricted roles from non-abstract routes
-  └─ REVIEWER/SUBMITTER → /events/[eventId]/abstracts
-  └─ REGISTRANT → /my-registration (from all dashboard routes)
+Layer 2: Middleware (src/proxy.ts)
+  └─ confines the UI: REGISTRANT to /my-registration, CRM_USER to /crm, HR_USER to
+     /hr, ONSITE to the events list and an event's registrations and check-in,
+     WEBINARS to /events*, REVIEWER and SUBMITTER to an event's abstracts and proposals
 
 Layer 3: UI
-  └─ Write-action buttons hidden for restricted roles and MEMBER
-  └─ Sidebar hidden for REGISTRANT; shows only permitted items per role
-  └─ Header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
+  └─ sidebar and write-action buttons follow the same predicates; the API is the gate
 ```
 
-**Role scoping:**
+**Role scoping, in one line each.** The full matrix, verified against the code and
+pinned by a test, is [ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md).
 
-| Role | Org-bound | Event Access | Write Access |
+| Role | Org-bound | Event access | Writes |
 |---|---|---|---|
-| SUPER_ADMIN / ADMIN | Yes | All org events | Full |
-| ORGANIZER | Yes | All org events | Full |
-| MEMBER | Yes | All org events | Read-only (no writes) |
-| REVIEWER | No (`organizationId: null`) | Events in `settings.reviewerUserIds` | Abstracts only (review/score) |
-| SUBMITTER | No (`organizationId: null`) | Events with linked Speaker record | Abstracts only (own) |
-| REGISTRANT | No (`organizationId: null`) | Events with linked Registration | Self-service portal only (`/my-registration`) |
+| SUPER_ADMIN / ADMIN | Yes | All org events | Full, plus org administration (Super Admin also the operator surfaces) |
+| ORGANIZER | Yes | All org events | Full on events; no org administration |
+| MEMBER | Yes | All org events | Registration desk only; reads money |
+| ONSITE | Yes | Assigned events only (`settings.onsiteUserIds`) | Registration desk only |
+| WEBINARS | Yes | WEBINAR events (manage), all events (desk) | Organizer-grade on webinars; desk elsewhere |
+| CRM_USER | Yes | None | CRM only |
+| HR_USER | Yes | None | HR only |
+| REVIEWER | No | Events in `settings.reviewerUserIds` | Abstract reviews only |
+| SUBMITTER | No | Events with a linked Speaker record | Own abstracts and proposals only |
+| REGISTRANT | No | Events with a linked Registration | Self-service portal only |
 
 ---
 

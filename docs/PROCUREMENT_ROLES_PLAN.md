@@ -1,6 +1,6 @@
-# Custom roles for Budget & Procurement: PLANNED, NOT BUILT
+# Custom roles for Budget & Procurement: BUILT Sep 16, 2026, on main
 
-**Status:** planning, revised Sep 16, 2026. Owner direction: "a custom role with
+**Status:** built and deployed. Steps 1 to 4 (§7) landed on main on Sep 16, 2026 (`caf22e5c`, `fd8c70fc`, `c9fe7b8e`, `60bd0504`, `183ba281`) and shipped with the deploys that followed; the operator words are in the user guide, chapter 22, and the resulting access rules in `docs/ROLES_AND_PERMISSIONS.md` §7.3. Kept as the design record. Originally: planning, revised Sep 16, 2026. Owner direction: "a custom role with
 custom access for the procurement module, eventually for other roles too". Do
 not start building without owner go-ahead on §10.
 
@@ -225,7 +225,7 @@ holder would silently hold nothing.
 
 ## 7. Build order (about 1.5 to 2 weeks)
 
-**Step 1 is BUILT (Sep 16, 2026), unpushed.** What landed:
+**Step 1 is BUILT (Sep 16, 2026), on main.** What landed:
 
 | File | What it is |
 |---|---|
@@ -244,7 +244,7 @@ nobody can use differently), and **`readUserPermissions` drops keys this build n
 longer enforces**, so a row outliving its capability cannot satisfy a later check
 that reuses the name.
 
-**Step 2 is BUILT (Sep 16, 2026), unpushed.** The predicates read
+**Step 2 is BUILT (Sep 16, 2026), on main.** The predicates read
 `permission OR today's rule`, so **nobody's access changes**; dropping the
 legacy arm is the separate flip §10a says must follow assignment.
 
@@ -276,7 +276,7 @@ so `readUserPermissions` has nothing to key on and a custom-role holder gets no
 procurement tools through the agent. Invisible today because grants are equally
 role-invisible there; it becomes a real gap once roles are assigned.
 
-**Step 3 is BUILT (Sep 16, 2026), unpushed.** The keys ride the JWT and refresh
+**Step 3 is BUILT (Sep 16, 2026), on main.** The keys ride the JWT and refresh
 on the same five-minute cycle as the role and the grants, so the per-request
 database read step 2 introduced is gone.
 
@@ -297,7 +297,7 @@ The lane is borrowed from the row just read, and a failure never blocks sign-in.
 `approvals-service` and `commitment-service` each re-read the row at decision
 time, so archiving a role stops an approval or an order cancel at once.
 
-**Step 4 is BUILT (Sep 16, 2026), unpushed.** The two Settings screens, the
+**Step 4 is BUILT (Sep 16, 2026), on main.** The two Settings screens, the
 audit wording, and the rules that keep two sensible roles from combining into
 one unsafe person.
 

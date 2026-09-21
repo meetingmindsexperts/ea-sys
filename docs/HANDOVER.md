@@ -387,17 +387,27 @@ NextAuth.js v5 with Credentials provider (email + password). JWT session strateg
 
 **JWT role re-validation:** Every 5 minutes, the JWT callback queries the database to check if the user's role has changed. This prevents a scenario where an admin changes someone's role but their old JWT still grants elevated access. The DB query is non-blocking — if it fails, the existing role is kept.
 
-### The 7 Roles
+### The 11 Roles
 
-| Role | Scope | Can Do | Cannot Do |
+The per-role matrix, verified against the code and pinned by a test, is
+[ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md); the table below is the
+short form (corrected Sep 21, 2026: this section used to list seven roles and
+called ORGANIZER "assigned events only" and MEMBER "no writes", neither of which
+the code does).
+
+| Role | Scope | Can do | Cannot do |
 |------|-------|--------|-----------|
-| **SUPER_ADMIN** | Entire organization | Everything + view logs | — |
-| **ADMIN** | Entire organization | Everything except logs | View system logs |
-| **ORGANIZER** | Entire organization | Manage events, registrations, speakers, etc. | Manage team members, org settings |
-| **MEMBER** | Entire organization | Read-only dashboard access, AI agent | Any write operations |
-| **REVIEWER** | Assigned events only | Review abstracts, add scores/notes, recommend format | Create/edit events, registrations, speakers |
-| **SUBMITTER** | Own events only | Submit/edit own abstracts, withdraw abstracts | Everything else |
-| **REGISTRANT** | Own registration only | Self-service portal (`/my-registration`): view/edit details, pay online, download invoice | Any dashboard access |
+| **SUPER_ADMIN** | Entire organisation (every tenant when org-less) | Everything, plus Logs, ID lookup, Backups, Help queries, Docs, INTERNAL key tiers, custom roles, the System tab | |
+| **ADMIN** | Entire organisation | Every event, org settings, users and invites, integrations, API keys, Activity, sign-in activity | The operator surfaces above |
+| **ORGANIZER** | Every event in the org | Registrations, money movement, speakers, programme, communications, certificates, reimbursements, contacts; create Onsite accounts | Org settings, users (other than Onsite), API keys, integrations, Activity, sign-in activity |
+| **MEMBER** | Entire organisation, read | Read everything incl. money; registration desk (add, edit, check in, badges, record a payment); contacts read and export; AI Agent read-only | Any other write; entry or DTCM barcodes; registrations export; supporting documents |
+| **ONSITE** | Assigned events only | Registration desk, registrations export, barcodes, spare DTCM codes | Everything else, and any unassigned event |
+| **WEBINARS** | Webinar events (full), every event (desk) | Organizer-grade control of webinar events; the desk elsewhere | Org surfaces, CRM, contacts, refunds, certificates, reimbursements, AI Agent, event delete or clone |
+| **CRM_USER** | CRM only | Deals, companies, CRM contacts, tasks, inbox, archive; contact-store read | Any event; CSV export; purge |
+| **HR_USER** | HR only | Attendance, leave, holidays | Everything else |
+| **REVIEWER** | Pooled events | Read and score abstracts (`/my-reviews`) | Everything else |
+| **SUBMITTER** | Events holding their speaker record | Their own abstracts and proposals; My Details | Everything else |
+| **REGISTRANT** | Their own registrations | `/my-registration`: view and edit details, pay, download documents | Any dashboard access |
 
 ### Org-Bound vs Org-Independent Users
 

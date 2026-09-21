@@ -271,9 +271,10 @@ send fails loudly on the path that forgot. That failure is the guard working. Fi
 
 ## Roles and visibility
 
-Eight roles: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` — org-bound;
-`REVIEWER` `SUBMITTER` `REGISTRANT` — org-independent (`organizationId: null`), scoped by
-event assignment or linked entity. **Internal-domain emails get the org attached even as REGISTRANT**
+Eleven roles. Org-bound: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` `WEBINARS` `CRM_USER`
+`HR_USER`. Org-independent (`organizationId: null`), scoped by event assignment or linked entity:
+`REVIEWER` `SUBMITTER` `REGISTRANT`. The per-role matrix, verified against the code and pinned by
+`roles-and-permissions-doc.test.ts`, is `docs/ROLES_AND_PERMISSIONS.md`; change a guard and that table in the same commit. **Internal-domain emails get the org attached even as REGISTRANT**
 (see `src/lib/internal-domains.ts`), so "org-bound" alone is never a sufficient authorization check.
 
 **There is no single "can this role see it?" predicate. There are several, and they deliberately disagree.**

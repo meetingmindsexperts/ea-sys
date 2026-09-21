@@ -116,10 +116,13 @@ describe("buildRoleTail — role-aware differentiation", () => {
     const admin = buildRoleTail({ role: "ADMIN" });
     const member = buildRoleTail({ role: "MEMBER" });
     expect(admin).not.toBe(member);
-    // MEMBER specifically must mention the finance-hidden invariant —
-    // it's the role-policy edge most likely to surface a wrong answer.
-    expect(member.toLowerCase()).toContain("financial data");
-    expect(member.toLowerCase()).toMatch(/hidden|cannot see/i);
+    // MEMBER is finance-CAPABLE since June 17, 2026 (FINANCE_ROLES includes
+    // it) and runs the registration desk. The old guidance told a MEMBER that
+    // money was hidden from them, which was wrong for three months; pin the
+    // corrected policy edges rather than the exact wording.
+    expect(member.toLowerCase()).toContain("financial figures included");
+    expect(member.toLowerCase()).toContain("registration desk");
+    expect(member).not.toMatch(/hidden from this role|cannot see financial/i);
   });
 
   it("each declared role gets specific guidance (not the unknown-role fallback)", () => {
@@ -128,6 +131,10 @@ describe("buildRoleTail — role-aware differentiation", () => {
       "ADMIN",
       "ORGANIZER",
       "MEMBER",
+      "ONSITE",
+      "WEBINARS",
+      "CRM_USER",
+      "HR_USER",
       "REVIEWER",
       "SUBMITTER",
       "REGISTRANT",
@@ -150,6 +157,13 @@ describe("buildRoleTail — role-aware differentiation", () => {
   it("REVIEWER guidance steers toward abstracts (their only surface)", () => {
     const tail = buildRoleTail({ role: "REVIEWER" });
     expect(tail.toLowerCase()).toContain("abstract");
+  });
+
+  it("the four roles added on Sep 21, 2026 each name their own surface", () => {
+    expect(buildRoleTail({ role: "ONSITE" }).toLowerCase()).toContain("assigned");
+    expect(buildRoleTail({ role: "WEBINARS" }).toLowerCase()).toContain("webinar");
+    expect(buildRoleTail({ role: "CRM_USER" })).toContain("CRM");
+    expect(buildRoleTail({ role: "HR_USER" })).toContain("HR");
   });
 
   it("REGISTRANT guidance mentions /my-registration (their only surface)", () => {

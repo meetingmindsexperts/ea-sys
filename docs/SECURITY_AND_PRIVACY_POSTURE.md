@@ -188,19 +188,22 @@ Route 2 addresses the specific concern — passport scans and bank documents —
 
 ## 4. User access controls and administrative privileges
 
-**Role-based access control with nine roles**, each with a deliberately different scope:
+**Role-based access control with eleven roles**, each with a deliberately different scope:
 
 | Role | Scope |
 |---|---|
 | Super Admin | Full access, plus system administration |
 | Admin | Full access to the organisation's events |
-| Organizer | Full access to assigned events |
-| Member | Read-only across the organisation, plus registration-desk actions |
+| Organizer | Full access to all of the organisation's events; no organisation administration |
+| Member | Internal staff: read-only across the organisation, financial figures included, plus registration-desk actions; never door credentials or supporting documents |
 | Onsite Staff | **Per-event assignment only** — registration desk, check-in, badge printing |
 | Webinars | Full control of webinar events; registration desk elsewhere |
 | CRM User | Confined to the sponsorship pipeline; no access to events |
+| HR User | Confined to the HR module; no access to events |
 | Reviewer | Abstract review only, for assigned events |
 | Submitter / Registrant | Their own submissions or registration only |
+
+The full matrix, verified against the code on 2026-09-21 and pinned by an automated test, is `docs/ROLES_AND_PERMISSIONS.md`.
 
 **Enforcement is layered, not cosmetic:** every write endpoint runs a server-side role guard, every event query is scoped by role and per-event assignment, page routing redirects unauthorised roles, and the interface hides what the role cannot do. Access is denied by default — an unrecognised role gets the narrowest permission set, not the widest.
 

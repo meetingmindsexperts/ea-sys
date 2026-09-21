@@ -4365,15 +4365,23 @@ nothing to point at in the current pipeline.
 
 ## Role & Access Summary
 
-| Role | Access Level | Primary Use Case |
+The per-role matrix, verified against the code and pinned by a test, is
+[ROLES_AND_PERMISSIONS.md](ROLES_AND_PERMISSIONS.md). One line per role here;
+that page has the rest.
+
+| Role | Bound to | Access in one line |
 |---|---|---|
-| **Super Admin** | Full platform access | Platform management, org setup |
-| **Admin** | Full org access | Day-to-day event operations |
-| **Organizer** | Assigned events only | Event coordinators and staff |
-| **Member** | Read-only dashboard | Stakeholders needing visibility |
-| **Reviewer** | Abstracts only | External academic reviewers (cross-org) |
-| **Submitter** | Own abstracts only | Speakers submitting papers |
-| **Registrant** | Own registration only | Attendees (self-service portal) |
+| **Super Admin** | org | Everything an Admin can, plus the operator surfaces, INTERNAL key tiers, custom roles, HR without a grant |
+| **Admin** | org | Full control of every event and of the organisation (settings, users, integrations, API keys) |
+| **Organizer** | org | Full control of every event in the org (org-wide, not "assigned events"); no organisation administration |
+| **Member** | org | Internal staff: reads everything, money included; registration desk; no other write; no door credentials |
+| **Onsite Staff** | org, per event | Registration desk on assigned events only |
+| **Webinars** | org | Organizer-grade control of webinar events; registration desk on every other event |
+| **CRM User** | org | The sponsorship pipeline only |
+| **HR User** | org | The HR module only |
+| **Reviewer** | none | Abstract review on the events that pooled them (cross-org) |
+| **Submitter** | none | Their own abstracts and session proposals |
+| **Registrant** | none | Their own registration, self-service |
 
 ---
 

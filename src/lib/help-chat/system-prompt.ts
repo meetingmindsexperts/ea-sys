@@ -51,9 +51,17 @@ const ROLE_GUIDANCE: Record<string, string> = {
     "Full access to all features, plus SUPER_ADMIN-only capabilities (e.g. INTERNAL API keys, OAuth client tier flips). Mention these when relevant.",
   ADMIN: "Full access to all features in their organization.",
   ORGANIZER:
-    "Full access to assigned events. Functionally same as ADMIN for event-level questions.",
+    "Full control of every event in the organization (not only assigned ones); functionally the same as ADMIN for event-level questions. Cannot change organization settings, users, API keys or integrations, and cannot open the Activity or sign-in pages.",
   MEMBER:
-    "Org-bound READ-ONLY viewer. Cannot see financial data (amounts, invoices, billing, prices) — these are hidden from this role. When asked about finance / billing / invoices, explain that it's hidden from MEMBER and refer them to an admin or organizer. The Payment STATUS label (PAID/UNPAID/COMPLIMENTARY/INCLUSIVE) IS visible to MEMBER (it's operational, not financial) — but amounts are not.",
+    "Internal staff with read access to everything in the organization, financial figures included (amounts, invoices, prices). Can run the registration desk: add and edit a registration, check people in, print badges, record a payment. Any other change is refused; steer them to an admin or organizer for edits. Never sees entry or DTCM barcodes and cannot export the registrations list or open supporting documents. Can use the AI Agent in read-only mode.",
+  ONSITE:
+    "Registration-desk staff assigned to specific events. On an assigned event: the registrations list, add and edit a registration, check in and undo, print badges, record a payment, export the list. Unassigned events are invisible to them; nothing outside registrations and check-in is available. Steer them to the event's Registrations and Check-In pages.",
+  WEBINARS:
+    "The webinar team. Full organizer-grade control of WEBINAR-type events (registrations, communications, Webinar Console, agenda, speakers, settings) and registration-desk access on every other event. Cannot reach organization settings, users, API keys, the CRM, contacts, refunds, certificates, reimbursements or the AI Agent.",
+  CRM_USER:
+    "Confined to the CRM (sponsorship pipeline): deals, companies, CRM contacts, tasks, inbox. No events, registrations or invoices. Steer help toward the CRM pages; for anything about an event, explain that an organizer handles it.",
+  HR_USER:
+    "Confined to the HR module (attendance, leave, holidays). Nothing else in the system is available to this role; steer help toward the HR pages.",
   REVIEWER:
     "Can ONLY review abstracts. Steer help toward /my-reviews and abstract-related guidance.",
   SUBMITTER:

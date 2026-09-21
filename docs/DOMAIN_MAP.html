@@ -632,7 +632,7 @@
 
 <details class="domain">
 <summary>Identity / RBAC
-<span class="oneliner">8 roles across two tiers: org-bound team (ADMIN/ORGANIZER/MEMBER/ONSITE) and org-independent (REVIEWER/SUBMITTER/REGISTRANT). One person, many hats — facets stack; the single User.role is the only seam that collides.</span></summary>
+<span class="oneliner">11 roles across two tiers: org-bound team (SUPER_ADMIN/ADMIN/ORGANIZER/MEMBER/ONSITE/WEBINARS/CRM_USER/HR_USER) and org-independent (REVIEWER/SUBMITTER/REGISTRANT); the per-role matrix, pinned by test, is docs/ROLES_AND_PERMISSIONS.md. One person, many hats — facets stack; the single User.role is the only seam that collides.</span></summary>
 <div class="kids">
 <div class="leaf"><b class="k">Core</b> <code>lib/auth.ts</code> · <code>auth-guards.ts</code> · <code>event-access.ts</code> · <code>internal-domains.ts</code> (two trust tiers) · <code>email-verification.ts</code> · <code>src/proxy.ts</code> (middleware redirects)</div>
 <div class="leaf"><b class="k">Sign-in activity</b> <code>LoginEvent</code> (every attempt, success or not) · ONE writer <code>lib/login-audit.ts</code> for all 4 doors · <code>lib/login-throttle.ts</code> (failures-only, per-email 10/15min + per-IP 100/15min; success clears email bucket, not IP) · <code>lib/login-geo.ts</code> (lazy, never in the login path) · <code>lib/login-visibility.ts</code> (ADMIN+ only — narrower than <code>denyReviewer</code>/finance/export) · Activity → Sign-ins · 180-day prune job</div>
