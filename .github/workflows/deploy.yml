@@ -161,6 +161,16 @@ jobs:
       - name: No credential-shaped strings in tracked files
         run: bash scripts/check-no-secrets.sh
 
+      # Every gate above polices the SHAPE of a check that is present. None
+      # asks whether one is there at all, so a forgotten guard FAILS OPEN — it
+      # ships, returns 200, and nothing goes red. Both of the worst findings in
+      # this repo were exactly that (the contacts export reachable by a desk
+      # temp; the speakers roster reachable across events), and both were found
+      # by a person reading, not by CI. Per HANDLER, not per file: a guarded
+      # GET does not vouch for a newly-added DELETE beside it.
+      - name: Every API route handler establishes identity
+        run: node scripts/check-route-auth.mjs
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something
