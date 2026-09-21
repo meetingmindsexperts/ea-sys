@@ -167,7 +167,7 @@ const updateContact: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "Contact",
         entityId: contactId,
-        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+        changes: { source: ctx.source, fieldsChanged: Object.keys(updates) },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_contact audit-log-failed"));
 

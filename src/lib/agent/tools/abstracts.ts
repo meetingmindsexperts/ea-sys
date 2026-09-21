@@ -250,7 +250,7 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       abstractId,
       newStatus: status as AbstractTransitionStatus,
       forceStatus: force,
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -330,7 +330,7 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
       role: input.role !== undefined ? (String(input.role) as "PRIMARY" | "SECONDARY" | "CONSULTING") : undefined,
       conflictFlag: input.conflictFlag === undefined ? undefined : input.conflictFlag === true,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -381,7 +381,7 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
       abstractId,
       reviewerUserId: userId,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -444,7 +444,7 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
       // deliberately unavailable via MCP (unchanged from the old copy).
       actor: { userId: ctx.userId },
       ...parseReviewFields(input),
-      source: "mcp",
+      source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
     return { success: true, submission: result.submission };
@@ -505,7 +505,7 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
       reviewerUserId,
       actor: { userId: ctx.userId },
       ...parseReviewFields(input),
-      source: "mcp",
+      source: ctx.source,
     });
     if (!result.ok) return { error: result.message, code: result.code };
     return {

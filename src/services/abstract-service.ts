@@ -63,7 +63,7 @@ export interface ChangeAbstractStatusInput {
    * only records it in the audit trail.
    */
   forceStatus?: boolean;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
 
@@ -238,7 +238,7 @@ export async function changeAbstractStatus(
   // Fire-and-forget audit log. `changes.source` reflects caller:
   //   - "chair-override" when forceStatus=true (takes precedence; matches
   //     pre-existing audit convention)
-  //   - "rest" | "mcp" | "api" otherwise, from the caller
+  //   - "rest" | "mcp" | "agent" | "api" otherwise, from the caller
   db.auditLog
     .create({
       data: {
@@ -368,7 +368,7 @@ export interface SubmitAbstractReviewInput {
   reviewNotes?: string;
   recommendedFormat?: string;
   confidence?: number;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   requestIp?: string | null;
 }
 
@@ -688,7 +688,7 @@ export interface AssignReviewerInput {
   conflictFlag?: boolean;
   /** Required — AbstractReviewer.assignedById is a non-nullable FK. */
   actorUserId: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   ip?: string | null;
 }
 
@@ -889,7 +889,7 @@ export interface UnassignReviewerInput {
   abstractId: string;
   reviewerUserId: string;
   actorUserId: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   ip?: string | null;
 }
 

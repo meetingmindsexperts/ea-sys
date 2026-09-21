@@ -24,7 +24,7 @@ export async function notifyReviewerAssigned(args: {
   eventName: string;
   abstractTitle: string;
   role: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   triggeredByUserId?: string | null;
 }): Promise<void> {
   try {

@@ -90,7 +90,7 @@ export interface CreateSpeakerInput {
   // Defaults to "INVITED" when omitted. Matches both REST and MCP behavior.
   status?: SpeakerStatus;
 
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
 
@@ -412,7 +412,7 @@ export async function cascadeSpeakerDecline(input: {
   sourceRegistrationId: string | null;
   /** Operator's choice: cancel the companion registration too? */
   cancelCompanion: boolean;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   actorUserId?: string | null;
 }): Promise<SpeakerDeclineCascadeResult> {
   const { eventId, organizationId, speakerId, sourceRegistrationId, cancelCompanion, source, actorUserId } = input;
@@ -546,7 +546,7 @@ export interface UpdateSpeakerInput {
   expectedUpdatedAt?: string | null;
   /** Decline cascade: revoke the companion registration's badge + barcode too? */
   cancelCompanionRegistration?: boolean;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   actorUserId?: string | null;
   requestIp?: string;
 }

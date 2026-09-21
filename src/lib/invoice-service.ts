@@ -1779,7 +1779,7 @@ export async function issuePaidGroupDocuments(params: {
 
 export interface InvoiceStatusTransitionCtx {
   actorUserId: string | null;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   /** The caller's org — compound-where'd onto the load + update (defence #1),
    *  so a cross-org invoiceId can't be transitioned even if the caller's own
    *  lookup was skipped. Required whenever ctx is supplied. */

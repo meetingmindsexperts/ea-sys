@@ -295,7 +295,7 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         action: "CREATE",
         entityType: "CertificateTemplate",
         entityId: template.id,
-        changes: { source: "mcp", name: template.name, category },
+        changes: { source: ctx.source, name: template.name, category },
       },
     })
     .catch((err) => apiLogger.warn({ err, msg: "cert-template-mcp:audit-failed-create" }));
@@ -419,7 +419,7 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         action: "UPDATE",
         entityType: "CertificateTemplate",
         entityId: updated.id,
-        changes: { source: "mcp", fieldsChanged: Object.keys(data) },
+        changes: { source: ctx.source, fieldsChanged: Object.keys(data) },
       },
     })
     .catch((err) => apiLogger.warn({ err, msg: "cert-template-mcp:audit-failed-update" }));
@@ -478,7 +478,7 @@ async function deleteCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         action: "DELETE",
         entityType: "CertificateTemplate",
         entityId: templateId,
-        changes: { source: "mcp", name: template.name, category: template.category },
+        changes: { source: ctx.source, name: template.name, category: template.category },
       },
     })
     .catch((err) => apiLogger.warn({ err, msg: "cert-template-mcp:audit-failed-delete" }));
@@ -591,7 +591,7 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
         entityId: ctx.eventId,
         changes: {
           domain: "cme-settings",
-          source: "mcp",
+          source: ctx.source,
           cmeHours: cmeHoursValue,
           accreditationsCount: cleanedAccreditations?.length,
         },

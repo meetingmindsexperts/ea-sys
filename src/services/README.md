@@ -75,7 +75,7 @@ Services receive **already-typed, already-validated** input:
   parsing at its boundary.
 - No optional-looking-required fields — inputs are precise.
 - Always include caller identity fields: `organizationId`, `userId`,
-  `source: "rest" | "mcp" | "api"`. Services use `source` for audit
+  `source: "rest" | "mcp" | "agent" | "api"`. Services use `source` for audit
   logs and structured logging.
 
 ### Side effects owned by the service

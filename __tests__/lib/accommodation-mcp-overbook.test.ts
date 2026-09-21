@@ -38,7 +38,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 import { ACCOMMODATION_EXECUTORS } from "@/lib/agent/tools/accommodations";
 
 const update = ACCOMMODATION_EXECUTORS.update_accommodation_status;
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } };
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } };
 
 beforeEach(() => {
   vi.clearAllMocks();

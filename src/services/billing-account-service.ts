@@ -49,7 +49,7 @@ export interface CreateBillingAccountInput extends BillingAccountFields {
   /** Acting user for the audit row — null on public flows (group register)
    * where the actor may have no account (AuditLog.userId is nullable). */
   userId: string | null;
-  source: "rest" | "mcp" | "api" | "public";
+  source: "rest" | "mcp" | "agent" | "api" | "public";
   requestIp?: string;
 }
 
@@ -57,7 +57,7 @@ export interface UpdateBillingAccountInput extends Partial<BillingAccountFields>
   billingAccountId: string;
   organizationId: string;
   userId: string;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
   /** Reactivate / soft-delete toggle. */
   isActive?: boolean;
@@ -306,7 +306,7 @@ export interface MergeBillingAccountsInput {
   duplicateId: string;
   organizationId: string;
   userId: string;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
 

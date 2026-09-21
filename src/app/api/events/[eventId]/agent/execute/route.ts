@@ -9,10 +9,13 @@ import { rateLimited } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
+import { gateToolCall } from "@/lib/agent/tool-gate";
+import { wrapToolResultAsData } from "@/lib/agent/tool-result";
 import { resolveAnthropicApiKey } from "@/lib/ai/credentials";
-import { isReadOnlyTool, ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
-import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS, redactFinancialFields } from "@/lib/finance-visibility";
+import { getModelConfig } from "@/lib/ai/config";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import type { AgentContext } from "@/lib/agent/event-tools";
+import type { ToolExecutor } from "@/lib/agent/tools/_shared";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -21,15 +24,9 @@ const MAX_TURNS = 25;
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_PAIRS = 20;
 const MAX_HISTORY_MSG_LENGTH = 8000; // per history message content
-const MAX_CREATES_PER_REQUEST = 20;
-
-const MUTATING_TOOLS = new Set([
-  "create_track", "create_speaker", "create_session", "create_ticket_type",
-  "create_registration", "create_abstract_theme", "create_review_criterion",
-  "create_hotel", "create_contact", "add_topic_to_session",
-  "update_abstract_status", "check_in_registration", "send_bulk_email",
-  "upsert_sponsors",
-]);
+// The write cap, the read-only and finance refusals and "is this a write"
+// live in src/lib/agent/tool-gate.ts, derived from the registry's own
+// predicates. This route no longer keeps a list of mutating tool names.
 
 // Anthropic-hosted web search tool. Used by the agent to resolve company
 // names → websites (e.g. "add pfizer as a gold sponsor"). Anthropic executes
@@ -80,7 +77,8 @@ async function runAgentLoop(
   const systemPrompt = await buildSystemPrompt(
     context.eventId,
     context.organizationId,
-    readOnly
+    readOnly,
+    AGENT_TOOL_DEFINITIONS
   );
 
   const messages: MessageParam[] = [
@@ -92,11 +90,16 @@ async function runAgentLoop(
   // requireOrgId guard, so the agent bills the org's own Anthropic account
   // when one is configured (env fallback otherwise — master unchanged).
   const anthropic = getAnthropic(await resolveAnthropicApiKey(context.organizationId));
+  // Model, output cap and temperature come from the AI config registry
+  // (readiness gap G9): AGENT_MODEL in the environment pins a successor
+  // model without a deploy, and this route no longer names one.
+  const modelConfig = getModelConfig("agent");
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      model: modelConfig.model,
+      max_tokens: modelConfig.maxTokens,
+      temperature: modelConfig.temperature,
       system: systemPrompt,
       tools: AGENT_TOOLS,
       messages,
@@ -143,47 +146,26 @@ async function runAgentLoop(
         toolUseId: block.id,
       });
 
-      const executor = TOOL_EXECUTOR_MAP[toolName];
+      const executor = TOOL_EXECUTOR_MAP[toolName] as ToolExecutor | undefined;
       let result: unknown;
       const toolStart = Date.now();
 
-      // Read-only gate for the MEMBER role. `isReadOnlyTool()` fails
-      // closed (only list_/get_/search_ pass) — see tools/_shared.ts.
-      // The agent sees a refusal as a normal tool error and relays it.
-      if (!executor) {
-        result = { error: `Unknown tool: ${toolName}` };
-      } else if (readOnly && !isReadOnlyTool(toolName)) {
-        result = {
-          error:
-            `Read-only access — the Member role cannot perform write operations. ` +
-            `"${toolName}" modifies data and was refused. Ask an Organizer or Admin to make this change.`,
-          code: "READ_ONLY_ROLE",
-        };
-      } else if (readOnly && ROSTER_PII_AGENT_TOOLS.has(toolName)) {
-        // R2 M5: the dinner-RSVP roster (names/emails/dietary) is blocked
-        // for MEMBER on the REST roster GET (Round-1 H2) — the agent
-        // surface must agree, even though the tool is list_-prefixed.
-        result = {
-          error:
-            `The dinner guest list (names, emails, dietary notes) is not available ` +
-            `to the Member role — the same policy as the RSVP roster page. Ask an ` +
-            `Organizer or Admin for headcounts.`,
-          code: "ROSTER_FORBIDDEN",
-        };
-      } else if (blockFinance && FINANCE_ONLY_AGENT_TOOLS.has(toolName)) {
-        // Wholly-financial tools (list_invoices, list_unpaid_registrations)
-        // have nothing non-finance to salvage — refuse outright rather
-        // than redact to an empty husk.
-        result = {
-          error:
-            `Financial data is not available to your role. "${toolName}" returns ` +
-            `invoice / payment data, which the Member (read-only viewer) role cannot access.`,
-          code: "FINANCE_FORBIDDEN",
-        };
-      } else if (MUTATING_TOOLS.has(toolName) && context.counters.creates >= MAX_CREATES_PER_REQUEST) {
-        result = { error: `Resource modification limit reached for this request (max ${MAX_CREATES_PER_REQUEST}). Please send a new message to continue.` };
+      // One gate decides the read-only, roster, finance and write-cap
+      // refusals (src/lib/agent/tool-gate.ts). The model sees a refusal
+      // as a normal tool error and relays it.
+      const decision = executor
+        ? gateToolCall(toolName, {
+            readOnly,
+            blockFinance,
+            writesSoFar: context.counters.creates,
+          })
+        : null;
+      if (!executor || decision === null) {
+        result = { error: `Unknown tool: ${toolName}`, code: "UNKNOWN_TOOL" };
+      } else if (decision.kind === "refuse") {
+        result = decision.result;
       } else {
-        if (MUTATING_TOOLS.has(toolName)) context.counters.creates++;
+        if (decision.write) context.counters.creates++;
         result = await executor(toolInput, context);
         // Mixed tools (list_registrations, list_ticket_types,
         // get_event_stats…) carry money fields alongside operational
@@ -204,6 +186,8 @@ async function runAgentLoop(
           tool: toolName,
           eventId: context.eventId,
           organizationId: context.organizationId,
+          userId: context.userId,
+          source: context.source,
           durationMs: toolDurationMs,
           err: typeof errObj.error === "string" ? errObj.error : JSON.stringify(errObj.error),
           code: typeof errObj.code === "string" ? errObj.code : undefined,
@@ -214,6 +198,8 @@ async function runAgentLoop(
           tool: toolName,
           eventId: context.eventId,
           organizationId: context.organizationId,
+          userId: context.userId,
+          source: context.source,
           durationMs: toolDurationMs,
         });
       }
@@ -226,10 +212,13 @@ async function runAgentLoop(
       });
 
       if (Array.isArray(toolResults)) {
+        // The model receives the result inside a delimited data block and
+        // the prompt says what is inside is data, never an instruction
+        // (readiness gap G3). The page still gets the raw result above.
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: JSON.stringify(result),
+          content: wrapToolResultAsData(toolName, result),
         });
       }
     }
@@ -340,6 +329,9 @@ export async function POST(
     eventId,
     organizationId: orgGuard.orgId,
     userId: session.user.id,
+    // Audit rows written by this request say the in-app agent did it,
+    // not an MCP client (readiness gap G5).
+    source: "agent",
     counters: { creates: 0, emailsSent: 0 },
   };
 

@@ -85,7 +85,7 @@ builders; seven inline token-mint copies; the registration single-send accepting
 any `templateSlug` without the custom-slug classifier. The certificate cover
 resolver and the agreement merges stay separate vocabularies on purpose.
 
-## Event Agent: one agent, two doors (Sep 21, 2026): reviewed, build not started
+## Event Agent: one agent, two doors (Sep 21, 2026): Phase 0 shipped, Phases 1 to 4 not started
 
 Owner question: the in-app agent sits inside an event, cannot create one, and
 Medhat wants the team using it. [AGENT_ARCHITECTURE_REVIEW.md](AGENT_ARCHITECTURE_REVIEW.md)
@@ -99,6 +99,16 @@ review's G2 to G5 and G9), 1 the org-level door and `/agent` page (answers
 tool. Recommendation on the team question: claude.ai seats plus a one-page
 connector guide now (zero code), the in-app door after phases 0 and 1. Five
 owner decisions in the review's §8; nothing starts without a pick.
+
+**Phase 0 shipped the same day** (owner: "proceed in phases"): the write cap
+derives from the read-only predicate (`isWriteTool`, the 11 uncapped tools now
+count), tool results reach the model in a delimited data block with a
+prompt rule that data is never an instruction, the capability section is
+generated from the tool list (limits are stated only while no tool
+contradicts them), every executor stamps `ctx.source` so the trail says
+"agent" or "mcp", and the model comes from `getModelConfig("agent")`. The
+next step is Phase 1, the org-level door, which needs the §8 picks; the one
+real fork before Phase 2 is whether the two delete tools stay.
 
 ## ~~nginx maintenance page~~ ✅ SHIPPED Aug 21 2026 — [deploy/maintenance/](../deploy/maintenance/)
 

@@ -82,7 +82,7 @@ export async function saveSponsors(input: {
   eventId: string;
   organizationId: string;
   actorUserId: string | null;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   sponsors: SponsorInput[];
   mode?: "replace" | "merge";
 }): Promise<SaveSponsorsResult> {

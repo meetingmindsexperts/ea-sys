@@ -160,6 +160,7 @@ export function registerAllMcpTools(
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
+        source: "mcp",
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -214,6 +215,7 @@ export function registerAllMcpTools(
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
+        source: "mcp",
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -244,6 +246,7 @@ export function registerAllMcpTools(
         eventId: input.eventId as string,
         organizationId,
         userId: SYSTEM_USER_ID,
+        source: "mcp",
         counters: { creates: 0, emailsSent: 0 },
       }),
     ),
@@ -730,7 +733,7 @@ export function registerAllMcpTools(
       async (args) => safeTool(t.name, async () => {
         const { eventId, ...input } = args;
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
-        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
+        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, source: "mcp", counters: { creates: 0, emailsSent: 0 } });
       }),
     );
   }

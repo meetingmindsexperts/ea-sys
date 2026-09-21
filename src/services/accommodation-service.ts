@@ -36,7 +36,7 @@ export interface CreateAccommodationInput {
 
   // Caller identity — written into the audit log's `changes.source`.
   // REST passes "rest" + requestIp; MCP passes "mcp"; future public API "api".
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string;
 }
 

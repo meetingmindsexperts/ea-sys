@@ -251,7 +251,7 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
         action: "CANCEL",
         entityType: "ScheduledEmail",
         entityId: scheduledEmailId,
-        changes: { source: "mcp", previousStatus: "PENDING" },
+        changes: { source: ctx.source, previousStatus: "PENDING" },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:cancel_scheduled_email audit-log-failed"));
 
@@ -332,7 +332,7 @@ const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
         entityType: "EmailTemplate",
         entityId: updated.id,
         changes: {
-          source: "mcp",
+          source: ctx.source,
           slug,
           fieldsChanged: [
             ...(subject !== undefined ? ["subject"] : []),
@@ -376,7 +376,7 @@ const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "EmailTemplate",
         entityId: result.template.id,
-        changes: { source: "mcp", slug, note: "Reset to default (content overwritten in place, template re-enabled)" },
+        changes: { source: ctx.source, slug, note: "Reset to default (content overwritten in place, template re-enabled)" },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:reset_email_template audit-log-failed"));
 

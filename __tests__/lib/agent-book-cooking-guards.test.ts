@@ -32,7 +32,7 @@ vi.mock("@/lib/person-tag-sync", () => ({
 
 import { TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1" } as never;
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" } as never;
 
 beforeEach(() => {
   vi.clearAllMocks();

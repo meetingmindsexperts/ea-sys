@@ -146,7 +146,7 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
       customSpecialty: input.customSpecialty ? String(input.customSpecialty).slice(0, 255) : null,
       registrationType: input.registrationType ? String(input.registrationType).slice(0, 255) : null,
       status: (rawStatus as SpeakerStatus | undefined) ?? "INVITED",
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -286,7 +286,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
         msg: "optimistic-lock:missing-expectedUpdatedAt",
         resource: "speaker",
         resourceId: speakerId,
-        source: "mcp",
+        source: ctx.source,
       });
     }
 
@@ -302,7 +302,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       fields,
       expectedUpdatedAt,
       cancelCompanionRegistration: input.cancelCompanionRegistration === true,
-      source: "mcp",
+      source: ctx.source,
       actorUserId: ctx.userId,
     });
 
@@ -432,7 +432,7 @@ const uploadSpeakerAgreementTemplate: ToolExecutor = async (input, ctx) => {
           entityType: "Event",
           entityId: ctx.eventId,
           changes: {
-            source: "mcp",
+            source: ctx.source,
             field: "speakerAgreementTemplate",
             filename: meta.filename,
           },
@@ -636,7 +636,7 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
           action: "CREATE",
           entityType: "Speaker",
           entityId: `bulk:${created.length}`,
-          changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+          changes: { source: ctx.source, bulk: true, created: created.length, failed: errors.length },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk audit-log-failed"));
 

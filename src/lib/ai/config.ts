@@ -74,18 +74,16 @@ export function getModelConfig(
         temperature: 0.3,
       };
     case "agent":
-      // RESERVED for the v1.1 retrofit. Today's AI Agent inlines these
-      // in its route handler — do not consume `getModelConfig("agent")`
-      // from anywhere else until the retrofit lands and the route
-      // migrates onto this registry.
+      // Consumed by the Event Agent route
+      // (src/app/api/events/[eventId]/agent/execute/route.ts) since
+      // September 21, 2026; the route names no model of its own. The
+      // agent still calls the Anthropic SDK directly for its tool loop,
+      // so only the model, cap and temperature come from here.
       return {
         model: process.env.AGENT_MODEL || AGENT_MODEL_DEFAULT,
-        // Matches the agent's current hardcoded value at
-        // src/app/api/events/[eventId]/agent/execute/route.ts.
         maxTokens: 4096,
-        // The agent doesn't currently override temperature; this is
-        // the SDK default. When the retrofit lands and we want to
-        // tighten the agent's behavior, this is the lever.
+        // The SDK default; the lever to tighten the agent's behaviour
+        // when the readiness eval (E5) says so.
         temperature: 1.0,
       };
   }

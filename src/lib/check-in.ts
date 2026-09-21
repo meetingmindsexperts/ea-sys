@@ -217,7 +217,7 @@ export interface ExecuteCheckInArgs {
   /** Null for actor-less callers (none today — MCP passes ctx.userId). */
   actorUserId: string | null;
   attendeeName: string;
-  source: "rest" | "rest-qr" | "mcp";
+  source: "rest" | "rest-qr" | "mcp" | "agent";
   /** Extra keys folded into the audit `changes` (ip, qrCode, override flag…). */
   auditExtras?: Record<string, unknown>;
   /**
@@ -335,7 +335,7 @@ export interface UndoCheckInArgs {
   registrationId: string;
   actorUserId: string | null;
   attendeeName: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   auditExtras?: Record<string, unknown>;
 }
 

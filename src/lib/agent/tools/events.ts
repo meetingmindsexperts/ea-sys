@@ -242,7 +242,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
         entityType: "Event",
         entityId: event.id,
         changes: {
-          source: "mcp",
+          source: ctx.source,
           name: event.name,
           slug: event.slug,
           code: event.code,
@@ -320,7 +320,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
       if (key === "eventId") continue;
       if (EVENT_UPDATE_FIELD_BLACKLIST.has(key)) {
         apiLogger.warn(
-          { eventId, userId: ctx.userId, field: key, source: "mcp" },
+          { eventId, userId: ctx.userId, field: key, source: ctx.source },
           "agent:update_event field-not-allowed",
         );
         return {
@@ -334,7 +334,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
       }
       if (key !== "eventId" && !EVENT_UPDATE_FIELD_WHITELIST.has(key)) {
         apiLogger.warn(
-          { eventId, userId: ctx.userId, field: key, source: "mcp" },
+          { eventId, userId: ctx.userId, field: key, source: ctx.source },
           "agent:update_event unknown-field",
         );
         return {
@@ -381,14 +381,14 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
       if (updates.code !== existing.code) {
         const refs = await eventCodeReferences(ctx.organizationId, eventId);
         if (refs.budgets > 0) {
-          apiLogger.warn({ eventId, userId: ctx.userId, budgets: refs.budgets, source: "mcp" }, "agent:update_event code-referenced");
+          apiLogger.warn({ eventId, userId: ctx.userId, budgets: refs.budgets, source: ctx.source }, "agent:update_event code-referenced");
           return {
             error: `The event code is referenced by ${refs.budgets} budget(s) and can no longer change`,
             code: "EVENT_CODE_REFERENCED",
           };
         }
         if (typeof updates.code === "string" && (await isEventCodeTaken(ctx.organizationId, updates.code, eventId))) {
-          apiLogger.warn({ eventId, userId: ctx.userId, code: updates.code, source: "mcp" }, "agent:update_event code-taken");
+          apiLogger.warn({ eventId, userId: ctx.userId, code: updates.code, source: ctx.source }, "agent:update_event code-taken");
           return { error: `Event code ${updates.code} is already used by another event in this organisation`, code: "EVENT_CODE_TAKEN" };
         }
       }
@@ -453,7 +453,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "Event",
         entityId: updated.id,
-        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+        changes: { source: ctx.source, fieldsChanged: Object.keys(updates) },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_event audit-log-failed"));
 

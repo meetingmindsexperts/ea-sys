@@ -202,7 +202,7 @@ const createRoomType: ToolExecutor = async (input, ctx) => {
         action: "CREATE",
         entityType: "RoomType",
         entityId: roomType.id,
-        changes: { source: "mcp", hotelId, name, totalRooms, pricePerNight, currency },
+        changes: { source: ctx.source, hotelId, name, totalRooms, pricePerNight, currency },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:create_room_type audit-log-failed"));
 
@@ -312,7 +312,7 @@ const updateRoomType: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "RoomType",
         entityId: roomTypeId,
-        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+        changes: { source: ctx.source, fieldsChanged: Object.keys(updates) },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_room_type audit-log-failed"));
 
@@ -355,7 +355,7 @@ const deleteRoomType: ToolExecutor = async (input, ctx) => {
           action: "DEACTIVATE",
           entityType: "RoomType",
           entityId: roomTypeId,
-          changes: { source: "mcp", reason: "has-accommodations", soft: true },
+          changes: { source: ctx.source, reason: "has-accommodations", soft: true },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:delete_room_type audit-log-failed"));
       return { roomType: updated, soft: true, message: "Room type has bookings; soft-deleted (isActive=false). Existing bookings unchanged." };
@@ -369,7 +369,7 @@ const deleteRoomType: ToolExecutor = async (input, ctx) => {
         action: "DELETE",
         entityType: "RoomType",
         entityId: roomTypeId,
-        changes: { source: "mcp", soft: false },
+        changes: { source: ctx.source, soft: false },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:delete_room_type audit-log-failed"));
     return { success: true, roomTypeId, soft: false };
@@ -413,7 +413,7 @@ const createAccommodationTool: ToolExecutor = async (input, ctx) => {
       checkOut: checkOutDate,
       guestCount: input.guestCount != null ? Number(input.guestCount) : undefined,
       specialRequests: input.specialRequests ? String(input.specialRequests) : null,
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -491,7 +491,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
         msg: "optimistic-lock:missing-expectedUpdatedAt",
         resource: "accommodation",
         resourceId: accommodationId,
-        source: "mcp",
+        source: ctx.source,
       });
     }
 
@@ -547,7 +547,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "Accommodation",
         entityId: accommodationId,
-        changes: { source: "mcp", before: existing.status, after: status },
+        changes: { source: ctx.source, before: existing.status, after: status },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_accommodation_status audit-log-failed"));
 
@@ -558,7 +558,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
       return { error: "Cannot reinstate: no rooms available in that room type" };
     }
     if (err instanceof Error && err.message === "STALE_WRITE") {
-      apiLogger.info({ msg: "accommodation:stale-write-rejected", source: "mcp" });
+      apiLogger.info({ msg: "accommodation:stale-write-rejected", source: ctx.source });
       return {
         error: "This booking was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
         code: "STALE_WRITE",

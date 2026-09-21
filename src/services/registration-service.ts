@@ -383,7 +383,7 @@ export interface CreateRegistrationInput {
   createdSource?: RegistrationCreatedSource;
 
   /** Caller identity — written into `AuditLog.changes.source`. */
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
 
   /** REST callers pass `getClientIp(req)`. MCP omits. */
   requestIp?: string;
@@ -1153,7 +1153,7 @@ export interface UpdateRegistrationInput {
   registrationId: string;
   organizationId: string;
   actorUserId: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
   requestIp?: string | null;
   /** Optimistic-lock token; when absent the write is id-only (warn-logged). */
   expectedUpdatedAt?: string | null;

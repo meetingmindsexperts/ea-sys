@@ -77,7 +77,7 @@ const createPromoCode: ToolExecutor = async (input, ctx) => {
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       actorUserId: ctx.userId ?? null,
-      source: "mcp",
+      source: ctx.source,
       code: String(input.code ?? ""),
       description: input.description ? String(input.description).slice(0, 2000) : null,
       discountType: discountType as "PERCENTAGE" | "FIXED_AMOUNT",

@@ -29,7 +29,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 import { RSVP_EXECUTORS } from "@/lib/agent/tools/rsvp";
 
 const list = RSVP_EXECUTORS.list_rsvps;
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } };
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } };
 
 const CAMPAIGNS = [
   {

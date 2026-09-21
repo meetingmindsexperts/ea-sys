@@ -37,7 +37,7 @@ vi.mock("@/lib/registration-seat-db", () => ({
 import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
 
 const checkIn = REGISTRATION_EXECUTORS.check_in_registration;
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } };
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } };
 
 function regRow(over: Record<string, unknown> = {}) {
   return {

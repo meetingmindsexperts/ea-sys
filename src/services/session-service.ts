@@ -109,7 +109,7 @@ export interface CreateSessionInput extends SessionFieldsInput {
   /** Tenant org (the event's org) — stamped onto the session + its child rows. */
   organizationId: string;
   userId: string;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string | null;
   name: string;
   startTime: Date;
@@ -128,7 +128,7 @@ export interface UpdateSessionInput extends SessionFieldsInput {
   organizationId: string;
   sessionId: string;
   userId: string;
-  source: "rest" | "mcp" | "api";
+  source: "rest" | "mcp" | "agent" | "api";
   requestIp?: string | null;
   /** Optimistic-lock token. When supplied, a concurrent edit yields STALE_WRITE. */
   expectedUpdatedAt?: Date | null;
@@ -1021,7 +1021,7 @@ interface RosterOpBase {
   organizationId: string;
   sessionId: string;
   actorUserId: string;
-  source: "rest" | "mcp";
+  source: "rest" | "mcp" | "agent";
 }
 
 /** Event-scoped session lookup carrying `type` for the break-item gate (H1). */

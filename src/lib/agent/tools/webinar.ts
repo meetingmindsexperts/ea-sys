@@ -136,8 +136,6 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
       agenda: session.description || undefined,
     };
 
-    ctx.counters.creates++;
-
     let zoomResponse;
     if (meetingType === "MEETING") {
       zoomResponse = await createZoomMeeting(ctx.organizationId, meetingParams);
@@ -488,7 +486,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
       sponsors: incoming.map((r) => ({
         id: r.id,
         name: r.name,
@@ -512,7 +510,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
         entityType: "Event",
         entityId: event.id,
         changes: {
-          source: "mcp",
+          source: ctx.source,
           field: "sponsors",
           mode,
           count: sanitized.length,

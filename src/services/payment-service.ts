@@ -27,7 +27,7 @@ const truncateError = (err: unknown) => String(err instanceof Error ? err.messag
 
 // ── issueCreditNoteForRegistration ───────────────────────────────────────────
 
-export type PaymentSource = "rest" | "mcp" | "api" | "system";
+export type PaymentSource = "rest" | "mcp" | "agent" | "api" | "system";
 
 export interface IssueCreditNoteInput {
   registrationId: string;

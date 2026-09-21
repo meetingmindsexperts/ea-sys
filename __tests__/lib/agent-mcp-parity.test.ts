@@ -79,6 +79,7 @@ const CTX = {
   eventId: "evt-1",
   organizationId: "org-1",
   userId: "user-1",
+  source: "mcp" as const,
   counters: { creates: 0, emailsSent: 0 },
 };
 

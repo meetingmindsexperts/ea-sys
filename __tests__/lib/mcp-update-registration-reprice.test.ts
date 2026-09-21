@@ -56,7 +56,7 @@ vi.mock("@/lib/person-tag-sync", () => ({
 import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
 
 const update = REGISTRATION_EXECUTORS.update_registration;
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } };
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } };
 const OLD_TYPE = "tt_old";
 const NEW_TYPE = "tt_new";
 const OLD_TIER = "pt_old";

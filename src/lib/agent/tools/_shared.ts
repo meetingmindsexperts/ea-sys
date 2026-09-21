@@ -4,10 +4,21 @@
 
 import { PaymentStatus } from "@prisma/client";
 
+/**
+ * Which door reached the executor. Stamped onto every audit row a tool
+ * writes, directly or through a service, so the trail says who acted: the
+ * in-app Event Agent ("agent") or an MCP client ("mcp"). Executors read
+ * `ctx.source`; none hardcodes a door (readiness gap G5: the agent's own
+ * actions used to be recorded as "mcp").
+ */
+export type AgentSource = "agent" | "mcp";
+
 export interface AgentContext {
   eventId: string;
   organizationId: string;
   userId: string;
+  source: AgentSource;
+  /** `creates` counts every write tool call in the request (see isWriteTool). */
   counters: { creates: number; emailsSent: number };
 }
 
@@ -30,6 +41,28 @@ export type ToolExecutor = (
  */
 export function isReadOnlyTool(toolName: string): boolean {
   return /^(list_|get_|search_)/.test(toolName);
+}
+
+/**
+ * Tools that are not reads but write nothing either: research_sponsor
+ * scrapes a public website and returns what it found. They stay refused
+ * for read-only roles (isReadOnlyTool is the authorization boundary and
+ * fails closed) but do not count against the per-request write cap. A
+ * tool is in this set only by being named here; a tool that is neither a
+ * read nor listed is a write until proven otherwise.
+ */
+export const NON_MUTATING_NON_READ_TOOLS = new Set(["research_sponsor"]);
+
+/**
+ * Whether a tool changes data. Derived from the read-only predicate rather
+ * than a hand-written list: the route's list of 14 names missed 11 write
+ * tools (the session roster edits, update_session, Zoom meeting creation,
+ * the certificate-template and review-criterion writes, CME settings), so
+ * those never counted against the write cap (readiness gap G2).
+ */
+export function isWriteTool(toolName: string): boolean {
+  if (isReadOnlyTool(toolName)) return false;
+  return !NON_MUTATING_NON_READ_TOOLS.has(toolName);
 }
 
 /**

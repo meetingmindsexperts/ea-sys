@@ -84,7 +84,7 @@ vi.mock("@/services/registration-service", async (importOriginal) => {
 import { SPEAKER_EXECUTORS } from "@/lib/agent/tools/speakers";
 import { COMMUNICATION_EXECUTORS } from "@/lib/agent/tools/communications";
 
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } } as never;
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } } as never;
 
 describe("create_speakers_bulk — M9 field + contact-sync parity", () => {
   beforeEach(() => {

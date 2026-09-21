@@ -305,7 +305,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       payerReference: input.payerReference ? String(input.payerReference) : null,
       attendeeIsGuarantor:
         typeof input.attendeeIsGuarantor === "boolean" ? input.attendeeIsGuarantor : undefined,
-      source: "mcp",
+      source: ctx.source,
     });
 
     if (!result.ok) {
@@ -411,7 +411,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
     if (gate?.code === "PAYMENT_REQUIRED") {
       // Same gate the desk enforces — an agent bulk check-in must not admit
       // unpaid attendees the desk would refuse.
-      apiLogger.warn({ msg: "agent:check-in-payment-required", registrationId, source: "mcp" });
+      apiLogger.warn({ msg: "agent:check-in-payment-required", registrationId, source: ctx.source });
       return {
         error: "Cannot check in — payment required (unpaid/pending registration). Settle or comp it first.",
         code: "PAYMENT_REQUIRED",
@@ -434,7 +434,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
       registrationId,
       actorUserId: ctx.userId ?? null,
       attendeeName: `${reg.attendee?.firstName ?? ""} ${reg.attendee?.lastName ?? ""}`.trim(),
-      source: "mcp",
+      source: ctx.source,
       auditExtras: reactivating ? { allowCancelledOverride: true } : undefined,
       reactivation: reactivating
         ? {
@@ -450,14 +450,14 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
     });
   } catch (err) {
     if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
-      apiLogger.warn({ msg: "agent:check-in-reactivate-capacity-exceeded", source: "mcp" });
+      apiLogger.warn({ msg: "agent:check-in-reactivate-capacity-exceeded", source: ctx.source });
       return {
         error: "Cannot check in this cancelled registration — its registration type is sold out. Increase its quantity first.",
         code: "CAPACITY_EXCEEDED",
       };
     }
     if (err instanceof Error && err.message === "EVENT_FULL") {
-      apiLogger.warn({ msg: "agent:check-in-reactivate-event-full", source: "mcp" });
+      apiLogger.warn({ msg: "agent:check-in-reactivate-event-full", source: ctx.source });
       return {
         error: "Cannot check in this cancelled registration — the event has reached its maximum attendees. Raise the cap in Settings → Registration first.",
         code: "EVENT_FULL",
@@ -580,7 +580,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       registrationId,
       organizationId: ctx.organizationId,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
       expectedUpdatedAt,
       ...(status && { status: status as never }),
       ...(input.paymentStatus != null && { paymentStatus: String(input.paymentStatus) }),
@@ -778,7 +778,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
                 : { ticketTypeId: counter.id, ticketName: res.counterName }),
               newSoldCount: res.newSoldCount,
               quantity: res.quantity,
-              source: "mcp",
+              source: ctx.source,
             });
           }
         }
@@ -797,7 +797,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
               eventId: evId,
               newSeatCount: evRes.newSeatCount,
               maxAttendees: evRes.maxAttendees,
-              source: "mcp",
+              source: ctx.source,
             });
           }
         }
@@ -829,7 +829,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         entityType: "Registration",
         entityId: `bulk-${updatedCount}`,
         changes: {
-          source: "mcp",
+          source: ctx.source,
           registrationIds,
           updates: { status, paymentStatus },
           updatedCount,
@@ -1038,7 +1038,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               eventId: ctx.eventId,
               newSeatCount: eventSeat.newSeatCount,
               maxAttendees: eventSeat.maxAttendees,
-              source: "mcp",
+              source: ctx.source,
             });
           }
 
@@ -1133,7 +1133,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           action: "CREATE",
           entityType: "Registration",
           entityId: `bulk:${created.length}`,
-          changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+          changes: { source: ctx.source, bulk: true, created: created.length, failed: errors.length },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk audit-log-failed"));
 

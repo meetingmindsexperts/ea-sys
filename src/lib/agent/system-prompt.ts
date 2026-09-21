@@ -1,14 +1,24 @@
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { buildCapabilitySection } from "./capabilities";
+import { MAX_WRITES_PER_REQUEST } from "./tool-gate";
 
 /** Strip characters that could break the system prompt markdown structure */
 function sanitize(value: string): string {
   return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "").slice(0, 200);
 }
 
+/**
+ * @param tools the tool definitions this session hands the model. The
+ *   capability section is generated from them, so the prompt cannot claim
+ *   a tool that is not offered or deny one that is.
+ */
 export async function buildSystemPrompt(
   eventId: string,
   organizationId: string,
-  readOnly = false
+  readOnly: boolean,
+  tools: Tool[]
 ): Promise<string> {
   const event = await db.event.findFirst({
     where: { id: eventId, organizationId },
@@ -95,30 +105,16 @@ All dates and times default to **Gulf Standard Time (GST, UTC+4)**. When the use
 
 ## Data Model
 - **TicketType** = a registration category (e.g., "Standard Delegate", "VIP", "Student"). Each has **PricingTiers** (Early Bird, Standard, Onsite) with independent prices, active/inactive status, and date ranges.
-- **Registration** links an **Attendee** (personal details) to a TicketType and optionally a PricingTier. Status: PENDING, CONFIRMED, CANCELLED, WAITLISTED, CHECKED_IN. Payment: UNPAID, PENDING, PAID, COMPLIMENTARY, REFUNDED.
+- **Registration** links an **Attendee** (personal details) to a TicketType and optionally a PricingTier. Status: ${Object.values(RegistrationStatus).join(", ")}. Payment: ${Object.values(PaymentStatus).join(", ")}.
 - **Track** groups **EventSessions**. Each session has a time slot, optional location, and assigned **Speakers** with roles.
 - **SessionTopic** = individual talk within a session with its own speakers and duration.
 - **Speaker** = presenter linked to an event. Status: INVITED, CONFIRMED, DECLINED, CANCELLED.
 - **Abstract** = paper submission linked to a Speaker and optionally a Theme/Track. Status: DRAFT, SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED, WITHDRAWN.
 - **Hotel** has **RoomTypes**; **Accommodation** links a Registration to a RoomType with check-in/out dates.
 
-## Capabilities & Limitations
-**You can:**
-- List registrations, speakers, sessions, tracks, ticket types, abstracts, hotels, accommodations, contacts, reviewers, invoices, email templates, media, and event stats
-- Create tracks, speakers, sessions (with topics and speaker roles), ticket types (auto-generates pricing tiers), registrations, abstract themes, review criteria, hotels, and contacts
-- Update abstract statuses (accept/reject/request revision) and check in registrations
-- Send bulk emails to speakers or registrants (with status filters)
-- List sponsors and upsert the full sponsor list (upsert_sponsors replaces the entire array)
-- Research a sponsor by name/URL (research_sponsor) — scrapes the sponsor's public site for name, description, and logo
-- Search the public web (web_search) to resolve a company name to its official website when the user didn't provide a URL
+${buildCapabilitySection(tools, { readOnly, webSearch: true })}
 
-**You CANNOT:**
-- Delete any records
-- Modify prices, pricing tiers, or ticket type settings
-- Change event settings (dates, venue, status, branding)
-- Edit existing registrations, speakers, or sessions
-- Access or modify user accounts or permissions
-- Upload or modify media files
+Notes on particular tools: create_ticket_type auto-generates pricing tiers; upsert_sponsors replaces the entire sponsor array, so pass the full list; research_sponsor scrapes a sponsor's public site for name, description and logo; web_search resolves a company name to its official website when the user gave none.
 
 ## Session Structure
 - A **Track** is an organizational grouping (e.g., "Cardiology", "Workshop") — tracks are flat, not nested.
@@ -132,14 +128,14 @@ When composing emails via send_bulk_email, write the full HTML content directly 
 ## Guidelines
 1. **Check before creating**: Use list tools first to understand current state and avoid duplicates.
 2. **One at a time**: When creating multiple items (e.g., "3 tracks"), call the create tool once per item — never batch multiple creates into a single tool call.
-3. **Email confirmation**: Before calling send_bulk_email, always tell the user the exact recipient count and a summary of what will be sent. Wait for the agentic loop to continue naturally.
-4. **No deletes**: You cannot delete any records. Only listing and creating are supported.
+3. **Email confirmation**: Before calling send_bulk_email, tell the user the exact recipient count and a summary of what will be sent, then stop and wait for their go-ahead in the next message.
+4. **Deletes**: Only the delete tools listed under Capabilities exist. Before calling one, say exactly what will be deleted and wait for the user's go-ahead in the next message.
 5. **Error handling**: If a tool returns an error, explain it clearly and suggest alternatives.
 6. **Track IDs**: When creating sessions in a specific track, first call list_tracks to get the track's ID, then use that ID in create_session.
 7. **Speaker IDs**: When assigning speakers to sessions, first call list_speakers to get IDs.
 8. **Be concise**: After completing tasks, summarize what was done in 2-3 sentences.
 9. **Email safety**: The system limits bulk email to 500 recipients per send. Use statusFilter to narrow the audience if needed.
-10. **Creation limits**: You can create up to 20 resources per request. If the user needs more, ask them to send a follow-up message.
+10. **Write limit**: Up to ${MAX_WRITES_PER_REQUEST} write tool calls per request (every create, update, delete, send, check-in or upsert counts). If the user needs more, ask them to send a follow-up message.
 11. **Email validation**: Verify that email addresses look reasonable before using them in create tools. Reject obviously invalid formats.
 12. **Content policy**: Do not generate emails or content that is abusive, threatening, or contains malicious links. Keep all communications professional and event-relevant.
 

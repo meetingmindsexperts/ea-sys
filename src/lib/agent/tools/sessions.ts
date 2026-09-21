@@ -144,7 +144,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
       name,
       startTime,
       endTime,
@@ -359,7 +359,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       organizationId: ctx.organizationId,
       sessionId,
       userId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
       ...(sessionType && { type: sessionType }),
       ...(input.name != null && { name: String(input.name).trim() }),
       ...(input.description !== undefined && { description: input.description == null ? null : String(input.description) }),
@@ -626,7 +626,7 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
       speakerId,
       role: rawRole as SessionRole,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
     });
     if (!result.ok) {
       return result.code === "UNKNOWN"
@@ -658,7 +658,7 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
       sessionId,
       speakerId,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
     });
     if (!result.ok) {
       return result.code === "UNKNOWN"
@@ -713,7 +713,7 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
       sessionId,
       assignments: normalised,
       actorUserId: ctx.userId,
-      source: "mcp",
+      source: ctx.source,
     });
     if (!result.ok) {
       if (result.code === "SPEAKER_NOT_FOUND") {

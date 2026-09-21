@@ -67,7 +67,7 @@ import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
 
 const updateSpeaker = SPEAKER_EXECUTORS.update_speaker;
 const updateRegistration = REGISTRATION_EXECUTORS.update_registration;
-const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { creates: 0, emailsSent: 0 } };
+const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", source: "mcp" as const, counters: { creates: 0, emailsSent: 0 } };
 
 beforeEach(() => {
   vi.clearAllMocks();
