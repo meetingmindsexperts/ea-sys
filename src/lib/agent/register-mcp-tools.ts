@@ -323,7 +323,7 @@ export function registerAllMcpTools(
     { name: "list_live_sessions_now", description: "List sessions currently live (now between startTime and endTime). Optional withinMinutes extends the window to sessions starting within N minutes.", params: {
       withinMinutes: z.number().optional(),
     }},
-    { name: "search_event", description: "Case-insensitive substring search across registrations (attendee name/email/org/tags), speakers, abstracts (title + author), and contacts. Default domains = all.", params: {
+    { name: "search_event", description: "Case-insensitive search across registrations (attendee name/email/org/tags), speakers, abstracts (title + author), and contacts. A full name works ('Omar Haddad', 'Dr Ahmed Mansour'): every word must match one of the name, email or organisation fields, honorifics ignored. Default domains = all.", params: {
       query: z.string(), domains: z.array(z.enum(["registrations", "speakers", "abstracts", "contacts"])).optional(), limit: z.number().optional(),
     }},
     // ─── Webinar + sponsor reads ───
@@ -387,7 +387,7 @@ export function registerAllMcpTools(
       payerReference: z.string().optional().describe("Optional PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
       attendeeIsGuarantor: z.boolean().optional().describe("If true with a billingAccountId, the attendee stays guarantor for an unpaid third-party invoice. Default false."),
     }},
-    { name: "send_bulk_email", description: "Email speakers or registrations through the shared send pipeline (per-event branding + custom-notification template applied; an unparsable status/payment filter is rejected with INVALID_FILTER instead of silently widening the audience). Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
+    { name: "send_bulk_email", description: "Reaches only this event's registrations or speakers, narrowed by the filters; it cannot email one person or an outside address (there is no single-recipient send), so never use it as a substitute for one. Email speakers or registrations through the shared send pipeline (per-event branding + custom-notification template applied; an unparsable status/payment filter is rejected with INVALID_FILTER instead of silently widening the audience). Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
       recipientType: z.enum(["speakers", "registrations"]), emailType: z.string(),
       subject: z.string(), htmlMessage: z.string(),
       statusFilter: z.string().optional(),

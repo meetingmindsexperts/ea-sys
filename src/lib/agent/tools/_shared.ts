@@ -104,5 +104,25 @@ export const ADMIN_SETTABLE_PAYMENT_STATUSES = new Set<string>([
 export const PAYMENT_STATUS_WRITE_REJECTION =
   "Stripe-driven paymentStatus values (PENDING/REFUNDED/FAILED) cannot be set directly — PENDING/FAILED are owned by the payment webhook, and refunds must go through the credit-note-gated refund flow (registration Billing tab / POST …/refund) so the money actually moves.";
 export const TITLE_VALUES = new Set(["DR", "MR", "MRS", "MS", "PROF"]);
+/**
+ * The words of a person search (red-team round, September 22, 2026).
+ * search_event used to match the WHOLE query against each field, so
+ * "Ahmed Mansour" matched neither the first-name column nor the surname
+ * column and a full name found nobody, after which the model told the
+ * person the speaker did not exist. Split on whitespace and commas, drop
+ * honorifics and stray punctuation, keep at most six words; a query that
+ * is nothing but honorifics falls back to its own words.
+ */
+const PERSON_HONORIFICS = new Set(["dr", "prof", "professor", "mr", "mrs", "ms", "miss", "mx", "sir", "madam", "eng", "hon"]);
+export function personSearchTokens(query: string): string[] {
+  const words = query
+    .split(/[\s,;]+/)
+    .map((w) => w.replace(/^[.\-:]+|[.\-:]+$/g, ""))
+    .filter((w) => w.length > 0);
+  const kept = words.filter((w) => !PERSON_HONORIFICS.has(w.toLowerCase()));
+  const tokens = (kept.length > 0 ? kept : words).slice(0, 6);
+  return tokens.length > 0 ? tokens : [query.trim()];
+}
+
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MAX_EMAIL_RECIPIENTS = 500;

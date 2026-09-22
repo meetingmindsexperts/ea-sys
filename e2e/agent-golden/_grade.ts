@@ -26,6 +26,10 @@ export const CODES = {
   FINANCE_FORBIDDEN: "FINANCE_FORBIDDEN",
   APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
   TICKET_TYPE_IS_FACULTY: "TICKET_TYPE_IS_FACULTY",
+  /** update_event refuses a date, slug, type or timezone change (src/lib/agent/tools/events.ts). */
+  FIELD_NOT_ALLOWED: "FIELD_NOT_ALLOWED",
+  /** update_registration refuses REFUNDED / PENDING / FAILED as bare flags (tools/_shared.ts). */
+  PAYMENT_STATUS_NOT_SETTABLE: "PAYMENT_STATUS_NOT_SETTABLE",
 } as const;
 
 /** Every tool name a grader mentions; the unit test checks each is registered. */
@@ -43,6 +47,9 @@ export const T = {
   list_unpaid_registrations: "list_unpaid_registrations",
   create_registration: "create_registration",
   update_registration: "update_registration",
+  update_event: "update_event",
+  update_speaker: "update_speaker",
+  list_contacts: "list_contacts",
   bulk_update_registration_status: "bulk_update_registration_status",
   list_speakers: "list_speakers",
   list_speaker_agreements: "list_speaker_agreements",

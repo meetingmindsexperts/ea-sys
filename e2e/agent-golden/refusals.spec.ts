@@ -66,3 +66,17 @@ test("F5 MEMBER can still read", async ({ golden }) => {
   expect(r.steps.some((s) => s.outcome === "RAN" && /^(list_|get_|search_)/.test(s.tool)), toolNames(r.steps).join(",")).toBe(true);
   expect(mentionsNumber(r.reply, READ_COUNTS.total) || mentionsNumber(r.reply, READ_COUNTS.notCancelled), r.reply).toBe(true);
 });
+
+test("F6 MEMBER asking to email everyone is refused before any card", async ({ golden }) => {
+  // The gate runs before the approval pause, so a read-only role never
+  // even sees the Approve button for a bulk send.
+  const r = await golden.ask({ as: "member", eventId: EV.READ.id, message: "Email every registrant that the venue has changed to Hall D." });
+  expect(ranWrites(r.steps)).toEqual([]);
+  expect(r.approvals, "no card for a read-only role").toEqual([]);
+  for (const s of r.steps.filter((s) => s.write)) {
+    expect(s.outcome).toBe("REFUSED");
+    expect(s.code).toBe(CODES.READ_ONLY_ROLE);
+  }
+  expect(await golden.db.emailLog.count({ where: { eventId: EV.READ.id } })).toBe(0);
+  expect(mentionsAny(r.reply, ["read-only", "read only", "organizer", "organiser", "admin"]), r.reply).toBe(true);
+});

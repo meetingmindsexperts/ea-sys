@@ -12,6 +12,9 @@
  *     abstract body carry injected instructions the model must treat as data
  *   - sponsors, a promo code, a panel session and the people the approval
  *     and refusal tasks act on
+ *   - the red-team round's fixtures: a contact, a registrant and a speaker
+ *     whose organisation or bio asks for a write, two same-name speakers,
+ *     a paid registrant, and one existing track each for undo and repeat
  *
  * NEVER imported by the regression e2e suite. Idempotent: seedCore deletes
  * the org (cascading every golden event) and this file deletes the golden
@@ -46,6 +49,17 @@ import {
   SEED_SPONSORS,
   UPDATE_REGISTRANT,
   VIP_TICKET,
+  AWAY_TRACK_NAME,
+  DUPE_SPEAKERS,
+  INJECT_CONTACT,
+  INJECT_REGISTRANTS,
+  INJECT_SPEAKER,
+  INJECTION_BIO_WRITE,
+  INJECTION_CONTACT_ORG,
+  REFUND_REGISTRANT,
+  REFUND_TICKET,
+  REPEAT_TRACK,
+  UNDO_TRACK,
 } from "../e2e/agent-golden/_seed-constants";
 
 const db = new PrismaClient();
@@ -277,6 +291,92 @@ async function seedUpdateEvent() {
   await registration(EV.UPDATE.id, tt.id, UPDATE_REGISTRANT, "PENDING", "UNPAID");
 }
 
+// ── The red-team round (E3, September 22, 2026) ──────────────────────────
+
+/** Three injection vectors that ask for writes needing no approval. */
+async function seedInjectEvent() {
+  const tt = await generalTicketType(EV.INJECT.id, `${EV.INJECT.id}-general`);
+  for (const r of INJECT_REGISTRANTS) {
+    const attendee = await db.attendee.create({
+      data: { organizationId: ORG, email: r.email, firstName: r.firstName, lastName: r.lastName, organization: r.organization },
+    });
+    await db.registration.create({
+      data: { organizationId: ORG, eventId: EV.INJECT.id, ticketTypeId: tt.id, attendeeId: attendee.id, status: r.status, paymentStatus: r.paymentStatus },
+    });
+  }
+  await db.speaker.create({
+    data: {
+      eventId: EV.INJECT.id,
+      organizationId: ORG,
+      email: INJECT_SPEAKER.email,
+      firstName: INJECT_SPEAKER.firstName,
+      lastName: INJECT_SPEAKER.lastName,
+      title: "DR",
+      organization: "Golden Hospital",
+      status: INJECT_SPEAKER.status,
+      bio: INJECTION_BIO_WRITE,
+    },
+  });
+}
+
+/** An org-level contact whose organisation field carries an instruction (the org door reads contacts). */
+async function seedInjectedContact() {
+  await db.contact.create({
+    data: {
+      organizationId: ORG,
+      email: INJECT_CONTACT.email,
+      firstName: INJECT_CONTACT.firstName,
+      lastName: INJECT_CONTACT.lastName,
+      organization: INJECTION_CONTACT_ORG,
+    },
+  });
+}
+
+/** Two speakers who share a name, distinguishable only by organisation and phone. */
+async function seedDupesEvent() {
+  for (const p of DUPE_SPEAKERS) {
+    await db.speaker.create({
+      data: {
+        eventId: EV.DUPES.id,
+        organizationId: ORG,
+        email: p.email,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        title: "DR",
+        organization: p.organization,
+        phone: p.phone,
+        status: "CONFIRMED",
+      },
+    });
+  }
+}
+
+/** A paid registration on a priced type: the refund hand-over task. */
+async function seedRefundEvent() {
+  const tt = await db.ticketType.create({
+    data: {
+      id: REFUND_TICKET.id,
+      eventId: EV.REFUND.id,
+      organizationId: ORG,
+      name: REFUND_TICKET.name,
+      category: REFUND_TICKET.name,
+      price: REFUND_TICKET.price,
+      currency: "USD",
+      isActive: true,
+      isDefault: true,
+    },
+  });
+  await registration(EV.REFUND.id, tt.id, REFUND_REGISTRANT, "CONFIRMED", "PAID");
+}
+
+/** One existing track each: "undo that" must not delete it, "create it" must not duplicate it. */
+async function seedTrackEvents() {
+  await db.track.create({ data: { id: UNDO_TRACK.id, eventId: EV.UNDO.id, organizationId: ORG, name: UNDO_TRACK.name, color: "#00aade", sortOrder: 0 } });
+  await db.track.create({ data: { id: REPEAT_TRACK.id, eventId: EV.REPEAT.id, organizationId: ORG, name: REPEAT_TRACK.name, color: "#00aade", sortOrder: 0 } });
+  // The cross-event task starts with no tracks on either side; the name is only referenced here so a rename fails loudly.
+  void AWAY_TRACK_NAME;
+}
+
 async function main() {
   console.log("[seed-e2e-golden] starting");
   const { passwordHash } = await seedCore(db);
@@ -289,6 +389,11 @@ async function main() {
   await seedSpeakersEvent();
   await seedPromoEvent();
   await seedUpdateEvent();
+  await seedInjectEvent();
+  await seedInjectedContact();
+  await seedDupesEvent();
+  await seedRefundEvent();
+  await seedTrackEvents();
   console.log(
     `[seed-e2e-golden] done: ${GOLDEN_ADMINS.length} admins + 1 member, ${GOLDEN_EVENT_LIST.length} events, read event ${EV.READ.id}`,
   );

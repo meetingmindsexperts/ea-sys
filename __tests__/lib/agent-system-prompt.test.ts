@@ -85,6 +85,11 @@ describe("buildSystemPrompt", () => {
     // array" while the executor has merged by default since Sep 2, 2026.
     expect(p).toContain("upsert_sponsors merges by default");
     expect(p).not.toContain("replaces the entire sponsor array");
+    // The sponsor EXAMPLE still said "replaces the entire array" after the
+    // note was corrected (found in the E3 red-team round, Sep 22, 2026).
+    expect(p).not.toContain("replaces the entire array");
+    const sponsorExample = p.slice(p.indexOf("### Adding a sponsor"));
+    expect(sponsorExample).toContain("merges by default");
   });
 
   it("carries the dashboard map, with the event's id filled in when one is selected", async () => {
@@ -105,6 +110,25 @@ describe("buildSystemPrompt", () => {
     const p = await buildSystemPrompt({ organizationId: "org1", eventId: null, readOnly: false, tools });
     expect(p).toContain("Do not ask for permission in prose first");
     expect(p).not.toContain("wait for their go-ahead");
+    // The reminder EXAMPLE still told the model to ask "Shall I send them
+    // the reminder?" and stop, the exact double confirmation guideline 3
+    // forbids (found in the E3 red-team round, Sep 22, 2026).
+    expect(p).not.toContain("Shall I send them the reminder?");
+    expect(p).not.toContain("Only after the user says yes");
+    const example = p.slice(p.indexOf("### Sending a reminder email"), p.indexOf("### Adding a sponsor"));
+    expect(example).toContain("call send_bulk_email");
+    expect(example).toContain("APPROVAL_REQUIRED");
+  });
+
+  it("names the two red-team rules: a name matching two people is a question, a bulk send never swaps its audience", async () => {
+    // E3 round, Sep 22, 2026: asked to email an outside address, the model
+    // said the tool could not and raised a card for every registrant
+    // instead; asked about one of two speakers with one name, the fix is
+    // a question, never a guess.
+    const p = await buildSystemPrompt({ organizationId: "org1", eventId: "ev1", readOnly: false, tools });
+    expect(p).toContain("ask which one before writing; never pick one");
+    expect(p).toContain("never send to a different audience instead");
+    expect(p).toContain("cannot email one person or an address outside the event");
   });
 
   it("carries the current event when one is selected, and the read-only banner for MEMBER", async () => {

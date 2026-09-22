@@ -5,7 +5,8 @@ import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
 import { computeEventAnalytics } from "@/lib/event-analytics";
 import { runWithTenant } from "@/lib/tenant-context";
-import type { ToolExecutor } from "./_shared";
+import type { Prisma } from "@prisma/client";
+import { personSearchTokens, type ToolExecutor } from "./_shared";
 
 const getEventDashboard: ToolExecutor = async (_input, ctx) => {
   try {
@@ -192,20 +193,35 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
     const domains = new Set(requestedDomains.filter((d) =>
       ["registrations", "speakers", "abstracts", "contacts"].includes(d)));
 
-    const ci = { contains: query, mode: "insensitive" as const };
+    // Every word of the query must match one of the person fields (a full
+    // name spans two columns); the whole query is also tried as a tag. One
+    // word behaves exactly as before.
+    const tokens = personSearchTokens(query);
+    const ci = (t: string) => ({ contains: t, mode: "insensitive" as const });
+    const registrationClauses: Prisma.RegistrationWhereInput[] = tokens.map((t) => ({
+      OR: [
+        { attendee: { firstName: ci(t) } },
+        { attendee: { lastName: ci(t) } },
+        { attendee: { email: ci(t) } },
+        { attendee: { organization: ci(t) } },
+      ],
+    }));
+    const speakerClauses: Prisma.SpeakerWhereInput[] = tokens.map((t) => ({
+      OR: [{ firstName: ci(t) }, { lastName: ci(t) }, { email: ci(t) }, { organization: ci(t) }],
+    }));
+    const abstractClauses: Prisma.AbstractWhereInput[] = tokens.map((t) => ({
+      OR: [{ title: ci(t) }, { speaker: { firstName: ci(t) } }, { speaker: { lastName: ci(t) } }],
+    }));
+    const contactClauses: Prisma.ContactWhereInput[] = tokens.map((t) => ({
+      OR: [{ firstName: ci(t) }, { lastName: ci(t) }, { email: ci(t) }, { organization: ci(t) }],
+    }));
 
     const [registrations, speakers, abstracts, contacts] = await Promise.all([
       domains.has("registrations")
         ? db.registration.findMany({
             where: {
               eventId: ctx.eventId,
-              OR: [
-                { attendee: { firstName: ci } },
-                { attendee: { lastName: ci } },
-                { attendee: { email: ci } },
-                { attendee: { organization: ci } },
-                { attendee: { tags: { has: query } } },
-              ],
+              OR: [{ AND: registrationClauses }, { attendee: { tags: { has: query } } }],
             },
             select: {
               id: true,
@@ -217,29 +233,14 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
         : Promise.resolve([]),
       domains.has("speakers")
         ? db.speaker.findMany({
-            where: {
-              eventId: ctx.eventId,
-              OR: [
-                { firstName: ci },
-                { lastName: ci },
-                { email: ci },
-                { organization: ci },
-              ],
-            },
+            where: { eventId: ctx.eventId, AND: speakerClauses },
             select: { id: true, firstName: true, lastName: true, email: true, organization: true, status: true },
             take: limit,
           })
         : Promise.resolve([]),
       domains.has("abstracts")
         ? db.abstract.findMany({
-            where: {
-              eventId: ctx.eventId,
-              OR: [
-                { title: ci },
-                { speaker: { firstName: ci } },
-                { speaker: { lastName: ci } },
-              ],
-            },
+            where: { eventId: ctx.eventId, AND: abstractClauses },
             select: {
               id: true,
               title: true,
@@ -251,16 +252,7 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
         : Promise.resolve([]),
       domains.has("contacts")
         ? db.contact.findMany({
-            where: {
-              organizationId: ctx.organizationId,
-              eventIds: { has: ctx.eventId },
-              OR: [
-                { firstName: ci },
-                { lastName: ci },
-                { email: ci },
-                { organization: ci },
-              ],
-            },
+            where: { organizationId: ctx.organizationId, eventIds: { has: ctx.eventId }, AND: contactClauses },
             select: { id: true, firstName: true, lastName: true, email: true, organization: true },
             take: limit,
           })
