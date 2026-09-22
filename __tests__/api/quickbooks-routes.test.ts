@@ -9,9 +9,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { guard, mockStoreNew, mockLoad, mockClear, mockExchange, mockRevoke, mockHealth, mockClasses, mockAccounts, logger } = vi.hoisted(() => ({
+const { guard, mockStoreNew, mockLoadApp, mockLoad, mockClear, mockExchange, mockRevoke, mockHealth, mockClasses, mockAccounts, logger } = vi.hoisted(() => ({
   guard: vi.fn(),
   mockStoreNew: vi.fn(async () => {}),
+  mockLoadApp: vi.fn(),
   mockLoad: vi.fn(),
   mockClear: vi.fn(async () => {}),
   mockExchange: vi.fn(),
@@ -26,6 +27,12 @@ vi.mock("@/lib/logger", () => ({ apiLogger: logger }));
 vi.mock("@/lib/db", () => ({ db: {}, dbOperator: {} }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
 vi.mock("@/procurement/lib/route-helpers", () => ({ procurementGuard: guard }));
+vi.mock("@/procurement/integrations/quickbooks/app", async () => {
+  const actual = await vi.importActual<typeof import("@/procurement/integrations/quickbooks/app")>(
+    "@/procurement/integrations/quickbooks/app",
+  );
+  return { ...actual, loadQuickBooksApp: mockLoadApp };
+});
 vi.mock("@/procurement/integrations/quickbooks/connection", async () => {
   const actual = await vi.importActual<typeof import("@/procurement/integrations/quickbooks/connection")>(
     "@/procurement/integrations/quickbooks/connection",
@@ -60,13 +67,13 @@ function allow(orgId = "org1", userId = "u1") {
 function refuse(status = 403) {
   guard.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Forbidden" }, { status }) });
 }
-function sandboxEnv() {
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "cid");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_SECRET", "csec");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_REDIRECT_URI", "https://x.test/cb");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_ENVIRONMENT", "sandbox");
-  vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "");
-}
+/** The organisation's resolved app, as `loadQuickBooksApp` would return it. */
+const APP = {
+  clientId: "cid",
+  clientSecret: "csec",
+  redirectUri: "https://x.test/api/integrations/quickbooks/callback",
+  environment: "sandbox" as const,
+};
 /** The callback is a browser navigation: a `req` is all it reads besides the guard. */
 function callbackReq(params: Record<string, string>) {
   const url = new URL("https://app.test/api/integrations/quickbooks/callback");
@@ -80,7 +87,7 @@ function redirectTarget(res: Response): URL {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NEXTAUTH_SECRET", SECRET);
-  sandboxEnv();
+  mockLoadApp.mockResolvedValue(APP);
   mockLoad.mockResolvedValue(null);
   mockHealth.mockResolvedValue({ ok: true, data: { companyName: "Sandbox Co", legalName: null, country: null, homeCurrency: "AED", multiCurrencyEnabled: true } });
   mockClasses.mockResolvedValue({ ok: true, data: [] });
@@ -132,9 +139,9 @@ describe("status and disconnect", () => {
     expect(JSON.stringify(body)).not.toContain("csec");
   });
 
-  it("says not configured when the deployment has no QuickBooks app", async () => {
+  it("says not configured when the organisation has no QuickBooks app", async () => {
     allow();
-    vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "");
+    mockLoadApp.mockResolvedValue(null);
     const body = await (await statusGet()).json();
     expect(body.configured).toBe(false);
     expect(body.redirectUri).toBeNull();
@@ -169,13 +176,13 @@ describe("connect", () => {
     expect(to.origin + to.pathname).toBe("https://appcenter.intuit.com/connect/oauth2");
     expect(to.searchParams.get("client_id")).toBe("cid");
     expect(to.searchParams.get("scope")).toBe("com.intuit.quickbooks.accounting");
-    expect(to.searchParams.get("redirect_uri")).toBe("https://x.test/cb");
+    expect(to.searchParams.get("redirect_uri")).toBe(APP.redirectUri);
     expect(to.searchParams.get("state")).toBeTruthy();
   });
 
   it("refuses with a reason when no app is configured", async () => {
     allow();
-    vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_SECRET", "");
+    mockLoadApp.mockResolvedValue(null);
     const res = await connectGet();
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("NOT_CONFIGURED");

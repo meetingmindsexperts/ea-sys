@@ -1,16 +1,12 @@
 /**
- * The Intuit app this deployment talks to (September 22, 2026).
+ * What is fixed about talking to Intuit (September 22, 2026): endpoints,
+ * scope, minor version, timeout, and the two API bases.
  *
- * ONE Intuit app serves every tenant: the client id and secret identify
- * EA-SYS to Intuit and live in the environment, never per organisation.
- * What IS per organisation is the realm (the QuickBooks company) and the
- * tokens for it, which `connection.ts` keeps encrypted in the org's
- * settings. That split matters: a second tenant connecting its own
- * QuickBooks company needs no new Intuit app.
- *
- * Unset credentials mean the integration is simply absent: every route
- * answers "not configured" and nothing is attempted. Production has no
- * QuickBooks variables today, so this ships dark there.
+ * Nothing here is per deployment or per tenant. WHICH Intuit app we are —
+ * the client id, secret and redirect URI — is per organisation and lives in
+ * `app.ts`; which QuickBooks company an organisation is linked to lives in
+ * `connection.ts`. This module deliberately reads no environment variables
+ * and touches no database, so it stays a pure constants module.
  */
 
 export type QuickBooksEnvironment = "sandbox" | "production";
@@ -42,40 +38,4 @@ const PRODUCTION_API_BASE = "https://quickbooks.api.intuit.com";
 
 export function qboApiBase(environment: QuickBooksEnvironment): string {
   return environment === "production" ? PRODUCTION_API_BASE : SANDBOX_API_BASE;
-}
-
-function env(name: string): string | null {
-  const v = process.env[name];
-  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
-}
-
-/**
- * Which environment this deployment is pointed at. `QUICKBOOKS_ENVIRONMENT`
- * decides; `QUICKBOOKS_SANDBOX_ENVIRONMENT` is honoured because that is the
- * name already in the developer's .env.local. Anything unrecognised reads as
- * sandbox: guessing "production" from a typo would point real accounting at
- * a test integration.
- */
-export function quickBooksEnvironment(): QuickBooksEnvironment {
-  const raw = (env("QUICKBOOKS_ENVIRONMENT") ?? env("QUICKBOOKS_SANDBOX_ENVIRONMENT") ?? "sandbox").toLowerCase();
-  return raw === "production" ? "production" : "sandbox";
-}
-
-/**
- * The configured app, or null when this deployment has no QuickBooks app.
- *
- * Sandbox reads the `QUICKBOOKS_SANDBOX_*` triple, production the
- * `QUICKBOOKS_*` one, so both can sit in one file and the environment
- * variable alone decides which is live. A partial triple is null, not a
- * half-configured app: a missing redirect URI fails at Intuit with a message
- * nobody can act on.
- */
-export function resolveQuickBooksApp(): QuickBooksApp | null {
-  const environment = quickBooksEnvironment();
-  const prefix = environment === "production" ? "QUICKBOOKS" : "QUICKBOOKS_SANDBOX";
-  const clientId = env(`${prefix}_CLIENT_ID`);
-  const clientSecret = env(`${prefix}_CLIENT_SECRET`);
-  const redirectUri = env(`${prefix}_REDIRECT_URI`) ?? env("QUICKBOOKS_REDIRECT_URI");
-  if (!clientId || !clientSecret || !redirectUri) return null;
-  return { clientId, clientSecret, redirectUri, environment };
 }

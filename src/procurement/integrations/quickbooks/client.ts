@@ -15,7 +15,7 @@ import { getAccessToken, saveConnection } from "./connection";
 
 export type QboFailure = {
   ok: false;
-  code: "NOT_CONFIGURED" | "NOT_CONNECTED" | "ENVIRONMENT_MISMATCH" | "REFRESH_EXPIRED" | "REFRESH_FAILED" | "HTTP_ERROR" | "NETWORK" | "MALFORMED";
+  code: "NOT_CONFIGURED" | "NOT_CONNECTED" | "ENVIRONMENT_MISMATCH" | "APP_CHANGED" | "REFRESH_EXPIRED" | "REFRESH_FAILED" | "HTTP_ERROR" | "NETWORK" | "MALFORMED";
   message: string;
   status?: number;
 };

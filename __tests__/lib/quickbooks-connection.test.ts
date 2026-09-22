@@ -19,20 +19,26 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings: mockUpdateOrgSettings }));
 
 import { encryptSecret } from "@/lib/eventsair-client";
-import { qboApiBase, quickBooksEnvironment, resolveQuickBooksApp } from "@/procurement/integrations/quickbooks/config";
+import { qboApiBase } from "@/procurement/integrations/quickbooks/config";
+import { QBO_CALLBACK_PATH, readStoredApp, resolveStoredApp, toAppStatus, validateRedirectUri } from "@/procurement/integrations/quickbooks/app";
 import { mintConnectState, verifyConnectState } from "@/procurement/integrations/quickbooks/state";
 import { getAccessToken, readConnection, toStatus } from "@/procurement/integrations/quickbooks/connection";
 import { listAccounts, listClasses, qboQuery } from "@/procurement/integrations/quickbooks/client";
 
 const SECRET = "test-secret-for-quickbooks-unit-tests";
-const APP = { clientId: "cid", clientSecret: "csec", redirectUri: "https://x.test/cb", environment: "sandbox" as const };
+const REDIRECT = `https://x.test${QBO_CALLBACK_PATH}`;
+const APP = { clientId: "cid", clientSecret: "csec", redirectUri: REDIRECT, environment: "sandbox" as const };
 
-function sandboxEnv() {
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "cid");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_SECRET", "csec");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_REDIRECT_URI", "https://x.test/cb");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_ENVIRONMENT", "sandbox");
-  vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "");
+/** The app block as it sits in `Organization.settings.quickbooksApp`. */
+function storedApp(over: Record<string, unknown> = {}) {
+  return {
+    environment: "sandbox",
+    sandbox: { clientId: "cid", clientSecretEncrypted: encryptSecret("csec"), redirectUri: REDIRECT },
+    production: { clientId: null, clientSecretEncrypted: null, redirectUri: null },
+    configuredAt: "2026-09-22T09:00:00.000Z",
+    configuredByUserId: "u1",
+    ...over,
+  };
 }
 
 beforeEach(() => {
@@ -41,41 +47,59 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-describe("which app a deployment talks to", () => {
-  it("reads the sandbox triple and its base URL", () => {
-    sandboxEnv();
-    expect(resolveQuickBooksApp()).toEqual(APP);
+describe("which Intuit app an organisation talks to", () => {
+  it("resolves the live environment's pair, and its base URL", () => {
+    expect(resolveStoredApp(readStoredApp({ quickbooksApp: storedApp() }))).toEqual(APP);
     expect(qboApiBase("sandbox")).toBe("https://sandbox-quickbooks.api.intuit.com");
     expect(qboApiBase("production")).toBe("https://quickbooks.api.intuit.com");
   });
 
-  it("is null on a partial triple, so nothing half-configured reaches Intuit", () => {
-    sandboxEnv();
-    vi.stubEnv("QUICKBOOKS_SANDBOX_REDIRECT_URI", "");
-    expect(resolveQuickBooksApp()).toBeNull();
+  it("is null on a partial pair, so nothing half-configured reaches Intuit", () => {
+    const partial = storedApp({ sandbox: { clientId: "cid", clientSecretEncrypted: encryptSecret("csec"), redirectUri: null } });
+    expect(resolveStoredApp(readStoredApp({ quickbooksApp: partial }))).toBeNull();
   });
 
-  it("is null on a deployment with no QuickBooks variables at all (production today)", () => {
-    for (const k of ["QUICKBOOKS_SANDBOX_CLIENT_ID", "QUICKBOOKS_SANDBOX_CLIENT_SECRET", "QUICKBOOKS_SANDBOX_REDIRECT_URI", "QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET", "QUICKBOOKS_REDIRECT_URI"]) {
-      vi.stubEnv(k, "");
-    }
-    expect(resolveQuickBooksApp()).toBeNull();
+  it("is null for an organisation with nothing saved (production today)", () => {
+    expect(readStoredApp({})).toBeNull();
+    expect(readStoredApp(null)).toBeNull();
+    expect(resolveStoredApp(null)).toBeNull();
   });
 
-  it("only an explicit 'production' is production: a typo reads as sandbox, never the other way", () => {
-    vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "produciton");
-    expect(quickBooksEnvironment()).toBe("sandbox");
-    vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "production");
-    expect(quickBooksEnvironment()).toBe("production");
+  it("only an explicit 'production' is production: a corrupt value reads as sandbox, never the other way", () => {
+    expect(readStoredApp({ quickbooksApp: storedApp({ environment: "produciton" }) })?.environment).toBe("sandbox");
+    expect(readStoredApp({ quickbooksApp: storedApp({ environment: "production" }) })?.environment).toBe("production");
   });
 
-  it("production reads its own triple, so both can sit in one file", () => {
-    sandboxEnv();
-    vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "production");
-    vi.stubEnv("QUICKBOOKS_CLIENT_ID", "prod-cid");
-    vi.stubEnv("QUICKBOOKS_CLIENT_SECRET", "prod-sec");
-    vi.stubEnv("QUICKBOOKS_REDIRECT_URI", "https://events.test/cb");
-    expect(resolveQuickBooksApp()).toEqual({ clientId: "prod-cid", clientSecret: "prod-sec", redirectUri: "https://events.test/cb", environment: "production" });
+  it("each environment keeps its own pair, so both can be held at once", () => {
+    const both = storedApp({
+      environment: "production",
+      production: { clientId: "prod-cid", clientSecretEncrypted: encryptSecret("prod-sec"), redirectUri: "https://events.test" + QBO_CALLBACK_PATH },
+    });
+    expect(resolveStoredApp(readStoredApp({ quickbooksApp: both }))).toEqual({
+      clientId: "prod-cid",
+      clientSecret: "prod-sec",
+      redirectUri: "https://events.test" + QBO_CALLBACK_PATH,
+      environment: "production",
+    });
+  });
+
+  it("the safe view names the ids and never the secret", () => {
+    const status = toAppStatus(readStoredApp({ quickbooksApp: storedApp() }));
+    expect(status.sandbox).toEqual({ clientId: "cid", hasClientSecret: true, redirectUri: REDIRECT });
+    expect(status.production).toEqual({ clientId: null, hasClientSecret: false, redirectUri: null });
+    expect(status.ready).toBe(true);
+    expect(JSON.stringify(status)).not.toContain("csec");
+  });
+
+  it("a redirect URI is refused here rather than at Intuit's consent screen", () => {
+    expect(validateRedirectUri(REDIRECT, "sandbox")).toBeNull();
+    // Development may be http, which is what makes localhost work at all.
+    expect(validateRedirectUri(`http://localhost:3113${QBO_CALLBACK_PATH}`, "sandbox")).toBeNull();
+    // A trailing slash is the same route to Next, so it must not be refused.
+    expect(validateRedirectUri(`${REDIRECT}/`, "sandbox")).toBeNull();
+    expect(validateRedirectUri(`http://x.test${QBO_CALLBACK_PATH}`, "production")).toContain("https");
+    expect(validateRedirectUri("not a url", "sandbox")).toContain("full URL");
+    expect(validateRedirectUri("https://x.test/somewhere-else", "sandbox")).toContain(QBO_CALLBACK_PATH);
   });
 });
 
@@ -110,8 +134,9 @@ describe("the connect state", () => {
   });
 });
 
-function storedConnection(over: Record<string, unknown> = {}) {
+function storedConnection(over: Record<string, unknown> = {}, appOver?: Record<string, unknown> | null) {
   return {
+    ...(appOver === null ? {} : { quickbooksApp: storedApp(appOver ?? {}) }),
     quickbooks: {
       realmId: "realm-1",
       environment: "sandbox",
@@ -147,10 +172,21 @@ describe("the stored connection", () => {
     expect(status.environmentMismatch).toBe(true);
     expect(status.connected).toBe(false);
   });
+
+  it("a connection minted by a DIFFERENT client id reads as not connected, so an edit is visible", () => {
+    const status = toStatus(readConnection(storedConnection({ clientId: "an-older-client-id" })), APP);
+    expect(status.appMismatch).toBe(true);
+    expect(status.connected).toBe(false);
+  });
+
+  it("a connection recorded before the client id was stored is unknown, never a mismatch", () => {
+    const status = toStatus(readConnection(storedConnection()), APP);
+    expect(status.appMismatch).toBe(false);
+    expect(status.connected).toBe(true);
+  });
 });
 
 describe("getAccessToken", () => {
-  beforeEach(() => sandboxEnv());
 
   it("returns the stored token while it is still good, without calling Intuit", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -178,12 +214,10 @@ describe("getAccessToken", () => {
   });
 
   it("names the cause rather than throwing: not configured, not connected, wrong environment, dead refresh token", async () => {
-    mockDb.organization.findUnique.mockResolvedValue({ settings: storedConnection() });
-    vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "");
+    mockDb.organization.findUnique.mockResolvedValue({ settings: storedConnection({}, null) });
     expect(await getAccessToken("org1")).toMatchObject({ ok: false, code: "NOT_CONFIGURED" });
 
-    sandboxEnv();
-    mockDb.organization.findUnique.mockResolvedValue({ settings: {} });
+    mockDb.organization.findUnique.mockResolvedValue({ settings: { quickbooksApp: storedApp() } });
     expect(await getAccessToken("org1")).toMatchObject({ ok: false, code: "NOT_CONNECTED" });
 
     mockDb.organization.findUnique.mockResolvedValue({ settings: storedConnection({ environment: "production" }) });
@@ -196,12 +230,16 @@ describe("getAccessToken", () => {
       }),
     });
     expect(await getAccessToken("org1")).toMatchObject({ ok: false, code: "REFRESH_EXPIRED" });
+
+    // The app credentials were edited after the connection was made, so the
+    // stored tokens belong to an app that no longer exists here.
+    mockDb.organization.findUnique.mockResolvedValue({ settings: storedConnection({ clientId: "an-older-client-id" }) });
+    expect(await getAccessToken("org1")).toMatchObject({ ok: false, code: "APP_CHANGED" });
   });
 });
 
 describe("the read client", () => {
   beforeEach(() => {
-    sandboxEnv();
     mockDb.organization.findUnique.mockResolvedValue({ settings: storedConnection() });
   });
 

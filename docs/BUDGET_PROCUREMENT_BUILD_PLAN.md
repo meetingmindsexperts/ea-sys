@@ -287,30 +287,60 @@ Disconnect revokes and clears. A daily worker job keeps the token warm and
 records whether the connection still works, because a refresh token unused
 for about 100 days stops working and nothing would otherwise say so.
 
-**Files.** `src/procurement/integrations/quickbooks/` (`config.ts` the app
-from the environment, `state.ts` the signed OAuth state, `oauth.ts` the
+**Files.** `src/procurement/integrations/quickbooks/` (`config.ts` the
+fixed Intuit constants, `app.ts` the per-organisation Intuit app,
+`state.ts` the signed OAuth state, `oauth.ts` the
 three Intuit calls, `connection.ts` the stored per-organisation connection,
 `client.ts` the reads, `health-worker.ts` the daily tick),
 `src/app/api/integrations/quickbooks/` (status and disconnect, connect,
-callback, test, chart), `worker/jobs/quickbooks-health.ts` (JOB_ID 1023,
-05:10 UTC daily), `src/components/settings/org-quickbooks-connection.tsx`.
+callback, test, chart, credentials), `worker/jobs/quickbooks-health.ts`
+(JOB_ID 1023, 05:10 UTC daily),
+`src/components/settings/org-quickbooks-credentials.tsx` and
+`org-quickbooks-connection.tsx`.
 
-**Environment (`.env.example` is gitignored, so the contract lives here).**
-`QUICKBOOKS_ENVIRONMENT` picks the triple, `sandbox` unless it reads exactly
-`production` (a typo must never point a test integration at real
-accounting). Sandbox reads `QUICKBOOKS_SANDBOX_CLIENT_ID`,
-`QUICKBOOKS_SANDBOX_CLIENT_SECRET`, `QUICKBOOKS_SANDBOX_REDIRECT_URI`;
-production reads the same names without `SANDBOX`. A partial triple is
-treated as no app at all. Production has none of these today, so the card
-there says the deployment is not configured and nothing is attempted.
+**No environment variables. The credentials are per organisation, entered
+in the app** (owner decision the same day, reversing the shape below; the
+`QUICKBOOKS_*` variables were retired and are read nowhere). A QuickBooks
+App card on Settings, Integrations holds a **development (sandbox) pair and
+a production pair side by side**, each with a client id, a client secret and
+a redirect URI, plus a toggle for which is live. Stored in
+`Organization.settings.quickbooksApp`, the secret AES-256-GCM under
+`NEXTAUTH_SECRET`, so there is still no migration. A partial pair is treated
+as no app at all: a missing redirect URI fails at Intuit with a message
+nobody can act on, and a missing secret fails at the token exchange, after
+the person has already granted consent. An organisation with nothing saved
+has no QuickBooks app, which is what production reads as today.
 
 **Decisions taken while building.**
 
-1. **One Intuit app, many realms.** The client id and secret identify EA-SYS
-   and live in the environment; the realm and its tokens are per
-   organisation, in `Organization.settings.quickbooks`, AES-256-GCM under
-   `NEXTAUTH_SECRET` (the Zoom and EventsAir pattern, so no migration). A
-   second tenant connecting its own company needs no new Intuit app.
+1. **The Intuit app is per organisation, like Stripe and Zoom.** The first
+   cut read one app out of the environment and said so in `config.ts`: "ONE
+   Intuit app serves every tenant". True of a single-tenant deployment and
+   wrong for the platform, where a tenant brings its own Intuit app the way
+   it brings its own Stripe keys, so it matches the recorded decision in
+   PLATFORM_DECISIONS item 7. Credentials live under
+   `settings.quickbooksApp`, deliberately NOT inside `settings.quickbooks`,
+   which holds the connection: disconnect deletes that key wholesale, and
+   credentials inside it would go with it. Two separate keys make
+   "disconnect must not lose the app" structural rather than a thing to
+   remember. There is no environment fallback, by owner choice: one source,
+   so nobody has to work out which won.
+   - **A blank secret keeps the stored one.** The server never returns a
+     secret, so a form that sent an empty field as a value would wipe it
+     every time someone corrected a client id. Blank means unchanged; an
+     explicit null clears.
+   - **The connection records which client id minted it.** Editing the app
+     leaves tokens the new app cannot refresh, and without this the card
+     would go on saying connected against a dead link. A connection made
+     before this was stored has none, which reads as unknown and is never
+     treated as a mismatch.
+   - **A redirect URI is checked on save.** Intuit's own refusal is
+     `invalid_redirect_uri` on the consent screen, after the person has left
+     our app, so the cheapest place to say "that is not a URL" is the form
+     they typed it into. It must end in the callback path (a URI pointing
+     anywhere else can never work), and production is held to https because
+     Intuit will not register anything else; development may be http, which
+     is what makes localhost work.
 2. **The stored environment is part of the connection.** A deployment that
    flips sandbox to production holds tokens for a different company minted
    by a different app; a mismatch reads as disconnected and says so, rather

@@ -102,6 +102,7 @@ export const queryKeys = {
   invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
   registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
   zoomCredentials: ["zoom", "credentials"] as const,
+  quickbooksApp: ["quickbooks", "app"] as const,
   quickbooksConnection: ["quickbooks", "connection"] as const,
   quickbooksChart: ["quickbooks", "chart"] as const,
   stripeCredentials: ["stripe", "credentials"] as const,
@@ -1899,6 +1900,63 @@ export interface QuickBooksConnectionView {
   lastHealthCheckOk: boolean | null;
   lastHealthCheckError: string | null;
   environmentMismatch: boolean;
+  /** The app's client id changed since this connection was made, so its tokens are dead. */
+  appMismatch: boolean;
+}
+
+/** The organisation's Intuit app, as a screen may see it: ids yes, secrets never. */
+export interface QuickBooksAppView {
+  environment: "sandbox" | "production";
+  sandbox: { clientId: string | null; hasClientSecret: boolean; redirectUri: string | null };
+  production: { clientId: string | null; hasClientSecret: boolean; redirectUri: string | null };
+  configuredAt: string | null;
+  configuredByUserId: string | null;
+  /** The live environment has all three fields, so a connect can be attempted. */
+  ready: boolean;
+}
+
+export interface QuickBooksAppPayload {
+  environment?: "sandbox" | "production";
+  sandbox?: { clientId?: string; clientSecret?: string | null; redirectUri?: string };
+  production?: { clientId?: string; clientSecret?: string | null; redirectUri?: string };
+}
+
+export function useQuickBooksApp() {
+  return useQuery({
+    queryKey: queryKeys.quickbooksApp,
+    queryFn: () => fetchApi<{ app: QuickBooksAppView; suggestedRedirectUri: string }>("/api/integrations/quickbooks/credentials"),
+  });
+}
+
+export function useSaveQuickBooksApp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: QuickBooksAppPayload) =>
+      fetchApi<{ app: QuickBooksAppView; suggestedRedirectUri: string }>("/api/integrations/quickbooks/credentials", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksApp });
+      // The connection card reads `configured` and `environment` off the app, so it is stale too.
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksConnection });
+    },
+  });
+}
+
+export function useClearQuickBooksApp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (environment?: "sandbox" | "production") =>
+      fetchApi<{ app: QuickBooksAppView; suggestedRedirectUri: string }>(
+        `/api/integrations/quickbooks/credentials${environment ? `?environment=${environment}` : ""}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksApp });
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksConnection });
+    },
+  });
 }
 
 export function useQuickBooksConnection() {

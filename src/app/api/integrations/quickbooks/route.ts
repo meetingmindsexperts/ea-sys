@@ -4,7 +4,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/eventsair-client";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { resolveQuickBooksApp } from "@/procurement/integrations/quickbooks/config";
+import { loadQuickBooksApp } from "@/procurement/integrations/quickbooks/app";
 import { clearConnection, loadConnection, toStatus } from "@/procurement/integrations/quickbooks/connection";
 import { revokeToken } from "@/procurement/integrations/quickbooks/oauth";
 
@@ -15,11 +15,11 @@ export async function GET() {
   if (!g.ok) return g.response;
 
   return runWithTenant(g.orgId, async () => {
-    const app = resolveQuickBooksApp();
+    const app = await loadQuickBooksApp(g.orgId);
     const connection = await loadConnection(g.orgId);
     return NextResponse.json({
-      // Whether this DEPLOYMENT has an Intuit app at all; without one the card
-      // shows what to set rather than a Connect button that cannot work.
+      // Whether this ORGANISATION has an Intuit app at all; without one the card
+      // points at the credentials form rather than a Connect button that cannot work.
       configured: !!app,
       environment: app?.environment ?? null,
       redirectUri: app?.redirectUri ?? null,
@@ -33,7 +33,7 @@ export async function DELETE() {
   if (!g.ok) return g.response;
 
   return runWithTenant(g.orgId, async () => {
-    const app = resolveQuickBooksApp();
+    const app = await loadQuickBooksApp(g.orgId);
     const connection = await loadConnection(g.orgId);
     if (!connection) {
       apiLogger.warn({ msg: `${ROUTE}:disconnect-not-connected`, organizationId: g.orgId, userId: g.user.id });

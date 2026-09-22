@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { procurementGuard } from "@/procurement/lib/route-helpers";
-import { resolveQuickBooksApp } from "@/procurement/integrations/quickbooks/config";
+import { loadQuickBooksApp } from "@/procurement/integrations/quickbooks/app";
 import { storeNewConnection } from "@/procurement/integrations/quickbooks/connection";
 import { exchangeCode } from "@/procurement/integrations/quickbooks/oauth";
 import { verifyConnectState } from "@/procurement/integrations/quickbooks/state";
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
       return back(req, { quickbooks: "error", reason: "state_invalid" });
     }
 
-    const app = resolveQuickBooksApp();
+    const app = await loadQuickBooksApp(g.orgId);
     if (!app) {
       apiLogger.error({ msg: `${ROUTE}:not-configured`, organizationId: g.orgId });
       return back(req, { quickbooks: "error", reason: "not_configured" });
@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
       organizationId: g.orgId,
       realmId,
       environment: app.environment,
+      clientId: app.clientId,
       userId: g.user.id,
       accessToken: exchanged.tokens.accessToken,
       refreshToken: exchanged.tokens.refreshToken,

@@ -16,7 +16,6 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readConnection } from "./connection";
 import { runHealthCheck } from "./client";
-import { resolveQuickBooksApp } from "./config";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 
 export interface QuickBooksHealthSummary {
@@ -28,9 +27,13 @@ export interface QuickBooksHealthSummary {
 export async function runQuickBooksHealthTick(): Promise<QuickBooksHealthSummary> {
   const summary: QuickBooksHealthSummary = { checked: 0, ok: 0, failed: 0 };
 
-  // Nothing to do on a deployment with no Intuit app or the module switched
-  // off; a no-op tick rather than an error, like every other gated job.
-  if (!isProcurementModuleEnabled() || !resolveQuickBooksApp()) return summary;
+  // Nothing to do with the module switched off; a no-op tick rather than an
+  // error, like every other gated job. There is deliberately no second gate on
+  // "does a QuickBooks app exist": the app is per organisation now, so that
+  // question is only answerable per row, and an organisation holding a
+  // connection with no app is a real fault the probe should surface rather
+  // than a reason to skip the sweep.
+  if (!isProcurementModuleEnabled()) return summary;
 
   const orgs = await dbOperator.organization.findMany({ select: { id: true, settings: true } });
   for (const org of orgs) {

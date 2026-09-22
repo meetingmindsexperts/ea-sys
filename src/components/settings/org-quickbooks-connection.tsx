@@ -26,12 +26,12 @@ import {
 /** The reasons the callback can redirect with, in words an operator can act on. */
 const CALLBACK_REASONS: Record<string, string> = {
   declined: "The QuickBooks consent screen was declined.",
-  forbidden: "Your role cannot connect QuickBooks. Ask someone with the settle grant.",
+  forbidden: "Your role cannot connect QuickBooks. Ask an admin.",
   intuit_error: "Intuit returned an error before the connection was made.",
   missing_params: "Intuit's response was incomplete. Start the connection again.",
   state_expired: "The connection took too long to finish. Start it again.",
   state_invalid: "That connection attempt could not be verified. Start it again.",
-  not_configured: "No QuickBooks app is configured for this deployment.",
+  not_configured: "No QuickBooks app is configured. Fill in the QuickBooks App card above first.",
   exchange_failed: "Intuit refused to issue tokens. Check the app's credentials and redirect URI.",
 };
 
@@ -125,19 +125,26 @@ export function OrgQuickBooksConnection() {
       <CardContent className="space-y-4">
         {!data?.configured && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            No QuickBooks app is configured for this deployment. Set the client id, client secret and redirect URI
-            in the environment, then reload this page.
+            No QuickBooks app is configured for this organisation. Fill in the client id, client secret and redirect
+            URI in the QuickBooks App card above, then connect here.
           </div>
         )}
 
         {data?.configured && connection?.environmentMismatch && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            The stored connection is a {connection.environment} company, but this deployment is pointed at{" "}
+            The stored connection is a {connection.environment} company, but the app is now set to{" "}
             {data.environment}. Disconnect and connect again.
           </div>
         )}
 
-        {data?.configured && !connected && !connection?.environmentMismatch && (
+        {data?.configured && connection?.appMismatch && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            The app credentials changed after this company was connected, so its tokens can no longer be refreshed.
+            Disconnect and connect again.
+          </div>
+        )}
+
+        {data?.configured && !connected && !connection?.environmentMismatch && !connection?.appMismatch && (
           <p className="text-sm text-muted-foreground">Not connected to a QuickBooks company yet.</p>
         )}
 
@@ -195,7 +202,7 @@ export function OrgQuickBooksConnection() {
               </Button>
             </>
           )}
-          {data?.configured && !connected && connection?.environmentMismatch && (
+          {data?.configured && !connected && (connection?.environmentMismatch || connection?.appMismatch) && (
             <Button variant="outline" onClick={handleDisconnect} disabled={disconnect.isPending}>
               <Unplug className="mr-2 h-4 w-4" />
               Disconnect

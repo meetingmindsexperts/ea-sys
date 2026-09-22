@@ -19,13 +19,24 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { encryptSecret, decryptSecret } from "@/lib/eventsair-client";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { resolveQuickBooksApp, type QuickBooksApp, type QuickBooksEnvironment } from "./config";
+import { loadQuickBooksApp } from "./app";
+import type { QuickBooksApp, QuickBooksEnvironment } from "./config";
 import { refreshTokens } from "./oauth";
 
 /** What is written under `settings.quickbooks`. Secrets are the `*Encrypted` fields. */
 export interface StoredQuickBooksConnection {
   realmId: string;
   environment: QuickBooksEnvironment;
+  /**
+   * The client id of the Intuit app that minted these tokens.
+   *
+   * Recorded because the app is now editable per organisation: changing the
+   * client id leaves tokens that the new app cannot refresh, and without
+   * this the card would go on saying "connected" against a dead link. Null
+   * on a connection made before this was stored, which reads as unknown and
+   * is never treated as a mismatch.
+   */
+  clientId?: string | null;
   accessTokenEncrypted: string;
   refreshTokenEncrypted: string;
   accessTokenExpiresAt: string;
@@ -53,6 +64,8 @@ export interface QuickBooksConnectionStatus {
   lastHealthCheckError: string | null;
   /** Set when a stored connection belongs to the other environment. */
   environmentMismatch: boolean;
+  /** Set when the app's client id changed since the connection was made, so the tokens are dead. */
+  appMismatch: boolean;
 }
 
 /**
@@ -71,6 +84,7 @@ function parse(settings: unknown): StoredQuickBooksConnection | null {
   return {
     realmId: c.realmId,
     environment: c.environment === "production" ? "production" : "sandbox",
+    clientId: typeof c.clientId === "string" && c.clientId ? c.clientId : null,
     accessTokenEncrypted: c.accessTokenEncrypted,
     refreshTokenEncrypted: c.refreshTokenEncrypted,
     accessTokenExpiresAt: typeof c.accessTokenExpiresAt === "string" ? c.accessTokenExpiresAt : new Date(0).toISOString(),
@@ -96,8 +110,11 @@ export async function loadConnection(organizationId: string): Promise<StoredQuic
 
 export function toStatus(connection: StoredQuickBooksConnection | null, app: QuickBooksApp | null): QuickBooksConnectionStatus {
   const mismatch = !!connection && !!app && connection.environment !== app.environment;
+  // Only when the connection actually recorded which app minted it; a null
+  // reads as unknown, never as a mismatch, so older connections are unaffected.
+  const appMismatch = !!connection?.clientId && !!app && connection.clientId !== app.clientId;
   return {
-    connected: !!connection && !mismatch,
+    connected: !!connection && !mismatch && !appMismatch,
     realmId: connection?.realmId ?? null,
     environment: connection?.environment ?? null,
     companyName: connection?.companyName ?? null,
@@ -109,6 +126,7 @@ export function toStatus(connection: StoredQuickBooksConnection | null, app: Qui
     lastHealthCheckOk: connection?.lastHealthCheckOk ?? null,
     lastHealthCheckError: connection?.lastHealthCheckError ?? null,
     environmentMismatch: mismatch,
+    appMismatch,
   };
 }
 
@@ -124,6 +142,8 @@ export async function storeNewConnection(input: {
   organizationId: string;
   realmId: string;
   environment: QuickBooksEnvironment;
+  /** The app that minted these tokens, so a later credential change is visible rather than silent. */
+  clientId: string;
   userId: string;
   accessToken: string;
   refreshToken: string;
@@ -137,6 +157,7 @@ export async function storeNewConnection(input: {
     quickbooks: {
       realmId: input.realmId,
       environment: input.environment,
+      clientId: input.clientId,
       accessTokenEncrypted: encryptSecret(input.accessToken),
       refreshTokenEncrypted: encryptSecret(input.refreshToken),
       accessTokenExpiresAt: input.accessTokenExpiresAt.toISOString(),
@@ -161,7 +182,7 @@ export async function clearConnection(organizationId: string): Promise<void> {
 
 export type AccessTokenResult =
   | { ok: true; accessToken: string; realmId: string; environment: QuickBooksEnvironment; app: QuickBooksApp }
-  | { ok: false; code: "NOT_CONFIGURED" | "NOT_CONNECTED" | "ENVIRONMENT_MISMATCH" | "REFRESH_EXPIRED" | "REFRESH_FAILED"; message: string };
+  | { ok: false; code: "NOT_CONFIGURED" | "NOT_CONNECTED" | "ENVIRONMENT_MISMATCH" | "APP_CHANGED" | "REFRESH_EXPIRED" | "REFRESH_FAILED"; message: string };
 
 /**
  * A usable access token, refreshing first when the stored one is within the
@@ -175,8 +196,8 @@ export type AccessTokenResult =
  * A second automatic reader is the point at which this needs a lock.
  */
 export async function getAccessToken(organizationId: string): Promise<AccessTokenResult> {
-  const app = resolveQuickBooksApp();
-  if (!app) return { ok: false, code: "NOT_CONFIGURED", message: "No QuickBooks app is configured for this deployment" };
+  const app = await loadQuickBooksApp(organizationId);
+  if (!app) return { ok: false, code: "NOT_CONFIGURED", message: "No QuickBooks app is configured for this organisation" };
 
   const connection = await loadConnection(organizationId);
   if (!connection) return { ok: false, code: "NOT_CONNECTED", message: "This organisation is not connected to QuickBooks" };
@@ -184,7 +205,14 @@ export async function getAccessToken(organizationId: string): Promise<AccessToke
     return {
       ok: false,
       code: "ENVIRONMENT_MISMATCH",
-      message: `The stored connection is a ${connection.environment} company but this deployment is pointed at ${app.environment}. Disconnect and connect again.`,
+      message: `The stored connection is a ${connection.environment} company but the app is now set to ${app.environment}. Disconnect and connect again.`,
+    };
+  }
+  if (connection.clientId && connection.clientId !== app.clientId) {
+    return {
+      ok: false,
+      code: "APP_CHANGED",
+      message: "The QuickBooks app credentials changed after this connection was made, so its tokens can no longer be refreshed. Disconnect and connect again.",
     };
   }
 

@@ -20,17 +20,9 @@ import { runQuickBooksHealthTick } from "@/procurement/integrations/quickbooks/h
 
 const connected = { realmId: "r", environment: "sandbox", accessTokenEncrypted: "a", refreshTokenEncrypted: "b" };
 
-function sandboxEnv() {
-  vi.stubEnv("PROCUREMENT_MODULE_ENABLED", "true");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "cid");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_SECRET", "csec");
-  vi.stubEnv("QUICKBOOKS_SANDBOX_REDIRECT_URI", "https://x.test/cb");
-  vi.stubEnv("QUICKBOOKS_ENVIRONMENT", "");
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  sandboxEnv();
+  vi.stubEnv("PROCUREMENT_MODULE_ENABLED", "true");
   mockHealth.mockResolvedValue({ ok: true, data: { companyName: "Sandbox Co" } });
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -59,15 +51,19 @@ describe("runQuickBooksHealthTick", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it("is a no-op with no Intuit app or with the module switched off, and never queries", async () => {
-    vi.stubEnv("QUICKBOOKS_SANDBOX_CLIENT_ID", "");
-    expect(await runQuickBooksHealthTick()).toEqual({ checked: 0, ok: 0, failed: 0 });
-
-    sandboxEnv();
+  it("is a no-op with the module switched off, and never queries", async () => {
     vi.stubEnv("PROCUREMENT_MODULE_ENABLED", "false");
     expect(await runQuickBooksHealthTick()).toEqual({ checked: 0, ok: 0, failed: 0 });
-
     expect(mockDb.organization.findMany).not.toHaveBeenCalled();
     expect(mockHealth).not.toHaveBeenCalled();
+  });
+
+  it("an organisation holding a connection with no app is REPORTED, not skipped", async () => {
+    // The app is per organisation now, so "no app" is a per-row fault the probe
+    // must surface: skipping it would hide a connection that can never refresh.
+    mockDb.organization.findMany.mockResolvedValue([{ id: "org1", settings: { quickbooks: connected } }]);
+    mockHealth.mockResolvedValueOnce({ ok: false, code: "NOT_CONFIGURED", message: "No QuickBooks app is configured for this organisation" });
+    expect(await runQuickBooksHealthTick()).toEqual({ checked: 1, ok: 0, failed: 1 });
+    expect(logger.warn).toHaveBeenCalled();
   });
 });
