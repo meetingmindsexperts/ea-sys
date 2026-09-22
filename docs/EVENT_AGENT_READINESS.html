@@ -368,8 +368,8 @@
         <p>More than 15 suites already cover the tools deterministically. Add the classification test from S2 and the audit-label test from S5.</p>
       </div></div>
       <div class="item"><div class="code">E2</div><div class="body">
-        <div class="head"><h3>Golden task set</h3><span class="chip warn">Next</span><span class="meta">3 to 4 days for 25 to 40 tasks</span></div>
-        <p>Run the real agent loop against the seeded test database (the e2e seed) and grade on the final database state, the tool sequence, and calls that must not happen. Grading is code, not another model, wherever the outcome can be checked in the database.</p>
+        <div class="head"><h3>Golden task set</h3><span class="chip plain">Done</span><span class="meta">September 22, 2026</span></div>
+        <p>Run the real agent loop against the seeded test database (the e2e seed) and grade on the final database state, the tool sequence, and calls that must not happen. Grading is code, not another model, wherever the outcome can be checked in the database. Built as <code>npm run agent:golden</code>: 36 tasks in <code>e2e/agent-golden/</code> (reads, writes, approvals, refusals, injected text, the org door, budgets), real requests through the handler on the production standalone against the seeded test database, every task graded from the stored run's steps and a Prisma query; a JSON summary per run with model, turns, tokens and time is E5's input. Reference: <code>docs/AGENT_GOLDEN_TASKS.md</code>.</p>
       </div></div>
       <div class="item"><div class="code">E3</div><div class="body">
         <div class="head"><h3>Red-team set</h3><span class="chip warn">Next</span><span class="meta">2 days</span></div>

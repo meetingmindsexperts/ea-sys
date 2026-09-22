@@ -73,6 +73,13 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("**Write (1):** create_event");
     expect(p).toContain("### Creating an event");
     expect(p).toContain("### Finding an event");
+    // The tracks example must show the look-before-create step: the golden
+    // task set (Sep 22, 2026) caught the model copying an example that
+    // skipped it, against guideline 1.
+    expect(p).toContain("### Setting up tracks and sessions");
+    const example = p.slice(p.indexOf("### Setting up tracks and sessions"));
+    expect(example.indexOf("Call list_tracks")).toBeGreaterThan(-1);
+    expect(example.indexOf("Call list_tracks")).toBeLessThan(example.indexOf("Call create_track"));
     expect(p).not.toContain("READ-ONLY SESSION");
   });
 

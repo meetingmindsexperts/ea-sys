@@ -538,7 +538,7 @@ export function registerAllMcpTools(
       paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
     }},
     // ─── Sponsor + promo + email writes ───
-    { name: "upsert_sponsors", description: "Update the sponsor list for this event. mode='replace' (default — matches existing dashboard PUT behaviour) deletes anything not in the passed array; mode='merge' overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything. Use merge when you only have a few rows to add or change and don't want to accidentally wipe the rest. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
+    { name: "upsert_sponsors", description: "Update the sponsor list for this event. mode='merge' (the default since Sep 2, 2026) overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything; mode='replace' deletes every sponsor not in the passed array (the dashboard's save-all). Pass replace only when the person wants the whole list rewritten. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
       mode: z.enum(["replace", "merge"]).optional(),
       sponsors: z.array(z.object({
         id: z.string().optional(),

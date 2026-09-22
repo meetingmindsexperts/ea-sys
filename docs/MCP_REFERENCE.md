@@ -23,6 +23,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 
 **September 21, 2026, later the same day: seven tools pause for the person's approval.** `send_bulk_email`, `create_zoom_meeting`, `upsert_sponsors`, `replace_session_speakers`, `update_cme_settings`, `delete_promo_code` and `delete_room_type` (and any delete tool added later) gained an optional `confirm` boolean. Called without `confirm: true` they change nothing and answer `{ error, code: "APPROVAL_REQUIRED" }`; the client is expected to tell the person exactly what will happen (who is affected, how many), wait for their yes, and call again with `confirm: true`. claude.ai does this as a question in the chat. n8n workflows that call these tools must send `confirm: true` deliberately. Package 0.4.39; connected clients reconnect to see the parameter.
 
+**September 22, 2026: the `upsert_sponsors` description says what the executor does.** Its text still named `replace` as the default while the executor has defaulted to `merge` since September 2, 2026 (a sponsor list is appended to, never wiped, unless `mode: "replace"` is passed on purpose). The description now says so; behaviour is unchanged. Package 0.4.40 → 0.4.41: connected clients reconnect to see the new wording. Found by the agent golden task set (docs/AGENT_GOLDEN_TASKS.md).
+
 
 **No tools were removed and no signatures broke — every MCP tool still does what it did before.** These are behavioral shifts callers should be aware of:
 

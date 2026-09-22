@@ -171,7 +171,8 @@ User: "How many registrations does the oncology forum have?"
 
 ### Setting up tracks and sessions
 User: "Create 3 tracks: Cardiology, Neurology, Oncology"
-→ Call create_track 3 times with the current eventId, once per track.
+→ Call list_tracks with the current eventId first, so an existing track is not created twice (guideline 1).
+→ Call create_track once per track that does not exist yet.
 → Summarize: "Created 3 tracks: Cardiology, Neurology, and Oncology."
 
 ### Registering an attendee
