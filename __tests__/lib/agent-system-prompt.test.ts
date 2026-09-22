@@ -76,6 +76,15 @@ describe("buildSystemPrompt", () => {
     expect(p).not.toContain("READ-ONLY SESSION");
   });
 
+  it("tells the model the approval card is the single confirmation, never a prose question first", async () => {
+    // The Sep 22, 2026 smoke pass: the model asked "shall I proceed?" in
+    // prose and only then called the tool that raises the card, so the
+    // person confirmed twice. Guideline 3 used to ask for exactly that.
+    const p = await buildSystemPrompt({ organizationId: "org1", eventId: null, readOnly: false, tools });
+    expect(p).toContain("Do not ask for permission in prose first");
+    expect(p).not.toContain("wait for their go-ahead");
+  });
+
   it("carries the current event when one is selected, and the read-only banner for MEMBER", async () => {
     const p = await buildSystemPrompt({ organizationId: "org1", eventId: "ev1", readOnly: true, tools });
     expect(p).toContain("## Current event");

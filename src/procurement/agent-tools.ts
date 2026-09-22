@@ -1,20 +1,29 @@
 /**
- * Budget & Procurement tools for the MCP server (Phase 1: two reads,
- * list_budgets and get_budget). Lives INSIDE src/procurement/ and is imported
- * by exactly one core file, src/lib/agent/register-mcp-tools.ts, a named touch
- * point on the one-way import boundary (the CRM precedent, src/crm/agent-tools.ts).
+ * Budget & Procurement tools for both agent doors. Lives INSIDE
+ * src/procurement/ and is imported by exactly one core file,
+ * src/lib/agent/register-mcp-tools.ts, a named touch point on the one-way
+ * import boundary (the CRM precedent, src/crm/agent-tools.ts). Since the
+ * Event Agent's Phase 1 the in-app door collects the same registrations, so
+ * this file serves it too without a second touch point.
  *
  * Registration is the gate, so the tool list itself tells the truth:
  *  - nothing registers while PROCUREMENT_MODULE_ENABLED is off (a dark module
  *    shows no tools on production);
  *  - an API key is refused outright: procurement is a per-person surface and a
  *    key has nobody behind it, no role and no grant (the HR rule);
- *  - an OAuth grant registers when the granting user's role may read the module
+ *  - the six READS register when the actor's role may read the module
  *    (SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER). A grant-only reader cannot be
  *    recognised here because the MCP context carries the role, not the id, and
- *    /mcp-authorize admits staff roles only, so nothing is lost.
- * The in-app event agent does not get these yet: that would make event-tools.ts
- * a third touch point on the boundary (build plan §5).
+ *    /mcp-authorize admits staff roles only, so nothing is lost;
+ *  - the three WRITES (create_budget, add_budget_lines, replace_budget_lines;
+ *    owner decision Sep 22, 2026: "create + set lines, submit stays off")
+ *    register ONLY on the in-app door, where the acting person is the
+ *    signed-in user, and only for a role that may author budgets. A budget
+ *    has an owner and every line an actor, and the MCP door still carries a
+ *    placeholder id rather than a person (the same reason create_spend_request
+ *    is deferred there). Submitting for approval stays a page action.
+ *    replace_budget_lines pauses for the person's approval (approvals.ts):
+ *    it removes every existing line of a draft before adding the new ones.
  *
  * Revenue and margin (17 September 2026) ride on get_budget and list_budgets
  * only for a grant whose role has finance sight, the same boundary the budget
@@ -27,9 +36,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
-import { canViewProcurement } from "@/lib/procurement-visibility";
+import { canAuthorBudgets, canViewProcurement } from "@/lib/procurement-visibility";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { getBudget, listBudgets, type BudgetLineView, type BudgetView } from "@/procurement/services/budget-service";
+import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE } from "@/lib/agent/approvals";
+import { createBudget, deleteBudgetLine, getBudget, listBudgets, upsertBudgetLine, type BudgetLineView, type BudgetView } from "@/procurement/services/budget-service";
+import { ensureBudgetCategories } from "@/procurement/services/budget-category-service";
+import { ensureBudgetTemplates } from "@/procurement/services/budget-template-service";
+import { BUDGET_CURRENCIES, EVENT_BRANDS } from "@/procurement/lib/budget-schemas";
+import { CONTINGENCY_CATEGORY_CODE } from "@/procurement/lib/budget-categories-seed";
 import { getBudgetRevenue, type BudgetRevenueView } from "@/procurement/services/budget-revenue-service";
 import { invalidSpendRequestStatusFilter, listSpendRequests } from "@/procurement/services/spend-request-service";
 import { invalidCommitmentStatusFilter, listCommitments } from "@/procurement/services/commitment-service";
@@ -43,7 +57,28 @@ export interface ProcurementMcpActor {
   fromApiKey: boolean;
 }
 
+export interface ProcurementMcpOptions {
+  /** The acting user's id: the signed-in person on the in-app door, a placeholder on the MCP door. */
+  actorUserId?: string;
+  /** Which door these registrations serve; the writes register for "agent" only. */
+  source?: "mcp" | "agent";
+}
+
 const BUDGET_STATUSES = ["DRAFT", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FROZEN", "CLOSED", "ARCHIVED"] as const;
+
+/** One line as the agent hands it in; codes rather than ids, since the model reads list_budget_categories. */
+const LINE_INPUT = z.object({
+  categoryCode: z.string().trim().min(1).max(50).describe("A category code from list_budget_categories, e.g. 510400."),
+  description: z.string().trim().min(1).max(500).describe("What the line is for."),
+  unitCost: z.number().min(0).describe("Unit cost ex-VAT in the line's currency."),
+  qty: z.number().positive().optional().describe("Quantity; default 1."),
+  currency: z.enum(BUDGET_CURRENCIES).optional().describe("Defaults to the budget's reporting currency."),
+  fxRateToReporting: z.number().positive().optional().describe("Needed when currency differs from the budget's: reporting-currency units per 1 unit of this currency."),
+  taxRatePercent: z.number().min(0).max(100).optional().describe("VAT rate for the line; leave out for no VAT."),
+  notes: z.string().max(5000).optional(),
+});
+type LineInput = z.infer<typeof LINE_INPUT>;
+const LINES_PARAM = z.array(LINE_INPUT).min(1).max(100).describe("Up to 100 lines.");
 
 function budgetLine(b: BudgetView, financeSight: boolean): string {
   return (
@@ -88,7 +123,7 @@ function revenueText(r: BudgetRevenueView): string {
   return out.join("\n");
 }
 
-export function registerProcurementMcpTools(server: McpServer, organizationId: string, actor: ProcurementMcpActor): void {
+export function registerProcurementMcpTools(server: McpServer, organizationId: string, actor: ProcurementMcpActor, opts: ProcurementMcpOptions = {}): void {
   if (!isProcurementModuleEnabled()) return;
   if (actor.fromApiKey) {
     apiLogger.info({ msg: "mcp:procurement-tools-not-registered", reason: "api-key", organizationId });
@@ -99,6 +134,21 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
     return;
   }
   const financeSight = canViewFinance(actor.role);
+  const source = opts.source ?? "mcp";
+  const actorUserId = opts.actorUserId ?? null;
+  // The writes need a person: the in-app door's signed-in user with a role
+  // that may author budgets. Reads-only otherwise, logged so the absence is
+  // explained rather than mysterious.
+  const canWrite = source === "agent" && !!actorUserId && canAuthorBudgets({ role: actor.role });
+  if (!canWrite) {
+    apiLogger.info({
+      msg: "mcp:procurement-writes-not-registered",
+      reason: source !== "agent" ? "door" : !actorUserId ? "no-user" : "role",
+      role: actor.role,
+      source,
+      organizationId,
+    });
+  }
 
   async function safeTool(name: string, run: () => Promise<string>): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
     try {
@@ -197,4 +247,176 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
         ).join("\n");
       }),
   );
+
+  server.tool(
+    "list_budget_categories",
+    "List the budget categories (Budget & Procurement module): the organisation's chart-of-accounts cost groups, each as a code and a name. A budget line files under one of these; hand the CODE to add_budget_lines or replace_budget_lines. Contingency is not a line category: it is sized by the budget's contingency percent.",
+    {},
+    async () =>
+      safeTool("list_budget_categories", async () => {
+        const cats = await ensureBudgetCategories(organizationId);
+        const usable = cats.filter((c) => c.isActive && c.type === "EXPENSE" && c.code !== CONTINGENCY_CATEGORY_CODE);
+        if (usable.length === 0) return "No active expense categories.";
+        return `${usable.length} expense categor${usable.length === 1 ? "y" : "ies"} (code: name):\n` + usable.map((c) => `- ${c.code}: ${c.name}`).join("\n") +
+          "\nContingency is sized by the budget's contingency percent, not entered as a line.";
+      }),
+  );
+
+  server.tool(
+    "list_budget_templates",
+    "List the budget templates (Budget & Procurement module): each active template's id, name, the event type it suits (CONFERENCE, WEBINAR, HYBRID) and how many lines it seeds. Hand the id to create_budget as templateId to start a draft with one blank line per category.",
+    {},
+    async () =>
+      safeTool("list_budget_templates", async () => {
+        const templates = (await ensureBudgetTemplates(organizationId)).filter((t) => t.isActive);
+        if (templates.length === 0) return "No active budget templates.";
+        return `${templates.length} template(s):\n` + templates.map((t) => `- ${t.name} (${t.eventType}), ${t.lines.length} line(s)\n  ID: ${t.id}`).join("\n");
+      }),
+  );
+
+  if (!canWrite || !actorUserId) return;
+  const writer = { organizationId, actorUserId, source };
+
+  /** Category codes to ids, all-or-nothing: an unknown code writes nothing and names the valid ones. */
+  async function resolveCategoryIds(codes: string[]): Promise<{ ok: true; byCode: Map<string, string> } | { ok: false; text: string }> {
+    const cats = await ensureBudgetCategories(organizationId);
+    const usable = cats.filter((c) => c.isActive && c.type === "EXPENSE" && c.code !== CONTINGENCY_CATEGORY_CODE);
+    const byCode = new Map(usable.map((c) => [c.code, c.id]));
+    const unknown = [...new Set(codes)].filter((c) => !byCode.has(c));
+    if (unknown.length > 0) {
+      return {
+        ok: false,
+        text: `Error: unknown category code(s) ${unknown.join(", ")}; nothing was written. Valid codes: ${usable.map((c) => `${c.code} (${c.name})`).join(", ")}.`,
+      };
+    }
+    return { ok: true, byCode };
+  }
+
+  /** Adds the lines one by one through the service; a failing line is reported and the rest still land. */
+  async function addLines(tool: string, budgetId: string, lines: LineInput[]): Promise<{ text: string; added: number }> {
+    const resolved = await resolveCategoryIds(lines.map((l) => l.categoryCode));
+    if (!resolved.ok) {
+      apiLogger.warn({ msg: `mcp:${tool}-rejected`, code: "CATEGORY_NOT_FOUND", organizationId, budgetId, source });
+      return { text: resolved.text, added: 0 };
+    }
+    const failures: string[] = [];
+    let added = 0;
+    let latest: BudgetView | null = null;
+    for (const [i, l] of lines.entries()) {
+      const r = await upsertBudgetLine({
+        ...writer,
+        budgetId,
+        categoryId: resolved.byCode.get(l.categoryCode)!,
+        description: l.description,
+        qty: l.qty ?? 1,
+        unitCost: l.unitCost,
+        transactionCurrency: l.currency,
+        fxRateToReporting: l.fxRateToReporting ?? null,
+        taxRatePercent: l.taxRatePercent ?? null,
+        notes: l.notes ?? null,
+      });
+      if (r.ok) {
+        added += 1;
+        latest = r.budget;
+      } else {
+        failures.push(`line ${i + 1} "${l.description}": ${r.message} (${r.code})`);
+        apiLogger.warn({ msg: `mcp:${tool}-line-rejected`, code: r.code, organizationId, budgetId, line: i + 1, source });
+      }
+    }
+    const summary = latest ? budgetLine(latest, financeSight) : "";
+    const text =
+      `Added ${added} of ${lines.length} line(s).` +
+      (failures.length ? `\nNot added:\n- ${failures.join("\n- ")}` : "") +
+      (summary ? `\nBudget now: ${summary}` : "");
+    return { text, added };
+  }
+
+  server.tool(
+    "create_budget",
+    "Create the first DRAFT budget for an event (Budget & Procurement module). The event must carry a code (set in Event Settings); an event that already has a budget is refused with BUDGET_EXISTS (a new version is made on the budget page). Optional templateId (from list_budget_templates) seeds one blank line per category; add figures with add_budget_lines. Nothing is submitted for approval: that stays on the budget page. Draft budgets can be discarded there.",
+    {
+      eventId: z.string().min(1).describe("The event id (from list_events)."),
+      reportingCurrency: z.enum(BUDGET_CURRENCIES).describe("The budget's reporting currency."),
+      templateId: z.string().min(1).optional().describe("A template id from list_budget_templates."),
+      contingencyPercent: z.number().min(0).max(100).optional().describe("Contingency as a percent of planned expense; default 10."),
+      expectedAttendance: z.number().int().min(0).max(1_000_000).optional(),
+      brand: z.enum(EVENT_BRANDS).optional(),
+      notes: z.string().max(5000).optional(),
+    },
+    async (input) =>
+      safeTool("create_budget", async () => {
+        const r = await createBudget({
+          ...writer,
+          eventId: input.eventId,
+          templateId: input.templateId ?? null,
+          reportingCurrency: input.reportingCurrency,
+          contingencyPercent: input.contingencyPercent,
+          expectedAttendance: input.expectedAttendance ?? null,
+          brand: input.brand ?? null,
+          notes: input.notes ?? null,
+        });
+        if (!r.ok) {
+          apiLogger.warn({ msg: "mcp:create_budget-rejected", code: r.code, organizationId, eventId: input.eventId, source });
+          return `Error: ${r.message} (${r.code})`;
+        }
+        const seeded = (r.budget.lines ?? []).filter((l) => !l.isContingency).length;
+        return `Created a draft budget:\n${budgetLine(r.budget, financeSight)}\n${seeded} line(s) seeded from the template. Add figures with add_budget_lines (use list_budget_categories for the codes). Submitting for approval is done on the budget page.`;
+      }),
+  );
+
+  server.tool(
+    "add_budget_lines",
+    "Add lines to a DRAFT budget (Budget & Procurement module), up to 100 in one call, each with a category code from list_budget_categories, a description, a unit cost ex-VAT and an optional quantity, currency, exchange rate and VAT rate. Existing lines are kept. An unknown category code writes nothing; a line the service refuses is reported while the others still land. To start over, use replace_budget_lines.",
+    { budgetId: z.string().min(1).describe("The budget id from list_budgets or create_budget."), lines: LINES_PARAM },
+    async (input) => safeTool("add_budget_lines", async () => (await addLines("add_budget_lines", input.budgetId, input.lines)).text),
+  );
+
+  server.tool(
+    "replace_budget_lines",
+    "Replace every line of a DRAFT budget (Budget & Procurement module): removes all existing lines (the contingency line stays, it follows the percent), then adds the given ones, up to 100. Needs the person's approval before it runs. A line with open commitments cannot be removed; a budget that is not a draft is refused.",
+    {
+      budgetId: z.string().min(1).describe("The budget id from list_budgets or create_budget."),
+      lines: LINES_PARAM,
+      [APPROVAL_CONFIRM_PARAM]: z.boolean().optional().describe("This action needs the person's explicit approval. Tell them exactly what will happen, wait for their yes, then call again with confirm: true."),
+    },
+    async (input) =>
+      safeTool("replace_budget_lines", async () => {
+        if ((input as Record<string, unknown>)[APPROVAL_CONFIRM_PARAM] !== true) {
+          apiLogger.info({ msg: "mcp:approval-required", tool: "replace_budget_lines", organizationId, budgetId: input.budgetId, source });
+          return JSON.stringify({
+            error: "replace_budget_lines needs the person's explicit approval. Tell them exactly what will happen (how many lines are removed and added), wait for their yes, then call it again with confirm: true.",
+            code: APPROVAL_REQUIRED_CODE,
+          });
+        }
+        const current = await getBudget(organizationId, input.budgetId);
+        if (!current.ok) {
+          apiLogger.warn({ msg: "mcp:replace_budget_lines-rejected", code: current.code, organizationId, budgetId: input.budgetId, source });
+          return `Error: ${current.message} (${current.code})`;
+        }
+        if (current.budget.status !== "DRAFT") {
+          apiLogger.warn({ msg: "mcp:replace_budget_lines-rejected", code: "INVALID_STATUS", organizationId, budgetId: input.budgetId, status: current.budget.status, source });
+          return `Error: lines are replaced on a draft version only; this budget is ${current.budget.status} (INVALID_STATUS). Nothing was changed.`;
+        }
+        // The codes are checked BEFORE anything is removed, so a typo cannot
+        // empty a draft and then fail to refill it.
+        const resolved = await resolveCategoryIds(input.lines.map((l) => l.categoryCode));
+        if (!resolved.ok) {
+          apiLogger.warn({ msg: "mcp:replace_budget_lines-rejected", code: "CATEGORY_NOT_FOUND", organizationId, budgetId: input.budgetId, source });
+          return resolved.text;
+        }
+        const existing = (current.budget.lines ?? []).filter((l) => !l.isContingency);
+        let removed = 0;
+        for (const l of existing) {
+          const d = await deleteBudgetLine({ ...writer, budgetId: input.budgetId, lineId: l.id });
+          if (!d.ok) {
+            apiLogger.warn({ msg: "mcp:replace_budget_lines-line-rejected", code: d.code, organizationId, budgetId: input.budgetId, lineKey: l.lineKey, source });
+            return `Error: could not remove "${l.description}": ${d.message} (${d.code}). ${removed} of ${existing.length} line(s) had already been removed; no new lines were added.`;
+          }
+          removed += 1;
+        }
+        const { text } = await addLines("replace_budget_lines", input.budgetId, input.lines);
+        return `Removed ${removed} line(s). ${text}`;
+      }),
+  );
 }
+

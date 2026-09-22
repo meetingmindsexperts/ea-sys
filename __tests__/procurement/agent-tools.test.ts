@@ -1,12 +1,17 @@
 /**
- * The MCP registration gate for the procurement tools: nothing registers while
- * the flag is off or for an API key, only a reading role registers, and the
- * two tools answer through the service (mocked here).
+ * The registration gate for the procurement tools: nothing registers while
+ * the flag is off or for an API key, a reading role gets the reads, the
+ * writes register only on the in-app door for an authoring role, and every
+ * tool answers through the service (mocked here).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const svc = vi.hoisted(() => ({ listBudgets: vi.fn(), getBudget: vi.fn() }));
+const svc = vi.hoisted(() => ({ listBudgets: vi.fn(), getBudget: vi.fn(), createBudget: vi.fn(), upsertBudgetLine: vi.fn(), deleteBudgetLine: vi.fn() }));
 vi.mock("@/procurement/services/budget-service", () => svc);
+const catSvc = vi.hoisted(() => ({ ensureBudgetCategories: vi.fn() }));
+vi.mock("@/procurement/services/budget-category-service", () => catSvc);
+const tplSvc = vi.hoisted(() => ({ ensureBudgetTemplates: vi.fn() }));
+vi.mock("@/procurement/services/budget-template-service", () => tplSvc);
 const revSvc = vi.hoisted(() => ({ getBudgetRevenue: vi.fn() }));
 vi.mock("@/procurement/services/budget-revenue-service", () => revSvc);
 const finance = vi.hoisted(() => ({ sees: true }));
@@ -34,7 +39,26 @@ const revenue = {
   margin: { plannedRevenue: "50000.0000", plannedCost: "40397.5000", plannedMargin: "9602.5000", plannedMarginPercent: "19.21", forecastRevenue: "51200.0000", forecastCost: "40397.5000", forecastMargin: "10802.5000", forecastMarginPercent: "21.10", belowTarget: true },
 };
 
-beforeEach(() => { vi.clearAllMocks(); finance.sees = true; process.env.PROCUREMENT_MODULE_ENABLED = "true"; revSvc.getBudgetRevenue.mockResolvedValue({ ok: true, value: revenue }); });
+const CATEGORIES = [
+  { id: "c-venue", code: "510400", name: "Venue", type: "EXPENSE", parentId: null, depth: 0, sortOrder: 0, isActive: true },
+  { id: "c-fb", code: "500700", name: "F&B", type: "EXPENSE", parentId: null, depth: 0, sortOrder: 1, isActive: true },
+  { id: "c-old", code: "509999", name: "Retired", type: "EXPENSE", parentId: null, depth: 0, sortOrder: 2, isActive: false },
+  { id: "c-cont", code: "CONTINGENCY", name: "Contingency", type: "EXPENSE", parentId: null, depth: 0, sortOrder: 3, isActive: true },
+];
+const IN_APP = { actorUserId: "u-author", source: "agent" as const };
+const READS = ["get_budget", "list_budget_categories", "list_budget_templates", "list_budgets", "list_commitments", "list_spend_requests"];
+const WRITES = ["add_budget_lines", "create_budget", "replace_budget_lines"];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  finance.sees = true;
+  process.env.PROCUREMENT_MODULE_ENABLED = "true";
+  revSvc.getBudgetRevenue.mockResolvedValue({ ok: true, value: revenue });
+  catSvc.ensureBudgetCategories.mockResolvedValue(CATEGORIES);
+  tplSvc.ensureBudgetTemplates.mockResolvedValue([{ id: "t1", name: "Conference", eventType: "CONFERENCE", description: null, isActive: true, lines: [{ id: "l1" }, { id: "l2" }] }, { id: "t2", name: "Old", eventType: "WEBINAR", description: null, isActive: false, lines: [] }]);
+  svc.upsertBudgetLine.mockResolvedValue({ ok: true, budget });
+  svc.deleteBudgetLine.mockResolvedValue({ ok: true, budget });
+});
 afterEach(() => { delete process.env.PROCUREMENT_MODULE_ENABLED; });
 
 describe("registration gate", () => {
@@ -54,10 +78,157 @@ describe("registration gate", () => {
     registerProcurementMcpTools(server, "org-1", { role: "WEBINARS", fromApiKey: false });
     expect(tools.size).toBe(0);
   });
-  it("registers the four reads for a reading role", () => {
+  it("registers the six reads for a reading role on the MCP door, and no write", () => {
     const { tools, server } = fakeServer();
     registerProcurementMcpTools(server, "org-1", { role: "ORGANIZER", fromApiKey: false });
-    expect([...tools.keys()].sort()).toEqual(["get_budget", "list_budgets", "list_commitments", "list_spend_requests"]);
+    expect([...tools.keys()].sort()).toEqual(READS);
+  });
+  it("registers the writes only on the in-app door, for a role that may author budgets", () => {
+    const a = fakeServer();
+    registerProcurementMcpTools(a.server, "org-1", { role: "ORGANIZER", fromApiKey: false }, IN_APP);
+    expect([...a.tools.keys()].sort()).toEqual([...READS, ...WRITES].sort());
+    // MEMBER reads the module but does not author budgets.
+    const m = fakeServer();
+    registerProcurementMcpTools(m.server, "org-1", { role: "MEMBER", fromApiKey: false }, IN_APP);
+    expect([...m.tools.keys()].sort()).toEqual(READS);
+    // The MCP door carries a placeholder id, not a person: reads only even for an admin.
+    const d = fakeServer();
+    registerProcurementMcpTools(d.server, "org-1", { role: "ADMIN", fromApiKey: false }, { actorUserId: "mcp-system", source: "mcp" });
+    expect([...d.tools.keys()].sort()).toEqual(READS);
+    // No user id at all: reads only.
+    const n = fakeServer();
+    registerProcurementMcpTools(n.server, "org-1", { role: "ADMIN", fromApiKey: false }, { source: "agent" });
+    expect([...n.tools.keys()].sort()).toEqual(READS);
+  });
+});
+
+describe("the setup reads", () => {
+  it("list_budget_categories names active expense codes and leaves contingency and retired ones out", async () => {
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    const text = (await tools.get("list_budget_categories")!({})).content[0].text;
+    expect(text).toContain("- 510400: Venue");
+    expect(text).toContain("- 500700: F&B");
+    expect(text).not.toContain("509999");
+    expect(text).not.toContain("- CONTINGENCY");
+    expect(catSvc.ensureBudgetCategories).toHaveBeenCalledWith("org-1");
+  });
+  it("list_budget_templates lists the active templates with their ids and line counts", async () => {
+    const { tools, server } = fakeServer();
+    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    const text = (await tools.get("list_budget_templates")!({})).content[0].text;
+    expect(text).toContain("- Conference (CONFERENCE), 2 line(s)\n  ID: t1");
+    expect(text).not.toContain("Old");
+  });
+});
+
+describe("the writes (in-app door)", () => {
+  function authoring() {
+    const f = fakeServer();
+    registerProcurementMcpTools(f.server, "org-1", { role: "ORGANIZER", fromApiKey: false }, IN_APP);
+    return f;
+  }
+
+  it("create_budget delegates with the signed-in person and the agent source, and reports the draft", async () => {
+    svc.createBudget.mockResolvedValue({ ok: true, budget: { ...budget, status: "DRAFT", lines: [{ isContingency: true }, { isContingency: false }, { isContingency: false }] } });
+    const { tools } = authoring();
+    const out = await tools.get("create_budget")!({ eventId: "ev1", reportingCurrency: "USD", templateId: "t1", contingencyPercent: 5 });
+    expect(svc.createBudget).toHaveBeenCalledWith({
+      organizationId: "org-1", actorUserId: "u-author", source: "agent",
+      eventId: "ev1", templateId: "t1", reportingCurrency: "USD", contingencyPercent: 5, expectedAttendance: null, brand: null, notes: null,
+    });
+    expect(out.isError).toBeUndefined();
+    expect(out.content[0].text).toContain("Created a draft budget:");
+    expect(out.content[0].text).toContain("ID: b1");
+    expect(out.content[0].text).toContain("2 line(s) seeded from the template");
+  });
+
+  it("create_budget surfaces the service's refusal with its code", async () => {
+    svc.createBudget.mockResolvedValue({ ok: false, code: "BUDGET_EXISTS", message: "This event already has a budget." });
+    const { tools } = authoring();
+    const out = await tools.get("create_budget")!({ eventId: "ev1", reportingCurrency: "AED" });
+    expect(out.content[0].text).toBe("Error: This event already has a budget. (BUDGET_EXISTS)");
+  });
+
+  it("add_budget_lines resolves codes to ids, writes each line through the service and reports the refused one", async () => {
+    svc.upsertBudgetLine
+      .mockResolvedValueOnce({ ok: true, budget })
+      .mockResolvedValueOnce({ ok: false, code: "RATE_REQUIRED", message: "A EUR line needs its exchange rate to AED." });
+    const { tools } = authoring();
+    const out = await tools.get("add_budget_lines")!({
+      budgetId: "b1",
+      lines: [
+        { categoryCode: "510400", description: "Hall hire", unitCost: 20000, qty: 2, taxRatePercent: 5 },
+        { categoryCode: "500700", description: "Gala dinner", unitCost: 300, currency: "EUR" },
+      ],
+    });
+    expect(svc.upsertBudgetLine).toHaveBeenCalledTimes(2);
+    expect(svc.upsertBudgetLine.mock.calls[0][0]).toEqual({
+      organizationId: "org-1", actorUserId: "u-author", source: "agent", budgetId: "b1",
+      categoryId: "c-venue", description: "Hall hire", qty: 2, unitCost: 20000, transactionCurrency: undefined, fxRateToReporting: null, taxRatePercent: 5, notes: null,
+    });
+    expect(svc.upsertBudgetLine.mock.calls[1][0]).toMatchObject({ categoryId: "c-fb", transactionCurrency: "EUR", qty: 1, taxRatePercent: null });
+    expect(out.content[0].text).toContain("Added 1 of 2 line(s).");
+    expect(out.content[0].text).toContain('line 2 "Gala dinner": A EUR line needs its exchange rate to AED. (RATE_REQUIRED)');
+    expect(out.content[0].text).toContain("Budget now: TW2SE26 v1");
+  });
+
+  it("add_budget_lines writes nothing when any category code is unknown, and names the valid ones", async () => {
+    const { tools } = authoring();
+    const out = await tools.get("add_budget_lines")!({ budgetId: "b1", lines: [{ categoryCode: "510400", description: "ok", unitCost: 1 }, { categoryCode: "999999", description: "typo", unitCost: 1 }] });
+    expect(svc.upsertBudgetLine).not.toHaveBeenCalled();
+    expect(out.content[0].text).toContain("unknown category code(s) 999999; nothing was written");
+    expect(out.content[0].text).toContain("510400 (Venue)");
+  });
+
+  it("replace_budget_lines refuses without confirm and touches nothing", async () => {
+    const { tools } = authoring();
+    const out = await tools.get("replace_budget_lines")!({ budgetId: "b1", lines: [{ categoryCode: "510400", description: "x", unitCost: 1 }] });
+    expect(JSON.parse(out.content[0].text).code).toBe("APPROVAL_REQUIRED");
+    expect(svc.getBudget).not.toHaveBeenCalled();
+    expect(svc.deleteBudgetLine).not.toHaveBeenCalled();
+    expect(svc.upsertBudgetLine).not.toHaveBeenCalled();
+  });
+
+  it("replace_budget_lines, confirmed, removes every non-contingency line of a draft and then adds the new ones", async () => {
+    svc.getBudget.mockResolvedValue({ ok: true, budget: { ...budget, status: "DRAFT", lines: [
+      { id: "L-cont", lineKey: "k0", description: "Contingency", isContingency: true },
+      { id: "L-1", lineKey: "k1", description: "Old hall", isContingency: false },
+      { id: "L-2", lineKey: "k2", description: "Old dinner", isContingency: false },
+    ] } });
+    const { tools } = authoring();
+    const out = await tools.get("replace_budget_lines")!({ budgetId: "b1", confirm: true, lines: [{ categoryCode: "500700", description: "New dinner", unitCost: 500 }] });
+    expect(svc.deleteBudgetLine.mock.calls.map((c) => c[0].lineId)).toEqual(["L-1", "L-2"]);
+    expect(svc.deleteBudgetLine.mock.calls[0][0]).toMatchObject({ organizationId: "org-1", actorUserId: "u-author", source: "agent", budgetId: "b1" });
+    expect(svc.upsertBudgetLine).toHaveBeenCalledTimes(1);
+    expect(svc.upsertBudgetLine.mock.calls[0][0]).toMatchObject({ categoryId: "c-fb", description: "New dinner", unitCost: 500 });
+    expect(out.content[0].text).toContain("Removed 2 line(s). Added 1 of 1 line(s).");
+  });
+
+  it("replace_budget_lines refuses a budget that is not a draft, and a bad code before removing anything", async () => {
+    svc.getBudget.mockResolvedValueOnce({ ok: true, budget: { ...budget, status: "ACTIVE", lines: [{ id: "L-1", lineKey: "k1", description: "x", isContingency: false }] } });
+    const { tools } = authoring();
+    const active = await tools.get("replace_budget_lines")!({ budgetId: "b1", confirm: true, lines: [{ categoryCode: "510400", description: "x", unitCost: 1 }] });
+    expect(active.content[0].text).toContain("draft version only; this budget is ACTIVE (INVALID_STATUS)");
+    expect(svc.deleteBudgetLine).not.toHaveBeenCalled();
+
+    svc.getBudget.mockResolvedValueOnce({ ok: true, budget: { ...budget, status: "DRAFT", lines: [{ id: "L-1", lineKey: "k1", description: "x", isContingency: false }] } });
+    const typo = await tools.get("replace_budget_lines")!({ budgetId: "b1", confirm: true, lines: [{ categoryCode: "000000", description: "x", unitCost: 1 }] });
+    expect(typo.content[0].text).toContain("unknown category code(s) 000000; nothing was written");
+    expect(svc.deleteBudgetLine).not.toHaveBeenCalled();
+    expect(svc.upsertBudgetLine).not.toHaveBeenCalled();
+  });
+
+  it("replace_budget_lines stops at a line it cannot remove and adds nothing", async () => {
+    svc.getBudget.mockResolvedValue({ ok: true, budget: { ...budget, status: "DRAFT", lines: [
+      { id: "L-1", lineKey: "k1", description: "Removable", isContingency: false },
+      { id: "L-2", lineKey: "k2", description: "Committed AV", isContingency: false },
+    ] } });
+    svc.deleteBudgetLine.mockResolvedValueOnce({ ok: true, budget }).mockResolvedValueOnce({ ok: false, code: "LINE_HAS_COMMITMENTS", message: "This line has open commitments." });
+    const { tools } = authoring();
+    const out = await tools.get("replace_budget_lines")!({ budgetId: "b1", confirm: true, lines: [{ categoryCode: "510400", description: "x", unitCost: 1 }] });
+    expect(out.content[0].text).toContain('could not remove "Committed AV": This line has open commitments. (LINE_HAS_COMMITMENTS). 1 of 2 line(s) had already been removed; no new lines were added.');
+    expect(svc.upsertBudgetLine).not.toHaveBeenCalled();
   });
 });
 

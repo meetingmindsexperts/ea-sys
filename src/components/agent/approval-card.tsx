@@ -9,6 +9,7 @@ import { useState } from "react";
 import { AlertTriangle, Check, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { approvalRows } from "@/lib/agent/approval-display";
 
 export interface ApprovalMessage {
   toolName: string;
@@ -17,14 +18,6 @@ export interface ApprovalMessage {
   token: string;
   expiresAt: string;
   status: "pending" | "approved" | "cancelled";
-}
-
-function short(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.length > 160 ? `${value.slice(0, 157)}…` : value;
-  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
-  if (typeof value === "object") return JSON.stringify(value).slice(0, 160);
-  return String(value);
 }
 
 export function ApprovalCard({
@@ -42,7 +35,9 @@ export function ApprovalCard({
   // reading the clock during render is impure (react-hooks/purity).
   const [now] = useState(() => Date.now());
   const expired = approval.status === "pending" && new Date(approval.expiresAt).getTime() <= now;
-  const rows = Object.entries(approval.input).filter(([, v]) => v !== undefined && v !== null && v !== "");
+  // Every field of the call, arrays of objects opened one row per item, so
+  // the person approves what they can read (src/lib/agent/approval-display.ts).
+  const rows = approvalRows(approval.input);
 
   return (
     <div className="flex justify-start mb-3">
@@ -65,10 +60,20 @@ export function ApprovalCard({
         </div>
         {rows.length > 0 && (
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
-            {rows.map(([k, v]) => (
-              <div key={k} className="contents">
-                <dt className="text-muted-foreground">{k.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}</dt>
-                <dd className="break-words">{short(v)}</dd>
+            {rows.map((row) => (
+              <div key={row.label} className="contents">
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd className="break-words">
+                  {row.items ? (
+                    <ol className="space-y-0.5" data-testid="approval-items">
+                      {row.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ol>
+                  ) : (
+                    row.text
+                  )}
+                </dd>
               </div>
             ))}
           </dl>

@@ -38,6 +38,11 @@ Sponsors, contacts, CRM
 - "Find the contact for dr.example@hospital.org and list the events they attended."
 - "Move the Abbott deal to Negotiation and add a note that the proposal went out today."
 
+Budgets (reading)
+- "Which events have a budget, and what is each one's status and planned total?"
+- "Show me the Hematology Summit budget with its lines and the margin against target."
+- Creating a budget and entering its lines is done from the AI Agent inside EA-SYS, not from claude.ai: a budget belongs to the person who creates it, and this door does not carry who you are.
+
 Reports
 - "Give me the dashboard for the Oman forum: registrations by status, speakers, sessions, check-in rate."
 - "Export the attendance for last week's webinar as a table."
@@ -63,6 +68,8 @@ After EA-SYS ships new tools, claude.ai keeps the old list until you reconnect. 
 ## 6. The same agent inside EA-SYS
 
 The dashboard has the same assistant: **AI Agent** in the main sidebar works across the whole organisation (create an event, find one, switch events from the picker at the top), and **AI Agent** inside an event starts with that event selected. It answers the same questions with the same tools and the same rules, without a claude.ai seat.
+
+One thing only the in-app agent does: create a draft budget and enter its lines ("Create a USD budget for the Hematology Summit with 10% contingency, then add hall hire 20,000 under venue"). Replacing a draft's lines pauses for your approval; submitting the budget for approval stays on the budget page.
 
 ## 7. Where to look afterwards
 

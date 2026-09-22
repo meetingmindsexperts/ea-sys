@@ -145,7 +145,7 @@ export interface CreateApprovalRequestInput {
   payload?: Prisma.InputJsonValue | null;
   /** Route to the final approver only (an over-budget exception); the decision is refused to every other ceiling. */
   requireFinalApprover?: boolean;
-  source: "ui" | "mcp";
+  source: "ui" | "mcp" | "agent";
   dueHours?: number;
 }
 
@@ -233,7 +233,7 @@ export interface DecideApprovalInput {
   decider: ProcurementUserLike & { id: string };
   decision: "APPROVED" | "REJECTED";
   note?: string | null;
-  source: "ui" | "mcp";
+  source: "ui" | "mcp" | "agent";
 }
 
 /**
@@ -325,7 +325,7 @@ export async function decideApprovalRequest(db: Db, input: DecideApprovalInput) 
 /** Cancels the pending request on a subject (the subject was withdrawn or changed shape). */
 export async function cancelPendingApprovals(
   db: Db,
-  input: { organizationId: string; subjectType: ApprovalSubject; subjectId: string; actorUserId: string; source: "ui" | "mcp" },
+  input: { organizationId: string; subjectType: ApprovalSubject; subjectId: string; actorUserId: string; source: "ui" | "mcp" | "agent" },
 ): Promise<number> {
   const pending = await db.approvalRequest.findMany({
     where: { organizationId: input.organizationId, subjectType: input.subjectType, subjectId: input.subjectId, status: "PENDING" },

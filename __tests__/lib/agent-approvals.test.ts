@@ -19,7 +19,7 @@ beforeAll(() => {
 
 describe("requiresApproval", () => {
   it("names the readiness list and every delete tool", () => {
-    for (const name of ["send_bulk_email", "create_zoom_meeting", "upsert_sponsors", "replace_session_speakers", "update_cme_settings"]) {
+    for (const name of ["send_bulk_email", "create_zoom_meeting", "upsert_sponsors", "replace_session_speakers", "update_cme_settings", "replace_budget_lines"]) {
       expect(APPROVAL_REQUIRED_TOOLS.has(name), name).toBe(true);
       expect(requiresApproval(name)).toBe(true);
     }
@@ -29,7 +29,7 @@ describe("requiresApproval", () => {
   });
 
   it("leaves ordinary writes and reads alone", () => {
-    for (const name of ["create_speaker", "update_session", "create_event", "list_events", "research_sponsor"]) {
+    for (const name of ["create_speaker", "update_session", "create_event", "list_events", "research_sponsor", "create_budget", "add_budget_lines"]) {
       expect(requiresApproval(name), name).toBe(false);
     }
   });
@@ -37,6 +37,7 @@ describe("requiresApproval", () => {
   it("labels the known tools in plain words and falls back to the name", () => {
     expect(approvalLabel("send_bulk_email")).toBe("Send a bulk email");
     expect(approvalLabel("delete_room_type")).toBe("Delete a room type");
+    expect(approvalLabel("replace_budget_lines")).toBe("Replace a budget's lines");
     expect(approvalLabel("delete_later_tool")).toBe("delete later tool");
   });
 });

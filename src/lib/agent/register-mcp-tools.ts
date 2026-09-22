@@ -1028,5 +1028,7 @@ export function registerAllMcpTools(
   // ── Budget & Procurement (dark until PROCUREMENT_MODULE_ENABLED) ──
   // Same shape as the CRM: the module hands core one registration function,
   // which registers nothing while the flag is off or for an API key.
-  registerProcurementMcpTools(server, organizationId, actor);
+  // The writes register only for the in-app door ("agent"), where
+  // SYSTEM_USER_ID is the signed-in person; the MCP door keeps its reads.
+  registerProcurementMcpTools(server, organizationId, actor, { actorUserId: SYSTEM_USER_ID, source: SOURCE });
 }

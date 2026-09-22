@@ -68,7 +68,7 @@ export type BudgetResult<T> =
   | { ok: true; budget: T }
   | { ok: false; code: BudgetErrorCode; message: string; meta?: Record<string, unknown> };
 
-type Source = "ui" | "mcp";
+type Source = "ui" | "mcp" | "agent";
 
 export const BUDGET_LINE_SELECT = {
   id: true, lineKey: true, templateLineId: true, productId: true, categoryId: true, description: true, qty: true, unitCost: true,

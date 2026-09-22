@@ -97,7 +97,7 @@ export function buildCapabilitySection(tools: Tool[], opts: CapabilityOptions): 
   const approvals = tools.filter((t) => requiresApproval(t.name));
   if (approvals.length > 0 && !opts.readOnly) {
     lines.push(
-      `**Needs the person's approval (${approvals.length}):** ${names(approvals)}. Calling one of these shows the person an Approve button; the result says APPROVAL_REQUIRED. Tell them what is waiting and stop; never call it again in the same turn.`,
+      `**Needs the person's approval (${approvals.length}):** ${names(approvals)}. Call one of these as soon as the request is clear, without asking in prose first: it shows the person an Approve button, and the result says APPROVAL_REQUIRED. Tell them what is waiting and stop; never call it again in the same turn.`,
     );
   }
 

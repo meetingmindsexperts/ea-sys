@@ -13,6 +13,8 @@ export const APPROVAL_REQUIRED_TOOLS: ReadonlySet<string> = new Set([
   "upsert_sponsors",
   "replace_session_speakers",
   "update_cme_settings",
+  // Empties a draft budget before refilling it (Sep 22, 2026).
+  "replace_budget_lines",
 ]);
 
 /** The parameter an MCP client sets once the person has said yes. */
@@ -32,6 +34,7 @@ export function approvalLabel(toolName: string): string {
     upsert_sponsors: "Replace the sponsor list",
     replace_session_speakers: "Replace a session's speakers",
     update_cme_settings: "Change the CME settings",
+    replace_budget_lines: "Replace a budget's lines",
     delete_promo_code: "Delete a promo code",
     delete_room_type: "Delete a room type",
   };
