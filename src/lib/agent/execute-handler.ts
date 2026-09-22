@@ -167,7 +167,15 @@ export async function executeAgentRequest(
           send,
         });
         send({ type: "done" });
-        await run.finish(ended === "turn_limit" ? "TURN_LIMIT" : "COMPLETED", undefined, { reply: replyParts.join("") });
+        if (ended === "output_limit") {
+          // The loop already sent the error event; the run reads ERROR with
+          // its class so the messages page and the digest count it as a
+          // failure, not a completed request that happened to do nothing.
+          apiLogger.warn({ route: opts.route, eventId, userId: session.user.id, runId: run.id }, "agent:execute output-limit");
+          await run.finish("ERROR", "output_limit", { reply: replyParts.join("") });
+        } else {
+          await run.finish(ended === "turn_limit" ? "TURN_LIMIT" : "COMPLETED", undefined, { reply: replyParts.join("") });
+        }
       } catch (err) {
         apiLogger.error({ err, route: opts.route, eventId, userId: session.user.id }, "agent:execute failed");
         const providerErr = err instanceof Anthropic.APIError ? err : null;

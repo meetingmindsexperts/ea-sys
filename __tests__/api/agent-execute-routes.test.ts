@@ -317,6 +317,12 @@ describe("executeAgentRequest stored runs", () => {
     expect(mockStartRun.mock.calls[0][0]).toMatchObject({ route: "org", eventId: null, approvedTool: "send_bulk_email" });
   });
 
+  it("closes the run as ERROR/output_limit when the reply was cut at the output cap", async () => {
+    mockRun.mockImplementation(async () => "output_limit");
+    await readSse(await executeAgentRequest(post({ message: "three templates please" }), session("ADMIN"), "org1", { route: "t" }));
+    expect(mockRecorder.finish).toHaveBeenCalledWith("ERROR", "output_limit", { reply: "" });
+  });
+
   it("closes the run as TURN_LIMIT when the loop hit its cap", async () => {
     mockRun.mockImplementation(async () => "turn_limit");
     await readSse(await executeAgentRequest(post({ message: "hi" }), session("ADMIN"), "org1", { route: "t" }));

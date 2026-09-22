@@ -81,7 +81,12 @@ export function getModelConfig(
       // so only the model, cap and temperature come from here.
       return {
         model: process.env.AGENT_MODEL || AGENT_MODEL_DEFAULT,
-        maxTokens: 4096,
+        // 4096 until September 22, 2026: three email bodies in one turn
+        // overran it (golden W9, and the same request on production), and
+        // the reply stopped at "I'll now create all three". A turn that
+        // writes several HTML bodies needs room; a runaway reply still
+        // stops here, and the loop now reports a cut reply as an error.
+        maxTokens: 16384,
         // The SDK default; the lever to tighten the agent's behaviour
         // when the readiness eval (E5) says so.
         temperature: 1.0,

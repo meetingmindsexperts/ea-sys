@@ -57,6 +57,8 @@ export const EV = {
   PROMO: { id: "golden-ev-promo", slug: "golden-promo", code: "GLD-PROMO", name: "Golden Promo Workshop 2027" },
   UPDATE: { id: "golden-ev-update", slug: "golden-update", code: "GLD-UPDATE", name: "Golden Update Clinic 2027" },
   BUDGET: { id: "golden-ev-budget", slug: "golden-budget", code: "GLD-BUDGET", name: "Golden Budget Retreat 2027" },
+  TEMPLATE: { id: "golden-ev-template", slug: "golden-template", code: "GLD-TEMPLATE", name: "Golden Template Institute 2027" },
+  TEMPLATE3: { id: "golden-ev-template3", slug: "golden-template3", code: "GLD-TEMPLATE3", name: "Golden Three Invitations Congress 2027" },
 } as const;
 
 export const GOLDEN_EVENT_LIST = Object.values(EV);

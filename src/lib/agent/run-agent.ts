@@ -72,8 +72,11 @@ export interface AgentRequest {
   send: (event: AgentSseEvent) => void;
 }
 
-/** How the loop ended: the model finished, or the step limit stopped it. */
-export type AgentLoopEnd = "completed" | "turn_limit";
+/**
+ * How the loop ended: the model finished, the step limit stopped it, or the
+ * model's reply hit the output-token cap mid-way (`output_limit`).
+ */
+export type AgentLoopEnd = "completed" | "turn_limit" | "output_limit";
 
 /** What the loop needs from the model: async events, then the final message. */
 export type ModelStream = AsyncIterable<MessageStreamEvent> & { finalMessage(): Promise<Message> };
@@ -269,6 +272,21 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     req.run?.turn(response.usage);
 
     if (response.stop_reason === "end_turn") return "completed";
+    // A reply cut off at max_tokens used to return "completed" as if the
+    // model had finished (September 22, 2026, golden W9: asked for three
+    // invitation templates, the model wrote "I'll now create all three" and
+    // the three HTML bodies overran the cap; the run closed COMPLETED with
+    // zero writes and nobody was told). Any tool_use block in such a reply
+    // may be the last of a batch or itself truncated, so none is run: the
+    // person is told, and the run is recorded as cut short.
+    if (response.stop_reason === "max_tokens") {
+      req.send({
+        type: "error",
+        message:
+          "The reply reached the output limit before it finished, so nothing after that point was done. Ask for fewer things in one request, or ask again for the part that was cut.",
+      });
+      return "output_limit";
+    }
     if (response.stop_reason !== "tool_use") return "completed";
 
     const toolResults: MessageParam["content"] = [];

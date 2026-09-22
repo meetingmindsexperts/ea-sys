@@ -3,7 +3,7 @@
  * and nothing else. Each task has its own event so the final state is
  * graded from zero.
  */
-import { calledBefore, onlyWrites, ranWrites, T } from "./_grade";
+import { calledBefore, neverCalled, onlyWrites, ranWrites, T } from "./_grade";
 import { EV, GOLDEN_TZ, UPDATE_REGISTRANT, VIP_TICKET } from "./_seed-constants";
 import { expect, test } from "./_harness";
 
@@ -116,4 +116,72 @@ test("W7 confirm a pending registration", async ({ golden }) => {
   expect(reg?.status).toBe("CONFIRMED");
   expect(ranWrites(r.steps).length).toBeLessThanOrEqual(1);
   expect(onlyWrites(r.steps, [T.update_registration, T.bulk_update_registration_status])).toEqual([]);
+});
+
+// A draft becomes a NEW template, not an overwrite of the built-in invitation:
+// the model must reach for create_email_template (September 22, 2026), keep
+// the greeting and the agreement button as tokens, and turn "your session
+// details are below" into the presentation-details token.
+test("W8 create a custom email template from a draft", async ({ golden }) => {
+  const r = await golden.ask({
+    eventId: EV.TEMPLATE.id,
+    message:
+      "Create a new email template called Faculty Welcome for our speakers from this draft. " +
+      "Subject: Welcome to the faculty. " +
+      "Draft: Thank you for agreeing to join our faculty. The programme committee has placed your talk in the scientific programme; " +
+      "your session details are below. Please review and sign the speaker agreement using the button, and let us know of any change to your availability. " +
+      "Greet each speaker by name and end with the organiser's signature.",
+  });
+  const templates = await golden.db.emailTemplate.findMany({
+    where: { eventId: EV.TEMPLATE.id },
+    select: { slug: true, name: true, subject: true, htmlContent: true, isActive: true },
+  });
+  expect(templates, "exactly one template on the event").toHaveLength(1);
+  const t = templates[0];
+  expect(["speaker-invitation", "speaker-agreement", "custom-notification"], "a new slug, not a built-in one").not.toContain(t.slug);
+  expect(t.slug).toMatch(/^[a-z0-9-]+$/);
+  expect(t.name).toMatch(/faculty welcome/i);
+  expect(t.subject).toMatch(/welcome to the faculty/i);
+  expect(t.isActive).toBe(true);
+  expect(t.htmlContent).toMatch(/agreeing to join/i);
+  expect(t.htmlContent, "greets by name with a token").toMatch(/\{\{(speakerName|firstName)\}\}/);
+  expect(t.htmlContent, "the agreement button is the token").toContain("{{agreementBlock}}");
+  expect(t.htmlContent, "session details are the token").toContain("{{presentationDetails}}");
+  expect(t.htmlContent).toContain("{{organizerSignature}}");
+  expect(ranWrites(r.steps)).toHaveLength(1);
+  expect(onlyWrites(r.steps, [T.create_email_template])).toEqual([]);
+});
+
+// The September 22, 2026 production case, verbatim in shape: asked for three
+// invitation drafts and holding no create tool, the agent overwrote three
+// built-in templates (the travel-grant reminder and the presenter agreement
+// among them) with token-free text. Three creates, no update, the built-ins
+// untouched.
+test("W9 three invitation categories become three custom templates, no built-in overwritten", async ({ golden }) => {
+  const r = await golden.ask({
+    eventId: EV.TEMPLATE3.id,
+    message:
+      "I need to create the drafts for the speaker invitations, I have 3 categories. " +
+      "Category one: International Speakers (outside UAE), entitled to 3 nights accommodation and a two-way flight ticket following the travel policy. " +
+      "Category two: Local speakers (inside UAE), entitled to 2 nights accommodation, no air ticket. " +
+      "Category three: no entitlements. " +
+      "The general information on all invitations is the speaking slot details and the session moderation details.",
+  });
+  const templates = await golden.db.emailTemplate.findMany({
+    where: { eventId: EV.TEMPLATE3.id },
+    select: { slug: true, name: true, htmlContent: true },
+  });
+  expect(templates, "three templates, nothing else on the event").toHaveLength(3);
+  for (const t of templates) {
+    expect(["speaker-invitation", "speaker-agreement", "travel-grant-invitation", "presenter-agreement", "custom-notification"], `${t.slug} is a new slug`).not.toContain(t.slug);
+    expect(t.htmlContent, `${t.slug} greets by name`).toMatch(/\{\{(speakerName|firstName)\}\}/);
+    expect(t.htmlContent, `${t.slug} carries the speaking slot details as the token`).toContain("{{presentationDetails}}");
+  }
+  const names = templates.map((t) => t.name.toLowerCase()).join(" | ");
+  expect(names).toMatch(/international/);
+  expect(names).toMatch(/local/);
+  expect(names).toMatch(/no entitlement/);
+  expect(neverCalled(r.steps, [T.update_email_template]), "no built-in template rewritten").toEqual([]);
+  expect(ranWrites(r.steps)).toHaveLength(3);
+  expect(onlyWrites(r.steps, [T.create_email_template])).toEqual([]);
 });

@@ -9,7 +9,11 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
 import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
-import { normalizeTemplateTokens } from "@/lib/template-tokens";
+import {
+  EMAIL_TEMPLATE_SLUG_MAX,
+  EMAIL_TEMPLATE_SLUG_RE,
+  createCustomEmailTemplate,
+} from "@/lib/email-template-create";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -30,14 +34,16 @@ interface RouteParams {
  * The slug format matches what the only client already sends: the templates
  * page slugifies the typed name to `[a-z0-9-]` before POSTing. It is a KEY,
  * not a label — `eventId_slug` is unique, `isCustomTemplateSlug` classifies on
- * it, and the bulk-email dialog sends by it — so it is worth pinning.
+ * it, and the bulk-email dialog sends by it — so it is worth pinning. The
+ * rule itself lives in email-template-create.ts, which the agent's
+ * create_email_template tool shares (September 22, 2026).
  */
 const createTemplateSchema = z.object({
   slug: z
     .string()
     .min(1)
-    .max(100)
-    .regex(/^[a-z0-9-]+$/, "Slug may contain only lowercase letters, numbers and hyphens"),
+    .max(EMAIL_TEMPLATE_SLUG_MAX)
+    .regex(EMAIL_TEMPLATE_SLUG_RE, "Slug may contain only lowercase letters, numbers and hyphens"),
   name: z.string().min(1).max(200),
   subject: z.string().min(1).max(500),
   // No size cap on the two content fields: the columns are @db.Text and the
@@ -178,26 +184,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const { slug, name, subject, htmlContent, textContent } = parsed.data;
 
-    const existing = await db.emailTemplate.findUnique({
-      where: { eventId_slug: { eventId, slug } },
-    });
-
-    if (existing) {
-      return NextResponse.json({ error: "Template with this slug already exists" }, { status: 409 });
+    // ONE create for this route and the agent's create_email_template
+    // (existence check, token normalisation, the P2002 race answered as
+    // taken rather than a 500). The 201 body is the row, as before.
+    const result = await createCustomEmailTemplate({ eventId, slug, name, subject, htmlContent, textContent });
+    if (!result.ok) {
+      const status = result.code === "SLUG_TAKEN" ? 409 : 400;
+      const error = result.code === "SLUG_TAKEN" ? "Template with this slug already exists" : result.message;
+      return NextResponse.json({ error, code: result.code }, { status });
     }
 
-    const template = await db.emailTemplate.create({
-      data: {
-        eventId,
-        slug,
-        name,
-        subject: normalizeTemplateTokens(subject),
-        htmlContent: normalizeTemplateTokens(htmlContent),
-        textContent: textContent ? normalizeTemplateTokens(textContent) : textContent,
-      },
-    });
-
-    return NextResponse.json(template, { status: 201 });
+    return NextResponse.json(result.template, { status: 201 });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating email template" });
     return NextResponse.json({ error: "Failed to create email template" }, { status: 500 });

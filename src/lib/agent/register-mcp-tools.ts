@@ -680,7 +680,14 @@ export function registerAllMcpTools(
       status: z.enum(["CANCELLED", "OVERDUE"]),
     }},
     // ─── Email template writes ───
-    { name: "update_email_template", description: "Customize an event-level email template. slug examples: 'speaker-invitation', 'registration-confirmation', 'payment-reminder'. Creates an event-specific override if none exists yet. Pass any subset of subject / htmlContent / textContent.", params: {
+    { name: "create_email_template", description: "Create a NEW custom email template on the event, with its own name and slug (a faculty welcome, joining instructions, a sponsor briefing), typically from a draft the person gives you. Not for the built-in templates (speaker-invitation, registration-confirmation, payment-reminder, ...): to give the event its own version of one of those, call update_email_template with that slug. Requires name, subject and htmlContent (the body as HTML); the slug is derived from the name when omitted. Write the body with the tokens the send fills per recipient: {{speakerName}} or {{firstName}} in the greeting, {{eventName}}, {{eventDate}}, {{eventVenue}}, {{organizerSignature}} at the end; for speakers also {{presentationDetails}} (their sessions) and {{agreementBlock}} (the Review & Agree button). Use only existing tokens: a token no sender fills is refused (UNKNOWN_TOKENS, with allowedTokens to choose from), never invented; anything else, such as the number of nights or a flight entitlement, is written out in words. The saved template is sent from Communications (bulk, any audience) or a speaker's Send Email menu; send_bulk_email does not take a saved template.", params: {
+      name: z.string(),
+      subject: z.string(),
+      htmlContent: z.string(),
+      textContent: z.string().optional(),
+      slug: z.string().optional(),
+    }},
+    { name: "update_email_template", description: "Customize an event-level email template by slug: a built-in one ('speaker-invitation', 'registration-confirmation', 'payment-reminder'; creates the event's own copy from the default if none exists yet) or a custom one made with create_email_template. Pass any subset of subject / htmlContent / textContent. When you replace htmlContent, keep the tokens the send fills, or write them into the new text: {{speakerName}}, {{presentationDetails}} and {{agreementBlock}} (the Review & Agree button) on the speaker invitation, {{paymentBlock}} on the registration confirmation; a body without them sends without those parts. Use only existing tokens: an invented one is refused (UNKNOWN_TOKENS, with allowedTokens to choose from), and a built-in template's body that keeps none of its tokens is refused too (TEMPLATE_TOKENS_DROPPED): make a new template with create_email_template instead.", params: {
       slug: z.string(),
       subject: z.string().optional(),
       htmlContent: z.string().optional(),

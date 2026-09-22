@@ -23,7 +23,7 @@ import type { RegisteredTool } from "@/lib/agent/tool-registry";
 
 type Block = Message["content"][number];
 
-function scripted(responses: Array<{ blocks: Block[]; stop: "tool_use" | "end_turn"; text?: string }>) {
+function scripted(responses: Array<{ blocks: Block[]; stop: "tool_use" | "end_turn" | "max_tokens"; text?: string }>) {
   const calls: ModelStreamParams[] = [];
   let i = 0;
   const createStream = (params: ModelStreamParams): ModelStream => {
@@ -167,6 +167,23 @@ describe("runAgentRequest", () => {
     await runAgentRequest(req, { createStream, tools: [] });
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
     expect(result.result).toMatchObject({ code: "UNKNOWN_TOOL" });
+  });
+
+  it("ends as output_limit with an error event when the reply is cut at max_tokens, running no tool", async () => {
+    // Golden W9 (September 22, 2026): three HTML bodies in one turn overran
+    // the cap; the loop used to answer "completed" with nothing done.
+    const t = fakeTool("create_email_template", { success: true });
+    const { createStream, calls } = scripted([
+      { blocks: [{ type: "text", text: "I'll now create all three." } as Block, toolUse("create_email_template", { name: "a" })], stop: "max_tokens" },
+    ]);
+    const { req, events } = baseReq();
+    const ended = await runAgentRequest(req, { createStream, tools: [t] });
+    expect(ended).toBe("output_limit");
+    expect(calls).toHaveLength(1);
+    expect(t.run).not.toHaveBeenCalled();
+    const errors = events.filter((e) => e.type === "error");
+    expect(errors).toHaveLength(1);
+    expect(String((errors[0] as { message: string }).message)).toMatch(/output limit/);
   });
 
   it("stops with an error event after the turn limit", async () => {

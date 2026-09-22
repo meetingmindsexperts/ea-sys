@@ -5,6 +5,10 @@ import { apiLogger } from "@/lib/logger";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
+import { createCustomEmailTemplate, slugifyTemplateName } from "@/lib/email-template-create";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { EMAIL_TEMPLATE_REGISTRY, isSystemTemplateSlug, templateAllowedTokenKeys } from "@/lib/email-template-registry";
+import { findUnresolvedTokens, normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
 import {
   MAX_EMAIL_RECIPIENTS,
   type ToolExecutor,
@@ -289,6 +293,53 @@ const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
       return { error: "At least one of subject, htmlContent, or textContent must be provided" };
     }
 
+    // A built-in template is edited, never repurposed (September 22, 2026, on
+    // production: asked for three invitation drafts and holding no create
+    // tool, the agent stored them by rewriting speaker-invitation,
+    // travel-grant-invitation and presenter-agreement with token-free text,
+    // so the travel-grant reminder would have gone out with no Apply button
+    // and the presenter agreement with no link). A new body that carries none
+    // of the tokens this template's sender fills is a different email, not an
+    // edit of this one: refused, with the create tool named. A custom template
+    // is the person's own text and is not judged.
+    // Owner rule (September 22, 2026): only existing tokens. A token no
+    // sender fills on this template is refused with the list to choose from.
+    const allowedTokenList = templateAllowedTokenKeys(slug);
+    const unknown = unknownTemplateTokens(
+      allowedTokenList,
+      ...[subject, htmlContent, textContent].map((part) => (part === undefined ? undefined : normalizeTemplateTokens(part))),
+    );
+    if (unknown.length > 0) {
+      apiLogger.warn({ msg: "agent:update_email_template unknown-tokens-refused", eventId: ctx.eventId, slug, unknown });
+      return {
+        error:
+          `The text uses tokens no sender fills on "${slug}": ${unknown.map((t) => `{{${t}}}`).join(", ")}. ` +
+          "Only existing tokens can be used; write the value out in words instead, or pick from allowedTokens.",
+        code: "UNKNOWN_TOKENS",
+        unknownTokens: unknown,
+        allowedTokens: allowedTokenList,
+      };
+    }
+
+    if (htmlContent !== undefined && !isCustomTemplateSlug(slug)) {
+      const allowed = new Set(allowedTokenList);
+      const kept = findUnresolvedTokens(normalizeTemplateTokens(htmlContent)).filter((t) => allowed.has(t));
+      if (kept.length === 0) {
+        const sample = (isSystemTemplateSlug(slug) ? EMAIL_TEMPLATE_REGISTRY[slug].variables : [])
+          .slice(0, 4)
+          .map((v) => `{{${v.key}}}`)
+          .join(", ");
+        apiLogger.warn({ msg: "agent:update_email_template body-drops-every-token", eventId: ctx.eventId, slug });
+        return {
+          error:
+            `The new body for "${slug}" carries none of the tokens this template's sender fills` +
+            (sample ? ` (such as ${sample})` : "") +
+            ". A body without them is a different email, not an edit of this one: keep the tokens, or make a new template with create_email_template.",
+          code: "TEMPLATE_TOKENS_DROPPED",
+        };
+      }
+    }
+
     let updated;
     if (existing) {
       updated = await db.emailTemplate.update({
@@ -333,11 +384,16 @@ const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
         changes: {
           source: ctx.source,
           slug,
+          // `name` was missing here until September 22, 2026: the audit row for
+          // a built-in template renamed "Speaker Invitation – Local (UAE)" on
+          // production said only subject and htmlContent had changed.
           fieldsChanged: [
+            ...(name !== undefined ? ["name"] : []),
             ...(subject !== undefined ? ["subject"] : []),
             ...(htmlContent !== undefined ? ["htmlContent"] : []),
             ...(textContent !== undefined ? ["textContent"] : []),
           ],
+          ...(name !== undefined && { name }),
         },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_email_template audit-log-failed"));
@@ -346,6 +402,71 @@ const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
   } catch (err) {
     apiLogger.error({ err }, "agent:update_email_template failed");
     return { error: err instanceof Error ? err.message : "Failed to update email template" };
+  }
+};
+
+// ─── Custom template create (September 22, 2026) ──────────────────────────────
+// A NEW template with its own name and slug (a faculty welcome, joining
+// instructions), as the dashboard's "New template" makes. The built-in slugs
+// are refused with a pointer to update_email_template: an event's own copy of
+// a system template is an edit, not a create, and creating one here would
+// bypass the default text the edit path seeds. The create itself is the same
+// function the REST POST calls (email-template-create.ts).
+const createEmailTemplate: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim().slice(0, 200);
+    const subject = String(input.subject ?? "").trim().slice(0, 500);
+    const htmlContent = input.htmlContent != null ? String(input.htmlContent).slice(0, 100000) : "";
+    const textContent = input.textContent != null ? String(input.textContent).slice(0, 50000) : null;
+    if (!name) return { error: "name is required (it is what the templates list and the send dialog show)", code: "MISSING_FIELDS" };
+    if (!subject) return { error: "subject is required", code: "MISSING_FIELDS" };
+    if (!htmlContent.trim()) return { error: "htmlContent is required: the email body as HTML", code: "MISSING_FIELDS" };
+
+    const typedSlug = input.slug != null ? String(input.slug).trim() : "";
+    const slug = typedSlug || slugifyTemplateName(name);
+    if (!slug) return { error: "name must contain at least one letter or digit", code: "INVALID_SLUG" };
+    if (!isCustomTemplateSlug(slug)) {
+      apiLogger.warn({ msg: "agent:create_email_template system-slug-refused", eventId: ctx.eventId, slug });
+      return {
+        error: `"${slug}" is a built-in template. To give this event its own version of it, call update_email_template with that slug instead.`,
+        code: "SYSTEM_SLUG",
+      };
+    }
+
+    // Owner rule (September 22, 2026): the agent uses existing tokens and
+    // never invents one. A token no sender fills is refused with the list it
+    // may choose from, not created and reported.
+    const result = await createCustomEmailTemplate({
+      eventId: ctx.eventId, slug, name, subject, htmlContent, textContent, refuseUnknownTokens: true,
+    });
+    if (!result.ok) {
+      if (result.code === "UNKNOWN_TOKENS") {
+        return { error: result.message, code: result.code, unknownTokens: result.unknownTokens, allowedTokens: result.allowedTokens };
+      }
+      return { error: result.message, code: result.code };
+    }
+    const { template } = result;
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "EmailTemplate",
+        entityId: template.id,
+        changes: { source: ctx.source, slug, name, subject },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_email_template audit-log-failed"));
+
+    const summary = { id: template.id, slug: template.slug, name: template.name, subject: template.subject, isActive: template.isActive };
+    return {
+      success: true,
+      template: summary,
+      message: `Template "${name}" created (slug ${slug}). Send it from Communications as a saved template, to any audience, or from a speaker's Send Email menu.`,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_email_template failed");
+    return { error: err instanceof Error ? err.message : "Failed to create email template" };
   }
 };
 
@@ -391,6 +512,7 @@ const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
 export const COMMUNICATION_EXECUTORS: Record<string, ToolExecutor> = {
   send_bulk_email: sendBulkEmail,
   list_email_templates: listEmailTemplates,
+  create_email_template: createEmailTemplate,
   update_email_template: updateEmailTemplate,
   reset_email_template: resetEmailTemplate,
   list_scheduled_emails: listScheduledEmails,
