@@ -26,7 +26,7 @@ function back(req: NextRequest, params: Record<string, string>): NextResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const g = await procurementGuard({ route: ROUTE, need: "settle" });
+  const g = await procurementGuard({ route: ROUTE, need: "integration" });
   if (!g.ok) {
     // The guard has already logged who and why; this turns it into a page.
     return back(req, { quickbooks: "error", reason: "forbidden" });

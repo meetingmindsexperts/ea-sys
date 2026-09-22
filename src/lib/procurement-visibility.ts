@@ -89,6 +89,26 @@ export function canAdminProcurement(user: ProcurementUserLike | null | undefined
   return !!user?.role && PROCUREMENT_ADMIN_ROLES.has(user.role);
 }
 
+/**
+ * Who links the organisation's accounting system (owner ruling, 22 September
+ * 2026: "any admin can connect").
+ *
+ * ROLE ONLY, and deliberately narrower than `canAdminProcurement`: connecting
+ * QuickBooks is platform administration, the same act as the Zoom, Stripe and
+ * AI cards beside it on Settings → Integrations, which are all ADMIN and
+ * SUPER_ADMIN. A custom role holding `procurement.requests.manage` manages
+ * other people's requests; that says nothing about binding an accounting
+ * system, so it does not admit here.
+ *
+ * Wider than the spec's "re-auth is a settle-grant button" (§8), on the
+ * reasoning that a super admin can grant themselves the settle grant in two
+ * clicks anyway, so excluding them bought no security and left a visible
+ * Connect button that refused.
+ */
+export function canManageAccountingIntegration(user: ProcurementUserLike | null | undefined): boolean {
+  return !!user?.role && PROCUREMENT_ADMIN_ROLES.has(user.role);
+}
+
 export function canRequestProcurement(user: ProcurementUserLike | null | undefined): boolean {
   if (holds(user, "procurement.requests.create")) return true;
   return user?.procurementRequest === true;

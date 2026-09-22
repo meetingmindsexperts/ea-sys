@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  const g = await procurementGuard({ route: ROUTE, need: "settle", write: true });
+  const g = await procurementGuard({ route: ROUTE, need: "integration", write: true });
   if (!g.ok) return g.response;
 
   return runWithTenant(g.orgId, async () => {

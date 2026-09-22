@@ -110,7 +110,7 @@ describe("the guard stands in front of every route", () => {
     expect(mockStoreNew).not.toHaveBeenCalled();
   });
 
-  it("reads need only view; connecting and disconnecting need the settle grant", async () => {
+  it("reads need only view; connecting and disconnecting are an admin act", async () => {
     allow();
     await statusGet();
     await chartGet();
@@ -118,7 +118,7 @@ describe("the guard stands in front of every route", () => {
     guard.mockClear();
     await connectGet();
     await disconnectDelete();
-    expect(guard.mock.calls.every((c) => c[0].need === "settle")).toBe(true);
+    expect(guard.mock.calls.every((c) => c[0].need === "integration")).toBe(true);
   });
 });
 

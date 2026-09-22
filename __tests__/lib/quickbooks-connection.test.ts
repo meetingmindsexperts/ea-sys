@@ -266,3 +266,26 @@ describe("the read client", () => {
     fetchSpy.mockRestore();
   });
 });
+
+describe("who may link the accounting system", () => {
+  // Owner ruling, 22 September 2026: "any admin can connect", wider than the
+  // spec's settle-grant rule and narrower than canAdminProcurement.
+  it("admits ADMIN and SUPER_ADMIN by role alone, and nobody else", async () => {
+    const { canManageAccountingIntegration } = await import("@/lib/procurement-visibility");
+    for (const role of ["ADMIN", "SUPER_ADMIN"]) {
+      expect(canManageAccountingIntegration({ role } as never), role).toBe(true);
+    }
+    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
+      expect(canManageAccountingIntegration({ role } as never), role).toBe(false);
+    }
+    expect(canManageAccountingIntegration(null)).toBe(false);
+    expect(canManageAccountingIntegration({ role: null } as never)).toBe(false);
+  });
+
+  it("a procurement grant or a custom-role key is NOT a licence to bind an accounting system", async () => {
+    const { canManageAccountingIntegration } = await import("@/lib/procurement-visibility");
+    expect(canManageAccountingIntegration({ role: "ORGANIZER", procurementSettle: true } as never)).toBe(false);
+    expect(canManageAccountingIntegration({ role: "ORGANIZER", procurementApproveUnlimited: true } as never)).toBe(false);
+    expect(canManageAccountingIntegration({ role: "ORGANIZER", procurementPermissions: ["procurement.requests.manage"] } as never)).toBe(false);
+  });
+});

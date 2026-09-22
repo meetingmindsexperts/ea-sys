@@ -20,6 +20,7 @@ import {
   canApproveProcurement,
   canAuthorBudgets,
   canDecideSuppliers,
+  canManageAccountingIntegration,
   canRequestProcurement,
   canSettleProcurement,
   canViewProcurement,
@@ -27,7 +28,7 @@ import {
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
-export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier";
+export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier" | "integration";
 
 export type ProcurementSession =
   | { user?: (ProcurementUserLike & { id?: string; organizationId?: string | null }) | null }
@@ -67,6 +68,10 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
       return canApproveProcurement(user, amountAed ?? Number.NaN);
     case "decide-supplier":
       return canDecideSuppliers(user);
+    case "integration":
+      // Linking the accounting system: ADMIN and SUPER_ADMIN, the same
+      // population as the other cards on Settings, Integrations.
+      return canManageAccountingIntegration(user);
   }
 }
 

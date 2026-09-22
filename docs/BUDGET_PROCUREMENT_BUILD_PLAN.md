@@ -333,7 +333,18 @@ there says the deployment is not configured and nothing is attempted.
    Intuit's grace period tolerates, and the only automatic caller is the
    daily job, which holds a worker lease and runs alone. A second automatic
    reader is the point at which this needs a lock.
-5. **The OAuth state is signed.** Intuit hands `state` back and it is the
+5. **Who may connect: any admin** (owner ruling, 22 September 2026, "any
+   admin can connect"). Wider than the spec §8 rule that re-auth is a
+   settle-grant button, on the reasoning that a super admin can grant
+   themselves the settle grant in two clicks anyway, so excluding them
+   bought no security and left a visible Connect button that refused. The
+   predicate `canManageAccountingIntegration` is ROLE ONLY (ADMIN,
+   SUPER_ADMIN), the same population as the Zoom, Stripe and AI cards
+   beside it, and deliberately narrower than `canAdminProcurement`: a
+   custom role holding `procurement.requests.manage` manages other
+   people's requests, which says nothing about binding an accounting
+   system. Reading the status and the chart still needs only `view`.
+6. **The OAuth state is signed.** Intuit hands `state` back and it is the
    only thing tying the callback to the person who started it. It is an
    HMAC over the organisation and the person, ten minutes, and the callback
    refuses a state naming another organisation, which is what stops a

@@ -12,7 +12,7 @@ import { mintConnectState } from "@/procurement/integrations/quickbooks/state";
 const ROUTE = "integrations/quickbooks/connect";
 
 export async function GET() {
-  const g = await procurementGuard({ route: ROUTE, need: "settle" });
+  const g = await procurementGuard({ route: ROUTE, need: "integration" });
   if (!g.ok) return g.response;
 
   const rl = checkRateLimit({ key: `quickbooks-connect:${g.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
