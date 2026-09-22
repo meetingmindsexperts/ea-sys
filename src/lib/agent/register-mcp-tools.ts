@@ -17,6 +17,7 @@ import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import type { AgentSource } from "@/lib/agent/tools/_shared";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, requiresApproval } from "@/lib/agent/approvals";
 import { apiLogger } from "@/lib/logger";
+import { dashboardPathForTool, dashboardUrl } from "@/lib/agent/dashboard-links";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,15 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: AgentC
       });
     } else {
       apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, source: ctx.source, durationMs });
+    }
+    // A successful result carries the dashboard link to what it touched (the
+    // row's own page when the result names it), on both doors, so the model
+    // quotes a real link instead of guessing a menu name (September 22, 2026).
+    if (result && typeof result === "object" && !Array.isArray(result) && !("error" in result)) {
+      const path = dashboardPathForTool(name, ctx.eventId || null, result);
+      if (path && !("dashboardUrl" in result)) {
+        (result as Record<string, unknown>).dashboardUrl = dashboardUrl(path, process.env.NEXT_PUBLIC_APP_URL);
+      }
     }
     return typeof result === "string" ? result : JSON.stringify(result, null, 2);
   } catch (err) {

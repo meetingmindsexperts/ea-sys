@@ -81,6 +81,21 @@ describe("buildSystemPrompt", () => {
     expect(example.indexOf("Call list_tracks")).toBeGreaterThan(-1);
     expect(example.indexOf("Call list_tracks")).toBeLessThan(example.indexOf("Call create_track"));
     expect(p).not.toContain("READ-ONLY SESSION");
+    // The prompt's own note on upsert_sponsors said "replaces the entire
+    // array" while the executor has merged by default since Sep 2, 2026.
+    expect(p).toContain("upsert_sponsors merges by default");
+    expect(p).not.toContain("replaces the entire sponsor array");
+  });
+
+  it("carries the dashboard map, with the event's id filled in when one is selected", async () => {
+    // Asked "where can I find those drafts?", the agent invented sidebar
+    // names (Sep 22, 2026); the map is where it reads the real ones from.
+    const withEvent = await buildSystemPrompt({ organizationId: "org1", eventId: "ev1", readOnly: false, tools });
+    expect(withEvent).toContain("## Where things are in the dashboard");
+    expect(withEvent).toContain("Communications, Email Templates");
+    expect(withEvent).toContain("/events/ev1/communications/templates");
+    const without = await buildSystemPrompt({ organizationId: "org1", eventId: null, readOnly: false, tools });
+    expect(without).toContain("/events/{eventId}/communications/templates");
   });
 
   it("tells the model the approval card is the single confirmation, never a prose question first", async () => {

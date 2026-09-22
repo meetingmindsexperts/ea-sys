@@ -76,3 +76,17 @@ test("R8 unpaid registrations exclude the cancelled one", async ({ golden }) => 
   // A cancelled registration owes nothing (the July 2026 rule).
   expect(mentionsAny(r.reply, ["Zain"]), `cancelled registrant listed as owing: ${r.reply}`).toBe(false);
 });
+
+// The September 22, 2026 production reply: "in the left sidebar, click
+// Emails or Email Templates", pages that do not exist. The real page is
+// Communications, Email Templates; the prompt now carries the map.
+test("R9 where to edit the speaker invitation email", async ({ golden }) => {
+  const r = await golden.ask({
+    eventId: EV.READ.id,
+    message: "Where do I go in the dashboard to edit the speaker invitation email for this event?",
+  });
+  expect(ranWrites(r.steps)).toEqual([]);
+  expect(r.reply, `names Communications: ${r.reply}`).toMatch(/communications/i);
+  expect(r.reply, `gives the real link: ${r.reply}`).toContain(`/events/${EV.READ.id}/communications/templates`);
+  expect(r.reply, `no invented sidebar entry: ${r.reply}`).not.toMatch(/click\s+"?emails"?\b/i);
+});

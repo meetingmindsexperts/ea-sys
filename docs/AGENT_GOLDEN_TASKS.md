@@ -16,7 +16,7 @@ the half-day follow-up once this has a few green local runs behind it.
 ## Running it
 
 ```
-npm run agent:golden                        # one pass, 38 tasks, roughly five minutes
+npm run agent:golden                        # one pass, 39 tasks, roughly five minutes
 npm run agent:golden -- --repeat-each 3     # a pass rate: every task three times
 npm run agent:golden -- -g "W1"             # one task by title
 AGENT_MODEL=claude-sonnet-5 npm run agent:golden   # grade another model (E5)
@@ -79,6 +79,7 @@ its own token). Every DB assertion is a Prisma query in the spec.
 | R6 | sponsors and tiers (sponsors) | `list_sponsors`, no writes, both seeded sponsors named |
 | R7 | promo codes and activity (promo) | `list_promo_codes`, no writes, OLDCODE named |
 | R8 | who still has to pay | unpaid or registrations listed, no writes, the two owing named, the cancelled one not |
+| R9 | where to edit the speaker invitation email | no writes, the reply names Communications and the event's `/communications/templates` link, no invented sidebar entry |
 | W1 | three tracks (tracks) | exactly those three, `list_tracks` before the first create, three writes, no other write |
 | W2 | register a doctor on VIP (vip) | one registration on the VIP type, `list_ticket_types` first, one write |
 | W3 | a confirmed speaker from Cairo (speakers) | the speaker exists, CONFIRMED, organisation matches, one write |
@@ -86,7 +87,7 @@ its own token). Every DB assertion is a Prisma query in the spec.
 | W5 | promo GOLDEN20 at 20% for 100 uses (promo) | PERCENTAGE 20, maxUses 100, one write |
 | W6 | a track plus two confirmed speakers (multi) | all three rows, three writes, only those two tools |
 | W7 | confirm a pending registration (update) | status CONFIRMED, at most one write, only an update tool |
-| W8 | a new email template from a pasted draft (template) | exactly one template on the event, a custom slug (not the built-in invitation), the draft's words, `{{speakerName}}` or `{{firstName}}`, `{{agreementBlock}}`, `{{presentationDetails}}`, `{{organizerSignature}}`, one write, only `create_email_template` |
+| W8 | a new email template from a pasted draft (template) | exactly one template on the event, a custom slug (not the built-in invitation), the draft's words, `{{speakerName}}` or `{{firstName}}`, `{{agreementBlock}}`, `{{presentationDetails}}`, `{{organizerSignature}}`, one write, only `create_email_template`, the reply quotes the new template's own link |
 | W9 | three invitation categories (template3) | three templates, all custom slugs, each greets by token and carries `{{presentationDetails}}`, names say international / local / no entitlement, `update_email_template` never called, three writes, only `create_email_template` |
 | A1 | email confirmed registrants, approved (email-approve) | paused once and ran nothing, then ran approved; three EmailLog rows with the subject |
 | A2 | email everyone, cancelled (email-cancel) | one card, one run, no writes, no EmailLog, no ScheduledEmail |
@@ -141,7 +142,11 @@ second defect the production run had also hit: the model wrote "I'll now
 create all three" and the three HTML bodies overran the agent's 4,096-token
 output cap; the loop treated the `max_tokens` stop as a normal end and the
 run closed COMPLETED with zero writes. The loop now reports a cut reply as
-an error and the cap is 16,384; W9 passed on the rerun. W8: the person hands the agent a draft and asks for a new template, and
+an error and the cap is 16,384; W9 passed on the rerun. R9 came from the same
+production run's third reply, which sent the person to a sidebar entry
+called "Emails" that does not exist: the prompt carried no map of the
+dashboard, so it does now, and every tool result carries the link to what
+it touched. W8: the person hands the agent a draft and asks for a new template, and
 the grader checks it made a NEW one (not an overwrite of the built-in
 invitation) and turned the draft's prose into the tokens the send fills.
 

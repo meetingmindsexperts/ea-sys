@@ -150,6 +150,9 @@ test("W8 create a custom email template from a draft", async ({ golden }) => {
   expect(t.htmlContent).toContain("{{organizerSignature}}");
   expect(ranWrites(r.steps)).toHaveLength(1);
   expect(onlyWrites(r.steps, [T.create_email_template])).toEqual([]);
+  // The result carries the template's own page; the model quotes it rather
+  // than guessing where the person should look (Sep 22, 2026).
+  expect(r.reply, `quotes the template's link: ${r.reply}`).toContain(`/events/${EV.TEMPLATE.id}/communications/templates/`);
 });
 
 // The September 22, 2026 production case, verbatim in shape: asked for three

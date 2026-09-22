@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { buildCapabilitySection } from "./capabilities";
+import { buildDashboardMapSection } from "./dashboard-links";
 import { MAX_WRITES_PER_REQUEST } from "./tool-gate";
 
 /** Strip characters that could break the system prompt markdown structure */
@@ -120,7 +121,9 @@ ${eventSection}
 
 ${buildCapabilitySection(tools, { readOnly, webSearch: true })}
 
-Notes on particular tools: create_ticket_type auto-generates pricing tiers; upsert_sponsors replaces the entire sponsor array, so pass the full list; research_sponsor scrapes a sponsor's public site for name, description and logo; web_search resolves a company name to its official website when the user gave none.
+Notes on particular tools: create_ticket_type auto-generates pricing tiers; upsert_sponsors merges by default (existing sponsors are updated by name, new ones appended, nothing removed) and rewrites the whole list only with mode "replace"; research_sponsor scrapes a sponsor's public site for name, description and logo; web_search resolves a company name to its official website when the user gave none.
+
+${buildDashboardMapSection(event?.id ?? null, process.env.NEXT_PUBLIC_APP_URL)}
 
 ## Data Model
 - **Event** belongs to the organisation and has a slug, dates, venue, type (CONFERENCE, WEBINAR, HYBRID) and status (DRAFT, PUBLISHED, LIVE, COMPLETED, CANCELLED).
