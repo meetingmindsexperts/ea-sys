@@ -68,6 +68,7 @@ import * as hrYearRoll from "./jobs/hr-year-roll";
 import * as mirrorArchive from "./jobs/mirror-archive";
 import * as approvalEscalation from "./jobs/approval-escalation";
 import * as agentRunPrune from "./jobs/agent-run-prune";
+import * as quickbooksHealth from "./jobs/quickbooks-health";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -110,6 +111,7 @@ const JOBS = [
   mirrorArchive,
   approvalEscalation,
   agentRunPrune,
+  quickbooksHealth,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads

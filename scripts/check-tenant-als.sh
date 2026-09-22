@@ -49,6 +49,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWEPT_ROUTE_DIRS=(
   "src/app/api/hr"                # HR module (Aug 27, 2026) — born swept, master-silo only
   "src/app/api/procurement"       # Budget & Procurement module (Sep 14, 2026), born swept, ships dark
+  "src/app/api/integrations"      # QuickBooks connector (Sep 22, 2026) — procurement-owned, own namespace so the Intuit redirect URI never has to move
   "src/app/api/registrant"        # Registrant portal — lane taken from the HOST (item 6 follow-on, Aug 21, 2026)
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
@@ -435,6 +436,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/webinar-attendance-worker.ts"     # ZoomMeeting candidate scan
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
+  "src/procurement/integrations/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)
   "src/crm/reminders-worker.ts"              # due-task scan
   "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)
   # Added Aug 11, 2026 after review. Both were MISSED in the first pass because

@@ -102,6 +102,8 @@ export const queryKeys = {
   invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
   registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
   zoomCredentials: ["zoom", "credentials"] as const,
+  quickbooksConnection: ["quickbooks", "connection"] as const,
+  quickbooksChart: ["quickbooks", "chart"] as const,
   stripeCredentials: ["stripe", "credentials"] as const,
   aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
@@ -1878,6 +1880,85 @@ export function useResendRegistrationDocuments(eventId: string) {
       }>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.invoices(eventId) });
+    },
+  });
+}
+
+// ============ QUICKBOOKS ============
+
+export interface QuickBooksConnectionView {
+  connected: boolean;
+  realmId: string | null;
+  environment: "sandbox" | "production" | null;
+  companyName: string | null;
+  connectedAt: string | null;
+  connectedByUserId: string | null;
+  accessTokenExpiresAt: string | null;
+  refreshTokenExpiresAt: string | null;
+  lastHealthCheckAt: string | null;
+  lastHealthCheckOk: boolean | null;
+  lastHealthCheckError: string | null;
+  environmentMismatch: boolean;
+}
+
+export function useQuickBooksConnection() {
+  return useQuery({
+    queryKey: queryKeys.quickbooksConnection,
+    queryFn: () =>
+      fetchApi<{
+        configured: boolean;
+        environment: "sandbox" | "production" | null;
+        redirectUri: string | null;
+        connection: QuickBooksConnectionView;
+      }>("/api/integrations/quickbooks"),
+  });
+}
+
+/** Live read of the Classes and chart of accounts; only fetched when the panel is open. */
+export function useQuickBooksChart(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.quickbooksChart,
+    enabled,
+    staleTime: 60_000,
+    queryFn: () =>
+      fetchApi<{
+        classes: { id: string; name: string; fullyQualifiedName: string | null; active: boolean }[];
+        accounts: {
+          id: string;
+          name: string;
+          acctNum: string | null;
+          accountType: string | null;
+          accountSubType: string | null;
+          classification: string | null;
+          active: boolean;
+          fullyQualifiedName: string | null;
+        }[];
+        counts: { classes: number; accounts: number };
+      }>("/api/integrations/quickbooks/chart"),
+  });
+}
+
+export function useTestQuickBooksConnection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ ok: boolean; company: { companyName: string | null; legalName: string | null; homeCurrency: string | null; multiCurrencyEnabled: boolean | null } }>(
+        "/api/integrations/quickbooks/test",
+        { method: "POST" },
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksConnection });
+    },
+  });
+}
+
+export function useDisconnectQuickBooks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => fetchApi<{ disconnected: boolean; revoked: boolean }>("/api/integrations/quickbooks", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quickbooksConnection });
+      queryClient.removeQueries({ queryKey: queryKeys.quickbooksChart });
     },
   });
 }

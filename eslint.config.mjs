@@ -146,6 +146,13 @@ const eslintConfig = defineConfig([
       "src/procurement/**",
       "src/app/api/procurement/**",
       "src/app/(dashboard)/procurement/**",
+      // The QuickBooks connector's HTTP surface. It is the module's, not core's,
+      // but it does not live under api/procurement because one of its routes is
+      // the OAuth redirect URI, a string registered in Intuit's console that
+      // cannot be moved without re-registering it there. Named to the exact
+      // subpath, so a later integration in this namespace that is NOT
+      // procurement's is still held to the boundary.
+      "src/app/api/integrations/quickbooks/**",
       // Permitted core-side touch points, deliberately short.
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",

@@ -273,6 +273,85 @@ Built in core because the HR module will reuse it for leave approvals; procureme
 
 ---
 
+## 6a. The QuickBooks connection, built early (Tuesday 22 September 2026)
+
+Phase 3's first half, pulled forward because the owner created the Intuit
+sandbox app and put its credentials in `.env.local`. It CONNECTS and READS
+only: no outbox, no purchase-order posting, no read-back of bills. Those
+stay Phase 3 and still need the sandbox realm to have taken a real PO.
+
+**What it does.** A QuickBooks card on Settings, Integrations: Connect runs
+the OAuth flow, Test connection probes the live company, Show Classes and
+accounts reads the two lists a budget maps onto (an event code is a Class),
+Disconnect revokes and clears. A daily worker job keeps the token warm and
+records whether the connection still works, because a refresh token unused
+for about 100 days stops working and nothing would otherwise say so.
+
+**Files.** `src/procurement/integrations/quickbooks/` (`config.ts` the app
+from the environment, `state.ts` the signed OAuth state, `oauth.ts` the
+three Intuit calls, `connection.ts` the stored per-organisation connection,
+`client.ts` the reads, `health-worker.ts` the daily tick),
+`src/app/api/integrations/quickbooks/` (status and disconnect, connect,
+callback, test, chart), `worker/jobs/quickbooks-health.ts` (JOB_ID 1023,
+05:10 UTC daily), `src/components/settings/org-quickbooks-connection.tsx`.
+
+**Environment (`.env.example` is gitignored, so the contract lives here).**
+`QUICKBOOKS_ENVIRONMENT` picks the triple, `sandbox` unless it reads exactly
+`production` (a typo must never point a test integration at real
+accounting). Sandbox reads `QUICKBOOKS_SANDBOX_CLIENT_ID`,
+`QUICKBOOKS_SANDBOX_CLIENT_SECRET`, `QUICKBOOKS_SANDBOX_REDIRECT_URI`;
+production reads the same names without `SANDBOX`. A partial triple is
+treated as no app at all. Production has none of these today, so the card
+there says the deployment is not configured and nothing is attempted.
+
+**Decisions taken while building.**
+
+1. **One Intuit app, many realms.** The client id and secret identify EA-SYS
+   and live in the environment; the realm and its tokens are per
+   organisation, in `Organization.settings.quickbooks`, AES-256-GCM under
+   `NEXTAUTH_SECRET` (the Zoom and EventsAir pattern, so no migration). A
+   second tenant connecting its own company needs no new Intuit app.
+2. **The stored environment is part of the connection.** A deployment that
+   flips sandbox to production holds tokens for a different company minted
+   by a different app; a mismatch reads as disconnected and says so, rather
+   than pointing a test integration at real accounting.
+3. **The routes live at `/api/integrations/quickbooks/`, not under
+   `/api/procurement/`.** One of them is the OAuth redirect URI, a string
+   registered in Intuit's console that cannot be moved without
+   re-registering it there, so a neutral namespace ages better if
+   QuickBooks ever serves more than procurement. The two mechanical costs
+   were paid rather than left: the directory was added to
+   `check-tenant-als.sh`'s swept list (every handler takes the tenant lane,
+   so Phase 3's policied writes there are watched from the start), and
+   `eslint.config.mjs` names the exact subpath as the module's own, so a
+   later non-procurement integration in that namespace is still held to the
+   one-way boundary.
+4. **A refresh writes before it returns.** Intuit rotates the refresh token
+   on every refresh, so a refresh that succeeds there and fails to persist
+   here loses the connection. Concurrency is stated rather than defended
+   against: two refreshes at once both succeed and the second wins, which
+   Intuit's grace period tolerates, and the only automatic caller is the
+   daily job, which holds a worker lease and runs alone. A second automatic
+   reader is the point at which this needs a lock.
+5. **The OAuth state is signed.** Intuit hands `state` back and it is the
+   only thing tying the callback to the person who started it. It is an
+   HMAC over the organisation and the person, ten minutes, and the callback
+   refuses a state naming another organisation, which is what stops a
+   QuickBooks company being attached to the wrong tenant.
+
+**Still open before the rest of Phase 3.** Items 1 and 6 of the Phase 0
+table (the bill practice question for Muthu, the ProcurementExpress export)
+and confirming that existing QuickBooks Class names match EA-SYS event
+codes. The redirect URI registered today is the developer's localhost; the
+production URL must be added to the Intuit app before this can connect from
+the box.
+
+**Not built, deliberately:** the outbox, purchase-order create and close,
+the nightly read-back, the unallocated-bills page, the Integration Monitor,
+FX. `AccountMapping` is not needed yet because nothing is posted.
+
+---
+
 ## 7. Phase 3: connector (weeks 10 to 12)
 
 **Tables:** `Outbox`, `SyncLog`, `FxRate`, `AccountMapping`, `SupplierInvoice`, `SupplierInvoiceLine`.
