@@ -82,7 +82,6 @@ import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { OrgStripeCredentials } from "@/components/settings/org-stripe-credentials";
 import { OrgAiCredentials } from "@/components/settings/org-ai-credentials";
-import { OrgQuickBooksCredentials } from "@/components/settings/org-quickbooks-credentials";
 import { OrgQuickBooksConnection } from "@/components/settings/org-quickbooks-connection";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -1320,7 +1319,6 @@ export default function SettingsPage() {
               <ZoomCredentialsCard />
               <OrgStripeCredentials />
               <OrgAiCredentials />
-              <OrgQuickBooksCredentials />
               <OrgQuickBooksConnection />
             </div>
           </TabsContent>

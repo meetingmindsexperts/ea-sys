@@ -294,16 +294,20 @@ three Intuit calls, `connection.ts` the stored per-organisation connection,
 `client.ts` the reads, `health-worker.ts` the daily tick),
 `src/app/api/integrations/quickbooks/` (status and disconnect, connect,
 callback, test, chart, credentials), `worker/jobs/quickbooks-health.ts`
-(JOB_ID 1023, 05:10 UTC daily),
-`src/components/settings/org-quickbooks-credentials.tsx` and
-`org-quickbooks-connection.tsx`.
+(JOB_ID 1023, 05:10 UTC daily), and the one card,
+`src/components/settings/org-quickbooks-connection.tsx`, which renders
+`org-quickbooks-credentials.tsx`'s form inside its disclosure.
 
 **No environment variables. The credentials are per organisation, entered
 in the app** (owner decision the same day, reversing the shape below; the
-`QUICKBOOKS_*` variables were retired and are read nowhere). A QuickBooks
-App card on Settings, Integrations holds a **development (sandbox) pair and
-a production pair side by side**, each with a client id, a client secret and
-a redirect URI, plus a toggle for which is live. Stored in
+`QUICKBOOKS_*` variables were retired and are read nowhere). **One**
+QuickBooks card on Settings, Integrations, matching Zoom, Stripe and AI
+beside it, with an **App credentials** disclosure at its foot holding a
+**development (sandbox) pair and a production pair side by side**, each with
+a client id, a client secret and a redirect URI, plus a toggle for which is
+live. The disclosure opens by itself when no app is configured, because
+filling it in is then the only thing to do on the card, and can be collapsed
+freely after that. Stored in
 `Organization.settings.quickbooksApp`, the secret AES-256-GCM under
 `NEXTAUTH_SECRET`, so there is still no migration. A partial pair is treated
 as no app at all: a missing redirect URI fails at Intuit with a message

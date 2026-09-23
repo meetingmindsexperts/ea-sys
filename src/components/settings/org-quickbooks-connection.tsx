@@ -3,10 +3,15 @@
 /**
  * QuickBooks card on Settings → Integrations (September 22, 2026).
  *
- * The first slice of the accounting connector: connect a QuickBooks
- * company, prove the connection works, and read back the two lists the
+ * The ONE QuickBooks card, matching Zoom, Stripe and AI beside it: connect
+ * a company, prove the connection works, and read back the two lists the
  * budget module maps onto (Classes, which are event codes, and the chart of
  * accounts). Nothing is written to QuickBooks from here.
+ *
+ * The Intuit app credentials live in a disclosure at the foot rather than a
+ * card of their own, because they are set once and then never touched while
+ * the status above them is looked at often. It opens by itself when no app
+ * is configured, since filling it in is then the only thing to do.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, CheckCircle2, XCircle, BookOpen, Plug, Unplug, RefreshCw } from "lucide-react";
+import { QuickBooksCredentialsForm } from "@/components/settings/org-quickbooks-credentials";
 import { toast } from "sonner";
 import {
   useQuickBooksConnection,
@@ -31,7 +37,7 @@ const CALLBACK_REASONS: Record<string, string> = {
   missing_params: "Intuit's response was incomplete. Start the connection again.",
   state_expired: "The connection took too long to finish. Start it again.",
   state_invalid: "That connection attempt could not be verified. Start it again.",
-  not_configured: "No QuickBooks app is configured. Fill in the QuickBooks App card above first.",
+  not_configured: "No QuickBooks app is configured. Fill in App credentials first.",
   exchange_failed: "Intuit refused to issue tokens. Check the app's credentials and redirect URI.",
 };
 
@@ -39,6 +45,37 @@ function formatWhen(iso: string | null): string {
   if (!iso) return "never";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "never" : d.toLocaleString();
+}
+
+/**
+ * The credentials disclosure, open by itself when no app is configured
+ * because filling it in is then the only thing to do on this card.
+ *
+ * Its own component so the initial state can be read once, on mount, after
+ * the card has loaded. Passing `open` to <details> on every render would
+ * make it uncontrollable: React re-applies the attribute, so a person who
+ * collapsed it would watch it spring back.
+ */
+function CredentialsDisclosure({ startOpen, environment }: { startOpen: boolean; environment: string | null }) {
+  const [open, setOpen] = useState(startOpen);
+  return (
+    <details
+      className="group rounded-lg border [&[open]>summary>svg]:rotate-90"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <svg className="h-3 w-3 transition-transform" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+          <path d="M4.5 2.5l4 3.5-4 3.5z" />
+        </svg>
+        App credentials
+        {environment && <span className="ml-1 text-xs font-normal opacity-70">({environment})</span>}
+      </summary>
+      <div className="border-t p-3">
+        <QuickBooksCredentialsForm />
+      </div>
+    </details>
+  );
 }
 
 export function OrgQuickBooksConnection() {
@@ -126,7 +163,7 @@ export function OrgQuickBooksConnection() {
         {!data?.configured && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
             No QuickBooks app is configured for this organisation. Fill in the client id, client secret and redirect
-            URI in the QuickBooks App card above, then connect here.
+            URI under <strong>App credentials</strong> below, then connect here.
           </div>
         )}
 
@@ -262,6 +299,9 @@ export function OrgQuickBooksConnection() {
             )}
           </div>
         )}
+
+        {/* App credentials, in the house <details> disclosure. */}
+        <CredentialsDisclosure startOpen={!data?.configured} environment={data?.environment ?? null} />
       </CardContent>
     </Card>
   );
