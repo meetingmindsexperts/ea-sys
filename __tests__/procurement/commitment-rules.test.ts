@@ -4,7 +4,6 @@ import {
   COMMITMENT_STATUS_LABEL,
   FULFILLMENT_LABEL,
   RECEIPT_SECOND_PERSON_FLOOR_AED,
-  impliedTaxRatePercent,
   orderReadiness,
   receiptNeedsSecondPerson,
 } from "@/procurement/lib/commitment-rules";
@@ -45,15 +44,5 @@ describe("orderReadiness", () => {
     expect(orderReadiness({ status: "APPROVED", linkedCommitmentId: null, supplier: { approvalStatus: "PROPOSED", isActive: true } })).toEqual({ ready: false, reason: "supplier" });
     expect(orderReadiness({ status: "APPROVED", linkedCommitmentId: null, supplier: { approvalStatus: "APPROVED", isActive: false } })).toEqual({ ready: false, reason: "supplier" });
     expect(orderReadiness({ status: "APPROVED", linkedCommitmentId: null, supplier: null })).toEqual({ ready: false, reason: "supplier" });
-  });
-});
-
-describe("impliedTaxRatePercent", () => {
-  it("reads the percentage the stored pair implies, to two places, and null with no tax", () => {
-    expect(impliedTaxRatePercent("1000", "50")).toBe(5);
-    expect(impliedTaxRatePercent("36000", "1800")).toBe(5);
-    expect(impliedTaxRatePercent("300", "10")).toBe(3.33);
-    expect(impliedTaxRatePercent("1000", "0")).toBeNull();
-    expect(impliedTaxRatePercent("0", "5")).toBeNull();
   });
 });

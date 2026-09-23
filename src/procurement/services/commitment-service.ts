@@ -86,7 +86,7 @@ type Row = Prisma.CommitmentGetPayload<{ select: typeof COMMITMENT_SELECT }>;
 /** The request as the order needs it: enough to issue, nothing the request service owns. */
 const REQUEST_FOR_ORDER_SELECT = {
   id: true, requestNo: true, budgetId: true, lineKey: true, eventCode: true, requesterUserId: true, decidedByUserId: true, supplierId: true, title: true,
-  amount: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, status: true, linkedCommitmentId: true, emailSupplierOnIssue: true, version: true,
+  amount: true, taxRatePercent: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, status: true, linkedCommitmentId: true, emailSupplierOnIssue: true, version: true,
   supplier: { select: { id: true, approvalStatus: true, isActive: true } },
 } as const;
 
@@ -284,7 +284,12 @@ export async function issueOrderInTx(tx: Db, input: { organizationId: string; ac
           qty: "1",
           unitCost: storedString(r.amount),
           taxCode: line.taxCode,
-          taxRatePercent: money(r.amount).gt(0) && money(r.taxAmount).gt(0) ? money(r.taxAmount).div(money(r.amount)).times(100).toDecimalPlaces(2).toString() : null,
+          // The rate the requester STATED, carried through. It used to be
+          // divided back out of the amount pair here, which turned one dirham
+          // of typing error into "VAT (4.99%)" on the PDF the supplier is sent
+          // and matches their tax invoice against. Null stays null: a bill
+          // with no single rate claims no percentage.
+          taxRatePercent: (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!).toDecimalPlaces(2).toString(),
           amount: storedString(r.amount),
           taxAmount: storedString(r.taxAmount),
           sortOrder: 0,

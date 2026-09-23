@@ -1,0 +1,16 @@
+-- Budget & Procurement: the spend request states a VAT RATE, not a VAT amount.
+--
+-- WHY. The rate was known on both sides of the request and lost in the middle.
+-- BudgetLine carries taxRatePercent and CommitmentLine carries taxRatePercent,
+-- but SpendRequest held only taxAmount, so the requester did the arithmetic and
+-- the order line then divided the rate back out of the pair. A typo of one
+-- dirham in the VAT turned "VAT (5%)" into "VAT (4.99%)" on the purchase order
+-- PDF sent to the supplier, which is the document their tax invoice is matched
+-- against.
+--
+-- NULL is meaningful: the VAT amount was entered by hand for a bill that has no
+-- single rate (exempt, reverse charge, mixed). No percentage is then claimed.
+--
+-- Additive and idempotent: one nullable column, no backfill and none needed.
+-- There are no spend requests in production yet.
+ALTER TABLE "SpendRequest" ADD COLUMN IF NOT EXISTS "taxRatePercent" DECIMAL(5,2);

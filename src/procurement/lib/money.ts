@@ -71,6 +71,36 @@ export function storedString(v: MoneyInput): string {
   return toStored(v).toFixed(STORE_DP);
 }
 
+/**
+ * A money figure a PERSON TYPED, normalised to the two decimals money is
+ * actually written in.
+ *
+ * Storage is 4 dp so computed values (an FX conversion, a per-unit
+ * multiplication) keep their precision, but nobody types a third decimal of a
+ * dirham on purpose. Before this, `15000.12345` was accepted, stored as
+ * `15000.1235` and displayed as `15000.12`, so the number on the screen was
+ * not the number in the database. Rounding what was typed closes that gap
+ * without touching the maths done on it afterwards.
+ */
+export function enteredMoney(v: MoneyInput): Decimal {
+  return toDisplay(v);
+}
+
+/**
+ * VAT on an ex-VAT amount at a percentage rate, to 2 dp.
+ *
+ * The requester states the RATE and this computes the amount, rather than the
+ * other way round. A VAT figure is a money amount that appears on an invoice,
+ * so it is 2 dp like the amount it sits beside; 5% of 15,000.33 is 750.0165
+ * and belongs on paper as 750.02.
+ */
+export function taxFromRate(amountExVat: MoneyInput, ratePercent: MoneyInput): Decimal {
+  const amount = assertNonNegative(amountExVat, "amount");
+  const pct = money(ratePercent);
+  if (pct.lt(0) || pct.gt(100)) throw new RangeError("A VAT rate is a percentage between 0 and 100.");
+  return toDisplay(amount.mul(pct).div(100));
+}
+
 export function assertRate(rate: MoneyInput): Decimal {
   const r = money(rate);
   if (!r.gt(0)) throw new RangeError("An FX rate must be greater than zero (spec §7.3).");

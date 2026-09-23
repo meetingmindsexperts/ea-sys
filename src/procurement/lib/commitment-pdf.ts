@@ -23,7 +23,6 @@ import {
   loadLocalLogo,
   toAddressLines,
 } from "@/lib/pdf/document-layout";
-import { impliedTaxRatePercent } from "./commitment-rules";
 import { money } from "./money";
 
 export interface PurchaseOrderPdfLine {
@@ -144,7 +143,11 @@ export async function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): Prom
         { name: `Supplier ${data.supplier.code}`, items: data.lines.map((l) => ({ description: orderLineText(l), amount: Number(money(l.amount).toFixed(2)) })) },
       ]);
 
-      const taxRate = impliedTaxRatePercent(data.amount, data.taxAmount);
+      // The rate the order LINE carries, stated by the requester and never
+      // divided back out of the amounts. Null when the VAT was entered by
+      // hand for a bill with no single rate, and the totals block then shows
+      // the VAT figure with no percentage beside it rather than a guess.
+      const taxRate = data.lines[0]?.taxRatePercent == null ? null : Number(money(data.lines[0].taxRatePercent).toDecimalPlaces(2).toString());
       y = ensureSpace(doc, y, 90);
       y = drawTotals(doc, y, {
         currency: data.currency,

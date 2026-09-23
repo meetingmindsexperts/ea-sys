@@ -94,7 +94,7 @@ export default function SpendRequestPage() {
         <div className="space-y-5">
           <section className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2">
             <Field k="Amount, ex-VAT" v={`${cur} ${money2(r.amount)}`} strong />
-            <Field k="VAT" v={`${cur} ${money2(r.taxAmount)}`} />
+            <Field k="VAT" v={r.taxRatePercent === null ? `${cur} ${money2(r.taxAmount)} (entered by hand)` : `${cur} ${money2(r.taxAmount)} at ${Number(r.taxRatePercent)}%`} />
             {cur !== rep && <Field k={`In ${rep}`} v={`${rep} ${money2(r.amountReporting)}${r.fxRateToReporting ? ` at ${r.fxRateToReporting}` : ""}`} />}
             {r.amountAed && <Field k="For the ceiling" v={`AED ${money2(r.amountAed)}`} />}
             <Field k="Vendor" v={r.supplier ? `${r.supplier.displayName}${r.supplier.approvalStatus !== "APPROVED" ? ` (supplier ${r.supplier.approvalStatus.toLowerCase()})` : ""}` : r.proposedVendorName ? `${r.proposedVendorName} (proposed, not on the supplier list)` : "Not given"} />
@@ -629,7 +629,15 @@ function AmendDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () => 
   const rising = Number(amount) > Number(r.amount);
   async function go() {
     try {
-      const saved = await amend.mutateAsync({ amount, taxAmount: tax || null, reason: reason.trim(), reportingToAedRate: floats ? rate : null, expectedVersion: r.version });
+      // With a stated rate the VAT follows the new amount on the server; only
+      // a by-hand request still carries a figure.
+      const saved = await amend.mutateAsync({
+        amount,
+        ...(r.taxRatePercent === null ? { taxAmount: tax || null } : {}),
+        reason: reason.trim(),
+        reportingToAedRate: floats ? rate : null,
+        expectedVersion: r.version,
+      });
       toast.success(saved.status === "PENDING_APPROVAL" ? "The rise is routed for approval on the new total." : "Amount lowered and recorded.");
       onClose();
     } catch (err) {
@@ -648,10 +656,19 @@ function AmendDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () => 
             <Label htmlFor="am-amount">{`New amount, ex-VAT (${r.currency})`}</Label>
             <Input id="am-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="am-tax">VAT amount</Label>
-            <Input id="am-tax" inputMode="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0.00" />
-          </div>
+          {r.taxRatePercent === null ? (
+            <div className="space-y-1">
+              <Label htmlFor="am-tax">VAT amount</Label>
+              <Input id="am-tax" inputMode="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0.00" />
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label>VAT</Label>
+              <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {`Recalculated at ${Number(r.taxRatePercent)}%${Number(amount) > 0 ? `: ${r.currency} ${money2(String(Math.round(Number(amount) * Number(r.taxRatePercent)) / 100))}` : ""}.`}
+              </p>
+            </div>
+          )}
         </div>
         {floats && rising && (
           <div className="space-y-1">

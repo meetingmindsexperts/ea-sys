@@ -215,12 +215,25 @@ const isoCurrency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "A curre
 const moduleCurrency = z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(BUDGET_CURRENCIES));
 const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD");
 
+/** A VAT percentage: 0 to 100, two decimals, the same shape BudgetLine.taxRatePercent stores. */
+const percentInput = z.union([z.number(), z.string().trim().min(1)]).refine(
+  (v) => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100,
+  { message: "A VAT rate is a percentage between 0 and 100" },
+);
+
 const spendRequestFields = {
   budgetId: z.string().min(1).max(100),
   lineKey: z.string().min(1).max(100).nullable().optional(),
   title: z.string().trim().min(1).max(200),
   justification: z.string().trim().max(4000).nullable().optional(),
   amount: amountInput,
+  /**
+   * The VAT RATE. `taxAmount` is computed from it server-side and a rate sent
+   * with an amount wins, so a client cannot state 5% and send a different
+   * figure beside it. NULL is the deliberate escape hatch for a bill with no
+   * single rate, and then `taxAmount` is taken as given.
+   */
+  taxRatePercent: percentInput.nullable().optional(),
   taxAmount: moneyInput.nullable().optional(),
   /** One of the module's currencies (spec §14 Q7): the pegs and the plausibility band exist only for them. */
   currency: moduleCurrency,
@@ -249,6 +262,8 @@ export const spendRequestTransitionSchema = z.object({
 });
 export const amendSpendRequestSchema = z.object({
   amount: amountInput,
+  /** Omitted, the request's own rate re-applies to the new amount; sent, it replaces it. */
+  taxRatePercent: percentInput.nullable().optional(),
   taxAmount: moneyInput.nullable().optional(),
   reason: z.string().trim().min(1).max(2000),
   reportingToAedRate: rateInput.nullable().optional(),

@@ -10,6 +10,7 @@ import {
   budgetTotals,
   contingencyAmount,
   displayTotal,
+  enteredMoney,
   forecastDefault,
   forecastFor,
   isAtRisk,
@@ -19,6 +20,7 @@ import {
   reallocationExceedsCap,
   remaining,
   storedString,
+  taxFromRate,
   toAed,
   toDisplay,
   toStored,
@@ -53,6 +55,27 @@ describe("money: storage and display rounding", () => {
   });
   it("does not mutate the shared decimal.js configuration (review L1)", () => {
     expect(DecimalBase.rounding).toBe(DecimalBase.ROUND_HALF_UP);
+  });
+});
+
+describe("money: what a person typed, and VAT from a rate", () => {
+  it("rounds a typed figure to the two decimals money is written in", () => {
+    // Storage is 4 dp so computed values keep their precision, but a typed
+    // 15000.12345 used to store as 15000.1235 and display as 15000.12, so the
+    // number on the screen was not the number in the database.
+    expect(enteredMoney("15000.12345").toString()).toBe("15000.12");
+    expect(enteredMoney("15000.126").toString()).toBe("15000.13");
+    expect(enteredMoney("0.004").toString()).toBe("0");
+    expect(enteredMoney("15000").toString()).toBe("15000");
+  });
+  it("computes VAT from the rate, to 2 dp, and refuses a rate outside 0 to 100", () => {
+    expect(taxFromRate("15000", "5").toString()).toBe("750");
+    expect(taxFromRate("15000", "0").toString()).toBe("0");
+    // 5% of 15,000.33 is 750.0165 and belongs on an invoice as 750.02.
+    expect(taxFromRate("15000.33", "5").toString()).toBe("750.02");
+    expect(taxFromRate("1000", "7.5").toString()).toBe("75");
+    expect(() => taxFromRate("1000", "-1")).toThrow(RangeError);
+    expect(() => taxFromRate("1000", "101")).toThrow(RangeError);
   });
 });
 

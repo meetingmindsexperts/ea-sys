@@ -62,7 +62,7 @@ const ROWS: Record<string, unknown> = {
 
 const request = (over: Record<string, unknown> = {}) => ({
   id: "sr1", requestNo: "PR-2026-0007", budgetId: "b1", lineKey: "k-av", eventCode: "HM2026", requesterUserId: "req", supplierId: "s1", title: "LED wall",
-  amount: "1000.0000", taxAmount: "50.0000", currency: "EUR", fxRateToReporting: "4.2", amountAed: "4200.0000", categoryId: "c-av", status: "APPROVED", linkedCommitmentId: null, emailSupplierOnIssue: false, version: 3,
+  amount: "1000.0000", taxRatePercent: "5", taxAmount: "50.0000", currency: "EUR", fxRateToReporting: "4.2", amountAed: "4200.0000", categoryId: "c-av", status: "APPROVED", linkedCommitmentId: null, emailSupplierOnIssue: false, version: 3,
   supplier: { id: "s1", approvalStatus: "APPROVED", isActive: true },
   ...over,
 });
@@ -140,6 +140,18 @@ describe("issueOrderInTx", () => {
     mockDb.spendRequest.updateMany.mockResolvedValueOnce({ count: 0 });
     expect(await issueOrderInTx(mockDb as never, { organizationId: ORG, actorUserId: "lina", source: "ui", requestId: "sr1" })).toMatchObject({ ok: false, code: "STALE_WRITE" });
     expect(mockDb.budgetLine.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("issueOrderInTx: the VAT rate is carried, never divined", () => {
+  it("copies the request's stated rate onto the order line, and claims none when there is none", async () => {
+    // It used to compute taxAmount / amount * 100 here, so one dirham of typing
+    // error printed "VAT (4.99%)" on the PDF the supplier is sent.
+    // beforeEach resets this for the next test, so a plain mock is safe here.
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ taxRatePercent: null, taxAmount: "437.1900" }));
+    expect((await raiseOrder({ organizationId: ORG, actor: requester, source: "ui", requestId: "sr1" })).ok).toBe(true);
+    const line = mockDb.commitment.create.mock.calls.at(-1)![0].data.lines.create[0];
+    expect(line).toMatchObject({ taxRatePercent: null, taxAmount: "437.1900" });
   });
 });
 

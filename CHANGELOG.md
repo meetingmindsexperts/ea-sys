@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: Budget & Procurement, a spend request states a VAT RATE, not a VAT amount (September 23)
+
+The requester typed the VAT amount and did the arithmetic. The rate was known
+on both sides of the request and lost in the middle: `BudgetLine` carries
+`taxRatePercent` and `CommitmentLine` carries `taxRatePercent`, but
+`SpendRequest` held only `taxAmount`.
+
+- **The rate is stated and the amount is computed.** New nullable
+  `SpendRequest.taxRatePercent` (migration
+  `20260923140000_add_spend_request_tax_rate`, additive and idempotent). The
+  form asks for a percentage, prefilled from the budget line's own Tax %, and
+  shows the VAT it works out to as you type. One resolver serves create, edit
+  and amend, so the three cannot disagree.
+- **The rate beats any amount sent beside it.** A caller cannot state 5% and
+  send a figure that is not 5% of the amount, by stale form, rounding or
+  intent: the amount is simply not read when a rate is given.
+- **The rate follows the amount.** Edit or amend the figure and the VAT is
+  recomputed rather than left behind, so the stored pair never stops meaning
+  the rate it claims. An approved amendment lands the rate too.
+- **The purchase order stops guessing.** The order line took
+  `taxAmount / amount * 100`, discarding the budget line's own rate that the
+  same query had just fetched. One dirham of typing error printed
+  "VAT (4.99%)" on the PDF sent to a supplier, the document their tax invoice
+  is matched against. The stated rate is carried through, and
+  `impliedTaxRatePercent()` is deleted rather than kept as a fallback.
+- **An escape hatch for a bill with no single rate.** "Enter the amount
+  myself" stores a null rate for an exempt, reverse-charge or mixed bill, and
+  nothing then claims a percentage for it anywhere.
+- **Typed money rounds to 2 decimals.** `enteredMoney()` normalises what a
+  person types, because `15000.12345` was accepted, stored as `15000.1235`
+  and displayed as `15000.12`, so the number on the screen was not the number
+  in the database. Storage stays `Decimal(18,4)` so computed values keep their
+  precision. Applies to request amounts, VAT and quotes.
+
+No backfill: production holds the seeded categories and catalogue and not one
+budget, supplier, request or order, so there is no legacy row for which a null
+rate could be ambiguous.
+
+
 ### Fixed: Budget & Procurement, seven findings from the end-to-end verification (September 23)
 
 The spend-request flow was driven the whole way on the local prod copy by five

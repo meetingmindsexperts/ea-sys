@@ -5920,6 +5920,12 @@ model SpendRequest {
   justification        String?              @db.Text
   amount               Decimal              @default(0) @db.Decimal(18, 4)
   taxAmount            Decimal              @default(0) @db.Decimal(18, 4)
+  /// The VAT RATE the requester stated; `taxAmount` is computed from it and
+  /// this figure is what the purchase order and its PDF print. NULL means the
+  /// VAT amount was entered by hand (an exempt, reverse-charge or mixed-rate
+  /// bill), and then no percentage is claimed anywhere rather than one being
+  /// divided back out of the pair. Matches BudgetLine.taxRatePercent.
+  taxRatePercent       Decimal?             @db.Decimal(5, 2)
   currency             String
   fxRateToReporting    Decimal?             @db.Decimal(18, 8)
   amountAed            Decimal?             @db.Decimal(18, 4)

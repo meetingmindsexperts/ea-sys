@@ -262,6 +262,8 @@ export interface SpendRequestRow {
   title: string;
   justification: string | null;
   amount: string;
+  /** The stated VAT rate; null means the amount was typed by hand. */
+  taxRatePercent: string | null;
   taxAmount: string;
   currency: string;
   fxRateToReporting: string | null;
@@ -862,6 +864,8 @@ export interface SpendRequestInput {
   title: string;
   justification?: string | null;
   amount: string;
+  /** The VAT rate; the server computes the amount from it. Null means "I will type the amount myself". */
+  taxRatePercent?: string | null;
   taxAmount?: string | null;
   currency: string;
   fxRateToReporting?: string | null;
@@ -912,7 +916,7 @@ export function useTransitionSpendRequest(requestId: string) {
 export function useAmendSpendRequest(requestId: string) {
   const invalidate = useSpendRequestInvalidation();
   return useMutation({
-    mutationFn: (input: { amount: string; taxAmount?: string | null; reason: string; reportingToAedRate?: string | null; expectedVersion: number }) =>
+    mutationFn: (input: { amount: string; taxRatePercent?: string | null; taxAmount?: string | null; reason: string; reportingToAedRate?: string | null; expectedVersion: number }) =>
       send<{ request: SpendRequestDetailRow }>(`/api/procurement/requests/${requestId}/amend`, "POST", input, "Couldn't change the amount").then((r) => r.request),
     onSuccess: invalidate,
   });

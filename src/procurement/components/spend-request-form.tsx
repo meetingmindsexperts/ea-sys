@@ -41,6 +41,10 @@ interface FormState {
   lineKey: string;
   title: string;
   amount: string;
+  /** The VAT rate the requester states; the amount beside it is computed, not typed. */
+  taxRatePercent: string;
+  /** The escape hatch: a bill with no single rate (exempt, reverse charge, mixed). */
+  taxByHand: boolean;
   taxAmount: string;
   currency: string;
   fxRateToReporting: string;
@@ -59,6 +63,9 @@ function initial(r?: SpendRequestDetailRow): FormState {
     lineKey: r?.lineKey ?? "",
     title: r?.title ?? "",
     amount: r ? money2(r.amount).replace(/,/g, "") : "",
+    // An existing request with a VAT amount but no rate was typed by hand, and reopens that way.
+    taxRatePercent: r?.taxRatePercent ?? "",
+    taxByHand: !!r && r.taxRatePercent === null && Number(r.taxAmount) > 0,
     taxAmount: r && Number(r.taxAmount) > 0 ? money2(r.taxAmount).replace(/,/g, "") : "",
     currency: r?.currency ?? "",
     fxRateToReporting: r?.fxRateToReporting ?? "",
@@ -123,7 +130,9 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
       title: f.title.trim(),
       justification: f.justification.trim() || null,
       amount: f.amount,
-      taxAmount: f.taxAmount || null,
+      // The rate is the statement; the amount rides along only in by-hand mode.
+      taxRatePercent: f.taxByHand ? null : f.taxRatePercent === "" ? "0" : f.taxRatePercent,
+      taxAmount: f.taxByHand ? f.taxAmount || null : null,
       currency,
       fxRateToReporting: derived ? null : f.fxRateToReporting,
       supplierId: f.supplierId || null,
@@ -144,6 +153,10 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
   }
 
   const selectedLine = lines.find((l) => l.lineKey === f.lineKey);
+  /** VAT the requester will owe at the stated rate, shown as it is typed. The server recomputes it; this is the same sum. */
+  const computedTax = !f.taxByHand && Number(f.amount) > 0 && Number(f.taxRatePercent) >= 0 && f.taxRatePercent !== ""
+    ? (Math.round(Number(f.amount) * Number(f.taxRatePercent)) / 100).toFixed(2)
+    : null;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -165,7 +178,17 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
             </div>
             <div className="space-y-1">
               <Label htmlFor="sr-line">Budget line</Label>
-              <Select value={f.lineKey} onValueChange={(v) => set("lineKey", v)} disabled={!f.budgetId || budget.isPending}>
+              <Select
+                value={f.lineKey}
+                onValueChange={(v) => {
+                  // The line already carries the rate the plan assumed, so the
+                  // requester usually confirms rather than decides. Only ever a
+                  // default: an untouched field takes it, a typed one keeps.
+                  const picked = lines.find((l) => l.lineKey === v);
+                  setF((s) => ({ ...s, lineKey: v, taxRatePercent: s.taxRatePercent === "" && picked?.taxRatePercent ? picked.taxRatePercent : s.taxRatePercent }));
+                }}
+                disabled={!f.budgetId || budget.isPending}
+              >
                 <SelectTrigger id="sr-line" className="w-full"><SelectValue placeholder={!f.budgetId ? "Pick a budget first" : budget.isPending ? "Loading lines…" : "Pick the line"} /></SelectTrigger>
                 <SelectContent>
                   {lines.map((l) => (
@@ -190,8 +213,17 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
               <Input id="sr-amount" inputMode="decimal" value={f.amount} onChange={(e) => set("amount", e.target.value)} placeholder="0.00" />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="sr-tax">VAT amount</Label>
-              <Input id="sr-tax" inputMode="decimal" value={f.taxAmount} onChange={(e) => set("taxAmount", e.target.value)} placeholder="0.00" />
+              {f.taxByHand ? (
+                <>
+                  <Label htmlFor="sr-tax">VAT amount</Label>
+                  <Input id="sr-tax" inputMode="decimal" value={f.taxAmount} onChange={(e) => set("taxAmount", e.target.value)} placeholder="0.00" />
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="sr-tax-rate">VAT rate %</Label>
+                  <Input id="sr-tax-rate" inputMode="decimal" value={f.taxRatePercent} onChange={(e) => set("taxRatePercent", e.target.value)} placeholder="5" />
+                </>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="sr-currency">Currency</Label>
@@ -210,6 +242,23 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
               <p className="text-xs text-muted-foreground">The budget check reads the amount in {reporting}; there is no fixed rate between these two.</p>
             </div>
           )}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">
+              {f.taxByHand
+                ? "The VAT amount is being entered by hand, so no rate is recorded and the purchase order shows none."
+                : computedTax !== null
+                  ? `VAT at ${Number(f.taxRatePercent)}% is ${currency || ""} ${computedTax}. The order and its PDF quote this rate.`
+                  : "State the rate and the VAT is worked out from the amount."}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setF((s) => ({ ...s, taxByHand: !s.taxByHand, taxAmount: !s.taxByHand ? (computedTax ?? s.taxAmount) : s.taxAmount }))}
+            >
+              {f.taxByHand ? "Use a rate instead" : "Enter the amount myself"}
+            </button>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="sr-supplier">Supplier</Label>
@@ -267,7 +316,7 @@ export function SpendRequestForm({ request, onSaved, onCancel }: { request?: Spe
           </div>
           <div className="space-y-1">
             <Label htmlFor="sr-why">Justification</Label>
-            <Textarea id="sr-why" rows={3} value={f.justification} onChange={(e) => set("justification", e.target.value)} placeholder="Why this, why now, why this vendor. Required when the request goes over the line on a frozen budget." maxLength={4000} />
+            <Textarea id="sr-why" rows={3} value={f.justification} onChange={(e) => set("justification", e.target.value)} placeholder="Why this, why now, why this vendor. Required whenever the request goes over what the line has left." maxLength={4000} />
           </div>
         </section>
 

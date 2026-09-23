@@ -27,7 +27,7 @@ import { nextDocumentNumber } from "../lib/document-numbers";
 import { afterOrderIssued, COMMITMENT_SELECT, convertRequestsAwaitingSupplier, issueOrderInTx, toCommitmentView, type AutoSendOutcome, type CommitmentView } from "./commitment-service";
 import { eventBudgetIds, lockEventCommitted } from "./committed-figures";
 import { FULFILLMENT_LABEL, type FulfillmentStatusValue } from "../lib/commitment-rules";
-import { AED_PEG_RATES, FLOATING_TO_AED_BAND, money, resolveReportingToAedRate, storedString, toAed, toStored, type MoneyInput, type RateResolution } from "../lib/money";
+import { AED_PEG_RATES, enteredMoney, FLOATING_TO_AED_BAND, money, resolveReportingToAedRate, storedString, taxFromRate, toAed, toStored, type MoneyInput, type RateResolution } from "../lib/money";
 import {
   amendmentEffect,
   budgetAcceptsRequests,
@@ -81,7 +81,7 @@ export const QUOTE_SELECT = {
 
 export const SPEND_REQUEST_SELECT = {
   id: true, organizationId: true, requestNo: true, budgetId: true, lineKey: true, eventCode: true, requesterUserId: true, supplierId: true, proposedVendorName: true,
-  title: true, justification: true, amount: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, neededBy: true,
+  title: true, justification: true, amount: true, taxRatePercent: true, taxAmount: true, currency: true, fxRateToReporting: true, amountAed: true, categoryId: true, neededBy: true,
   sourcingMethod: true, budgetCheckStatus: true, status: true, priority: true, linkedCommitmentId: true, emailSupplierOnIssue: true, approvalRequestId: true, submittedAt: true, decidedAt: true,
   decidedByUserId: true, decisionNote: true, cancelledAt: true, cancelReason: true, version: true, createdAt: true, updatedAt: true,
   budget: { select: { id: true, eventCode: true, versionNo: true, status: true, reportingCurrency: true, event: { select: { name: true } } } },
@@ -114,6 +114,8 @@ export function toSpendRequestView(r: Row) {
   return {
     ...r,
     amount: storedString(r.amount),
+    /** The stated rate, or null when the VAT amount was typed by hand. */
+    taxRatePercent: (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!).toString(),
     taxAmount: storedString(r.taxAmount),
     fxRateToReporting: rate === null ? null : rate.toString(),
     /** The ex-VAT amount in the budget's reporting currency, the figure the budget check reads. */
@@ -162,6 +164,8 @@ export type AmendmentPayload = {
   resumeStatus: "APPROVED" | "AWAITING_SUPPLIER";
   previousAmount: string;
   nextAmount: string;
+  /** Carried so an approved amendment lands the rate as well as the figure; null keeps the typed-amount mode. */
+  nextTaxRatePercent: string | null;
   nextTaxAmount: string;
   nextAmountAed: string;
   deltaReporting: string;
@@ -397,12 +401,39 @@ export async function previewBudgetCheck(input: PreviewBudgetCheckInput): Promis
 
 // ── create and edit a draft ──────────────────────────────────────────────────
 
+/**
+ * The VAT pair a write stores: the rate the requester stated, and the amount
+ * computed from it.
+ *
+ * THE RATE WINS whenever one is given. A caller cannot state 5% and send a
+ * tax amount that is not 5% of the amount, whether through a stale form, a
+ * rounding difference or on purpose, because the amount beside it is never
+ * read. A NULL rate is the deliberate escape hatch for a bill with no single
+ * rate (exempt, reverse charge, mixed), and only then is the typed amount
+ * taken as given; no percentage is claimed for it anywhere afterwards.
+ */
+function resolveTax(
+  amount: MoneyInput,
+  ratePercent: MoneyInput | null | undefined,
+  taxAmount: MoneyInput | null | undefined,
+): { taxRatePercent: string | null; taxAmount: string } {
+  if (ratePercent === null || ratePercent === undefined) {
+    return { taxRatePercent: null, taxAmount: storedString(enteredMoney(taxAmount ?? 0)) };
+  }
+  return {
+    taxRatePercent: money(ratePercent).toDecimalPlaces(2).toString(),
+    taxAmount: storedString(taxFromRate(amount, ratePercent)),
+  };
+}
+
 export interface SpendRequestFields {
   budgetId: string;
   lineKey?: string | null;
   title: string;
   justification?: string | null;
   amount: MoneyInput;
+  /** The stated VAT rate; `taxAmount` is computed from it. Null means the amount was typed by hand. */
+  taxRatePercent?: MoneyInput | null;
   taxAmount?: MoneyInput | null;
   currency: string;
   fxRateToReporting?: MoneyInput | null;
@@ -449,7 +480,10 @@ export async function createSpendRequest(input: CreateSpendRequestInput): Promis
   }
   const refs = await resolveDraftRefs(db, input.organizationId, input, ctx);
   if (!refs.ok) return refs;
-  if (money(input.amount).lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
+  // Rounded BEFORE the check, so 0.004 is refused as the zero it will be stored as.
+  const amount = enteredMoney(input.amount);
+  if (amount.lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
+  const tax = resolveTax(amount, input.taxRatePercent, input.taxAmount);
   try {
     const id = await tenantTransaction(async (tx) => {
       const requestNo = await nextDocumentNumber(tx, "PR", input.organizationId);
@@ -465,8 +499,9 @@ export async function createSpendRequest(input: CreateSpendRequestInput): Promis
           proposedVendorName: input.proposedVendorName?.trim() || null,
           title: input.title.trim(),
           justification: input.justification?.trim() || null,
-          amount: storedString(input.amount),
-          taxAmount: storedString(input.taxAmount ?? 0),
+          amount: storedString(amount),
+          taxRatePercent: tax.taxRatePercent,
+          taxAmount: tax.taxAmount,
           currency: input.currency.toUpperCase(),
           fxRateToReporting: refs.rate.toString(),
           categoryId: refs.categoryId,
@@ -477,7 +512,7 @@ export async function createSpendRequest(input: CreateSpendRequestInput): Promis
         },
         select: { id: true },
       });
-      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CREATE", entityId: created.id, changes: { source: input.source, requestNo, budgetId: refs.budget.id, lineKey: refs.line?.lineKey ?? null, amount: storedString(input.amount), currency: input.currency.toUpperCase() } });
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CREATE", entityId: created.id, changes: { source: input.source, requestNo, budgetId: refs.budget.id, lineKey: refs.line?.lineKey ?? null, amount: storedString(amount), taxRatePercent: tax.taxRatePercent, taxAmount: tax.taxAmount, currency: input.currency.toUpperCase() } });
       return created.id;
     });
     apiLogger.info({ msg: "procurement/requests:created", requestId: id, ...ctx });
@@ -513,8 +548,13 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
   };
   const refs = await resolveDraftRefs(db, input.organizationId, merged, ctx);
   if (!refs.ok) return refs;
-  const amount = input.amount ?? r.amount;
-  if (money(amount).lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
+  const amount = enteredMoney(input.amount ?? r.amount);
+  if (amount.lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
+  // Both VAT fields are rewritten from the MERGED state on every edit, never
+  // conditionally: change the amount alone and the tax must follow, or the
+  // stored pair stops meaning the rate it claims.
+  const mergedRate = input.taxRatePercent !== undefined ? input.taxRatePercent : (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!);
+  const tax = resolveTax(amount, mergedRate, input.taxAmount !== undefined ? input.taxAmount : r.taxAmount);
   const data: Prisma.SpendRequestUncheckedUpdateManyInput = {
     budgetId: refs.budget.id,
     eventCode: refs.budget.eventCode,
@@ -525,8 +565,9 @@ export async function updateSpendRequest(input: UpdateSpendRequestInput): Promis
     categoryId: refs.categoryId,
     ...(input.title !== undefined ? { title: input.title.trim() } : {}),
     ...(input.justification !== undefined ? { justification: input.justification?.trim() || null } : {}),
-    ...(input.amount !== undefined ? { amount: storedString(input.amount) } : {}),
-    ...(input.taxAmount !== undefined ? { taxAmount: storedString(input.taxAmount ?? 0) } : {}),
+    amount: storedString(amount),
+    taxRatePercent: tax.taxRatePercent,
+    taxAmount: tax.taxAmount,
     ...(input.proposedVendorName !== undefined ? { proposedVendorName: input.proposedVendorName?.trim() || null } : {}),
     ...(input.neededBy !== undefined ? { neededBy: toDay(input.neededBy) } : {}),
     ...(input.sourcingMethod !== undefined ? { sourcingMethod: input.sourcingMethod } : {}),
@@ -689,7 +730,7 @@ export async function decideSpendRequest(input: { organizationId: string; decide
         // An amendment's decision lives on the approval trail; the request's
         // own decided-by and note stay the original decision's.
         data = input.decision === "APPROVED"
-          ? { status: landing, amount: payload.nextAmount, taxAmount: payload.nextTaxAmount, amountAed: payload.nextAmountAed, budgetCheckStatus: payload.budgetCheck }
+          ? { status: landing, amount: payload.nextAmount, taxRatePercent: payload.nextTaxRatePercent, taxAmount: payload.nextTaxAmount, amountAed: payload.nextAmountAed, budgetCheckStatus: payload.budgetCheck }
           : { status: payload.resumeStatus };
       }
       const res = await tx.spendRequest.updateMany({ where: { id: r.id, organizationId: input.organizationId, status: "PENDING_APPROVAL" }, data: { ...data, version: { increment: 1 } } });
@@ -732,20 +773,27 @@ export async function decideSpendRequest(input: { organizationId: string; decide
 
 // ── an amount change after approval ──────────────────────────────────────────
 
-export async function amendSpendRequest(input: { organizationId: string; actor: Actor; source: Source; requestId: string; expectedVersion: number; amount: MoneyInput; taxAmount?: MoneyInput | null; reason: string; reportingToAedRate?: MoneyInput | null }): Promise<SpendRequestResult<SpendRequestDetail>> {
+export async function amendSpendRequest(input: { organizationId: string; actor: Actor; source: Source; requestId: string; expectedVersion: number; amount: MoneyInput; taxRatePercent?: MoneyInput | null; taxAmount?: MoneyInput | null; reason: string; reportingToAedRate?: MoneyInput | null }): Promise<SpendRequestResult<SpendRequestDetail>> {
   const ctx = { requestId: input.requestId, userId: input.actor.id };
   const r = await loadRequest(db, input.organizationId, input.requestId);
   if (!r) return fail("REQUEST_NOT_FOUND", "The spend request was not found.", ctx);
   if (r.status !== "APPROVED" && r.status !== "AWAITING_SUPPLIER") return fail("INVALID_STATUS", "Only an approved request can have its amount changed.", ctx, { status: r.status });
   if (r.requesterUserId !== input.actor.id) return fail("NOT_REQUESTER", "Only the person who raised this request can change its amount.", ctx);
   if (!r.budgetId || !r.lineKey || r.fxRateToReporting === null) return fail("INCOMPLETE", "The request has no budget line to check against.", ctx);
-  if (money(input.amount).lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
+  const amount = enteredMoney(input.amount);
+  if (amount.lte(0)) return fail("INVALID_AMOUNT", "The amount must be greater than zero.", ctx);
   const rate = money(r.fxRateToReporting);
   const previousReporting = toReporting(r.amount, rate);
-  const nextReporting = toReporting(input.amount, rate);
+  // The rounded figure, so the check and the stored amount are the same number.
+  const nextReporting = toReporting(amount, rate);
   const effect = amendmentEffect(previousReporting, nextReporting);
   if (effect.direction === "SAME") return fail("INVALID_AMOUNT", "The amount is unchanged.", ctx);
-  const nextTax = storedString(input.taxAmount ?? r.taxAmount);
+  // The rate follows the amount. A request booked at 5% that rises to 60,000
+  // owes 3,000, not the 750 it owed before, and nobody should have to restate
+  // that. An amend may still replace the rate, or drop to a typed amount.
+  const amendRate = input.taxRatePercent !== undefined ? input.taxRatePercent : (r.taxRatePercent ?? null) === null ? null : money(r.taxRatePercent!);
+  const nextTaxPair = resolveTax(amount, amendRate, input.taxAmount ?? r.taxAmount);
+  const nextTax = nextTaxPair.taxAmount;
   const budget = await db.eventBudget.findFirst({ where: { id: r.budgetId, organizationId: input.organizationId }, select: { id: true, status: true, reportingCurrency: true } });
   if (!budget) return fail("BUDGET_NOT_FOUND", "The budget was not found.", ctx);
   if (!budgetAcceptsRequests(budget.status)) return fail("BUDGET_NOT_ACTIVE", `This version is ${budget.status.toLowerCase().replace("_", " ")} and takes no change.`, ctx, { status: budget.status });
@@ -760,10 +808,10 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
     try {
       const res = await db.spendRequest.updateMany({
         where: { id: r.id, organizationId: input.organizationId, status: r.status, version: input.expectedVersion },
-        data: { amount: storedString(input.amount), taxAmount: nextTax, amountAed: r.amountAed === null ? null : storedString(toStored(money(r.amountAed).mul(nextReporting).div(previousReporting))), budgetCheckStatus: lowered.status, version: { increment: 1 } },
+        data: { amount: storedString(amount), taxRatePercent: nextTaxPair.taxRatePercent, taxAmount: nextTax, amountAed: r.amountAed === null ? null : storedString(toStored(money(r.amountAed).mul(nextReporting).div(previousReporting))), budgetCheckStatus: lowered.status, version: { increment: 1 } },
       });
       if (res.count === 0) return fail("STALE_WRITE", "Someone else changed this request; reload and try again.", ctx, { currentVersion: r.version });
-      await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "AMEND", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, previousAmount: storedString(r.amount), nextAmount: storedString(input.amount), deltaReporting: storedString(effect.delta), reason: input.reason.trim() } });
+      await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "AMEND", entityId: r.id, changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, previousAmount: storedString(r.amount), nextAmount: storedString(amount), nextTaxRatePercent: nextTaxPair.taxRatePercent, nextTaxAmount: nextTax, deltaReporting: storedString(effect.delta), reason: input.reason.trim() } });
       return getSpendRequest(input.organizationId, r.id);
     } catch (err) {
       apiLogger.error({ msg: "procurement/requests:amend-failed", err, ...ctx });
@@ -784,7 +832,8 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
     lineKey: line.lineKey,
     resumeStatus: r.status,
     previousAmount: storedString(r.amount),
-    nextAmount: storedString(input.amount),
+    nextAmount: storedString(amount),
+    nextTaxRatePercent: nextTaxPair.taxRatePercent,
     nextTaxAmount: nextTax,
     nextAmountAed: storedString(nextAmountAed),
     deltaReporting: storedString(effect.delta),
@@ -806,7 +855,7 @@ export async function amendSpendRequest(input: { organizationId: string; actor: 
         subjectType: "SPEND_REQUEST",
         subjectId: r.id,
         amountAed: Number(nextAmountAed.toString()),
-        amount: storedString(input.amount),
+        amount: storedString(amount),
         currency: r.currency,
         requesterUserId: input.actor.id,
         reason: input.reason.trim(),
@@ -915,8 +964,8 @@ export async function addQuote(input: AddQuoteInput): Promise<SpendRequestResult
           spendRequestId: r.id,
           vendorName: input.vendorName.trim(),
           supplierId: input.supplierId ?? null,
-          amount: storedString(input.amount),
-          taxAmount: storedString(input.taxAmount ?? 0),
+          amount: storedString(enteredMoney(input.amount)),
+          taxAmount: storedString(enteredMoney(input.taxAmount ?? 0)),
           currency: input.currency.toUpperCase(),
           quotedOn: toDay(input.quotedOn),
           validUntil: toDay(input.validUntil),

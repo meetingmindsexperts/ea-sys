@@ -56,11 +56,3 @@ export function orderReadiness(r: { status: string; linkedCommitmentId: string |
   if (!r.supplier || r.supplier.approvalStatus !== "APPROVED" || !r.supplier.isActive) return { ready: false, reason: "supplier" };
   return { ready: true };
 }
-
-/** The effective VAT percentage a stored pair implies, for the PDF's "VAT (5%)" line; null when no tax. */
-export function impliedTaxRatePercent(amount: MoneyInput, taxAmount: MoneyInput): number | null {
-  const a = money(amount);
-  const t = money(taxAmount);
-  if (a.lte(0) || t.lte(0)) return null;
-  return Number(t.div(a).times(100).toDecimalPlaces(2).toString());
-}

@@ -96,6 +96,24 @@ describe("createSpendRequest", () => {
     expect(data).toMatchObject({ requestNo: "PR-2026-0007", budgetId: "b1", lineKey: "k-av", eventCode: "HM2026", requesterUserId: "req", title: "LED wall", amount: "5000.0000", taxAmount: "0.0000", currency: "AED", fxRateToReporting: "1", categoryId: "c-av", priority: "NORMAL" });
     expect(mockDb.auditLog.create.mock.calls[0][0].data).toMatchObject({ entityType: "SpendRequest", action: "CREATE", changes: expect.objectContaining({ requestNo: "PR-2026-0007", budgetId: "b1" }) });
   });
+  it("computes the VAT from the stated rate, and the rate beats any amount sent beside it", async () => {
+    await createSpendRequest({ ...base, budgetId: "b1", lineKey: "k-av", title: "x", amount: "15000", currency: "AED", taxRatePercent: "5" });
+    expect(mockDb.spendRequest.create.mock.calls[0][0].data).toMatchObject({ amount: "15000.0000", taxRatePercent: "5", taxAmount: "750.0000" });
+    // A client that states 5% and sends a different figure beside it is not believed:
+    // the amount is never read when a rate is given.
+    mockDb.spendRequest.create.mockClear();
+    await createSpendRequest({ ...base, budgetId: "b1", lineKey: "k-av", title: "x", amount: "15000", currency: "AED", taxRatePercent: "5", taxAmount: "1" });
+    expect(mockDb.spendRequest.create.mock.calls[0][0].data).toMatchObject({ taxRatePercent: "5", taxAmount: "750.0000" });
+  });
+  it("keeps the typed amount and claims no rate when the VAT is entered by hand", async () => {
+    await createSpendRequest({ ...base, budgetId: "b1", lineKey: "k-av", title: "x", amount: "15000", currency: "AED", taxAmount: "437.19" });
+    expect(mockDb.spendRequest.create.mock.calls[0][0].data).toMatchObject({ taxRatePercent: null, taxAmount: "437.1900" });
+  });
+  it("rounds what the requester typed to two decimals, and refuses what rounds to nothing", async () => {
+    await createSpendRequest({ ...base, budgetId: "b1", lineKey: "k-av", title: "x", amount: "15000.12345", currency: "AED" });
+    expect(mockDb.spendRequest.create.mock.calls[0][0].data).toMatchObject({ amount: "15000.1200" });
+    expect(await createSpendRequest({ ...base, budgetId: "b1", title: "x", amount: "0.004", currency: "AED" })).toMatchObject({ ok: false, code: "INVALID_AMOUNT" });
+  });
   it("derives USD to AED from the pegs and demands a rate for a floating pair", async () => {
     await createSpendRequest({ ...base, budgetId: "b1", title: "x", amount: "100", currency: "USD" });
     expect(mockDb.spendRequest.create.mock.calls[0][0].data.fxRateToReporting).toBe("3.6725");
@@ -281,6 +299,13 @@ describe("amendSpendRequest", () => {
     await amend({ amount: "7000" });
     expect(created().steps.create.assigneeUserId).toBe("medhat");
     expect(created().payload).toMatchObject({ budgetCheck: "OVER_BUDGET", requireFinalApprover: true });
+  });
+  it("re-applies the request's own VAT rate to the new amount, without it being restated", async () => {
+    // Booked at 5% on 5,000 it owed 250; lowered to 4,000 it owes 200, and
+    // nobody should have to work that out or retype it.
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "AWAITING_SUPPLIER", version: 3, amountAed: "5000", taxRatePercent: "5" }));
+    expect((await amend({ amount: "4000" })).ok).toBe(true);
+    expect(updated().data).toMatchObject({ amount: "4000.0000", taxRatePercent: "5", taxAmount: "200.0000" });
   });
   it("a fall applies at once, scales the AED figure, and is audited with the delta", async () => {
     mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "AWAITING_SUPPLIER", version: 3, amountAed: "5000" }));
