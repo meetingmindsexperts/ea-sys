@@ -96,7 +96,14 @@ export interface BudgetCheckOutcome {
   status: Exclude<BudgetCheckStatusValue, "NOT_CHECKED">;
   /** Routed to the final approver, never silently allowed (spec §6). */
   exception: boolean;
-  /** A frozen budget's exception needs the requester's reason (spec §8.5). */
+  /**
+   * EVERY exception needs the requester's reason. This was once the frozen
+   * budget's alone (spec §8.5); the active-budget overspend was allowed
+   * through with a blank justification, which meant the final approver could
+   * be handed an overspend nobody had explained in writing. An exception that
+   * is decided and written down is a different thing from one that is merely
+   * permitted, and the reason is the only part a reader gets later.
+   */
   reasonRequired: boolean;
   amountReporting: Decimal;
   /** Taken by the line's other open requests before this one. */
@@ -111,10 +118,10 @@ export interface BudgetCheckOutcome {
  * is planned minus committed-open minus actual, minus what the line's other
  * open requests already ask for (review M3: without that, two open requests
  * could cross the line in pieces); a request that leaves it negative is over
- * budget. On a frozen budget the over-budget case is the
- * FROZEN outcome, an exception with a reason; within remaining it runs on the
- * normal matrix like an active budget. A draw from the contingency line is a
- * request like any other.
+ * budget. On a frozen budget the over-budget case is the FROZEN outcome;
+ * within remaining it runs on the normal matrix like an active budget. Either
+ * way an over-budget request is an exception AND carries a required reason. A
+ * draw from the contingency line is a request like any other.
  */
 export function budgetCheck(input: BudgetCheckInput): BudgetCheckOutcome {
   const amountReporting = toStored(input.amountReporting);
@@ -124,7 +131,7 @@ export function budgetCheck(input: BudgetCheckInput): BudgetCheckOutcome {
   const remainingAfter = toStored(remainingBefore.minus(effective));
   const over = remainingAfter.lt(0);
   if (over && input.budgetStatus === "FROZEN") return { status: "FROZEN", exception: true, reasonRequired: true, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
-  if (over) return { status: "OVER_BUDGET", exception: true, reasonRequired: false, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
+  if (over) return { status: "OVER_BUDGET", exception: true, reasonRequired: true, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
   return { status: "WITHIN_BUDGET", exception: false, reasonRequired: false, amountReporting, reservedByOthers, remainingBefore, remainingAfter };
 }
 
@@ -148,13 +155,43 @@ export function reservedOnLine(rows: { status: string; linkedCommitmentId: strin
   return toStored(sum);
 }
 
-/** What a request still lacks before it can be submitted; the page shows the list and the submit refuses on it (spec §6: quotes, a line, a vendor). */
-export function missingForSubmission(r: { lineKey: string | null; supplierId: string | null; proposedVendorName: string | null; amount: MoneyInput; quotes: unknown[] }): string[] {
+/**
+ * What a request still lacks before it can be submitted; the page shows the
+ * list and the submit refuses on it (spec §6: quotes, a line, a vendor).
+ *
+ * The last pair are not gaps but CONTRADICTIONS: a sourcing method the
+ * attached quotes cannot support. The method is what the audit trail says
+ * about how the vendor was chosen, so "single quote" on a request carrying
+ * three of them is a statement that is simply untrue, and it is the kind that
+ * is only ever read long afterwards, when nobody can correct it.
+ *
+ * Only the two countable methods are checked. SOLE_SOURCE and
+ * EXISTING_CONTRACT are statements of intent rather than arithmetic, and both
+ * legitimately carry exactly one quote, so neither can contradict anything.
+ */
+export function missingForSubmission(r: {
+  lineKey: string | null;
+  supplierId: string | null;
+  proposedVendorName: string | null;
+  amount: MoneyInput;
+  quotes: unknown[];
+  sourcingMethod?: string | null;
+}): string[] {
   const missing: string[] = [];
   if (!r.lineKey) missing.push("a budget line to request against");
   if (money(r.amount).lte(0)) missing.push("an amount greater than zero");
   if (!r.supplierId && !r.proposedVendorName) missing.push("a supplier, or the name of the vendor you propose");
   if (r.quotes.length === 0) missing.push("at least one quote");
+  // Judged only once there is a quote to contradict, so an empty request says
+  // "at least one quote" and not that plus a second line about the method.
+  if (r.quotes.length > 0) {
+    if (r.sourcingMethod === "SINGLE_QUOTE" && r.quotes.length > 1) {
+      missing.push(`a sourcing method that matches: it says a single quote and carries ${r.quotes.length}`);
+    }
+    if (r.sourcingMethod === "COMPETITIVE_QUOTES" && r.quotes.length < 2) {
+      missing.push("a second quote, or a sourcing method other than competitive quotes");
+    }
+  }
   return missing;
 }
 

@@ -207,6 +207,7 @@ export function DecideDialog({ b, open, onOpenChange }: DialogProps) {
   const [pending, setPending] = useState<"APPROVED" | "REJECTED" | null>(null);
 
   async function go(decision: "APPROVED" | "REJECTED") {
+    if (decision === "REJECTED" && !note.trim()) return void toast.error("Say why it is rejected; the author reads this.");
     setPending(decision);
     try {
       await decide.mutateAsync({ decision, note: note.trim() || null });
@@ -229,7 +230,7 @@ export function DecideDialog({ b, open, onOpenChange }: DialogProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="decide-note">Note (optional, kept on the approval trail)</Label>
+          <Label htmlFor="decide-note">Note (kept on the approval trail; required to reject)</Label>
           <Textarea id="decide-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
         <DialogFooter>

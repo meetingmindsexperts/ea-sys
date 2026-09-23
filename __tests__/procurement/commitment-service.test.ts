@@ -34,6 +34,7 @@ vi.mock("@/procurement/lib/commitment-pdf", () => ({ generatePurchaseOrderPdf: v
 import {
   cancelOrder,
   confirmReceipt,
+  undoReceipt,
   convertRequestsAwaitingSupplier,
   issueOrderInTx,
   raiseOrder,
@@ -201,10 +202,24 @@ describe("sendOrderToSupplier", () => {
     expect(mockDb.commitment.updateMany.mock.calls.at(-1)![0].data.sentToSupplierAt).toBeInstanceOf(Date);
     expect(audits().at(-1)).toMatchObject({ entityType: "Commitment", action: "SEND", changes: { to: ["sara@example.test"] } });
   });
-  it("a refused send is SEND_FAILED and stamps nothing", async () => {
+  it("a refused send is SEND_FAILED, leaves the order unsent, and writes down why", async () => {
     sendEmail.mockResolvedValueOnce({ success: false, error: "MessageRejected" });
     expect(await sendOrderToSupplier({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1" })).toMatchObject({ ok: false, code: "SEND_FAILED" });
-    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+    // The order's own state is untouched: it was never sent.
+    const wrote = mockDb.commitment.updateMany.mock.calls.at(-1)![0].data;
+    expect(wrote.sentToSupplierAt).toBeUndefined();
+    // But the reason is durable. It used to live only in a toast shown to
+    // whoever clicked approve, so the requester who asked for the email never
+    // learned it had not gone.
+    expect(wrote.lastSendError).toBe("MessageRejected");
+    expect(wrote.lastSendAttemptAt).toBeInstanceOf(Date);
+  });
+  it("a send that finally goes clears the standing failure note", async () => {
+    sendEmail.mockResolvedValueOnce({ success: true });
+    expect(await sendOrderToSupplier({ organizationId: ORG, actor: settle, source: "ui", commitmentId: "c1" })).toMatchObject({ ok: true });
+    const wrote = mockDb.commitment.updateMany.mock.calls.at(-1)![0].data;
+    expect(wrote.sentToSupplierAt).toBeInstanceOf(Date);
+    expect(wrote.lastSendError).toBeNull();
   });
 });
 
@@ -260,6 +275,51 @@ describe("confirmReceipt (the second person from AED 50,000)", () => {
   it("an already confirmed receipt is not confirmed twice", async () => {
     mockDb.commitment.findFirst.mockResolvedValueOnce(received({ receiptConfirmedAt: new Date(), receiptConfirmedByUserId: "lina" }));
     expect(await confirm(settle)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+  });
+});
+
+describe("undoReceipt (the one-way click, made reversible)", () => {
+  const received = (over: Record<string, unknown> = {}) =>
+    commitment({ fulfillmentStatus: "RECEIVED", receivedAt: new Date(), receivedByUserId: "req", ...over });
+  const undo = (actor: typeof settle) => undoReceipt({ organizationId: ORG, actor, source: "ui", commitmentId: "c1", expectedVersion: 1 });
+
+  it("clears every field the receipt set, together, and says so on the trail", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received());
+    expect((await undo(settle)).ok).toBe(true);
+    // The undoCheckIn lesson: a half-undo that leaves the timestamp behind
+    // makes the next guard refuse forever.
+    expect(mockDb.commitment.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: "c1", status: "APPROVED", receiptConfirmedAt: null, version: 1 },
+      data: { fulfillmentStatus: "OPEN", receivedAt: null, receivedByUserId: null },
+    });
+    expect(audits().at(-1)).toMatchObject({ entityType: "Commitment", action: "RECEIVE_UNDO", changes: { previousFulfillmentStatus: "RECEIVED", previousReceivedByUserId: "req" } });
+  });
+
+  it("is refused once a second person has confirmed: two people said it arrived", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received({ receiptConfirmedAt: new Date(), receiptConfirmedByUserId: "muthu" }));
+    expect(await undo(settle)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses when nothing was received, and on an order that is no longer live", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(commitment());
+    expect(await undo(settle)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received({ status: "CANCELLED" }));
+    expect(await undo(settle)).toMatchObject({ ok: false, code: "INVALID_STATUS" });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("the person who recorded it may take it back; a stranger may not", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received());
+    expect((await undo(requester)).ok).toBe(true);
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received());
+    expect(await undo(stranger)).toMatchObject({ ok: false, code: "NOT_ALLOWED" });
+  });
+
+  it("takes back a partial receipt too", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(commitment({ fulfillmentStatus: "PARTIALLY_RECEIVED" }));
+    expect((await undo(settle)).ok).toBe(true);
+    expect(mockDb.commitment.updateMany.mock.calls[0][0].data).toMatchObject({ fulfillmentStatus: "OPEN" });
   });
 });
 

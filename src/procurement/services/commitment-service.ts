@@ -74,7 +74,7 @@ export interface OrderActor {
 export const COMMITMENT_SELECT = {
   id: true, organizationId: true, commitmentNo: true, spendRequestId: true, budgetId: true, lineKey: true, supplierId: true, eventCode: true,
   amount: true, taxAmount: true, currency: true, fxRateToReporting: true, status: true, fulfillmentStatus: true, accountingSyncStatus: true,
-  approvedAt: true, approvedByUserId: true, sentToSupplierAt: true, receivedAt: true, receivedByUserId: true, receiptConfirmedAt: true, receiptConfirmedByUserId: true,
+  approvedAt: true, approvedByUserId: true, sentToSupplierAt: true, lastSendAttemptAt: true, lastSendError: true, receivedAt: true, receivedByUserId: true, receiptConfirmedAt: true, receiptConfirmedByUserId: true,
   cancelledAt: true, cancelledByUserId: true, cancelReason: true, closedAt: true, version: true, createdAt: true, updatedAt: true,
   supplier: { select: { id: true, code: true, displayName: true, legalName: true, contacts: true, country: true, currency: true, paymentTerms: true, approvalStatus: true, isActive: true } },
   spendRequest: { select: { id: true, requestNo: true, title: true, requesterUserId: true, amountAed: true, emailSupplierOnIssue: true } },
@@ -436,7 +436,12 @@ export async function sendOrderToSupplier(input: { organizationId: string; actor
   if (!actsOnOrder(input.actor, c.spendRequest?.requesterUserId)) return fail("NOT_ALLOWED", "Only the person who raised the request, the settle holder, or an admin can send the order.", ctx);
   if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order is not sent to the supplier.`, ctx, { status: c.status });
   const to = supplierContactEmails(c.supplier.contacts);
-  if (to.length === 0) return fail("NO_SUPPLIER_EMAIL", "The supplier has no contact email on the Suppliers page; add one, or send the PDF by hand.", ctx);
+  if (to.length === 0) {
+    await db.commitment
+      .updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { lastSendAttemptAt: new Date(), lastSendError: "The supplier has no contact email." } })
+      .catch((err) => apiLogger.error({ msg: "procurement/commitments:send-failure-note-failed", err, ...ctx }));
+    return fail("NO_SUPPLIER_EMAIL", "The supplier has no contact email on the Suppliers page; add one, or send the PDF by hand.", ctx);
+  }
   const rendered = await renderOrderPdf(input.organizationId, input.commitmentId);
   if (!rendered.ok) return rendered;
   const org = await db.organization.findUnique({ where: { id: input.organizationId }, select: { name: true, companyName: true } });
@@ -449,6 +454,21 @@ export async function sendOrderToSupplier(input: { organizationId: string; actor
 <p>Please quote the order number and the event code on your invoice so it can be matched to this order.</p>
 <p>Kind regards,<br/>${escapeHtml(sender)}</p>`;
   const text = `Dear ${c.supplier.displayName},\n\nPlease find attached purchase order ${c.commitmentNo} from ${sender} for ${eventName} (event code ${c.eventCode}).\nAmount: ${c.currency} ${money(view.amount).toFixed(2)} ex-VAT, VAT ${c.currency} ${money(view.taxAmount).toFixed(2)}.\nPlease quote the order number and the event code on your invoice.\n\nKind regards,\n${sender}`;
+  /**
+   * A failed send is written down, not just logged and toasted.
+   *
+   * Never throws and never changes the outcome: this is a note about the
+   * attempt, and an order must not fail to exist because we could not record
+   * why its email did not go.
+   */
+  async function noteFailure(reason: string) {
+    try {
+      await db.commitment.updateMany({ where: { id: c!.id, organizationId: input.organizationId }, data: { lastSendAttemptAt: new Date(), lastSendError: reason.slice(0, 500) } });
+    } catch (err) {
+      apiLogger.error({ msg: "procurement/commitments:send-failure-note-failed", err, ...ctx });
+    }
+  }
+
   let result: { success: boolean; error?: string };
   try {
     result = await sendEmail({
@@ -463,13 +483,16 @@ export async function sendOrderToSupplier(input: { organizationId: string; actor
     });
   } catch (err) {
     apiLogger.error({ msg: "procurement/commitments:send-failed", err, ...ctx });
-    return fail("SEND_FAILED", "The email could not be sent; nothing about the order changed. Try again, or send the PDF by hand.", ctx);
+    await noteFailure((err as Error).message || "The email could not be sent.");
+    return fail("SEND_FAILED", "The email could not be sent; the order itself is unchanged. Try again, or send the PDF by hand.", ctx);
   }
   if (!result.success) {
     apiLogger.error({ msg: "procurement/commitments:send-failed", error: result.error ?? null, ...ctx });
-    return fail("SEND_FAILED", "The email could not be sent; nothing about the order changed. Try again, or send the PDF by hand.", ctx);
+    await noteFailure(result.error ?? "The email could not be sent.");
+    return fail("SEND_FAILED", "The email could not be sent; the order itself is unchanged. Try again, or send the PDF by hand.", ctx);
   }
-  await db.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { sentToSupplierAt: new Date() } });
+  // Sent at last: the standing failure note is cleared, so the card stops warning.
+  await db.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId }, data: { sentToSupplierAt: new Date(), lastSendAttemptAt: new Date(), lastSendError: null } });
   await audit(db, { userId: input.actor.id, organizationId: input.organizationId, action: "SEND", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, to: to.map((t) => t.email), supplierId: c.supplierId } });
   apiLogger.info({ msg: "procurement/commitments:sent-to-supplier", recipients: to.length, ...ctx, organizationId: input.organizationId });
   return getCommitment(input.organizationId, c.id);
@@ -525,6 +548,64 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The order changed while you were acting on it. Reload.", ctx);
     apiLogger.error({ msg: "procurement/commitments:confirm-receipt-failed", err, ...ctx });
     return fail("UNKNOWN", "Could not confirm the receipt.", ctx);
+  }
+}
+
+/**
+ * Take a receipt back.
+ *
+ * WHY THIS EXISTS (23 September 2026). Marking an order received was the one
+ * irreversible click in the module: below the AED 50,000 floor a single
+ * person closed it, and a received order can no longer be cancelled, so a
+ * mis-click left the money owed against an order nobody could unwind. The
+ * codebase already met this shape once on the registration desk, where
+ * `undoCheckIn()` was added for exactly the same reason, and the lesson there
+ * was that the fix must clear EVERY field the act set, together: a half-undo
+ * that leaves a timestamp behind is worse than none, because the next guard
+ * reads the stale field and refuses forever.
+ *
+ * WHO. The settle holder or an admin, the requester who would have recorded
+ * it, and the person the row says recorded it, who may undo their own
+ * mistake even if they have since lost the request grant.
+ *
+ * WHEN. Only while the receipt is unconfirmed. Once a second person has
+ * confirmed it, two people have said the goods arrived and one may not quietly
+ * unsay it; that is the whole point of the second pair of eyes.
+ */
+export async function undoReceipt(input: { organizationId: string; actor: OrderActor; source: Source; commitmentId: string; expectedVersion: number }): Promise<CommitmentResult<CommitmentDetail>> {
+  const ctx = { commitmentId: input.commitmentId, userId: input.actor.id };
+  const [c, actor] = await Promise.all([loadCommitment(db, input.organizationId, input.commitmentId), actorFromRow(input.organizationId, input.actor)]);
+  if (!c) return fail("COMMITMENT_NOT_FOUND", "The purchase order was not found.", ctx);
+  if (!(actsOnOrder(actor, c.spendRequest?.requesterUserId) || actor.id === c.receivedByUserId)) {
+    return fail("NOT_ALLOWED", "Only the person who recorded the receipt, the settle holder, or an admin can take it back.", ctx);
+  }
+  if (c.status !== "APPROVED") return fail("INVALID_STATUS", `A ${COMMITMENT_STATUS_LABEL[c.status as CommitmentStatusValue].toLowerCase()} order's receipt cannot be taken back.`, ctx, { status: c.status });
+  if (c.fulfillmentStatus === "OPEN") return fail("INVALID_STATUS", "Nothing has been received on this order.", ctx, { fulfillmentStatus: c.fulfillmentStatus });
+  if (c.receiptConfirmedAt) {
+    return fail("INVALID_STATUS", "A second person has already confirmed this receipt, so it is not one person's to undo. Cancel the order instead, or ask them to reverse it with you.", ctx);
+  }
+  try {
+    await tenantTransaction(async (tx) => {
+      const res = await tx.commitment.updateMany({
+        where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", receiptConfirmedAt: null, version: input.expectedVersion },
+        // Every field the receipt set, cleared together (the undoCheckIn lesson).
+        data: { fulfillmentStatus: "OPEN", receivedAt: null, receivedByUserId: null, version: { increment: 1 } },
+      });
+      if (res.count === 0) throw new Error("STALE");
+      await audit(tx, {
+        userId: input.actor.id,
+        organizationId: input.organizationId,
+        action: "RECEIVE_UNDO",
+        entityType: "Commitment",
+        entityId: c.id,
+        changes: { source: input.source, commitmentNo: c.commitmentNo, previousFulfillmentStatus: c.fulfillmentStatus, previousReceivedByUserId: c.receivedByUserId },
+      });
+    });
+    return getCommitment(input.organizationId, c.id);
+  } catch (err) {
+    if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The order changed while you were acting on it. Reload.", ctx);
+    apiLogger.error({ msg: "procurement/commitments:undo-receipt-failed", err, ...ctx });
+    return fail("UNKNOWN", "Could not take the receipt back.", ctx);
   }
 }
 

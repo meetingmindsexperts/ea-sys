@@ -248,8 +248,6 @@ function DecideDialog({ supplier, onClose }: { supplier: SupplierRow; onClose: (
       if (said.length === 1) return void toast.success(`${supplier.code} approved; it can now carry an order.`);
       if (out.ordersFailed > 0 || out.ordersEmailFailed > 0) return void toast.warning(said.join(" "));
       toast.success(said.join(" "));
-      return;
-      onClose();
     } catch (err) {
       toast.error((err as Error).message);
     }

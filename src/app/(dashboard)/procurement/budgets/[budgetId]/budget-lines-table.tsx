@@ -28,8 +28,26 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 export type LinesMode = "plan" | "forecast" | "read";
 
-export function sortLines(lines: BudgetLineRow[] | undefined): BudgetLineRow[] {
-  return (lines ?? []).slice().sort((x, y) => (x.isContingency === y.isContingency ? x.sortOrder - y.sortOrder : x.isContingency ? 1 : -1));
+/**
+ * Reading order for the lines table: the money first, the noise last.
+ *
+ * A new budget opens with one blank line per category, and marking a category
+ * not applicable does not remove its line, so a two-line budget was rendering
+ * as fifteen rows of which thirteen were 0.00. Rank rather than delete: the
+ * row stays, so clearing the mark restores it untouched, and nobody loses
+ * something they had typed.
+ */
+function lineRank(l: BudgetLineRow, na: ReadonlySet<string>): number {
+  if (l.isContingency) return 1;
+  return na.has(l.category.code) ? 2 : 0;
+}
+
+export function sortLines(lines: BudgetLineRow[] | undefined, naCategoryCodes: readonly string[] = []): BudgetLineRow[] {
+  const na = new Set(naCategoryCodes);
+  return (lines ?? []).slice().sort((x, y) => {
+    const rank = lineRank(x, na) - lineRank(y, na);
+    return rank !== 0 ? rank : x.sortOrder - y.sortOrder;
+  });
 }
 
 /** The categories a line may sit on: active, expense, top level (the completeness check reads top level), never contingency. */
@@ -42,7 +60,8 @@ export function BudgetLinesTable({ b, categories, mode }: { b: BudgetRow; catego
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<BudgetLineRow | null>(null);
   const remove = useDeleteBudgetLine(b.id);
-  const lines = sortLines(b.lines);
+  const naCodes = new Set(b.naCategoryCodes);
+  const lines = sortLines(b.lines, b.naCategoryCodes);
   const cur = b.reportingCurrency;
   const planMode = mode === "plan";
   const cols = planMode ? 7 : mode === "forecast" ? 9 : 8;
@@ -94,7 +113,7 @@ export function BudgetLinesTable({ b, categories, mode }: { b: BudgetRow; catego
                   </TableCell>
                 </TableRow>
               ) : (
-                <LineRow key={l.id} l={l} cur={cur} mode={mode} onEdit={() => { setAdding(false); setEditingId(l.id); }} onDelete={() => setDeleting(l)} />
+                <LineRow key={l.id} l={l} cur={cur} mode={mode} dimmed={naCodes.has(l.category.code)} onEdit={() => { setAdding(false); setEditingId(l.id); }} onDelete={() => setDeleting(l)} />
               ),
             )}
             {lines.length === 0 && !adding && (
@@ -139,12 +158,15 @@ export function BudgetLinesTable({ b, categories, mode }: { b: BudgetRow; catego
   );
 }
 
-function LineRow({ l, cur, mode, onEdit, onDelete }: { l: BudgetLineRow; cur: string; mode: LinesMode; onEdit: () => void; onDelete: () => void }) {
+function LineRow({ l, cur, mode, dimmed, onEdit, onDelete }: { l: BudgetLineRow; cur: string; mode: LinesMode; dimmed?: boolean; onEdit: () => void; onDelete: () => void }) {
   const foreign = l.transactionCurrency !== cur;
   const remainingNeg = Number(l.remaining) < 0;
   const editable = mode !== "read" && !(mode === "plan" && l.isContingency);
   return (
-    <TableRow className={l.isContingency ? "bg-muted/40" : undefined}>
+    <TableRow
+      className={l.isContingency ? "bg-muted/40" : dimmed ? "bg-muted/20 text-muted-foreground" : undefined}
+      title={dimmed ? "This category is marked not applicable for this budget." : undefined}
+    >
       <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
       <TableCell>
         <div>

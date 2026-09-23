@@ -20,6 +20,7 @@ import {
   useAmendSpendRequest,
   useCancelOrder,
   useConfirmReceipt,
+  useUndoReceipt,
   useRaiseOrder,
   useReceiveOrder,
   useRemoveQuote,
@@ -246,6 +247,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
   const send = useSendOrder(o.id);
   const receive = useReceiveOrder(o.id);
   const confirm = useConfirmReceipt(o.id);
+  const undo = useUndoReceipt(o.id);
   const cancel = useCancelOrder(o.id);
   const [prompt, setPrompt] = useState<null | "receive" | "cancel">(null);
   const [extent, setExtent] = useState<"PARTIAL" | "FULL">("FULL");
@@ -257,7 +259,12 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
   const awaitingSecond = live && o.fulfillmentStatus === "RECEIVED" && o.receiptNeedsSecondPerson && !o.receiptConfirmed;
   const canConfirm = awaitingSecond && (canSettle || canApprove) && me !== o.receivedByUserId;
   const canCancelOrder = live && o.fulfillmentStatus === "OPEN" && (canSettle || isAdmin);
+  // A receipt is one person's to take back only while it is unconfirmed; once
+  // a second person has confirmed it, two people said the goods came.
+  const canUndoReceipt = live && o.fulfillmentStatus !== "OPEN" && !o.receiptConfirmedAt && (canSettle || isAdmin || actsOnOrder || me === o.receivedByUserId);
   const hasEmail = o.supplier.contactEmails.length > 0;
+  // A send that was asked for, tried, and did not go. Cleared the moment one succeeds.
+  const sendFailed = !o.sentToSupplierAt && !!o.lastSendError;
   const cur = o.currency;
   const rep = o.budget?.reportingCurrency ?? cur;
 
@@ -287,7 +294,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         {cur !== rep && <Field k={`Committed in ${rep}`} v={`${rep} ${money2(o.amountReporting)} at ${o.fxRateToReporting}`} />}
         <Field k="Issued" v={`${fmtWhen(o.approvedAt)}`} />
         <Field k="Supplier" v={`${o.supplier.displayName} (${o.supplier.code})`} />
-        <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
+        <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : sendFailed ? "Tried and failed" : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
         {o.receivedAt && <Field k="Received" v={fmtWhen(o.receivedAt)} />}
         {o.fulfillmentStatus === "PARTIALLY_RECEIVED" && <Field k="Received" v="Partly" />}
         {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}` : "Awaiting confirmation (AED 50,000 or more)"} />}
@@ -312,8 +319,25 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         )}
         {canReceive && <Button size="sm" variant="outline" onClick={() => { setExtent("FULL"); setPrompt("receive"); }}><PackageCheck className="h-4 w-4" /> Mark received</Button>}
         {canConfirm && <Button size="sm" onClick={() => void run(confirm, { expectedVersion: o.version }, () => "Receipt confirmed.")} disabled={confirm.isPending}>{confirm.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Confirm receipt</Button>}
+        {canUndoReceipt && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={undo.isPending}
+            title="Clears the receipt and lets the order be cancelled again. Recorded on the audit trail."
+            onClick={() => void run(undo, { expectedVersion: o.version }, () => "Receipt taken back; the order is open again.")}
+          >
+            {undo.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Undo receipt
+          </Button>
+        )}
         {canCancelOrder && <Button size="sm" variant="outline" className="text-destructive" onClick={() => setPrompt("cancel")}><Ban className="h-4 w-4" /> Cancel order</Button>}
       </div>
+      {sendFailed && (
+        <p className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{`The order did not reach the supplier automatically on ${fmtWhen(o.lastSendAttemptAt)}: ${o.lastSendError}. The order itself is fine; use Send to supplier, or send the PDF by hand.`}</span>
+        </p>
+      )}
       {live && o.fulfillmentStatus !== "OPEN" && (canSettle || isAdmin) && <p className="mt-2 text-xs text-muted-foreground">Something on this order has been received, so it can no longer be cancelled. It is closed against the supplier&apos;s invoice.</p>}
       {awaitingSecond && !canConfirm && <p className="mt-2 text-xs text-muted-foreground">{me === o.receivedByUserId ? "You marked it received; a second person (the settle holder or an approver) confirms it." : "The settle holder or an approver confirms the receipt."}</p>}
 

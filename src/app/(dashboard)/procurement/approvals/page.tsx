@@ -25,7 +25,7 @@ const REQUEST_STATUS_CLASS: Record<string, string> = {
   PENDING: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
   APPROVED: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
   REJECTED: "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100",
-  CANCELLED: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  CANCELLED: "bg-muted text-muted-foreground",
 };
 
 export default function ApprovalsPage() {
@@ -101,6 +101,8 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   const asDelegate = !!openStep && !!meId && openStep.delegateUserId === meId && openStep.assigneeUserId !== meId;
 
   async function go(decision: "APPROVED" | "REJECTED") {
+    // The same rule the API enforces, said here so the refusal costs no round trip.
+    if (decision === "REJECTED" && !note.trim()) return void toast.error("Say why it is rejected; the person who raised it reads this.");
     setPending(decision);
     try {
       const out = await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
@@ -127,7 +129,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{subject}</Badge>
             {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
-            {asDelegate && <Badge variant="secondary" className="bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
+            {asDelegate && <Badge variant="secondary" className="bg-primary/10 text-primary">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
             {sr ? (
               <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
             ) : r.budget ? (

@@ -5,12 +5,12 @@ import { BUDGET_CHECK_LABEL, SPEND_REQUEST_STATUS_LABEL, type BudgetCheckStatusV
 import { COMMITMENT_STATUS_LABEL, FULFILLMENT_LABEL, type CommitmentStatusValue, type FulfillmentStatusValue } from "@/procurement/lib/commitment-rules";
 
 const STATUS_CLASS: Record<SpendRequestStatusValue, string> = {
-  DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  DRAFT: "bg-muted text-foreground",
   SUBMITTED: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
   BUDGET_CHECKED: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
   PENDING_APPROVAL: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
   APPROVED: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
-  AWAITING_SUPPLIER: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  AWAITING_SUPPLIER: "bg-primary/10 text-primary",
   REJECTED: "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100",
   CANCELLED: "bg-muted text-muted-foreground",
   CONVERTED: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
@@ -34,8 +34,8 @@ export function BudgetCheckBadge({ status }: { status: BudgetCheckStatusValue })
 
 const ORDER_CLASS: Record<CommitmentStatusValue, string> = {
   APPROVED: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
-  SENT_TO_ACCOUNTING: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
-  POSTED: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  SENT_TO_ACCOUNTING: "bg-primary/10 text-primary",
+  POSTED: "bg-primary/10 text-primary",
   CLOSED: "bg-muted text-muted-foreground",
   CANCELLED: "bg-muted text-muted-foreground",
 };
@@ -45,7 +45,7 @@ export function OrderStatusBadge({ status }: { status: CommitmentStatusValue }) 
 }
 
 const FULFILLMENT_CLASS: Record<FulfillmentStatusValue, string> = {
-  OPEN: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  OPEN: "bg-muted text-muted-foreground",
   PARTIALLY_RECEIVED: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
   RECEIVED: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
 };

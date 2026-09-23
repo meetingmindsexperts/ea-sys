@@ -6,6 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: Budget & Procurement, seven findings from the end-to-end verification (September 23)
+
+The spend-request flow was driven the whole way on the local prod copy by five
+people (record: [docs/SPEND_REQUEST_E2E_VERIFICATION.html](docs/SPEND_REQUEST_E2E_VERIFICATION.html)).
+It passed. These are the seven things the run turned up, all fixed.
+
+**Control**
+
+- **Every over-budget exception now needs a written reason.** `budgetCheck()`
+  returned `reasonRequired: false` for an overspend on an ACTIVE budget, so an
+  unexplained one could reach the final approver; only the FROZEN case demanded
+  words. The shipped walkthrough already told readers a reason was required, so
+  this was drift as well as a gap. `spend-request-rules.ts` now requires one for
+  any exception, and the submit refusal names which kind it is.
+- **A rejection carries its reason, on every subject.** `decideSchema` accepted
+  a REJECTED decision with no note, so a refusal on a budget, a reallocation or
+  a spend request (the one that costs somebody the most work) could be silent,
+  while supplier rejections had demanded a reason since they shipped. Enforced
+  in the schema and refused client-side first on both surfaces.
+- **A receipt can be taken back.** `undoReceipt()` + `POST
+  /api/procurement/commitments/[id]/undo-receipt`: the recorder, the settle
+  holder or an admin, only while the receipt is unconfirmed, audited as
+  `RECEIVE_UNDO`. Marking received was the module's one irreversible click, and
+  it also makes the order uncancellable. Clears every field the receipt set,
+  together, which is the `undoCheckIn()` lesson.
+- **A failed purchase-order email is written down.** New nullable
+  `Commitment.lastSendAttemptAt` / `lastSendError` (migration
+  `20260923120000_add_commitment_send_failure`, additive and idempotent) and a
+  standing warning on the order card. The auto-send is failure isolated by
+  design, but its only trace was a toast shown once to whoever clicked approve;
+  the requester who asked for the email never learned it had not gone, and the
+  card read "Not yet", which is also what it says when nobody tried. Cleared on
+  a send that succeeds.
+
+**Flow**
+
+- **"Mark the remaining N not applicable"** on a draft budget: one write instead
+  of one serialised round trip per category (a fresh budget needed twelve).
+- **Not-applicable lines sink to the bottom** of the lines table, dimmed, rather
+  than leaving a two-line budget reading as fifteen rows. Ranked, never deleted,
+  so clearing the mark restores the line untouched.
+- **A sourcing method the quotes contradict is refused:** "single quote" with
+  more than one, "competitive quotes" with fewer than two. Sole source and
+  existing contract are intent rather than arithmetic and stay unconstrained.
+
+**Housekeeping**
+
+- `no-unreachable` / `no-unreachable-loop` enabled for `src/`, `worker/` and
+  `scripts/`. `eslint-config-next` does not bring `eslint:recommended`, so a
+  statement after an unconditional `return` linted clean; one had been sitting
+  in the suppliers decide dialog.
+- The module's status badges moved off raw `slate-*` / `sky-*` onto the theme
+  tokens (`bg-muted` / `text-muted-foreground` for neutral, `bg-primary/10
+  text-primary` for in-flight), matching the conventions already used elsewhere
+  in the app. The `dark:` variants went with them, so light and dark can no
+  longer drift apart. Amber, emerald and red stay: they carry meaning.
+
+
 ### Added — Multi-tenancy Phase 2: CrmContact RLS policy pass (Domain #5) + Phase-0 status verification (July 27)
 
 Small-prep round (owner: "small prep items first" before the Webinar domain

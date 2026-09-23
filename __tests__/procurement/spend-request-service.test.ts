@@ -134,8 +134,13 @@ describe("submitSpendRequest", () => {
     expect(updated().data).toMatchObject({ status: "PENDING_APPROVAL", budgetCheckStatus: "WITHIN_BUDGET", amountAed: "5000.0000", approvalRequestId: "ar1" });
     expect(mockDb.auditLog.create.mock.calls.map((c) => c[0].data.action)).toContain("SUBMIT");
   });
-  it("over budget: never let through, marked OVER_BUDGET and routed to the final approver only", async () => {
+  it("over budget on an active budget needs the requester's reason, and is refused without one", async () => {
     mockDb.spendRequest.findFirst.mockResolvedValue(request({ amount: "6500.01" }));
+    expect(await submit()).toMatchObject({ ok: false, code: "REASON_REQUIRED" });
+    expect(mockDb.approvalRequest.create).not.toHaveBeenCalled();
+  });
+  it("over budget: never let through, marked OVER_BUDGET and routed to the final approver only", async () => {
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ amount: "6500.01", justification: "Eleven faculty confirmed rather than eight." }));
     const r = await submit();
     expect(r.ok).toBe(true);
     const ar = created();
@@ -344,7 +349,8 @@ describe("transitionSpendRequest and quotes", () => {
 describe("the line's other open requests at submit (review M3)", () => {
   const open3000 = { status: "PENDING_APPROVAL", linkedCommitmentId: null, amount: "3000", fxRateToReporting: "1" };
   it("counts them as taken, reading them again under the event's lock", async () => {
-    mockDb.spendRequest.findFirst.mockResolvedValue(request());
+    // Another open request takes the line negative, so this one is an exception and carries its reason.
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ justification: "The other stand was quoted late." }));
     mockDb.spendRequest.findMany.mockResolvedValue([open3000]);
     const r = await submitSpendRequest({ ...base, requestId: "sr1", expectedVersion: 1 });
     expect(r.ok).toBe(true);

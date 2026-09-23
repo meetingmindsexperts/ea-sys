@@ -88,7 +88,25 @@ export const upsertBudgetLineSchema = z.object({
 });
 
 export const submitBudgetSchema = z.object({ reportingToAedRate: rateInput.nullable().optional() });
-export const decideSchema = z.object({ decision: z.enum(["APPROVED", "REJECTED"]), note: z.string().max(2000).nullable().optional() });
+/**
+ * A decision on any approval subject: a budget, a reallocation or a spend
+ * request.
+ *
+ * A REJECTION MUST CARRY A REASON. Approving needs no words (the amount, the
+ * line and the trail already say everything), but a refusal is the one
+ * outcome whose "why" exists nowhere else: the requester has to act on it,
+ * and months later it is the only record of why the money was not spent.
+ * Supplier decisions have demanded this since they shipped; budgets, spend
+ * requests and reallocations did not, which left the refusal that costs
+ * somebody the most work as the only one that could be silent.
+ */
+export const decideSchema = z
+  .object({ decision: z.enum(["APPROVED", "REJECTED"]), note: z.string().max(2000).nullable().optional() })
+  .superRefine((v, ctx) => {
+    if (v.decision === "REJECTED" && !v.note?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["note"], message: "Say why it is rejected; the person who raised it reads this." });
+    }
+  });
 export const reallocateSchema = z.object({
   fromLineKey: z.string().min(1).max(100),
   toLineKey: z.string().min(1).max(100),

@@ -60,9 +60,11 @@ describe("budgetCheck", () => {
     expect(r.remainingBefore.toString()).toBe("6500");
     expect(r.remainingAfter.toString()).toBe("0");
   });
-  it("is over budget the moment the line goes negative, on an active budget without a reason", () => {
+  it("is over budget the moment the line goes negative, and an active budget's overspend needs a reason too", () => {
     const r = budgetCheck({ budgetStatus: "ACTIVE", line, amountReporting: "6500.01" });
-    expect(r).toMatchObject({ status: "OVER_BUDGET", exception: true, reasonRequired: false });
+    // Was reasonRequired: false until 23 September 2026, which let an unexplained
+    // overspend reach the final approver. Every exception carries a reason now.
+    expect(r).toMatchObject({ status: "OVER_BUDGET", exception: true, reasonRequired: true });
     expect(r.remainingAfter.toString()).toBe("-0.01");
   });
   it("on a frozen budget a request within remaining is ordinary and one over it is the FROZEN exception with a reason", () => {
@@ -82,6 +84,7 @@ describe("budgetCheck", () => {
 });
 
 describe("missingForSubmission", () => {
+  const ok = { lineKey: "k1", supplierId: null, proposedVendorName: "Gulf AV", amount: "10" };
   it("names each gap in the requester's words and is empty when nothing is missing", () => {
     expect(missingForSubmission({ lineKey: null, supplierId: null, proposedVendorName: null, amount: "0", quotes: [] })).toEqual([
       "a budget line to request against",
@@ -89,7 +92,25 @@ describe("missingForSubmission", () => {
       "a supplier, or the name of the vendor you propose",
       "at least one quote",
     ]);
-    expect(missingForSubmission({ lineKey: "k1", supplierId: null, proposedVendorName: "Gulf AV", amount: "10", quotes: [{}] })).toEqual([]);
+    expect(missingForSubmission({ ...ok, quotes: [{}] })).toEqual([]);
+  });
+  it("refuses a sourcing method the quotes contradict, and only the two countable ones", () => {
+    expect(missingForSubmission({ ...ok, quotes: [{}, {}], sourcingMethod: "SINGLE_QUOTE" })).toEqual([
+      "a sourcing method that matches: it says a single quote and carries 2",
+    ]);
+    expect(missingForSubmission({ ...ok, quotes: [{}], sourcingMethod: "COMPETITIVE_QUOTES" })).toEqual([
+      "a second quote, or a sourcing method other than competitive quotes",
+    ]);
+    // Consistent pairs pass.
+    expect(missingForSubmission({ ...ok, quotes: [{}], sourcingMethod: "SINGLE_QUOTE" })).toEqual([]);
+    expect(missingForSubmission({ ...ok, quotes: [{}, {}], sourcingMethod: "COMPETITIVE_QUOTES" })).toEqual([]);
+    // Intent, not arithmetic: neither can contradict a quote count.
+    for (const m of ["SOLE_SOURCE", "EXISTING_CONTRACT", null, undefined]) {
+      expect(missingForSubmission({ ...ok, quotes: [{}, {}, {}], sourcingMethod: m })).toEqual([]);
+    }
+  });
+  it("says 'at least one quote' alone when there are none, never that plus a method complaint", () => {
+    expect(missingForSubmission({ ...ok, quotes: [], sourcingMethod: "COMPETITIVE_QUOTES" })).toEqual(["at least one quote"]);
   });
 });
 

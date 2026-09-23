@@ -339,6 +339,8 @@ export interface CommitmentRow {
   approvedAt: string;
   approvedByUserId: string | null;
   sentToSupplierAt: string | null;
+  lastSendAttemptAt: string | null;
+  lastSendError: string | null;
   receivedAt: string | null;
   receivedByUserId: string | null;
   receiptConfirmedAt: string | null;
@@ -1006,6 +1008,15 @@ export function useConfirmReceipt(commitmentId: string) {
   return useMutation({
     mutationFn: (input: { expectedVersion: number }) =>
       send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/confirm-receipt`, "POST", input, "Couldn't confirm the receipt").then((r) => r.commitment),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUndoReceipt(commitmentId: string) {
+  const invalidate = useOrderInvalidation();
+  return useMutation({
+    mutationFn: (input: { expectedVersion: number }) =>
+      send<{ commitment: CommitmentDetailRow }>(`/api/procurement/commitments/${commitmentId}/undo-receipt`, "POST", input, "Couldn't take the receipt back").then((r) => r.commitment),
     onSuccess: invalidate,
   });
 }

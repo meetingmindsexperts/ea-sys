@@ -571,7 +571,14 @@ export async function submitSpendRequest(input: { organizationId: string; actor:
   const reserved = await reservedByOthersOnLine(db, input.organizationId, versionIds, line.lineKey, r.id);
   const check = budgetCheck({ budgetStatus: budget.status, line, amountReporting, reservedByOthers: reserved });
   if (check.reasonRequired && !r.justification) {
-    return fail("REASON_REQUIRED", "This request is over the line's remaining on a frozen budget: give the reason before it goes to the final approver (spec §8.5).", ctx, { budgetCheck: check.status });
+    return fail(
+      "REASON_REQUIRED",
+      check.status === "FROZEN"
+        ? "This request is over the line's remaining on a frozen budget: give the justification before it goes to the final approver (spec §8.5)."
+        : "This request is over what the line has left: give the justification before it goes to the final approver.",
+      ctx,
+      { budgetCheck: check.status },
+    );
   }
   const aed = resolveReportingToAedRate(budget.reportingCurrency, input.reportingToAedRate);
   if (!aed.ok) return fail("RATE_REQUIRED", rateRefusal(budget.reportingCurrency, aed), ctx, { reason: aed.reason });

@@ -6018,6 +6018,11 @@ model Commitment {
   approvedAt               DateTime             @default(now())
   approvedByUserId         String?
   sentToSupplierAt         DateTime?
+  /// The last automatic send that did NOT go, so a failure the approver saw once
+  /// as a toast is still readable by the requester who asked for the email.
+  /// Cleared on a successful send. See docs/SPEND_REQUEST_E2E_VERIFICATION.html.
+  lastSendAttemptAt        DateTime?
+  lastSendError            String?
   pdfUrl                   String?
   receivedAt               DateTime?
   receivedByUserId         String?

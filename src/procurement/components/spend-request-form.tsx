@@ -329,7 +329,7 @@ function PreviewPanel({ p }: { p: NonNullable<ReturnType<typeof useBudgetCheckPr
       {p.check.exception && (
         <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{p.check.status === "FROZEN" ? "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification." : "This goes over the line: it is never allowed through quietly and is routed to the final approver as an exception."}</span>
+          <span>{p.check.status === "FROZEN" ? "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification." : "This goes over the line: it is never allowed through quietly, it is routed to the final approver as an exception, and it needs your justification."}</span>
         </div>
       )}
       <div className="rounded-md bg-muted/50 p-2 text-xs">

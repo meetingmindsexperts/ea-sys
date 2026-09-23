@@ -315,11 +315,34 @@ function Note({ children }: { children: React.ReactNode }) {
 function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; categories: BudgetCategoryRow[]; editable: boolean; onFailed: (err: unknown) => void }) {
   const update = useUpdateBudgetHeader(b.id);
   const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [markingRest, setMarkingRest] = useState(false);
   const cats = lineCategories(categories);
   if (cats.length === 0) return null;
   const covered = new Set((b.lines ?? []).filter((l) => !l.isContingency && Number(l.planned) > 0).map((l) => l.categoryId));
   const na = new Set(b.naCategoryCodes);
   const open = cats.filter((c) => !covered.has(c.id) && !na.has(c.code) && c.code !== CONTINGENCY_CATEGORY_CODE);
+
+  /**
+   * Every remaining category in ONE write.
+   *
+   * Each chip is its own header update carrying the version lock, so marking
+   * them one by one is a serialised round trip apiece: a fresh budget that
+   * spends on two categories needed twelve of them, and the lock meant they
+   * could not even be clicked quickly. The common case is "we spend on these
+   * two and nothing else", so let the requester say that once.
+   */
+  async function markRest() {
+    if (open.length === 0) return;
+    setMarkingRest(true);
+    try {
+      await update.mutateAsync({ expectedVersion: b.version, naCategoryCodes: [...b.naCategoryCodes, ...open.map((c) => c.code)] });
+      toast.success(`${open.length} ${open.length === 1 ? "category" : "categories"} marked not applicable.`);
+    } catch (err) {
+      onFailed(err);
+    } finally {
+      setMarkingRest(false);
+    }
+  }
 
   async function toggle(code: string) {
     const next = na.has(code) ? b.naCategoryCodes.filter((c) => c !== code) : [...b.naCategoryCodes, code];
@@ -337,12 +360,27 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
     <div className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <div className="text-sm font-medium">Categories</div>
-        <div className="text-xs text-muted-foreground">
-          {editable
-            ? open.length > 0
-              ? `${open.length} still need${open.length === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`
-              : "Every category has a planned amount or is marked not applicable."
-            : "Grey chips were marked not applicable."}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-xs text-muted-foreground">
+            {editable
+              ? open.length > 0
+                ? `${open.length} still need${open.length === 1 ? "s" : ""} a planned amount or the not-applicable mark before submission.`
+                : "Every category has a planned amount or is marked not applicable."
+              : "Grey chips were marked not applicable."}
+          </div>
+          {editable && open.length > 1 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={update.isPending}
+              onClick={() => void markRest()}
+              title="Marks every category that has no planned amount, in one go. Click any chip afterwards to put one back."
+            >
+              {markingRest && <Loader2 className="h-3 w-3 animate-spin" />}
+              {`Mark the remaining ${open.length} not applicable`}
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -350,7 +388,7 @@ function NaCategoryChips({ b, categories, editable, onFailed }: { b: BudgetRow; 
           const isNa = na.has(c.code);
           const isCovered = covered.has(c.id);
           const cls = isNa
-            ? "border-slate-300 bg-slate-100 text-slate-500 line-through dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+            ? "border-border bg-muted text-muted-foreground line-through"
             : isCovered
               ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
               : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100";

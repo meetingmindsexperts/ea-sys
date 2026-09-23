@@ -18,6 +18,26 @@ const eslintConfig = defineConfig([
     "public/pdfjs/**",
   ]),
 
+  // ── Code that can never run ───────────────────────────────────────────────
+  //
+  // `eslint-config-next` brings the React, Next and TypeScript rules but not
+  // `eslint:recommended`, so `no-unreachable` was off and a statement sitting
+  // after an unconditional `return` linted clean. One was found in the
+  // suppliers decide dialog on 23 September 2026 during the procurement
+  // end-to-end verification: a stray `onClose()` that had never run since the
+  // early return above it was added.
+  //
+  // That one was harmless. The class is not: the usual shape is a cleanup or a
+  // close call stranded behind a `return` somebody inserted later, which reads
+  // as handled and is not.
+  {
+    files: ["src/**/*.{ts,tsx}", "worker/**/*.ts", "scripts/**/*.{ts,mjs}"],
+    rules: {
+      "no-unreachable": "error",
+      "no-unreachable-loop": "error",
+    },
+  },
+
   // ── CRM module import boundary (docs/CRM_MODULE_PLAN.md §7.0) ──────────────
   //
   // The CRM is a bounded module INSIDE the app: src/crm/ may import core, but

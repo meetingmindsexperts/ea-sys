@@ -14,13 +14,13 @@ import { Loader2, TriangleAlert } from "lucide-react";
 import { BUDGET_STATUS_LABEL, type BudgetStatus } from "../hooks/use-procurement-api";
 
 const STATUS_CLASS: Record<BudgetStatus, string> = {
-  DRAFT: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
+  DRAFT: "bg-muted text-foreground",
   UNDER_REVIEW: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
-  APPROVED: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  APPROVED: "bg-primary/10 text-primary",
   ACTIVE: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
   FROZEN: "bg-cyan-100 text-cyan-900 dark:bg-cyan-900 dark:text-cyan-100",
   CLOSED: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
-  ARCHIVED: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+  ARCHIVED: "bg-muted text-muted-foreground",
 };
 
 /**
