@@ -167,7 +167,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
         </div>
         {decidable && (
           <div className="w-full space-y-2 sm:w-72">
-            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the requester (optional)" />
+            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the requester; required to reject" />
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" className="text-destructive" onClick={() => void go("REJECTED")} disabled={decide.isPending}>
                 {pending === "REJECTED" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
