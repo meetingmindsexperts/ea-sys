@@ -521,7 +521,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
-            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN || vars.NEXT_PUBLIC_SENTRY_DSN }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           # Don't push provenance/SBOM attestation manifests — buildx defaults to
