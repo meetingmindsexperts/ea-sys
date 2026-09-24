@@ -167,7 +167,7 @@ organisations get hit a second time by the same foothold.
 1. Launch a **new** EC2 from a fresh Ubuntu AMI. Do not restore from a snapshot of the compromised
    volume.
 2. Follow [FROM_SCRATCH_REBUILD.md](FROM_SCRATCH_REBUILD.md) end to end: IAM role, security group,
-   **swap** (the INC-001 trap), packages, nginx from `deploy/nginx.live-snapshot.conf`, fail2ban,
+   **swap** (the INC-001 trap), packages, nginx from `deploy/nginx.conf`, fail2ban,
    CloudWatch agent, crontab.
 3. Pull a **known-good image tag** from ECR, chosen as one pushed before the earliest evidence of
    compromise. ECR is pull-only from the box, so the registry itself is trustworthy.

@@ -35,6 +35,7 @@
     "db:reset": "DB_LOCAL_OP=reset bash scripts/db-local-op.sh",
     "db:snapshot": "bash scripts/db-snapshot.sh",
     "db:restore": "bash scripts/db-restore.sh",
+    "nginx:drift": "bash scripts/nginx-drift-check.sh",
     "db:migrate": "prisma migrate deploy",
     "db:refresh": "bash scripts/dev-db-refresh.sh",
     "uploads:refresh": "bash scripts/dev-uploads-refresh.sh",

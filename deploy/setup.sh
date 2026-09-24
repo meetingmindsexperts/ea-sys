@@ -47,6 +47,8 @@ echo "    After the cert is issued you can remove port 80 from the Security Grou
 sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
 
 echo "==> [6/7] Applying production nginx config (SSL + proxy)"
+# deploy/nginx.conf is the live production config (deploy/NGINX.md); it needs
+# the certificate Certbot issued in step 5, which is why it comes after it.
 sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/ea-sys
 sudo nginx -t
 sudo systemctl reload nginx

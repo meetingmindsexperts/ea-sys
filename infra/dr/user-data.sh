@@ -91,6 +91,10 @@ chown -R ubuntu:ubuntu /home/ubuntu/ea-sys
 chmod 600 /home/ubuntu/ea-sys/.env
 
 # --- 5. nginx (blue-green upstream config) ---
+# deploy/nginx.conf is the live production config (deploy/NGINX.md). Until
+# 24 Sep 2026 this path held a stale template, so DR would have lacked the rate
+# limits, the maintenance page and the MCP streaming settings. Its certificate
+# paths are stubbed below before `nginx -t`.
 cp /home/ubuntu/ea-sys/deploy/nginx.conf /etc/nginx/sites-available/ea-sys
 ln -sf /etc/nginx/sites-available/ea-sys /etc/nginx/sites-enabled/ea-sys
 rm -f /etc/nginx/sites-enabled/default

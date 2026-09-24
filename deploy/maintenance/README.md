@@ -26,11 +26,11 @@ per request, which avoids a third copy of the proxy block.
 
 ## ⚠ The box is the source of truth for nginx
 
-`/etc/nginx/sites-available/ea-sys` has diverged from `deploy/nginx.conf`
-(Certbot rewrote it). Edit the box, then refresh
-[`../nginx.live-snapshot.conf`](../nginx.live-snapshot.conf) — otherwise
+Certbot rewrites `/etc/nginx/sites-available/ea-sys`, so edit the box first,
+then run `npm run nginx:drift` and copy the change into
+[`../nginx.conf`](../nginx.conf) (the one repo copy of the live file). Otherwise
 [FROM_SCRATCH_REBUILD.md](../../docs/FROM_SCRATCH_REBUILD.md) rebuilds a server
-without this.
+without this. Procedure: [`../NGINX.md`](../NGINX.md).
 
 ## Install
 

@@ -182,9 +182,10 @@ Notes:
 ## 8. nginx proxy — required, but not in the committed config
 
 The playback URL is `{appUrl}/stream/live/{streamKey}/index.m3u8`, which means
-nginx must proxy `/stream/` to the MediaMTX container's `:8888`. **This proxy
-block is currently NOT present in [`deploy/nginx.conf`](../deploy/nginx.conf)** —
-it must be configured on the EC2 box manually. A correct block looks like:
+nginx must proxy `/stream/` to the MediaMTX container's `:8888`. The live block
+is in [`deploy/nginx.conf`](../deploy/nginx.conf), which since Sep 24, 2026 is an
+exact copy of the box file (see [`deploy/NGINX.md`](../deploy/NGINX.md)). A
+reference version with the reasoning:
 
 ```nginx
 # Proxy HLS playback to the MediaMTX container.
@@ -197,9 +198,8 @@ location /stream/ {
 }
 ```
 
-> **TODO / hardening:** fold this block into `deploy/nginx.conf` so the proxy
-> is reproducible with the rest of the deploy, instead of being a manual
-> on-box step that a fresh deploy would silently miss.
+> **Done Sep 24, 2026:** the block is in `deploy/nginx.conf`, so a rebuilt or
+> DR server gets it from `deploy/setup.sh` / `infra/dr/user-data.sh`.
 
 ---
 

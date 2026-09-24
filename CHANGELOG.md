@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: one nginx config in the repo, and it is the live one (September 24)
+
+The repo held two nginx site configs. `deploy/nginx.conf` was an old template
+that had drifted from the box; `deploy/nginx.live-snapshot.conf` was the real
+config. `deploy/setup.sh` and the Singapore DR bootstrap installed the TEMPLATE,
+so a rebuilt or failed-over server would have come up without the rate limits,
+the maintenance page and the MCP streaming settings. The live file was read from the box (read-only SSM),
+found identical to the snapshot, and is now `deploy/nginx.conf` behind a header;
+the snapshot is deleted. `npm run nginx:drift` (new, read-only) diffs the box
+against the repo file, exit 0/1/2. The change procedure is in the new
+`deploy/NGINX.md`; every runbook that named the snapshot or called the repo file
+a "reference template" now points at the one file.
+
 ### Fixed: browser-side Sentry is switched on for real, with replay loaded on demand (September 24)
 
 Browser error reporting had never worked in production. `NEXT_PUBLIC_SENTRY_DSN`

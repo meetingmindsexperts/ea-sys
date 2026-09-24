@@ -232,7 +232,7 @@ inert — which is correct on master and wrong on platform.
 
 Follow [FROM_SCRATCH_REBUILD.md](FROM_SCRATCH_REBUILD.md) end to end: IAM role,
 security group (including 1935 for RTMP), **swap** (the INC-001 gap), packages,
-nginx from `deploy/nginx.live-snapshot.conf`, blue-green wiring, crontab,
+nginx from `deploy/nginx.conf`, blue-green wiring, crontab,
 fail2ban, CloudWatch.
 
 Same image, same repo, same migrations folder. A forked branch is explicitly

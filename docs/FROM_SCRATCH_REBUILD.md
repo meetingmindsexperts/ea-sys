@@ -160,11 +160,11 @@ Follow `infra/dr/user-data.sh` §3–§5b, which does exactly this:
 
 ## Phase 4 — nginx + TLS + blue-green wiring
 
-1. **Use the live snapshot, NOT the template:** copy **`deploy/nginx.live-snapshot.conf`** → `/etc/nginx/sites-available/ea-sys` (symlink into `sites-enabled`, remove `default`). The box's nginx is Certbot-managed and drifted from `deploy/nginx.conf` long ago; the snapshot is the captured live truth (re-verified content-identical to live on 2026-07-13). It already contains the rate-limit zones, the `/stream/` MediaMTX proxy, and `X-Real-IP` wiring that `getClientIp()` trusts.
+1. **Install the site config:** copy **`deploy/nginx.conf`** → `/etc/nginx/sites-available/ea-sys` (symlink into `sites-enabled`, remove `default`). Since 24 Sep 2026 this is the one nginx file in the repo: a copy of the live box file (verified identical that day; `npm run nginx:drift` re-checks). The old template and `nginx.live-snapshot.conf` are gone, see `deploy/NGINX.md`. It already contains the rate-limit zones, the `/stream/` MediaMTX proxy, and `X-Real-IP` wiring that `getClientIp()` trusts.
 2. **Blue-green wiring:** run `deploy/SERVER_SETUP.md` steps 1, 2 and 5 — the nginx sudoers for `ubuntu`, the initial `ea-sys-upstream.conf` (blue :3000), and `echo blue > /home/ubuntu/.active-slot`. (Skip its step 4 — that was a one-time 2026 migration.)
 3. **TLS bootstrap:** on a fresh box there's no cert yet — use the self-signed stub sequence from `infra/dr/user-data.sh` §5 (openssl self-signed into the letsencrypt live path + certbot snippet stubs) so `nginx -t` passes immediately.
 4. **Real cert (after DNS):** point the A record at the Elastic IP, wait for propagation, then `sudo certbot --nginx -d events.meetingmindsgroup.com --non-interactive --agree-tos -m <admin email>`. Certbot installs its own renewal timer.
-5. After any certbot run, **re-snapshot**: if `diff /etc/nginx/sites-available/ea-sys deploy/nginx.live-snapshot.conf` shows real drift, copy live → snapshot and commit (the box is the source of truth; the repo file is the recovery copy).
+5. After any certbot run, run **`npm run nginx:drift`** (read-only). On drift, copy the box's change into `deploy/nginx.conf` and commit (the box is where changes happen; the repo file is the recovery copy).
 
 ---
 
@@ -245,5 +245,5 @@ Update GitHub repo **Actions secrets** for the deploy workflow (host = new Elast
 
 - `docs/MUMBAI_SETUP.md` says Ubuntu 22.04 / 30 GB / installs Node 20 on the host — live is **Noble 24.04 / 48 GB**, and no host Node is needed (everything runs in containers; migrations run via deploy.sh). It also predates the worker cutover, ECR pulls, swap, fail2ban's nginx jail, and CloudWatch.
 - `deploy/SERVER_SETUP.md` is blue-green wiring only; its step 4 is a historical migration and its original timing table described the pre-ECR on-box-build era (corrected July 13, 2026).
-- `deploy/nginx.conf` is a **reference template** — the live file and `deploy/nginx.live-snapshot.conf` are the truth.
+- `deploy/nginx.conf` is **the** site config, identical to the live box file (see `deploy/NGINX.md`).
 - The `logs/archive/` monthly SystemLog archives are **not** in any S3 sync yet (single copy on box disk) — decision pending; see ROADMAP if it's been added since.

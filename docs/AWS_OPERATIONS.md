@@ -924,9 +924,10 @@ Verify any of these yourself: AWS WAF → `aws wafv2 list-web-acls --scope REGIO
 
 ### 4.1 nginx per-IP rate limiting (live config)
 
-Lives in the box's `/etc/nginx/sites-available/ea-sys` (a stripped,
-Certbot-managed file that has **diverged from the committed `deploy/nginx.conf`**
-— the box is the source of truth for nginx; the git file is a reference).
+Lives in the box's `/etc/nginx/sites-available/ea-sys` (Certbot-managed; the
+box is where changes happen). [`deploy/nginx.conf`](../deploy/nginx.conf) is an
+exact copy since Sep 24, 2026: `npm run nginx:drift` checks it, and
+[`deploy/NGINX.md`](../deploy/NGINX.md) has the change procedure.
 
 - `limit_req_zone … zone=ea_req rate=100r/s` → `limit_req burst=200 nodelay` on
   `location /` (HTML/RSC/API), `burst=50` on `/api/mcp`. Static `/_next/static/`

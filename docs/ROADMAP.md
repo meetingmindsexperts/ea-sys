@@ -158,9 +158,9 @@ worth getting right: a `200` would tell crawlers the page is genuinely that
 content, and would make Uptime Robot believe the site is healthy while it is
 down. It must need no application to render — that is the entire point.
 
-**Note before editing.** The live nginx config on the box has diverged from
-`deploy/nginx.conf` (Certbot rewrote it), so **the box is the source of truth**
-and `deploy/nginx.live-snapshot.conf` must be refreshed alongside any change, or
+**Note before editing.** Certbot rewrites the live nginx config, so **the box is
+where changes happen**; copy each change into `deploy/nginx.conf` afterwards
+(`npm run nginx:drift` shows it, `deploy/NGINX.md` has the procedure), or
 FROM_SCRATCH_REBUILD loses it. Done for this change — the snapshot was refreshed
 **from** the box after the reload, not before.
 
@@ -3556,7 +3556,7 @@ context in [infra/dr/](../infra/dr/) and the DR memory.
 
 | Priority | Item | Detail |
 |---|---|---|
-| MEDIUM | **nginx box ↔ repo reconciliation** | The live `/etc/nginx/sites-available/ea-sys` has diverged from `deploy/nginx.conf` — and the **box is the LEANER one** (Certbot-stripped). Exact live state captured in [`deploy/nginx.live-snapshot.conf`](../deploy/nginx.live-snapshot.conf) (2026-06-30). The box is MISSING vs the intended config: **HTTP/2** (`listen 443 ssl`, no `http2`) + **security headers** (`X-Frame-Options` / `X-Content-Type-Options: nosniff` / `Referrer-Policy`). Most other deltas (gzip, `/_next/static` caching, agent-SSE buffering) are already handled by Next.js itself, so low-impact. **Fix = targeted on-box edits** (add `http2 on;` + the `add_header` lines) — Certbot manages this file, so do NOT wholesale-replace it. Re-capture the snapshot after any change. |
+| MEDIUM | **nginx: HTTP/2 + security headers on the box** | **Reconciliation DONE Sep 24, 2026:** [`deploy/nginx.conf`](../deploy/nginx.conf) is now the live file itself and the snapshot is gone ([`deploy/NGINX.md`](../deploy/NGINX.md), `npm run nginx:drift`). Still open from the original finding: The box is MISSING vs the intended config: **HTTP/2** (`listen 443 ssl`, no `http2`) + **security headers** (`X-Frame-Options` / `X-Content-Type-Options: nosniff` / `Referrer-Policy`). Most other deltas (gzip, `/_next/static` caching, agent-SSE buffering) are already handled by Next.js itself, so low-impact. **Fix = targeted on-box edits** (add `http2 on;` + the `add_header` lines) — Certbot manages this file, so do NOT wholesale-replace it. Copy each change into `deploy/nginx.conf` afterwards. |
 | LOW | **nginx config → S3 DR backup cron** | The live nginx file is NOT in the scheduled S3 DR backup (only `db/` + `uploads/` + `env/` are). Add a daily `aws s3 cp /etc/nginx/sites-available/ea-sys s3://ea-sys-dr-singapore/nginx/$(date -u +%F).conf …` line mirroring the `.env` backup, so a box rebuild has the exact config. The repo snapshot is the interim backup. |
 | ✅ DONE (2026-06-30) | **DB RPO tightening — 2h day / 4h night** | Applied: crontab now `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC = ≤2h RPO Dubai 08:00–22:00, ≤4h overnight (10 dumps/day; script unchanged). Docs ([infra/dr](../infra/dr), AWS_OPERATIONS §2.4) + memory synced. |
 | LOW | **Supabase PITR (true zero-RPO)** | Snapshot dumps still lose up to the window (2h/12h) of new rows on a Supabase-loss. PITR (~$25–50/mo) gives seconds-level recovery. Worth it for payment-critical events — though **Stripe is already the payment system-of-record** (the invoice-reconciliation worker recovers payments), so the real exposure is lost DB rows (registrations), not payments. |
@@ -3710,7 +3710,7 @@ cache, admit signature re-mint, overrun cutoff). These remain deferred:
 
 **Operational prerequisites (operator-run, not code):**
 - **Phase 0 — Zoom embed Join:** flip the org's Zoom **Active SDK Mode dev → Production** and add `events.meetingmindsgroup.com` to the **prod** Meeting-SDK app's Marketplace **Embed allowlist** (the embed code/deps are verified sound; this is the one config gap behind the earlier Join error). Required only for the **Zoom-embed** viewing mode.
-- **Verify the box's nginx `/stream/`** matches the now-committed `deploy/nginx.conf` block before any HLS-mode webinar (the live nginx is Certbot-managed and has diverged — the box is source of truth).
+- **Verify the box's nginx `/stream/`** matches the now-committed `deploy/nginx.conf` block before any HLS-mode webinar (`npm run nginx:drift`; the file is the live box config since Sep 24, 2026).
 - **CloudFront + Singapore DR origin failover** before a real **5k streamed** event — exact steps in `docs/LIVE_STREAMING.md §13`. The app is CDN-ready (`HLS_CDN_BASE` unset = direct origin, fine for dev/small events).
 
 ### registration-detail-sheet.tsx — staged refactor remainder (trigger-driven, May 20, 2026)

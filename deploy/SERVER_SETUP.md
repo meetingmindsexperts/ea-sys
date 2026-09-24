@@ -29,8 +29,10 @@ printf 'upstream ea_sys_app {\n    server 127.0.0.1:3000;\n    keepalive 32;\n}\
 ## 3. Update nginx site config
 
 ```bash
+# deploy/nginx.conf IS the live config (see deploy/NGINX.md). It references the
+# Certbot certificate, so on a fresh box run Certbot (or the DR stub sequence in
+# infra/dr/user-data.sh) first, or `nginx -t` fails.
 sudo cp /home/ubuntu/ea-sys/deploy/nginx.conf /etc/nginx/sites-available/ea-sys
-sudo sed -i 's/YOUR_DOMAIN/events.meetingmindsgroup.com/g' /etc/nginx/sites-available/ea-sys
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
