@@ -27,6 +27,14 @@ COPY . .
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Browser-side Sentry. A NEXT_PUBLIC_ value is inlined into the client bundle
+# at BUILD time, so it has to be present in this stage; the runtime .env on the
+# box is too late. Until 24 Sep 2026 it was never passed, so browser reporting
+# was silently off in production while the SDK still shipped. Empty keeps it
+# off. Builder stage only: the runner image never carries it.
+ARG NEXT_PUBLIC_SENTRY_DSN=""
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+
 RUN npx prisma generate
 RUN npm run build
 

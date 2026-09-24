@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: browser-side Sentry is switched on for real, with replay loaded on demand (September 24)
+
+Browser error reporting had never worked in production. `NEXT_PUBLIC_SENTRY_DSN`
+is inlined at BUILD time, and neither the Dockerfile build stage nor CI passed
+it, so the production bundle carried no DSN, `enabled` was always false, and
+every visitor still downloaded the whole SDK with session replay: 112 KB
+compressed per page doing nothing. Found while asking why the login page ships
+1.7 MB.
+
+- The Dockerfile build stage takes `ARG NEXT_PUBLIC_SENTRY_DSN` and CI passes
+  `secrets.NEXT_PUBLIC_SENTRY_DSN`. Empty keeps reporting off, as before.
+- Session replay loads once the page is idle, from its own chunk: imported as
+  `@sentry/replay` rather than from `@sentry/nextjs`, because a dynamic import
+  of a module also imported statically is not split out. Sample rates and the
+  default masking of text, inputs and media are unchanged.
+- Net, with reporting ON: event page 376 to 342 KB compressed, registration
+  form 408 to 373 KB, login 466 to 431 KB. Verified in a browser on a
+  production build with a placeholder DSN: replay's 123 KB chunk arrived after
+  the load event, and a thrown error produced an envelope.
+
+
 ### Changed: one spend-request walkthrough, and the docs viewer can open it (September 24)
 
 - `docs/SPEND_REQUESTS_WALKTHROUGH.html` (31 screens from 15 September, before
