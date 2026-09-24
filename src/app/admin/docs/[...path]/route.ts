@@ -13,10 +13,11 @@
  * under `docs/` — so the common case (files in the docs/ directory) works
  * without the redundant prefix.
  *
- * Access: PLATFORM OPERATOR only, same gate as the /admin/docs viewer —
- * these docs carry security findings and infra details and must never be
- * public. A logged-out hit redirects to /login with a callbackUrl so a
- * shared link lands on the doc right after sign-in. All path safety
+ * Access: the PLATFORM OPERATOR, plus org ADMINs where the deployment sets
+ * ADMIN_DOC_LINKS_ENABLED=true (master only, Sep 24 2026; see
+ * `isAdminDocLinksEnabled`). These docs carry security findings and infra
+ * details and must never be public. A logged-out hit redirects to /login with
+ * a callbackUrl so a shared link lands on the doc right after sign-in. All path safety
  * (traversal guard, extension allowlist, directory blocklist, 1 MB cap)
  * comes from the same readDocFile() the viewer uses.
  *
@@ -29,6 +30,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { canActAsPlatformOperator } from "@/lib/platform-operator";
+import { isAdminDocLinksEnabled } from "@/lib/module-flags";
 import { readDocFile, type DocsFileContent } from "@/lib/docs-fs";
 import { apiLogger } from "@/lib/logger";
 
@@ -47,6 +49,29 @@ const HTML_SECURITY_HEADERS = {
   "Cache-Control": "private, no-store",
 } as const;
 
+/**
+ * Where to send a signed-out visitor. Behind nginx, `req.url` carries the
+ * container's own origin (it produced https://0.0.0.0:3000/login in prod), so
+ * the public app URL wins when it is set.
+ */
+function loginRedirect(req: Request): NextResponse {
+  const { pathname, origin } = new URL(req.url);
+  const base = process.env.NEXT_PUBLIC_APP_URL || origin;
+  return NextResponse.redirect(
+    new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, base),
+  );
+}
+
+/**
+ * The operator always; an org ADMIN only where the deployment opted in.
+ * Returns which of the two let the caller through, for the access log.
+ */
+function docAccess(user: { role?: string | null; organizationId?: string | null }): "operator" | "admin" | null {
+  if (canActAsPlatformOperator(user)) return "operator";
+  if (user.role === "ADMIN" && isAdminDocLinksEnabled()) return "admin";
+  return null;
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { path: segments }] = await Promise.all([auth(), params]);
@@ -54,16 +79,15 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!session?.user) {
       // Shared-link friendliness: sign in, land on the doc.
-      const url = new URL(req.url);
-      return NextResponse.redirect(
-        new URL(`/login?callbackUrl=${encodeURIComponent(url.pathname)}`, url.origin),
-      );
+      return loginRedirect(req);
     }
     // Narrowed from ADMIN to PLATFORM OPERATOR, Aug 21 2026 — see the comment
     // on the /api/admin/docs/* routes. This one matters slightly more than
     // those: it serves the raw file at a shareable URL, so a link pasted into
     // a chat is only as safe as this check.
-    if (!canActAsPlatformOperator(session.user)) {
+    // Widened again for org ADMINs on master only, Sep 24 2026 (docAccess).
+    const access = docAccess(session.user);
+    if (!access) {
       apiLogger.warn({
         msg: "admin-docs:raw:forbidden",
         userId: session.user.id,
@@ -102,6 +126,15 @@ export async function GET(req: Request, { params }: RouteParams) {
         path: relPath,
       });
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    // An ADMIN read is the widened lane, so it leaves a trace of who opened what.
+    if (access === "admin") {
+      apiLogger.info({
+        msg: "admin-docs:raw:served-to-admin",
+        userId: session.user.id,
+        path: file.path,
+      });
     }
 
     if (file.type === "html") {

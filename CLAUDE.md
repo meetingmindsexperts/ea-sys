@@ -86,8 +86,9 @@ ea-sys/
 │   │   │   └── health/ openapi.json/
 │   │   ├── .well-known/           # OAuth protected-resource + authorization-server metadata
 │   │   ├── mcp-authorize/         # OAuth consent screen (outside the dashboard shell)
-│   │   ├── admin/docs/[...path]/  # shareable direct-URL doc server, ADMIN+ (the browsable
-│   │   │                          #   viewer lives at (dashboard)/admin/docs)
+│   │   ├── admin/docs/[...path]/  # shareable direct-URL doc server: operator, + ADMIN where
+│   │   │                          #   ADMIN_DOC_LINKS_ENABLED=true (master only). The browsable
+│   │   │                          #   viewer at (dashboard)/admin/docs stays operator-only
 │   │   ├── uploads/[...path]/     # streams files from public/uploads/ (standalone mode)
 │   │   ├── api-docs/              # public Scalar OpenAPI reference
 │   │   ├── health/ worker/health/ # liveness probes (app + worker proxy)
@@ -270,6 +271,7 @@ EMAIL_PROVIDER="..."                  # Optional: "sendgrid" or "brevo" (auto-de
 EMAIL_FROM="..."                      # Sender email
 EMAIL_FROM_NAME="..."                 # Sender name
 LOG_LEVEL="info"                      # debug, info, warn, error
+ADMIN_DOC_LINKS_ENABLED="true"        # master only: org ADMINs may open /admin/docs/<path> shared links (unset = SUPER_ADMIN only)
 STORAGE_PROVIDER="s3"                 # "local" (default) | "supabase" | "s3". PRODUCTION is s3 (since Sep 7, 2026)
 NEXT_PUBLIC_SENTRY_DSN="..."          # Sentry DSN for client error tracking
 ANTHROPIC_API_KEY="..."               # Required for AI Agent feature

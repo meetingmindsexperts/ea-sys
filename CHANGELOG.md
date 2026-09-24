@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: admins can open shared doc links on master (September 24)
+
+`/admin/docs/<path>` (one repo doc per URL) opened only for SUPER_ADMIN since
+Aug 21. It now also opens for org ADMINs where the deployment sets
+`ADMIN_DOC_LINKS_ENABLED=true`, which only master does: every ADMIN there is an
+MMG employee, while on the platform instance ADMIN can be a customer's
+administrator and the docs include the incident log and AWS runbook. The flag
+fails closed, is never derived from `PLATFORM_ORG_ID`, and widens ADMIN only.
+Nothing new is listed anywhere: the Docs viewer and its search stay
+operator-only, so an admin reaches a doc only through a link. Each admin read is
+logged (`admin-docs:raw:served-to-admin`). Also fixed: a signed-out visitor on a
+doc link was redirected to `https://0.0.0.0:3000/login` (the container origin
+behind nginx); it now goes to `NEXT_PUBLIC_APP_URL`.
+
 ### Changed: nginx compresses responses, the app no longer does (September 24)
 
 Next.js gzipped every response on the same event loop that serves requests, and

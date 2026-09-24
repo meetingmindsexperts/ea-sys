@@ -36,6 +36,7 @@ const HTML_FILE = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   mockAuth.mockResolvedValue(OPERATOR);
   mockReadDocFile.mockResolvedValue(HTML_FILE);
 });
@@ -60,6 +61,45 @@ describe("GET /admin/docs/[...path]", () => {
     mockAuth.mockResolvedValue(ORG_ADMIN);
     const res = await GET(req("/admin/docs/docs/INCIDENTS.md"), params("docs", "INCIDENTS.md"));
     expect(res.status).toBe(403);
+  });
+
+  it("lets an ORG ADMIN in where the deployment sets ADMIN_DOC_LINKS_ENABLED (master)", async () => {
+    vi.stubEnv("ADMIN_DOC_LINKS_ENABLED", "true");
+    mockAuth.mockResolvedValue(ORG_ADMIN);
+    const res = await GET(req("docs/INCIDENTS.md"), params("docs", "INCIDENTS.md"));
+    expect(res.status).toBe(200);
+  });
+
+  it("keeps the ORG ADMIN out for any flag value other than exactly 'true' (fails closed)", async () => {
+    mockAuth.mockResolvedValue(ORG_ADMIN);
+    for (const value of ["", "1", "TRUE", "yes"]) {
+      vi.stubEnv("ADMIN_DOC_LINKS_ENABLED", value);
+      const res = await GET(req("x.html"), params("x.html"));
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("the flag widens ADMIN only, never the other roles", async () => {
+    vi.stubEnv("ADMIN_DOC_LINKS_ENABLED", "true");
+    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
+      mockAuth.mockResolvedValue({ user: { id: "u2", role, organizationId: "org1" } });
+      const res = await GET(req("x.html"), params("x.html"));
+      expect(res.status).toBe(403);
+    }
+    expect(mockReadDocFile).not.toHaveBeenCalled();
+  });
+
+  it("sends a signed-out visitor to the PUBLIC app URL, not the container origin", async () => {
+    // Behind nginx req.url carried https://0.0.0.0:3000 and the redirect went there.
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://events.example.org");
+    mockAuth.mockResolvedValue(null);
+    const res = await GET(
+      new Request("https://0.0.0.0:3000/admin/docs/ROLLBACK.md"),
+      params("ROLLBACK.md"),
+    );
+    const loc = res.headers.get("location")!;
+    expect(loc.startsWith("https://events.example.org/login?callbackUrl=")).toBe(true);
+    expect(decodeURIComponent(loc)).toContain("/admin/docs/ROLLBACK.md");
   });
 
   it("403s non-admin roles (docs carry security findings — never public)", async () => {

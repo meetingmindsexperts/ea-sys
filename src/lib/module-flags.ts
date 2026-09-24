@@ -62,3 +62,22 @@ export function isHrModuleEnabled(): boolean {
 export function isProcurementModuleEnabled(): boolean {
   return process.env.PROCUREMENT_MODULE_ENABLED === "true";
 }
+
+/**
+ * True when org ADMINs may open repository docs by shared link
+ * (`/admin/docs/<path>`), not only the platform operator. Owner decision,
+ * Sep 24 2026: "all docs, master only".
+ *
+ * Master only because of WHAT the docs are: the incident log, the AWS runbook
+ * with instance ids and bucket names, the production rebuild procedure and our
+ * security reviews. On master every ADMIN is an MMG employee, so that is an
+ * internal read. On the platform instance ADMIN can mean a customer's
+ * administrator, which is why the route was narrowed on Aug 21 2026, and that
+ * reasoning still holds there. Same shape as the flags above: read in ONE
+ * place, fails closed (unset = operator only), never derived from
+ * `PLATFORM_ORG_ID`. Only the shared-link route reads it; the browsable viewer
+ * and its APIs stay operator-only, so there is still no way to list the docs.
+ */
+export function isAdminDocLinksEnabled(): boolean {
+  return process.env.ADMIN_DOC_LINKS_ENABLED === "true";
+}
