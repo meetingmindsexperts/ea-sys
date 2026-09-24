@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: a duplicate pricing tier name is a 409, not a 500 (September 24)
+
+Seen on prod at 13:15 UTC: four tiers created within a second on one event, and
+one create lost the race between the route's duplicate-name check and its
+insert. The unique index `(ticketTypeId, name)` refused it and the route
+answered "Failed to create pricing tier" with a 500 logged at `error`. The
+create and the rename routes now catch that refusal (`P2002`) and answer the
+same 409 their pre-check gives, logged at `warn`; the pre-check 409s gained the
+warn they were missing. The global Prisma logger in `db.ts` still records the
+refusal at `error` ("DB unique constraint violation"); lowering it is an owner
+decision, left unchanged. Tests: `pricing-tier-duplicate-name.test.ts` (5),
+mutation-checked.
+
 ### Added: supplier billing address, main phone and accounts email, printed on the purchase order (September 24)
 
 Owner: "by the suppliers will have billing address and so on". Owner decisions:

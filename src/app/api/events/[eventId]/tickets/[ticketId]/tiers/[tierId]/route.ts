@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
@@ -87,6 +88,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         select: { id: true },
       });
       if (dup) {
+        apiLogger.warn({ msg: "pricing-tier:rename-duplicate-name", eventId, ticketTypeId: ticketId, tierId, tierName: data.name, userId: session.user.id });
         return NextResponse.json(
           { error: `Pricing tier "${data.name}" already exists` },
           { status: 409 }
@@ -122,6 +124,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return NextResponse.json(updated);
     });
   } catch (error) {
+    // A rename racing another save with the same name passes the check above;
+    // the unique index refuses it, which is the same answer.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      apiLogger.warn({ msg: "pricing-tier:rename-duplicate-name-race", target: error.meta?.target });
+      return NextResponse.json(
+        { error: "A pricing tier with this name already exists for this registration type" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error updating pricing tier" });
     return NextResponse.json(
       { error: "Failed to update pricing tier" },

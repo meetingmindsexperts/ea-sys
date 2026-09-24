@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
@@ -79,6 +80,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (existing) {
+      apiLogger.warn({ msg: "pricing-tier:create-duplicate-name", eventId, ticketTypeId: ticketId, tierName: data.name, userId: session.user.id });
       return NextResponse.json(
         { error: `Pricing tier "${data.name}" already exists for this registration type` },
         { status: 409 }
@@ -111,6 +113,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json(tier, { status: 201 });
     });
   } catch (error) {
+    // Two creates with the same name can both pass the check above (a double
+    // submit); the unique index refuses the second, which is the same answer.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      apiLogger.warn({ msg: "pricing-tier:create-duplicate-name-race", target: error.meta?.target });
+      return NextResponse.json(
+        { error: "A pricing tier with this name already exists for this registration type" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error creating pricing tier" });
     return NextResponse.json(
       { error: "Failed to create pricing tier" },
