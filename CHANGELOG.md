@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: nginx compresses responses, the app no longer does (September 24)
+
+Next.js gzipped every response on the same event loop that serves requests, and
+nginx does not re-compress an encoded response, so the Node process did all the
+compression work. The gzip block is now live on the box and in
+`deploy/nginx.conf` (server context; includes `text/x-component` for RSC
+payloads, leaves out `text/event-stream` so the help chat keeps streaming), and
+`next.config.ts` sets `compress: false`. Page sizes are unchanged for visitors.
+The two settings depend on each other; `deploy/NGINX.md` says which to flip
+first if either ever changes.
+
 ### Fixed: one nginx config in the repo, and it is the live one (September 24)
 
 The repo held two nginx site configs. `deploy/nginx.conf` was an old template

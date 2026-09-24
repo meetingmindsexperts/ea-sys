@@ -40,28 +40,25 @@ Run the drift check after any Certbot run too. Exit codes: 0 identical, 1 drift,
 
 ## Compression
 
-Today the **Next.js process** compresses JavaScript, CSS, JSON and page data
-(`next.config.ts` leaves Next's default `compress` on), and nginx adds only HTML.
-Moving the work to nginx frees the app's event loop; it is optional and was not
-done as of 24 Sep 2026. The order is fixed, or production serves uncompressed
-pages (the login page would go from about 460 KB to 1.7 MB):
+**nginx owns compression** since 24 Sep 2026: the block below is live on the box
+and in `deploy/nginx.conf`, and `next.config.ts` sets `compress: false` so the
+Node process no longer gzips on its request event loop. The two go together. If
+the block is ever removed from nginx, set `compress` back first, or production
+serves pages uncompressed (the login page would go from about 460 KB to 1.7 MB).
 
-1. **nginx first.** In `/etc/nginx/sites-available/ea-sys`, inside the HTTPS
-   `server { ... }` block, directly below `limit_conn ea_conn 100;`, add:
+The block, in the HTTPS `server { ... }` block directly below
+`limit_conn ea_conn 100;`:
 
-   ```nginx
-   gzip               on;
-   gzip_vary          on;
-   gzip_proxied       any;
-   gzip_comp_level    5;
-   gzip_min_length    1024;
-   gzip_types         text/plain text/css text/csv text/xml text/javascript text/x-component
-                      application/javascript application/json application/manifest+json
-                      application/xml image/svg+xml;
-   ```
-
-   Then `sudo nginx -t && sudo systemctl reload nginx`, and the drift check.
-2. **Then the app:** `compress: false` in `next.config.ts`, deployed.
+```nginx
+gzip               on;
+gzip_vary          on;
+gzip_proxied       any;
+gzip_comp_level    5;
+gzip_min_length    1024;
+gzip_types         text/plain text/css text/csv text/xml text/javascript text/x-component
+                   application/javascript application/json application/manifest+json
+                   application/xml image/svg+xml;
+```
 
 Why these settings:
 
@@ -84,3 +81,6 @@ Why these settings:
   live server never had. The live file was read from the box, found identical to
   the snapshot, and became `deploy/nginx.conf`; the snapshot was deleted and
   `npm run nginx:drift` added so the two cannot silently part again.
+- **24 Sep 2026, later.** The gzip block went live on the box (by hand, backup
+  at `ea-sys.bak-2026-09-24`), was copied here after `npm run nginx:drift`
+  showed exactly those lines, and `compress: false` shipped in `next.config.ts`.

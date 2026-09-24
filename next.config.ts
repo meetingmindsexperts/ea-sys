@@ -4,6 +4,20 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  // Compression belongs to nginx, not to the Node process (24 Sep 2026).
+  // Next gzips every response by default, on the same event loop that serves
+  // requests, and nginx does not re-compress a response that arrives already
+  // encoded, so in production Node was doing all of it. nginx is built for
+  // this and runs on its own workers.
+  //
+  // ⚠ nginx must keep its gzip block (deploy/nginx.conf, server context, live
+  // on the box since 24 Sep 2026 and installed by setup.sh and the DR
+  // bootstrap). Removing it with this line in place serves JS, CSS and page
+  // data uncompressed (the login page would go from ~460 KB to ~1.7 MB). See
+  // deploy/NGINX.md. Only the bare standalone with no nginx in front (local
+  // runs) serves uncompressed, which is fine on a LAN.
+  compress: false,
+
   // Do not advertise the framework in every response. nginx's server_tokens
   // off hides nginx's own version, but the X-Powered-By: Next.js header the
   // app emitted was untouched by it (verified with an unfiltered curl -D - on
