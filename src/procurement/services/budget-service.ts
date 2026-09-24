@@ -975,14 +975,21 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   const recordedAttendance = b.eventId
     ? await db.registration.count({ where: { eventId: b.eventId, status: "CHECKED_IN", ...EXCLUDE_FACULTY_WHERE } })
     : null;
-  const byCategory: Record<string, { planned: string; actual: string; variance: string }> = {};
-  const acc = new Map<string, { planned: ReturnType<typeof money>; actual: ReturnType<typeof money> }>();
+  // COMMITTED beside ACTUAL (owner ruling, 24 Sep 2026: "show both,
+  // separately"). EA-SYS records what was ordered, never what was paid:
+  // `actual` is filled only by the accounting read-back, which does not exist
+  // yet, so on its own every close read as a full underspend and archived the
+  // event as costing nothing. Committed (every order not cancelled) is kept
+  // beside it, labelled as what it is, and actual is left untouched.
+  const byCategory: Record<string, { planned: string; committed: string; actual: string; variance: string }> = {};
+  const acc = new Map<string, { planned: ReturnType<typeof money>; committed: ReturnType<typeof money>; actual: ReturnType<typeof money> }>();
   for (const l of lines) {
-    const cur = acc.get(l.category.code) ?? { planned: money(0), actual: money(0) };
-    acc.set(l.category.code, { planned: cur.planned.plus(money(l.planned)), actual: cur.actual.plus(money(l.actual)) });
+    const cur = acc.get(l.category.code) ?? { planned: money(0), committed: money(0), actual: money(0) };
+    acc.set(l.category.code, { planned: cur.planned.plus(money(l.planned)), committed: cur.committed.plus(money(l.committedTotal)), actual: cur.actual.plus(money(l.actual)) });
   }
-  for (const [code, v] of acc) byCategory[code] = { planned: storedString(v.planned), actual: storedString(v.actual), variance: storedString(v.actual.minus(v.planned)) };
+  for (const [code, v] of acc) byCategory[code] = { planned: storedString(v.planned), committed: storedString(v.committed), actual: storedString(v.actual), variance: storedString(v.actual.minus(v.planned)) };
   const expenseTotal = lines.reduce((a, l) => a.plus(money(l.actual)), money(0));
+  const committedTotal = lines.reduce((a, l) => a.plus(money(l.committedTotal)), money(0));
   // Revenue is read, never stored, while a budget is open: close-out keeps what it read (spec §6b).
   const [revenueActuals, revenueLines] = await Promise.all([
     readRevenueActuals(input.organizationId, b.eventId, b.reportingCurrency),
@@ -1016,7 +1023,7 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   });
   const openOrdersAtClose = openOrders.map((o) => ({ commitmentNo: o.commitmentNo, supplier: o.supplier.displayName, currency: o.currency, amount: storedString(o.amount), fulfillmentStatus: o.fulfillmentStatus }));
   if (openOrdersAtClose.length > 0) apiLogger.info({ msg: "procurement/budgets:closed-with-open-orders", ...ctx, openOrders: openOrdersAtClose.map((o) => o.commitmentNo) });
-  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory, revenue, openOrdersAtClose };
+  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), committedTotal: storedString(committedTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory, revenue, openOrdersAtClose };
   // Income-account codes and expense-group codes never collide, so one map holds both for the archive row.
   const categoryTotals = { ...byCategory, ...revenueByAccount };
   const event = b.eventId ? await db.event.findUnique({ where: { id: b.eventId }, select: { name: true, startDate: true, eventType: true } }) : null;

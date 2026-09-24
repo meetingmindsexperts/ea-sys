@@ -22,6 +22,7 @@ import { isPeggedToAed, keysStillNeedingNote, varianceRows } from "@/procurement
 import { useBudget, useCommitments, useTransitionBudget, useUpsertBudgetLine, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
 import { CategoryLabel, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2, signed2 } from "@/procurement/components/budget-ui";
 import { ReasonDialog } from "../budget-dialogs";
+import { sortLines } from "../budget-lines-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,9 +35,11 @@ interface CloseOutSummary {
   closedAt?: string;
   plannedExpenseTotal?: string;
   actualTotal?: string;
+  /** Every order not cancelled. Written since 24 Sep 2026; absent on older close-outs. */
+  committedTotal?: string;
   contingencyAmount?: string;
   recordedAttendance?: number | null;
-  byCategory?: Record<string, { planned: string; actual: string; variance: string }>;
+  byCategory?: Record<string, { planned: string; committed?: string; actual: string; variance: string }>;
   /** Written by the close since 24 Sep 2026; absent on older close-outs. */
   openOrdersAtClose?: OpenOrder[];
 }
@@ -47,6 +50,25 @@ interface OpenOrder {
   currency: string;
   amount: string;
   fulfillmentStatus: string;
+}
+
+/** Committed over planned is an overspend in the making, whatever actual says. */
+function committedTone(committed: string | number, planned: string | number): string {
+  return Number(committed) > Number(planned) ? "text-red-700 dark:text-red-400 font-medium" : "";
+}
+
+/**
+ * Why there are two columns. EA-SYS records orders, not payments; the paid
+ * figure arrives with the accounting read-back, which is not built, so
+ * "Actual" is 0.00 until then and must not be read as an underspend.
+ */
+function CommittedVersusActualNote() {
+  return (
+    <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">Committed</span> is every purchase order raised against the line and not cancelled.{" "}
+      <span className="font-medium text-foreground">Actual</span> is what was paid, which EA-SYS will only know once the accounting system reports it back; until then it reads 0.00 and is not an underspend.
+    </p>
+  );
 }
 
 /**
@@ -120,7 +142,9 @@ function CloseForm({ b }: { b: BudgetRow }) {
   const upsert = useUpsertBudgetLine(b.id);
   const cur = b.reportingCurrency;
   const pegged = isPeggedToAed(cur);
-  const lines = (b.lines ?? []).slice().sort((x, y) => (x.isContingency === y.isContingency ? x.sortOrder - y.sortOrder : x.isContingency ? 1 : -1));
+  // The same reading order as the budget page: lines with money first, then
+  // contingency, then the categories marked not applicable.
+  const lines = sortLines(b.lines, b.naCategoryCodes);
 
   // Drafts start from the notes on the lines, seeded once per budget row
   // (the id, not the version: a save bumps the version and must not wipe
@@ -179,15 +203,17 @@ function CloseForm({ b }: { b: BudgetRow }) {
   }
 
   const actualTotal = lines.reduce((a, l) => a + Number(l.actual), 0);
+  const committedTotal = lines.reduce((a, l) => a + Number(l.committedTotal), 0);
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Planned (ex-VAT)" value={`${cur} ${money2(b.plannedExpenseTotal)}`} />
-        <Stat label="Actual so far" value={`${cur} ${money2(actualTotal.toFixed(4))}`} />
-        <Stat label="Contingency" value={`${cur} ${money2(b.contingencyAmount)}`} />
+        <Stat label="Committed" value={`${cur} ${money2(committedTotal.toFixed(4))}`} sub="orders raised, not cancelled" tone={committedTotal > Number(b.plannedExpenseTotal) ? "warn" : undefined} />
+        <Stat label="Actual so far" value={`${cur} ${money2(actualTotal.toFixed(4))}`} sub="paid, from accounting" />
         <Stat label="Notes needed" value={variance.ok ? String(stillNeeding.length) : "–"} sub={variance.ok ? `threshold: 10% or ${cur} ${money2(variance.floorInReporting)}` : "rate needed"} tone={stillNeeding.length > 0 ? "warn" : undefined} />
       </div>
+      <CommittedVersusActualNote />
 
       {!pegged && (
         <div className="grid gap-2 rounded-lg border bg-card p-4 sm:max-w-md">
@@ -205,6 +231,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
                 <TableHead>Category</TableHead>
                 <TableHead>Line</TableHead>
                 <TableHead className="text-right">Planned</TableHead>
+                <TableHead className="text-right">Committed</TableHead>
                 <TableHead className="text-right">Actual</TableHead>
                 <TableHead className="text-right">Variance</TableHead>
                 <TableHead className="min-w-64">Variance note</TableHead>
@@ -219,6 +246,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
                     <TableCell className="text-xs text-muted-foreground"><CategoryLabel code={l.category.code} name={l.category.name} stacked /></TableCell>
                     <TableCell>{l.description}</TableCell>
                     <TableCell className="text-right tabular-nums">{money2(l.planned)}</TableCell>
+                    <TableCell className={`text-right tabular-nums ${committedTone(l.committedTotal, l.planned)}`}>{money2(l.committedTotal)}</TableCell>
                     <TableCell className="text-right tabular-nums">{money2(l.actual)}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {r ? (
@@ -297,7 +325,10 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
   const [reopenOpen, setReopenOpen] = useState(false);
   const cur = b.reportingCurrency;
   const s = (b.closeOutSummary ?? {}) as CloseOutSummary;
-  const byCategory = Object.entries(s.byCategory ?? {}).sort((a, z) => a[0].localeCompare(z[0]));
+  // Categories with money first, then the empty ones, each group by code: the
+  // same reading order as the lines table, so what matters is on screen.
+  const isEmpty = (v: { planned: string; committed?: string; actual: string }) => Number(v.planned) === 0 && Number(v.committed ?? 0) === 0 && Number(v.actual) === 0;
+  const byCategory = Object.entries(s.byCategory ?? {}).sort((a, z) => Number(isEmpty(a[1])) - Number(isEmpty(z[1])) || a[0].localeCompare(z[0]));
   const lines: BudgetLineRow[] = (b.lines ?? []).filter((l) => l.varianceNote);
 
   async function signOff() {
@@ -326,10 +357,11 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
   return (
     <div className="space-y-5">
       <OpenOrdersNote orders={s.openOrdersAtClose ?? []} closed />
+      <CommittedVersusActualNote />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Planned (ex-VAT)" value={`${cur} ${money2(planned)}`} />
-        <Stat label="Actual" value={`${cur} ${money2(actual)}`} sub={`variance ${signed2(totalVariance)}`} />
-        <Stat label="Contingency" value={`${cur} ${money2(s.contingencyAmount ?? b.contingencyAmount)}`} />
+        <Stat label="Committed" value={s.committedTotal === undefined ? "–" : `${cur} ${money2(s.committedTotal)}`} sub={s.committedTotal === undefined ? "not recorded on this close" : "orders raised, not cancelled"} tone={s.committedTotal !== undefined && Number(s.committedTotal) > Number(planned) ? "warn" : undefined} />
+        <Stat label="Actual" value={`${cur} ${money2(actual)}`} sub={`paid, from accounting · variance ${signed2(totalVariance)}`} />
         <Stat label="Recorded attendance" value={String(s.recordedAttendance ?? b.recordedAttendance ?? "–")} sub="checked in, faculty excluded" />
       </div>
 
@@ -353,6 +385,7 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
             <TableRow>
               <TableHead>Category</TableHead>
               <TableHead className="text-right">Planned</TableHead>
+              <TableHead className="text-right">Committed</TableHead>
               <TableHead className="text-right">Actual</TableHead>
               <TableHead className="text-right">Variance</TableHead>
             </TableRow>
@@ -362,11 +395,12 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
               <TableRow key={code}>
                 <TableCell>{code}</TableCell>
                 <TableCell className="text-right tabular-nums">{money2(v.planned)}</TableCell>
+                <TableCell className={`text-right tabular-nums ${v.committed === undefined ? "text-muted-foreground" : committedTone(v.committed, v.planned)}`}>{v.committed === undefined ? "–" : money2(v.committed)}</TableCell>
                 <TableCell className="text-right tabular-nums">{money2(v.actual)}</TableCell>
                 <TableCell className={`text-right tabular-nums ${Number(v.variance) > 0 ? "text-amber-700 dark:text-amber-400" : Number(v.variance) < 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>{signed2(v.variance)}</TableCell>
               </TableRow>
             ))}
-            {byCategory.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">No category totals were recorded.</TableCell></TableRow>}
+            {byCategory.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-muted-foreground">No category totals were recorded.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>

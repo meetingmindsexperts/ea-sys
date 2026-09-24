@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: Budget & Procurement, close-out shows committed beside actual; the guide answers the questions (September 24)
+
+EA-SYS records what was ordered, never what was paid: `BudgetLine.actual`
+and `paid` are written by nothing today and wait for the accounting
+read-back. Close-out compared planned only with that zero, so a line ordered
+at 55,000 against a 40,000 plan read as a 40,000 saving in green, and the
+archive row every cross-event report reads recorded the event as costing
+0.00. Owner ruling: show both, separately.
+
+- Close-out (open and closed views) has a **Committed** column and stat beside
+  Actual, committed above plan in red, and one sentence saying what each
+  means and that a 0.00 actual is not an underspend. Actual is untouched.
+- The close summary carries `committedTotal` and a `committed` figure per
+  category; the archive row's `categoryTotals` carries it too (JSON, no
+  migration; nothing reads that row yet).
+- Close-out lists lines and categories with money first, the same order as
+  the budget page, instead of the empty categories first.
+- **User guide, chapter 22** (which the in-app help chat reads): the four
+  numbers, the reject reason, VAT as a rate, sourcing that must match the
+  quotes, the overspend justification, the failed-email note, undo receipt,
+  committed versus actual and open orders at close; plus a **Common
+  questions** section and four glossary rows. Three questions put to the help
+  chat afterwards came back answered from the new text.
+- The walkthrough gains Part 12 (currencies) and Part 13 (closing the books):
+  77 captures, all on the current build.
+
+
 ### Changed: Budget & Procurement, closing with orders still open is warned and recorded (September 24)
 
 Walking close-out end to end showed a budget closing, and being signed off,

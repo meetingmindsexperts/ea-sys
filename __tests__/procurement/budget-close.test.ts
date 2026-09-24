@@ -46,16 +46,34 @@ const budget = {
   id: "b1", organizationId: "org-1", eventId: "e1", eventCode: "TEST2026", versionNo: 1, status: "ACTIVE", reportingCurrency: "AED",
   plannedExpenseTotal: "58000", contingencyAmount: "2900", plannedRevenueTotal: "0", targetMarginPercent: null, brand: null,
 };
-const line = { id: "l1", lineKey: "k1", isContingency: false, planned: "18000", actual: "0", varianceNote: "Held in accounting.", category: { code: "510300" } };
+const line = { id: "l1", lineKey: "k1", isContingency: false, planned: "18000", committedTotal: "17636.25", actual: "0", varianceNote: "Held in accounting.", category: { code: "510300" } };
+const over = { id: "l2", lineKey: "k2", isContingency: false, planned: "40000", committedTotal: "55000", actual: "0", varianceNote: "Held in accounting.", category: { code: "510200" } };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.eventBudget.findFirst.mockResolvedValue(budget);
-  mockDb.budgetLine.findMany.mockResolvedValue([line]);
+  mockDb.budgetLine.findMany.mockResolvedValue([line, over]);
   tx.eventBudget.updateMany.mockResolvedValue({ count: 1 });
 });
 
 const summaryWritten = () => tx.eventBudget.updateMany.mock.calls[0][0].data.closeOutSummary;
+
+describe("closeBudget: committed beside actual", () => {
+  it("records what was ordered next to what was paid, and leaves actual alone", async () => {
+    // Owner ruling 24 Sep 2026, "show both, separately". The 510200 line was
+    // ordered at 55,000 against 40,000 planned; on actual alone it read as a
+    // 40,000 underspend and the event archived as costing nothing.
+    mockDb.commitment.findMany.mockResolvedValue([]);
+    await closeBudget({ organizationId: "org-1", actorUserId: "u1", source: "ui", budgetId: "b1" });
+    const s = summaryWritten();
+    expect(s.committedTotal).toBe("72636.2500");
+    expect(s.actualTotal).toBe("0.0000");
+    expect(s.byCategory["510200"]).toEqual({ planned: "40000.0000", committed: "55000.0000", actual: "0.0000", variance: "-40000.0000" });
+    // The archive row carries it too, so later reports are not left with zeros only.
+    const archive = tx.eventFinancialSummary.upsert.mock.calls[0][0].create.categoryTotals;
+    expect(archive["510300"]).toMatchObject({ committed: "17636.2500" });
+  });
+});
 
 describe("closeBudget: open orders at the moment of closing", () => {
   it("closes anyway and records every order still open, across the event's versions", async () => {
