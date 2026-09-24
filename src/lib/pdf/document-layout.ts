@@ -576,9 +576,16 @@ export function drawTotals(
     y += 14;
   }
 
-  if (input.taxRate && input.taxRate > 0) {
+  // The tax ROW follows the tax AMOUNT, and only its percentage follows the
+  // rate. It used to be gated on the rate alone while the amount went into the
+  // total regardless, so a stored tax with no single rate (a purchase order
+  // whose VAT was entered by hand for an exempt or mixed bill) printed
+  // "Subtotal 200.00 / TOTAL 231.50" with nothing between them to account for
+  // the 31.50. Every document with a rate renders exactly as before.
+  const hasRate = !!input.taxRate && input.taxRate > 0;
+  if (hasRate || Math.abs(taxAmount) >= 0.005) {
     doc.fontSize(9).fillColor(COLOR_MUTED).font("Helvetica")
-      .text(`${input.taxLabel} (${input.taxRate}%)`, leftX, y, { width: labelW });
+      .text(hasRate ? `${input.taxLabel} (${input.taxRate}%)` : input.taxLabel, leftX, y, { width: labelW });
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
       .text(taxAmount.toFixed(2), leftX, y, {
         width: pageWidth,

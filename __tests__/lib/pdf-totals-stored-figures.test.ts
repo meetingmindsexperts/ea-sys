@@ -61,6 +61,24 @@ describe("drawTotals (M10)", () => {
     expect(texts).not.toContain("50.00");
   });
 
+  it("prints the tax row for a stored amount with no rate, without claiming a percentage", async () => {
+    // A purchase order whose VAT was entered by hand: the total included the
+    // 31.50 and no row explained it (found on a EUR order, 24 Sep 2026).
+    const { doc, texts } = fakeDoc();
+    drawTotals(doc, 100, { ...base, currency: "EUR", subtotal: 200, taxRate: null, taxAmountOverride: 31.5, grandTotalOverride: 231.5 });
+    expect(texts).toContain("VAT");
+    expect(texts).toContain("31.50");
+    expect(texts).toContain("231.50");
+    expect(texts.some((t) => t.includes("%"))).toBe(false);
+  });
+
+  it("still prints no tax row when there is neither a rate nor an amount", async () => {
+    const { doc, texts } = fakeDoc();
+    drawTotals(doc, 100, { ...base, subtotal: 200, taxRate: null, taxAmountOverride: 0, grandTotalOverride: 200 });
+    expect(texts).not.toContain("VAT");
+    expect(texts).not.toContain("0.00");
+  });
+
   it("falls back to recomputing when no stored figures exist (quote PDFs)", async () => {
     const { doc, texts } = fakeDoc();
     drawTotals(doc, 100, { ...base, subtotal: 100, taxRate: 5 });
