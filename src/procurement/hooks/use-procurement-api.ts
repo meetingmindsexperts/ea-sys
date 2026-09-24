@@ -952,11 +952,12 @@ export function useRemoveQuote(requestId: string) {
 
 // ── purchase orders (slice 3) ────────────────────────────────────────────────
 
-export function useCommitments(filter: { status?: CommitmentStatusValue; budgetId?: string; supplierId?: string } = {}) {
+export function useCommitments(filter: { status?: CommitmentStatusValue; budgetId?: string; supplierId?: string; eventCode?: string } = {}) {
   const q = new URLSearchParams();
   if (filter.status) q.set("status", filter.status);
   if (filter.budgetId) q.set("budgetId", filter.budgetId);
   if (filter.supplierId) q.set("supplierId", filter.supplierId);
+  if (filter.eventCode) q.set("eventCode", filter.eventCode);
   const qs = q.toString();
   return useQuery({
     queryKey: procurementKeys.commitments(qs || "all"),

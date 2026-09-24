@@ -164,9 +164,14 @@ export function invalidCommitmentStatusFilter(status: string | undefined): boole
   return status !== undefined && !STATUS_FILTERS.has(status);
 }
 
-export async function listCommitments(organizationId: string, filter: { status?: string; budgetId?: string; supplierId?: string } = {}) {
+/**
+ * `eventCode` spans every VERSION of an event's budget: an order keeps the
+ * version it was issued under, so a v2 close-out asking by budgetId alone
+ * would miss everything ordered under v1.
+ */
+export async function listCommitments(organizationId: string, filter: { status?: string; budgetId?: string; supplierId?: string; eventCode?: string } = {}) {
   const rows = await db.commitment.findMany({
-    where: { organizationId, ...(filter.status ? { status: filter.status as CommitmentStatusValue } : {}), ...(filter.budgetId ? { budgetId: filter.budgetId } : {}), ...(filter.supplierId ? { supplierId: filter.supplierId } : {}) },
+    where: { organizationId, ...(filter.status ? { status: filter.status as CommitmentStatusValue } : {}), ...(filter.budgetId ? { budgetId: filter.budgetId } : {}), ...(filter.supplierId ? { supplierId: filter.supplierId } : {}), ...(filter.eventCode ? { eventCode: filter.eventCode } : {}) },
     select: COMMITMENT_SELECT,
     orderBy: { createdAt: "desc" },
     take: 500,

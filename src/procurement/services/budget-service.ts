@@ -1005,7 +1005,18 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
     notConverted: revenueActuals.notConverted.map((n) => ({ from: n.from, currency: n.currency, amount: n.amount })),
     targetMarginPercent: b.targetMarginPercent === null ? null : money(b.targetMarginPercent).toString(),
   };
-  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory, revenue };
+  // Orders still open at the moment of closing (owner ruling, 24 Sep 2026:
+  // allow the close, warn, list them). They can still be received afterwards,
+  // so the signed-off summary records what was open rather than pretending
+  // the budget was finished: a late receipt is then on the record, not hidden.
+  const openOrders = await db.commitment.findMany({
+    where: { organizationId: input.organizationId, eventCode: b.eventCode, status: "APPROVED", fulfillmentStatus: { not: "RECEIVED" } },
+    select: { commitmentNo: true, currency: true, amount: true, fulfillmentStatus: true, supplier: { select: { displayName: true } } },
+    orderBy: { commitmentNo: "asc" },
+  });
+  const openOrdersAtClose = openOrders.map((o) => ({ commitmentNo: o.commitmentNo, supplier: o.supplier.displayName, currency: o.currency, amount: storedString(o.amount), fulfillmentStatus: o.fulfillmentStatus }));
+  if (openOrdersAtClose.length > 0) apiLogger.info({ msg: "procurement/budgets:closed-with-open-orders", ...ctx, openOrders: openOrdersAtClose.map((o) => o.commitmentNo) });
+  const summary = { closedAt: new Date().toISOString(), plannedExpenseTotal: storedString(b.plannedExpenseTotal), actualTotal: storedString(expenseTotal), contingencyAmount: storedString(b.contingencyAmount), recordedAttendance, byCategory, revenue, openOrdersAtClose };
   // Income-account codes and expense-group codes never collide, so one map holds both for the archive row.
   const categoryTotals = { ...byCategory, ...revenueByAccount };
   const event = b.eventId ? await db.event.findUnique({ where: { id: b.eventId }, select: { name: true, startDate: true, eventType: true } }) : null;

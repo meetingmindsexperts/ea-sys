@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: Budget & Procurement, closing with orders still open is warned and recorded (September 24)
+
+Walking close-out end to end showed a budget closing, and being signed off,
+while purchase orders were still open, with receipts accepted against them
+afterwards. A signed-off close-out could therefore go on changing underneath.
+Owner ruling: allow the close, but warn and list them.
+
+- The close-out page lists every order not yet fully received, across all
+  versions of the event's budget (an order keeps the version it was issued
+  under), and the confirmation names them.
+- The close writes `openOrdersAtClose` into the close-out summary, so the
+  signed-off record says what was still open at that moment, and the closed
+  view shows it. Receiving afterwards stays possible, and what arrives later
+  is visibly outside the figures.
+- `GET /api/procurement/commitments` takes `?eventCode=`.
+
+### Fixed: PDF totals, the tax row follows the tax amount (September 24)
+
+`drawTotals` drew the VAT row only when there was a rate but added any stored
+tax into the total, so a purchase order with hand-entered VAT printed
+"Subtotal 200.00 / TOTAL 231.50" with nothing explaining the 31.50. The row
+now appears whenever there is tax, with a percentage only when there is a
+rate. Shared with invoices, receipts, credit notes and quotes; production held
+no document in that state, so none changed.
+
+
 ### Fixed: Budget & Procurement, a spend request states a VAT RATE, not a VAT amount (September 23)
 
 The requester typed the VAT amount and did the arithmetic. The rate was known

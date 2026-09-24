@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { canAdminProcurement, canAuthorBudgets, canSettleProcurement } from "@/lib/procurement-visibility";
 import { ApiError } from "@/lib/api-fetch";
 import { isPeggedToAed, keysStillNeedingNote, varianceRows } from "@/procurement/lib/close-out";
-import { useBudget, useTransitionBudget, useUpsertBudgetLine, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
+import { useBudget, useCommitments, useTransitionBudget, useUpsertBudgetLine, type BudgetLineRow, type BudgetRow } from "@/procurement/hooks/use-procurement-api";
 import { CategoryLabel, ErrorState, LoadingState, Stat, StatusBadge, fmtWhen, money2, signed2 } from "@/procurement/components/budget-ui";
 import { ReasonDialog } from "../budget-dialogs";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,48 @@ interface CloseOutSummary {
   contingencyAmount?: string;
   recordedAttendance?: number | null;
   byCategory?: Record<string, { planned: string; actual: string; variance: string }>;
+  /** Written by the close since 24 Sep 2026; absent on older close-outs. */
+  openOrdersAtClose?: OpenOrder[];
+}
+
+interface OpenOrder {
+  commitmentNo: string;
+  supplier: string;
+  currency: string;
+  amount: string;
+  fulfillmentStatus: string;
+}
+
+/**
+ * Orders not yet fully received. A budget may close with some (owner ruling,
+ * 24 Sep 2026: allow it, warn, and list them), and they can still be received
+ * afterwards, so the list is said out loud before the close and kept on the
+ * record after it.
+ */
+function OpenOrdersNote({ orders, closed }: { orders: OpenOrder[]; closed: boolean }) {
+  if (orders.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+      <div className="flex items-center gap-2 font-medium">
+        <TriangleAlert className="h-4 w-4" />
+        {closed
+          ? `${orders.length} ${orders.length === 1 ? "order was" : "orders were"} still open when this budget closed`
+          : `${orders.length} ${orders.length === 1 ? "order is" : "orders are"} still open`}
+      </div>
+      <p className="mt-1 text-xs">
+        {closed
+          ? "They can still be received, so what arrived after the close is not in the figures above."
+          : "Closing now is allowed. They can still be received afterwards, but the close-out will not include what arrives later."}
+      </p>
+      <ul className="mt-2 space-y-0.5 text-xs">
+        {orders.map((o) => (
+          <li key={o.commitmentNo} className="tabular-nums">
+            {`${o.commitmentNo} · ${o.supplier} · ${o.currency} ${money2(o.amount)} · ${o.fulfillmentStatus === "PARTIALLY_RECEIVED" ? "partly received" : "not received"}`}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function CloseOutPage() {
@@ -93,6 +135,11 @@ function CloseForm({ b }: { b: BudgetRow }) {
   const [serverKeys, setServerKeys] = useState<string[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Every version of the event, not just this one: an order keeps the version it was issued under.
+  const orders = useCommitments({ status: "APPROVED", eventCode: b.eventCode });
+  const openOrders: OpenOrder[] = (orders.data ?? [])
+    .filter((o) => o.fulfillmentStatus !== "RECEIVED")
+    .map((o) => ({ commitmentNo: o.commitmentNo, supplier: o.supplier.displayName, currency: o.currency, amount: o.amount, fulfillmentStatus: o.fulfillmentStatus }));
 
   const variance = varianceRows(lines.map((l) => ({ lineKey: l.lineKey, planned: l.planned, actual: l.actual, isContingency: l.isContingency, varianceNote: l.varianceNote })), cur, pegged ? undefined : rate || null);
   const rowByKey = new Map(variance.ok ? variance.rows.map((r) => [r.lineKey, r]) : []);
@@ -196,6 +243,8 @@ function CloseForm({ b }: { b: BudgetRow }) {
         </div>
       </div>
 
+      <OpenOrdersNote orders={openOrders} closed={false} />
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         {stillNeeding.length > 0 && (
           <span className="mr-auto inline-flex items-center gap-1 text-sm text-amber-700 dark:text-amber-400">
@@ -217,7 +266,7 @@ function CloseForm({ b }: { b: BudgetRow }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{`Close ${b.eventCode} v${b.versionNo}?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              {`The version becomes read-only, the checked-in attendance is recorded, and the archive row every cross-event report reads is written. ${stillNeeding.length > 0 ? `${stillNeeding.length} line${stillNeeding.length === 1 ? "" : "s"} still need a note; the close will refuse and name them.` : "Every flagged line carries a note."} The settle grant signs off afterwards; an admin can reopen with a reason.`}
+              {`The version becomes read-only, the checked-in attendance is recorded, and the archive row every cross-event report reads is written. ${stillNeeding.length > 0 ? `${stillNeeding.length} line${stillNeeding.length === 1 ? "" : "s"} still need a note; the close will refuse and name them.` : "Every flagged line carries a note."}${openOrders.length > 0 ? ` ${openOrders.length === 1 ? "One order is" : `${openOrders.length} orders are`} still open (${openOrders.map((o) => o.commitmentNo).join(", ")}): the close goes ahead and records ${openOrders.length === 1 ? "it" : "them"}, and what arrives later is not in this close-out.` : ""} The settle grant signs off afterwards; an admin can reopen with a reason.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -276,6 +325,7 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
 
   return (
     <div className="space-y-5">
+      <OpenOrdersNote orders={s.openOrdersAtClose ?? []} closed />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Planned (ex-VAT)" value={`${cur} ${money2(planned)}`} />
         <Stat label="Actual" value={`${cur} ${money2(actual)}`} sub={`variance ${signed2(totalVariance)}`} />
