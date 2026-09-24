@@ -51,7 +51,18 @@ const DIR_BLOCKLIST = new Set<string>([
 
 // Max bytes per file. Anything bigger is almost certainly not docs.
 // (Allowed extensions are checked via the `allowedExt()` helper below.)
-const MAX_FILE_BYTES = 1_000_000;
+//
+// HTML gets more room than Markdown because the HTML docs are self-contained
+// walkthroughs with their screenshots embedded as data: URIs (one file, no
+// assets to serve, nothing to go missing). The spend-request walkthrough is
+// 97 screens at about 5.5 MB; under the old single 1 MB cap it was silently
+// hidden from the list and 404'd, which nobody noticed because a hidden file
+// looks exactly like one that was never written (24 Sep 2026).
+const MAX_MARKDOWN_BYTES = 1_000_000;
+const MAX_HTML_BYTES = 8_000_000;
+export function maxDocBytes(ext: "md" | "html"): number {
+  return ext === "html" ? MAX_HTML_BYTES : MAX_MARKDOWN_BYTES;
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -170,7 +181,7 @@ async function walkDir(absDir: string, relDir: string): Promise<DocsTreeNode[]> 
       try {
         const s = await stat(childAbs);
         size = s.size;
-        if (size > MAX_FILE_BYTES) continue;
+        if (size > maxDocBytes(ext)) continue;
       } catch {
         continue;
       }
@@ -215,7 +226,7 @@ export async function readDocFile(userPath: string): Promise<DocsFileContent | n
     return null;
   }
   if (!s.isFile()) return null;
-  if (s.size > MAX_FILE_BYTES) return null;
+  if (s.size > maxDocBytes(ext)) return null;
 
   const content = await readFile(abs, "utf8");
 

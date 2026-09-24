@@ -653,7 +653,7 @@ were a second copy of each document and had drifted from both the docs and the c
 - `docs/DOMAIN_MAP.html` - The context-reload index (July 13, 2026). Read this FIRST when touching an unfamiliar domain.
 - `docs/BUDGET_PROCUREMENT_MODULE.html` - Budget & Procurement Module spec, rev. 3.6 (Sep 10, 2026). This is the SPEC; the MODULE IS BUILT AND LIVE IN PRODUCTION (since Sep 14, 2026, gated by `PROCUREMENT_MODULE_ENABLED`).
 - `docs/BUDGET_PROCUREMENT_BUILD_PLAN.md` - Budget & Procurement build plan (Sep 10, 2026). This is the PLAN; the module shipped from Sep 14, 2026 onward.
-- `docs/SPEND_REQUESTS_WALKTHROUGH.html` - Spend requests, screen by screen (Sep 14, 2026). Fifteen captures from the local standalone in the order a requester and an approver meet them (the form within and past the line, the draft checklist, quotes, submit, pending.
+- `docs/SPEND_REQUEST_E2E_VERIFICATION.html` - The spend request walkthrough, screen by screen (re-captured Sep 24, 2026 on the current build, 97 screens): budgets, suppliers, requests, orders, receiving, cancelling, currencies, close-out, the slow-approver reminders and the PO PDF. `SPEND_REQUESTS_WALKTHROUGH.html` is now a pointer to it.
 - `docs/CRM_STATUS.html` - CRM live status board (July 14, 2026). The page to read — and to KEEP CURRENT — for anything CRM.
 - `src/crm/README.md` - The CRM module developer entry point. The file to read before touching anything under `src/crm/`: scope (what's in/out of v1), the code layout.
 - `docs/CRM_MODULE_PLAN.md` - CRM module assessment + implementation blueprint — IN BUILD (un-parked July 14, 2026; was PARKED July 13).

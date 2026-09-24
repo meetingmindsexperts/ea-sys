@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: one spend-request walkthrough, and the docs viewer can open it (September 24)
+
+- `docs/SPEND_REQUESTS_WALKTHROUGH.html` (31 screens from 15 September, before
+  VAT became a rate) is retired to a pointer. Its five parts that the newer
+  walkthrough lacked were captured on the current build and added there:
+  waiting for a supplier and changing the amount, cancelling an order back to
+  its approver, the slow approver (the real reminder job run at +49 and +97
+  hours with email delivery disabled: delegate, then escalation), finding
+  things again, and the purchase order PDF. 97 screens. The old page also said
+  search covers the vendor; it covers number, title, event and requester.
+- **The docs viewer's size cap is per type**: HTML 8 MB, Markdown still 1 MB
+  (`src/lib/docs-fs.ts`). An over-cap file is hidden from the tree and reads
+  as Not found, so the 5.5 MB walkthrough had been invisible at
+  `/admin/docs` since it was written. Pinned by
+  `__tests__/lib/docs-fs-size-cap.test.ts`, the first test of docs-fs (a
+  comment claimed a suite that did not exist).
+
+
 ### Changed: Budget & Procurement, close-out shows committed beside actual; the guide answers the questions (September 24)
 
 EA-SYS records what was ordered, never what was paid: `BudgetLine.actual`
