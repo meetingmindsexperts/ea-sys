@@ -191,7 +191,7 @@ describe("POST /api/procurement/suppliers/import", () => {
 describe("GET /api/procurement/suppliers/export", () => {
   const exportReq = () => new NextRequest("http://localhost/api/procurement/suppliers/export");
   const rows = [
-    { code: "ACME", legalName: "Acme Trading LLC", displayName: "Acme", country: "AE", currency: "AED", taxRegistrationNo: "100200300400500", paymentTerms: "30 days", contacts: [{ name: "Amal", email: "amal@acme.example" }], notes: null, approvalStatus: "APPROVED", isActive: true },
+    { code: "ACME", legalName: "Acme Trading LLC", displayName: "Acme", country: "AE", currency: "AED", taxRegistrationNo: "100200300400500", paymentTerms: "30 days", billingLine1: null, billingLine2: null, billingCity: "Dubai", billingRegion: null, billingPostalCode: null, phone: null, accountsEmail: null, contacts: [{ name: "Amal", email: "amal@acme.example" }], notes: null, approvalStatus: "APPROVED", isActive: true },
   ];
   beforeEach(() => supplierSvc.listSuppliersForExport.mockResolvedValue(rows));
 

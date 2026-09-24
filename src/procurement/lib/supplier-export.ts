@@ -34,6 +34,13 @@ export interface SupplierExportInput {
   currency: string;
   taxRegistrationNo: string | null;
   paymentTerms: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostalCode: string | null;
+  phone: string | null;
+  accountsEmail: string | null;
   /** The `Supplier.contacts` JSON column, read defensively. */
   contacts: unknown;
   notes: string | null;
@@ -82,10 +89,17 @@ function importableCells(s: SupplierExportInput, first: Contact | undefined): Re
     legalName: s.legalName,
     displayName: s.displayName,
     code: s.code,
+    billingLine1: s.billingLine1 ?? "",
+    billingLine2: s.billingLine2 ?? "",
+    billingCity: s.billingCity ?? "",
+    billingRegion: s.billingRegion ?? "",
+    billingPostalCode: s.billingPostalCode ?? "",
     country: s.country ?? "",
     currency: s.currency,
     taxRegistrationNo: s.taxRegistrationNo ?? "",
     paymentTerms: s.paymentTerms ?? "",
+    phone: s.phone ?? "",
+    accountsEmail: s.accountsEmail ?? "",
     contactName: first?.name ?? "",
     contactEmail: first?.email ?? "",
     contactPhone: first?.phone ?? "",

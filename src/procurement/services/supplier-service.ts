@@ -17,10 +17,12 @@ import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { planSupplierImport, type SupplierImportRow } from "../lib/catalogue-import";
+import { SUPPLIER_PROFILE_FIELDS } from "../lib/budget-schemas";
 import { convertRequestsAwaitingSupplier } from "./commitment-service";
 
 export const SUPPLIER_SELECT = {
   id: true, code: true, legalName: true, displayName: true, taxRegistrationNo: true, country: true, currency: true,
+  billingLine1: true, billingLine2: true, billingCity: true, billingRegion: true, billingPostalCode: true, phone: true, accountsEmail: true,
   contacts: true, paymentTerms: true, bankDetails: true, externalSystemType: true, externalVendorId: true,
   approvalStatus: true, riskStatus: true, isActive: true, notes: true, proposedByUserId: true, decidedByUserId: true,
   decidedAt: true, decisionNote: true, version: true, createdAt: true, updatedAt: true,
@@ -35,6 +37,26 @@ export type SupplierResult<T> = { ok: true; supplier: T } | { ok: false; code: S
 type Source = "ui" | "mcp";
 /** The two classified fields. Listed once so the redaction and the audit filter cannot disagree. */
 export const SUPPLIER_CLASSIFIED_FIELDS = ["taxRegistrationNo", "bankDetails"] as const;
+
+/** The address, switchboard and accounts inbox: optional on every write, blank clears. */
+export type SupplierProfileInput = Partial<Record<(typeof SUPPLIER_PROFILE_FIELDS)[number], string | null>>;
+
+/**
+ * The profile fields as columns. On create every field is written (blank is
+ * null); on update only the fields the caller sent, so a partial edit cannot
+ * clear an address it never mentioned. The accounts email is lower-cased here
+ * too, for callers (import, MCP) that did not come through the zod schema.
+ */
+function profileData(input: SupplierProfileInput, mode: "create" | "update"): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const field of SUPPLIER_PROFILE_FIELDS) {
+    const raw = input[field];
+    if (mode === "update" && raw === undefined) continue;
+    const v = raw?.trim() || null;
+    out[field] = field === "accountsEmail" && v ? v.toLowerCase() : v;
+  }
+  return out;
+}
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9_-]{0,19}$/;
 
@@ -89,6 +111,7 @@ export async function listSuppliers(organizationId: string, opts: { status?: "PR
  */
 export const SUPPLIER_EXPORT_SELECT = {
   code: true, legalName: true, displayName: true, country: true, currency: true, taxRegistrationNo: true,
+  billingLine1: true, billingLine2: true, billingCity: true, billingRegion: true, billingPostalCode: true, phone: true, accountsEmail: true,
   paymentTerms: true, contacts: true, notes: true, approvalStatus: true, isActive: true,
 } as const;
 
@@ -102,7 +125,7 @@ export async function getSupplier(organizationId: string, supplierId: string): P
   return { ok: true, supplier: row };
 }
 
-export interface ProposeSupplierInput {
+export interface ProposeSupplierInput extends SupplierProfileInput {
   organizationId: string;
   actorUserId: string;
   source: Source;
@@ -132,6 +155,7 @@ export async function proposeSupplier(input: ProposeSupplierInput): Promise<Supp
     displayName,
     taxRegistrationNo: input.taxRegistrationNo?.trim() || null,
     country: input.country?.trim() || null,
+    ...profileData(input, "create"),
     currency: input.currency.toUpperCase(),
     contacts: (input.contacts ?? []) as Prisma.InputJsonValue,
     paymentTerms: input.paymentTerms?.trim() || null,
@@ -218,7 +242,7 @@ export async function decideSupplier(input: DecideSupplierInput): Promise<Suppli
   return { ok: true, supplier, conversion: { issued: c.issued.length, failed: c.failed.length, sendFailed: c.sendFailed ?? 0 } };
 }
 
-export interface UpdateSupplierInput {
+export interface UpdateSupplierInput extends SupplierProfileInput {
   organizationId: string;
   actorUserId: string;
   source: Source;
@@ -246,6 +270,7 @@ export async function updateSupplier(input: UpdateSupplierInput): Promise<Suppli
     ...(input.displayName !== undefined ? { displayName: input.displayName.trim() } : {}),
     ...(input.taxRegistrationNo !== undefined ? { taxRegistrationNo: input.taxRegistrationNo?.trim() || null } : {}),
     ...(input.country !== undefined ? { country: input.country?.trim() || null } : {}),
+    ...profileData(input, "update"),
     ...(input.currency !== undefined ? { currency: input.currency.toUpperCase() } : {}),
     ...(input.contacts !== undefined ? { contacts: input.contacts as Prisma.InputJsonValue } : {}),
     ...(input.paymentTerms !== undefined ? { paymentTerms: input.paymentTerms?.trim() || null } : {}),

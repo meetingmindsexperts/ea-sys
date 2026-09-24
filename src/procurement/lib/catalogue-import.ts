@@ -205,10 +205,17 @@ export const SUPPLIER_IMPORT_COLUMNS: readonly ImportColumn[] = [
   { name: "legalName", sample: "Gulf Audio Visual LLC", required: true },
   { name: "displayName", sample: "Gulf AV", hint: "blank uses the legal name" },
   { name: "code", sample: "GULFAV", hint: "blank makes one from the name plus four characters (ACME-7K2Q); an existing code is skipped" },
-  { name: "country", sample: "AE" },
+  { name: "billingLine1", sample: "Office 1204, Bay Square Building 3" },
+  { name: "billingLine2", sample: "Business Bay" },
+  { name: "billingCity", sample: "Dubai" },
+  { name: "billingRegion", sample: "Dubai", hint: "state, emirate or province" },
+  { name: "billingPostalCode", sample: "" },
+  { name: "country", sample: "AE", hint: "the country of the billing address" },
   { name: "currency", sample: "AED", hint: "three letters; blank means AED" },
   { name: "taxRegistrationNo", sample: "100123456700003" },
   { name: "paymentTerms", sample: "30 days" },
+  { name: "phone", sample: "+971 4 000 0000", hint: "the company's main number" },
+  { name: "accountsEmail", sample: "accounts@gulfav.example", hint: "where invoices and remittances go" },
   { name: "contactName", sample: "Amal Haddad" },
   { name: "contactEmail", sample: "amal@gulfav.example" },
   { name: "contactPhone", sample: "+971 4 000 0000" },
@@ -227,6 +234,13 @@ export interface SupplierImportRow {
   paymentTerms?: string | null;
   contacts?: { name: string; email?: string; phone?: string; role?: string }[];
   notes?: string | null;
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingRegion?: string | null;
+  billingPostalCode?: string | null;
+  phone?: string | null;
+  accountsEmail?: string | null;
 }
 
 export function parseSupplierImport(text: string): ParsedImport<SupplierImportRow> {
@@ -265,6 +279,13 @@ export function parseSupplierImport(text: string): ParsedImport<SupplierImportRo
       contacts: contactName ? [{ name: contactName, email: contactEmail || undefined, phone: contactPhone || undefined, role: contactRole || undefined }] : undefined,
       paymentTerms: opt("paymentTerms") ?? null,
       notes: opt("notes") ?? null,
+      billingLine1: opt("billingLine1") ?? null,
+      billingLine2: opt("billingLine2") ?? null,
+      billingCity: opt("billingCity") ?? null,
+      billingRegion: opt("billingRegion") ?? null,
+      billingPostalCode: opt("billingPostalCode") ?? null,
+      phone: opt("phone") ?? null,
+      accountsEmail: opt("accountsEmail") ?? null,
     };
     // The same rules the propose dialog obeys (email shape, lengths, the three-letter currency).
     const parsed = proposeSupplierSchema.safeParse(candidate);

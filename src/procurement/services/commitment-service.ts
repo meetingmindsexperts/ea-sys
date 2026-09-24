@@ -76,7 +76,7 @@ export const COMMITMENT_SELECT = {
   amount: true, taxAmount: true, currency: true, fxRateToReporting: true, status: true, fulfillmentStatus: true, accountingSyncStatus: true,
   approvedAt: true, approvedByUserId: true, sentToSupplierAt: true, lastSendAttemptAt: true, lastSendError: true, receivedAt: true, receivedByUserId: true, receiptConfirmedAt: true, receiptConfirmedByUserId: true,
   cancelledAt: true, cancelledByUserId: true, cancelReason: true, closedAt: true, version: true, createdAt: true, updatedAt: true,
-  supplier: { select: { id: true, code: true, displayName: true, legalName: true, contacts: true, country: true, currency: true, paymentTerms: true, approvalStatus: true, isActive: true } },
+  supplier: { select: { id: true, code: true, displayName: true, legalName: true, contacts: true, country: true, currency: true, paymentTerms: true, approvalStatus: true, isActive: true, billingLine1: true, billingLine2: true, billingCity: true, billingRegion: true, billingPostalCode: true, phone: true, accountsEmail: true } },
   spendRequest: { select: { id: true, requestNo: true, title: true, requesterUserId: true, amountAed: true, emailSupplierOnIssue: true } },
   budget: { select: { id: true, eventCode: true, versionNo: true, status: true, reportingCurrency: true, event: { select: { name: true } } } },
   lines: { select: { id: true, lineKey: true, categoryId: true, description: true, qty: true, unitCost: true, taxCode: true, taxRatePercent: true, amount: true, taxAmount: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
@@ -424,7 +424,7 @@ export async function renderOrderPdf(organizationId: string, commitmentId: strin
       amount: view.amount,
       taxAmount: view.taxAmount,
       lines: view.lines.map((l) => ({ description: l.description, qty: l.qty, unitCost: l.unitCost, amount: l.amount, taxAmount: l.taxAmount, taxRatePercent: l.taxRatePercent, taxCode: l.taxCode })),
-      supplier: { code: c.supplier.code, displayName: c.supplier.displayName, legalName: c.supplier.legalName, country: c.supplier.country, paymentTerms: c.supplier.paymentTerms, contactName: contact?.name || null, contactEmail: contact?.email ?? null },
+      supplier: { code: c.supplier.code, displayName: c.supplier.displayName, legalName: c.supplier.legalName, country: c.supplier.country, paymentTerms: c.supplier.paymentTerms, contactName: contact?.name || null, contactEmail: contact?.email ?? null, billingLine1: c.supplier.billingLine1, billingLine2: c.supplier.billingLine2, billingCity: c.supplier.billingCity, billingRegion: c.supplier.billingRegion, billingPostalCode: c.supplier.billingPostalCode, phone: c.supplier.phone, accountsEmail: c.supplier.accountsEmail },
       company: { name: org.name, companyName: org.companyName, address: org.companyAddress, city: org.companyCity, state: org.companyState, zipCode: org.companyZipCode, country: org.companyCountry, phone: org.companyPhone, email: org.companyEmail, taxId: org.taxId, logoPath: org.logo },
     });
     return { ok: true, commitmentNo: c.commitmentNo, pdf };

@@ -201,14 +201,55 @@ function CurrencySelect({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
+const PROFILE_FIELDS = [
+  { key: "billingLine1", label: "Address line 1", placeholder: "Office, building, street", wide: true },
+  { key: "billingLine2", label: "Address line 2", placeholder: "Area (optional)", wide: true },
+  { key: "billingCity", label: "City", placeholder: "Dubai", wide: false },
+  { key: "billingRegion", label: "Emirate / region", placeholder: "Dubai", wide: false },
+  { key: "billingPostalCode", label: "Postal code / PO box", placeholder: "Optional", wide: false },
+  { key: "phone", label: "Main phone", placeholder: "+971 4 000 0000", wide: false },
+  { key: "accountsEmail", label: "Accounts email", placeholder: "Where invoices and remittances go", wide: true },
+] as const;
+type ProfileKey = (typeof PROFILE_FIELDS)[number]["key"];
+type ProfileForm = Record<ProfileKey, string>;
+const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function profileForm(s?: SupplierRow): ProfileForm {
+  return Object.fromEntries(PROFILE_FIELDS.map(({ key }) => [key, s?.[key] ?? ""])) as ProfileForm;
+}
+
+/** Trimmed, with a blank sent as null so clearing a field clears it; the accounts email lowercased like the server stores it. */
+function profilePayload(p: ProfileForm): Record<ProfileKey, string | null> {
+  const out = Object.fromEntries(PROFILE_FIELDS.map(({ key }) => [key, p[key].trim() || null])) as Record<ProfileKey, string | null>;
+  out.accountsEmail = out.accountsEmail?.toLowerCase() ?? null;
+  return out;
+}
+
+/** The billing address and the supplier's main phone and accounts mailbox; printed under the supplier's name on a purchase order. */
+function ProfileFields({ idPrefix, value, onChange }: { idPrefix: string; value: ProfileForm; onChange: (k: ProfileKey, v: string) => void }) {
+  return (
+    <>
+      <p className="pt-1 text-sm font-medium sm:col-span-2">Billing address and accounts</p>
+      {PROFILE_FIELDS.map(({ key, label, placeholder, wide }) => (
+        <div key={key} className={wide ? "space-y-1 sm:col-span-2" : "space-y-1"}>
+          <Label htmlFor={`${idPrefix}-${key}`}>{label}</Label>
+          <Input id={`${idPrefix}-${key}`} type={key === "accountsEmail" ? "email" : "text"} value={value[key]} onChange={(e) => onChange(key, e.target.value)} placeholder={placeholder} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenChange: (o: boolean) => void; settle: boolean }) {
   const propose = useProposeSupplier();
   const empty = { legalName: "", displayName: "", code: "", country: "", currency: "AED", taxRegistrationNo: "", paymentTerms: "", contactName: "", contactEmail: "", contactPhone: "", notes: "" };
   const [f, setF] = useState(empty);
+  const [profile, setProfile] = useState(profileForm);
   const set = (k: keyof typeof f, v: string) => setF((s) => ({ ...s, [k]: v }));
   async function save() {
     if (!f.legalName.trim()) return toast.error("A supplier needs its legal name.");
-    if (f.contactEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.contactEmail.trim())) return toast.error("The contact email does not look like an email address.");
+    if (f.contactEmail.trim() && !EMAIL_SHAPE.test(f.contactEmail.trim())) return toast.error("The contact email does not look like an email address.");
+    if (profile.accountsEmail.trim() && !EMAIL_SHAPE.test(profile.accountsEmail.trim())) return toast.error("The accounts email does not look like an email address.");
     try {
       const s = await propose.mutateAsync({
         legalName: f.legalName.trim(),
@@ -220,9 +261,11 @@ function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenCh
         paymentTerms: f.paymentTerms.trim() || null,
         contacts: f.contactName.trim() ? [{ name: f.contactName.trim(), ...(f.contactEmail.trim() ? { email: f.contactEmail.trim() } : {}), ...(f.contactPhone.trim() ? { phone: f.contactPhone.trim() } : {}) }] : [],
         notes: f.notes.trim() || null,
+        ...profilePayload(profile),
       });
       toast.success(settle ? `${s.code} added and approved.` : `${s.code} proposed; it waits for approval.`);
       setF(empty);
+      setProfile(profileForm());
       onOpenChange(false);
     } catch (err) {
       toast.error((err as Error).message);
@@ -246,6 +289,7 @@ function ProposeDialog({ open, onOpenChange, settle }: { open: boolean; onOpenCh
           <div className="space-y-1"><Label htmlFor="cname">Contact name</Label><Input id="cname" value={f.contactName} onChange={(e) => set("contactName", e.target.value)} /></div>
           <div className="space-y-1"><Label htmlFor="cemail">Contact email</Label><Input id="cemail" type="email" value={f.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} /></div>
           <div className="space-y-1"><Label htmlFor="cphone">Contact phone</Label><Input id="cphone" value={f.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
+          <ProfileFields idPrefix="p" value={profile} onChange={(k, v) => setProfile((s) => ({ ...s, [k]: v }))} />
           <div className="space-y-1 sm:col-span-2"><Label htmlFor="snotes">Notes</Label><Textarea id="snotes" rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Why this supplier, what they are for" /></div>
         </div>
         <DialogFooter>
@@ -312,9 +356,11 @@ function EditDialog({ supplier, onClose }: { supplier: SupplierRow; onClose: () 
     taxRegistrationNo: supplier.taxRegistrationNo ?? "", paymentTerms: supplier.paymentTerms ?? "", riskStatus: supplier.riskStatus, isActive: supplier.isActive, notes: supplier.notes ?? "",
     bankName: supplier.bankDetails?.bankName ?? "", accountName: supplier.bankDetails?.accountName ?? "", iban: supplier.bankDetails?.iban ?? "", swift: supplier.bankDetails?.swift ?? "", accountNumber: supplier.bankDetails?.accountNumber ?? "",
   });
+  const [profile, setProfile] = useState(() => profileForm(supplier));
   const set = (k: keyof typeof f, v: string | boolean) => setF((s) => ({ ...s, [k]: v }));
   async function save() {
     if (!f.legalName.trim()) return toast.error("A supplier needs its legal name.");
+    if (profile.accountsEmail.trim() && !EMAIL_SHAPE.test(profile.accountsEmail.trim())) return toast.error("The accounts email does not look like an email address.");
     const bank = { bankName: f.bankName.trim(), accountName: f.accountName.trim(), iban: f.iban.trim(), swift: f.swift.trim(), accountNumber: f.accountNumber.trim() };
     const bankDetails = Object.values(bank).some(Boolean) ? Object.fromEntries(Object.entries(bank).filter(([, v]) => v)) : null;
     // Send only what changed: the audit row lists the fields a save touched, so an untouched
@@ -326,6 +372,7 @@ function EditDialog({ supplier, onClose }: { supplier: SupplierRow; onClose: () 
       currency: f.currency,
       taxRegistrationNo: f.taxRegistrationNo.trim() || null,
       paymentTerms: f.paymentTerms.trim() || null,
+      ...profilePayload(profile),
       bankDetails,
       riskStatus: f.riskStatus,
       isActive: f.isActive,
@@ -366,6 +413,7 @@ function EditDialog({ supplier, onClose }: { supplier: SupplierRow; onClose: () 
               <SelectContent><SelectItem value="NONE">None</SelectItem><SelectItem value="WATCH">On watch</SelectItem><SelectItem value="BLOCKED">Blocked</SelectItem></SelectContent>
             </Select>
           </div>
+          <ProfileFields idPrefix="e" value={profile} onChange={(k, v) => setProfile((s) => ({ ...s, [k]: v }))} />
           <div className="space-y-1"><Label htmlFor="ebank">Bank name</Label><Input id="ebank" value={f.bankName} onChange={(e) => set("bankName", e.target.value)} /></div>
           <div className="space-y-1"><Label htmlFor="eacct">Account name</Label><Input id="eacct" value={f.accountName} onChange={(e) => set("accountName", e.target.value)} /></div>
           <div className="space-y-1"><Label htmlFor="eiban">IBAN</Label><Input id="eiban" value={f.iban} onChange={(e) => set("iban", e.target.value)} /></div>

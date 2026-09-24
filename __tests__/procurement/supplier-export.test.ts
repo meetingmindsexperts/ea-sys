@@ -23,6 +23,13 @@ const full: SupplierExportInput = {
   currency: "AED",
   taxRegistrationNo: "100123456700003",
   paymentTerms: "30 days",
+  billingLine1: "Office 1204, Bay Square Building 3",
+  billingLine2: "Business Bay",
+  billingCity: "Dubai",
+  billingRegion: "Dubai",
+  billingPostalCode: "00000",
+  phone: "+971 4 000 0000",
+  accountsEmail: "accounts@gulfav.example",
   contacts: [
     { name: "Amal Haddad", email: "amal@gulfav.example", phone: "+971 4 000 0000", role: "Account manager" },
     { name: "Omar Said", email: "omar@gulfav.example" },
@@ -56,6 +63,8 @@ describe("buildSupplierCsv", () => {
     expect(back.rows[0]).toMatchObject({
       code: "GULFAV", legalName: "Gulf Audio Visual LLC", displayName: "Gulf AV", country: "AE", currency: "AED",
       taxRegistrationNo: "100123456700003", paymentTerms: "30 days", notes: "Preferred for LED walls",
+      billingLine1: "Office 1204, Bay Square Building 3", billingLine2: "Business Bay", billingCity: "Dubai",
+      billingRegion: "Dubai", billingPostalCode: "00000", phone: "+971 4 000 0000", accountsEmail: "accounts@gulfav.example",
       contacts: [{ name: "Amal Haddad", email: "amal@gulfav.example", phone: "+971 4 000 0000", role: "Account manager" }],
     });
   });
@@ -103,7 +112,7 @@ describe("bank details never leave the system", () => {
     expect(SUPPLIER_EXPORT_SELECT).not.toHaveProperty("bankDetails");
   });
   it("no export column is named for them", () => {
-    expect(SUPPLIER_EXPORT_HEADER.some((h) => /bank|iban|swift|account/i.test(h))).toBe(false);
+    expect(SUPPLIER_EXPORT_HEADER.some((h) => /bank|iban|swift|accountno|accountnumber/i.test(h))).toBe(false);
   });
   it("a bankDetails value smuggled onto the input does not reach the file", () => {
     const smuggled = { ...full, bankDetails: { iban: "AE070331234567890123456" } } as SupplierExportInput;

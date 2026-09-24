@@ -170,6 +170,13 @@ export interface SupplierRow {
   currency: string;
   contacts: SupplierContact[];
   paymentTerms: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostalCode: string | null;
+  phone: string | null;
+  accountsEmail: string | null;
   bankDetails: SupplierBankDetails | null;
   externalSystemType: string | null;
   externalVendorId: string | null;
@@ -531,7 +538,18 @@ function useSupplierInvalidation() {
   return () => void qc.invalidateQueries({ queryKey: ["procurement", "suppliers"] });
 }
 
-export interface ProposeSupplierInput {
+/** The billing address and the supplier's main phone and accounts mailbox; null clears a field. */
+export interface SupplierProfileInput {
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingRegion?: string | null;
+  billingPostalCode?: string | null;
+  phone?: string | null;
+  accountsEmail?: string | null;
+}
+
+export interface ProposeSupplierInput extends SupplierProfileInput {
   code?: string;
   legalName: string;
   displayName?: string;
@@ -561,7 +579,7 @@ export function useDecideSupplier() {
   });
 }
 
-export interface UpdateSupplierInput {
+export interface UpdateSupplierInput extends SupplierProfileInput {
   supplierId: string;
   expectedVersion: number;
   legalName?: string;

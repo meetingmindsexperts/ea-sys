@@ -98,7 +98,7 @@ describe("planProductImport", () => {
 
 describe("parseSupplierImport", () => {
   it("reads a full row, defaults the currency to AED, assembles the contact and uppercases the code", () => {
-    const r = parseSupplierImport("legalName,displayName,code,country,currency,taxRegistrationNo,paymentTerms,contactName,contactEmail,contactPhone,contactRole,notes\nGulf Audio Visual LLC,Gulf AV,gulfav,AE,,100123,30 days,Amal,amal@gulfav.example,+971 4 000 0000,Account manager,Preferred\n");
+    const r = parseSupplierImport("legalName,displayName,code,billingLine1,billingLine2,billingCity,billingRegion,billingPostalCode,country,currency,taxRegistrationNo,paymentTerms,phone,accountsEmail,contactName,contactEmail,contactPhone,contactRole,notes\nGulf Audio Visual LLC,Gulf AV,gulfav,Office 12,Al Quoz 3,Dubai,Dubai,00000,AE,,100123,30 days,+971 4 111 1111,Accounts@GulfAV.example,Amal,amal@gulfav.example,+971 4 000 0000,Account manager,Preferred\n");
     expect(r.errors).toEqual([]);
     expect(r.rows).toEqual([
       {
@@ -106,14 +106,26 @@ describe("parseSupplierImport", () => {
         legalName: "Gulf Audio Visual LLC",
         displayName: "Gulf AV",
         code: "GULFAV",
+        billingLine1: "Office 12",
+        billingLine2: "Al Quoz 3",
+        billingCity: "Dubai",
+        billingRegion: "Dubai",
+        billingPostalCode: "00000",
         country: "AE",
         currency: "AED",
         taxRegistrationNo: "100123",
         paymentTerms: "30 days",
+        phone: "+971 4 111 1111",
+        accountsEmail: "accounts@gulfav.example",
         contacts: [{ name: "Amal", email: "amal@gulfav.example", phone: "+971 4 000 0000", role: "Account manager" }],
         notes: "Preferred",
       },
     ]);
+  });
+  it("refuses a malformed accounts email and an over-long postal code, and keeps a blank one empty", () => {
+    const r = parseSupplierImport(["legalName,accountsEmail,billingPostalCode", "Acme,not-an-email,", "Beta,,123456789012345678901", "Gamma,,"].join("\n"));
+    expect(r.errors).toEqual([expect.stringMatching(/^Row 2: accountsEmail: /), expect.stringMatching(/^Row 3: billingPostalCode: /)]);
+    expect(r.rows.map((x) => [x.legalName, x.accountsEmail ?? null])).toEqual([["Gamma", null]]);
   });
   it("needs only the legal name; the optional columns may be absent from the file", () => {
     const r = parseSupplierImport("legalName\nAcme\n");

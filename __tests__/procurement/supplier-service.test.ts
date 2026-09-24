@@ -23,6 +23,7 @@ import { decideSupplier, deriveSupplierCode, proposeSupplier, redactSupplier, up
 const base = { organizationId: "org-1", actorUserId: "u1", source: "ui" as const };
 const row = (over: Partial<SupplierRow> = {}): SupplierRow => ({
   id: "s1", code: "ACME", legalName: "Acme Events LLC", displayName: "Acme", taxRegistrationNo: "100200300400003", country: "AE", currency: "AED",
+  billingLine1: null, billingLine2: null, billingCity: null, billingRegion: null, billingPostalCode: null, phone: null, accountsEmail: null,
   contacts: [], paymentTerms: "30 days", bankDetails: { iban: "AE07 0331 2345 6789 0123 456" }, externalSystemType: null, externalVendorId: null,
   approvalStatus: "PROPOSED", riskStatus: "NONE", isActive: true, notes: null, proposedByUserId: "u9", decidedByUserId: null, decidedAt: null,
   decisionNote: null, version: 1, createdAt: new Date("2026-09-14T00:00:00Z"), updatedAt: new Date("2026-09-14T00:00:00Z"), ...over,
@@ -122,6 +123,25 @@ describe("decideSupplier", () => {
     mockDb.supplier.updateMany.mockResolvedValue({ count: 0 });
     mockDb.supplier.findFirst.mockResolvedValue(null);
     expect(await decideSupplier({ ...base, supplierId: "s-foreign", decision: "APPROVED" })).toMatchObject({ ok: false, code: "SUPPLIER_NOT_FOUND" });
+  });
+});
+
+describe("the billing address, phone and accounts email", () => {
+  it("a new supplier stores them trimmed, a blank as null and the accounts email lowercased", async () => {
+    mockDb.supplier.create.mockResolvedValueOnce({ id: "cmfq1a2b3c7k2q" });
+    mockDb.supplier.update.mockResolvedValueOnce(row());
+    await proposeSupplier({ ...base, approveOnCreate: false, legalName: "Acme", currency: "AED", billingLine1: "  Office 12  ", billingLine2: "   ", billingCity: "Dubai", phone: "+971 4 111 1111", accountsEmail: "Accounts@Acme.Example" });
+    expect(mockDb.supplier.create.mock.calls[0][0].data).toMatchObject({ billingLine1: "Office 12", billingLine2: null, billingCity: "Dubai", billingRegion: null, billingPostalCode: null, phone: "+971 4 111 1111", accountsEmail: "accounts@acme.example" });
+  });
+  it("an edit writes only the fields it sent, clears one sent as null, and lists them in the audit", async () => {
+    mockDb.supplier.findFirst.mockResolvedValueOnce(row({ billingCity: "Dubai" })).mockResolvedValueOnce(row({ version: 2 }));
+    mockDb.supplier.updateMany.mockResolvedValue({ count: 1 });
+    await updateSupplier({ ...base, supplierId: "s1", expectedVersion: 1, billingCity: null, phone: " +971 4 222 2222 " });
+    const data = mockDb.supplier.updateMany.mock.calls[0][0].data;
+    expect(data).toMatchObject({ billingCity: null, phone: "+971 4 222 2222" });
+    expect(Object.keys(data)).not.toContain("billingLine1");
+    expect(Object.keys(data)).not.toContain("accountsEmail");
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.fields).toEqual(expect.arrayContaining(["billingCity", "phone"]));
   });
 });
 

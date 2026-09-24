@@ -175,12 +175,34 @@ export const supplierBankDetailsSchema = z.object({
   swift: z.string().trim().max(20).optional(),
   accountNumber: z.string().trim().max(40).optional(),
 });
+/**
+ * The supplier's billing address, switchboard and accounts inbox (24 September
+ * 2026). One shape, spread into both the create and the update schema so the
+ * two cannot drift. Not classified: the address prints on the purchase order.
+ * The address country is the supplier's existing `country`.
+ *
+ * An empty string clears a field (the dialogs send "" for a blanked box). The
+ * accounts email is lower-cased at input, the house rule for addresses.
+ */
+export const supplierProfileShape = {
+  billingLine1: z.string().trim().max(200).nullable().optional(),
+  billingLine2: z.string().trim().max(200).nullable().optional(),
+  billingCity: z.string().trim().max(100).nullable().optional(),
+  billingRegion: z.string().trim().max(100).nullable().optional(),
+  billingPostalCode: z.string().trim().max(20).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  accountsEmail: z.union([z.literal(""), z.string().trim().toLowerCase().email().max(200)]).nullable().optional(),
+};
+/** The field names of `supplierProfileShape`, for the service and the export. */
+export const SUPPLIER_PROFILE_FIELDS = Object.keys(supplierProfileShape) as (keyof typeof supplierProfileShape)[];
+
 export const proposeSupplierSchema = z.object({
   code: z.string().trim().min(1).max(20).optional(),
   legalName: z.string().trim().min(1).max(200),
   displayName: z.string().trim().min(1).max(120).optional(),
   taxRegistrationNo: z.string().trim().max(40).nullable().optional(),
   country: z.string().trim().max(80).nullable().optional(),
+  ...supplierProfileShape,
   currency: z.string().trim().length(3).toUpperCase(),
   contacts: z.array(supplierContactSchema).max(10).optional(),
   paymentTerms: z.string().trim().max(120).nullable().optional(),
@@ -193,6 +215,7 @@ export const updateSupplierSchema = z
     displayName: z.string().trim().min(1).max(120).optional(),
     taxRegistrationNo: z.string().trim().max(40).nullable().optional(),
     country: z.string().trim().max(80).nullable().optional(),
+    ...supplierProfileShape,
     currency: z.string().trim().length(3).toUpperCase().optional(),
     contacts: z.array(supplierContactSchema).max(10).optional(),
     paymentTerms: z.string().trim().max(120).nullable().optional(),

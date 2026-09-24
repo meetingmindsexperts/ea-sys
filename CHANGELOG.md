@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: supplier billing address, main phone and accounts email, printed on the purchase order (September 24)
+
+Owner: "by the suppliers will have billing address and so on". Owner decisions:
+the fields are a billing address plus a main phone and an accounts email, and
+the address prints on the PO under the supplier name.
+
+- **Schema.** Seven nullable columns on `Supplier`: `billingLine1`,
+  `billingLine2`, `billingCity`, `billingRegion`, `billingPostalCode`, `phone`,
+  `accountsEmail` (`country` already existed). Migration
+  `20260924120000_add_supplier_billing_address` is `ADD COLUMN IF NOT EXISTS`
+  only: additive and idempotent, applied by `migrate deploy` on deploy.
+- **Write path.** One `supplierProfileShape` in `budget-schemas.ts` spread into
+  both the propose and the update schema; the service's `profileData()` trims,
+  stores a blank as null, lowercases the accounts email, and on an edit writes
+  only the fields sent, so the audit's field list stays honest. Not classified:
+  unlike the tax number and bank details, these are what goes on a PO.
+- **Import and export.** Both carry the seven columns, so the round trip holds.
+- **PO PDF.** `supplierBillTo()` in `commitment-pdf.ts` builds the "To:" block:
+  name, legal name, contact, address, "city, region postcode, country", then
+  phone, contact email, and "Accounts: ..." only when it is a different mailbox.
+  The shared `BillToInput` gains an optional `extraLines`; invoices, quotes and
+  receipts leave it unset. `locationLine` now advances the cursor, which matters
+  only when something follows it.
+- **UI.** A "Billing address and accounts" block in both the propose and the
+  edit dialog, one shared component so the two cannot drift.
+- **Tests.** Mapping (full, empty, duplicate mailbox, partial address), a render
+  with every line filled, service create/update, importer validation of the
+  email and the length cap. Mutation-checked: dropping the lowercasing, the
+  sent-only update, the duplicate-mailbox guard, line 2, or the email check each
+  turns a test red.
+- **Not changed:** sending an order still emails the contacts only, not the
+  accounts mailbox.
+
 ### Added: supplier CSV export; supplier import and export reserved to admins (September 24)
 
 Owner: "we need to import or export suppliers and reserved to admin". Two owner

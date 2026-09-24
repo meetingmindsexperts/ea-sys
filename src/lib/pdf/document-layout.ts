@@ -326,6 +326,12 @@ export interface BillToInput {
   addressLine?: string | null;
   /** "City, State Zip, Country" (optional) */
   locationLine: string | null;
+  /**
+   * Further lines under the location (optional; blanks are skipped). The
+   * purchase order uses it for the supplier's phone and email; invoices,
+   * quotes and receipts leave it unset and render exactly as before.
+   */
+  extraLines?: (string | null | undefined)[];
 }
 
 export interface MetaItem {
@@ -369,6 +375,8 @@ export function drawInfoBoxes(
   if (input.billTo.organizationLine) leftLines++;
   if (input.billTo.addressLine) leftLines++;
   if (input.billTo.locationLine) leftLines++;
+  const extraLines = (input.billTo.extraLines ?? []).filter((l): l is string => !!l);
+  leftLines += extraLines.length;
   const leftHeight = 12 + leftLines * lineH + 8;
 
   const rightLines = input.meta.length;
@@ -404,6 +412,12 @@ export function drawInfoBoxes(
   if (input.billTo.locationLine) {
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
       .text(input.billTo.locationLine, leftX + 30, lY);
+    lY += lineH;
+  }
+  for (const line of extraLines) {
+    doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
+      .text(line, leftX + 30, lY);
+    lY += lineH;
   }
 
   // ── Right box ──

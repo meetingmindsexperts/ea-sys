@@ -5851,6 +5851,16 @@ model Supplier {
   displayName        String
   taxRegistrationNo  String?
   country            String?
+  /// The supplier's billing address, switchboard and accounts inbox (Sep 24 2026).
+  /// Not classified: the address prints on the purchase order. The country of the
+  /// address is `country` above; the shape mirrors a QuickBooks vendor's BillAddr.
+  billingLine1       String?
+  billingLine2       String?
+  billingCity        String?
+  billingRegion      String?
+  billingPostalCode  String?
+  phone              String?
+  accountsEmail      String?
   currency           String
   contacts           Json                   @default("[]")
   paymentTerms       String?

@@ -22,6 +22,7 @@ import {
   formatDateShort,
   loadLocalLogo,
   toAddressLines,
+  type BillToInput,
 } from "@/lib/pdf/document-layout";
 import { money } from "./money";
 
@@ -56,6 +57,14 @@ export interface PurchaseOrderPdfData {
     paymentTerms: string | null;
     contactName: string | null;
     contactEmail: string | null;
+    /** The billing address and switchboard/accounts details (all optional; older suppliers have none). */
+    billingLine1?: string | null;
+    billingLine2?: string | null;
+    billingCity?: string | null;
+    billingRegion?: string | null;
+    billingPostalCode?: string | null;
+    phone?: string | null;
+    accountsEmail?: string | null;
   };
   company: {
     name: string;
@@ -77,6 +86,27 @@ const ORDER_NOTES = [
   "Invoices are matched to this order line by line; an invoice without the order number cannot be matched and will be held.",
   "Prices are ex-VAT; the VAT is shown beside them and on your invoice.",
 ];
+
+/**
+ * The "To:" block: the supplier's name, then its billing address, then how to
+ * reach it. The address lines print only what the supplier master holds, so a
+ * supplier with no address keeps the old shape (name, contact, country). The
+ * contact's email stays, and the accounts email is added beside it only when
+ * it is a different mailbox.
+ */
+export function supplierBillTo(s: PurchaseOrderPdfData["supplier"]): BillToInput {
+  const join = (parts: (string | null | undefined)[], sep: string) => parts.map((p) => p?.trim()).filter(Boolean).join(sep) || null;
+  const distinctLegal = s.legalName !== s.displayName;
+  const accounts = s.accountsEmail && s.accountsEmail !== s.contactEmail?.toLowerCase() ? `Accounts: ${s.accountsEmail}` : null;
+  return {
+    nameLine: s.displayName,
+    secondLine: distinctLegal ? s.legalName : s.contactName,
+    organizationLine: distinctLegal ? s.contactName : null,
+    addressLine: join([s.billingLine1, s.billingLine2], ", "),
+    locationLine: join([s.billingCity, join([s.billingRegion, s.billingPostalCode], " "), s.country], ", "),
+    extraLines: [s.phone ? `Tel: ${s.phone}` : null, s.contactEmail, accounts],
+  };
+}
 
 /** A line's text on the PDF: the description, then the quantity and unit cost when it is not a single unit. */
 export function orderLineText(line: PurchaseOrderPdfLine): string {
@@ -128,13 +158,7 @@ export async function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): Prom
 
       y = ensureSpace(doc, y, 80);
       y = drawInfoBoxes(doc, y, {
-        billTo: {
-          nameLine: data.supplier.displayName,
-          secondLine: data.supplier.legalName !== data.supplier.displayName ? data.supplier.legalName : data.supplier.contactName,
-          organizationLine: data.supplier.legalName !== data.supplier.displayName ? data.supplier.contactName : null,
-          addressLine: data.supplier.contactEmail,
-          locationLine: data.supplier.country,
-        },
+        billTo: supplierBillTo(data.supplier),
         meta,
       });
 

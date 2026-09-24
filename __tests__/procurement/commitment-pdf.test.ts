@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
-import { generatePurchaseOrderPdf, orderLineText } from "@/procurement/lib/commitment-pdf";
+import { generatePurchaseOrderPdf, orderLineText, supplierBillTo } from "@/procurement/lib/commitment-pdf";
 
 const sample = {
   commitmentNo: "PO-2026-0003",
@@ -52,5 +52,37 @@ describe("orderLineText on a line with no VAT", () => {
   it("names no tax code or rate beside a zero VAT figure, and keeps them when VAT is charged", () => {
     expect(orderLineText({ description: "LED wall", qty: "1", unitCost: "36000", amount: "36000", taxAmount: "0.0000", taxRatePercent: null, taxCode: "SR" })).toBe("LED wall");
     expect(orderLineText({ description: "LED wall", qty: "1", unitCost: "36000", amount: "36000", taxAmount: "1800.0000", taxRatePercent: "5", taxCode: "SR" })).toBe("LED wall · SR");
+  });
+});
+
+describe("supplierBillTo", () => {
+  const addressed = { ...sample.supplier, billingLine1: "Office 12, Building 4", billingLine2: "Al Quoz Industrial 3", billingCity: "Dubai", billingRegion: "Dubai", billingPostalCode: "00000", phone: "+971 4 111 1111", accountsEmail: "accounts@gulfav.example" };
+  it("prints the billing address under the supplier name, then the phone and both mailboxes", () => {
+    expect(supplierBillTo(addressed)).toEqual({
+      nameLine: "Gulf AV",
+      secondLine: "Gulf Audio Visual LLC",
+      organizationLine: "Sara",
+      addressLine: "Office 12, Building 4, Al Quoz Industrial 3",
+      locationLine: "Dubai, Dubai 00000, AE",
+      extraLines: ["Tel: +971 4 111 1111", "sara@example.test", "Accounts: accounts@gulfav.example"],
+    });
+  });
+  it("keeps the old shape for a supplier with no address, and skips the blanks", () => {
+    const b = supplierBillTo(sample.supplier);
+    expect(b.addressLine).toBeNull();
+    expect(b.locationLine).toBe("AE");
+    expect(b.extraLines?.filter(Boolean)).toEqual(["sara@example.test"]);
+  });
+  it("does not print the accounts mailbox twice when it is the contact's own", () => {
+    expect(supplierBillTo({ ...addressed, accountsEmail: "sara@example.test" }).extraLines?.filter(Boolean)).toEqual(["Tel: +971 4 111 1111", "sara@example.test"]);
+  });
+  it("joins a partial address without stray separators", () => {
+    const b = supplierBillTo({ ...sample.supplier, billingLine2: "Al Quoz 3", billingPostalCode: "12345", country: null });
+    expect(b.addressLine).toBe("Al Quoz 3");
+    expect(b.locationLine).toBe("12345");
+  });
+  it("renders a PDF with every bill-to line filled", async () => {
+    const pdf = await generatePurchaseOrderPdf({ ...sample, supplier: addressed });
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
   });
 });
