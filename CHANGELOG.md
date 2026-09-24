@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: supplier CSV export; supplier import and export reserved to admins (September 24)
+
+Owner: "we need to import or export suppliers and reserved to admin". Two owner
+decisions: "admin" means ADMIN and SUPER_ADMIN by role, and the export carries
+the same columns as the import.
+
+- **Export (new).** `GET /api/procurement/suppliers/export` and an **Export CSV**
+  button on the Suppliers page. Every supplier, any approval status, active or
+  not, ordered by code. The first columns are the import's own, in its order and
+  under its names, so a file round-trips through the real importer (pinned by a
+  test that parses an exported file back). Three read-only columns follow:
+  `approvalStatus`, `active`, `additionalContacts`; the importer maps by name and
+  ignores them, and without them a Rejected supplier would read like an Approved
+  one. Tax numbers are included (this population already sees them). **Bank
+  details are never exported**: the service read has its own select without the
+  column, and the builder has no field for it. Audited as an EXPORT with
+  `bankDetails: "excluded"`, 20 an hour per user, BOM for Excel.
+- **Import tightened, and this REVERSES the Sep 14 rule.** It took the `propose`
+  need, so any request or settle grant holder could load the whole supplier
+  master while an admin without a grant was refused. It now takes a new
+  `supplier-transfer` need backed by `canTransferSuppliers` (role only, no grant
+  or custom-role key admits). Proposing ONE supplier through the dialog is
+  unchanged and still open to requesters. An admin's import lands Proposed unless
+  they also hold the settle grant, as before.
+- Tests: 15 new (builder parity, round trip, the bank-details leak three ways,
+  formula neutralising, malformed contacts JSON; export RBAC, 404 when the module
+  is off, BOM, filename, audit), and the import tests rewritten for the new rule.
+  Mutation-verified: reverting the import to `propose`, re-admitting the settle
+  grant, adding `bankDetails` to the export select, and dropping a column from
+  the builder each fail.
+
 ### Changed: admins can open shared doc links on master (September 24)
 
 `/admin/docs/<path>` (one repo doc per URL) opened only for SUPER_ADMIN since

@@ -109,6 +109,23 @@ export function canManageAccountingIntegration(user: ProcurementUserLike | null 
   return !!user?.role && PROCUREMENT_ADMIN_ROLES.has(user.role);
 }
 
+/**
+ * Who moves the supplier master in bulk, CSV import and CSV export (owner
+ * ruling, 24 September 2026: "reserved to admin").
+ *
+ * ROLE ONLY: ADMIN and SUPER_ADMIN. No grant and no custom-role key admits,
+ * because a file is the whole supplier list at once, which is a different act
+ * from proposing one supplier (still open to requesters through the dialog).
+ * The export carries tax numbers, which this population already sees
+ * (`SUPPLIER_FINANCIALS_ROLES` includes both), and never bank details.
+ *
+ * This REVERSED the Sep 14 rule: import was open to any request or settle
+ * grant holder and closed to an admin without one.
+ */
+export function canTransferSuppliers(user: ProcurementUserLike | null | undefined): boolean {
+  return !!user?.role && PROCUREMENT_ADMIN_ROLES.has(user.role);
+}
+
 export function canRequestProcurement(user: ProcurementUserLike | null | undefined): boolean {
   if (holds(user, "procurement.requests.create")) return true;
   return user?.procurementRequest === true;

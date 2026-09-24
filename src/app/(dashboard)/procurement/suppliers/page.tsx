@@ -10,7 +10,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { canDecideSuppliers, canRequestProcurement, canSettleProcurement } from "@/lib/procurement-visibility";
+import { canDecideSuppliers, canRequestProcurement, canSettleProcurement, canTransferSuppliers } from "@/lib/procurement-visibility";
+import { downloadExport } from "@/lib/export-download";
+import { supplierExportFilename } from "@/procurement/lib/supplier-export";
 import { BUDGET_CURRENCIES } from "@/procurement/lib/budget-schemas";
 import { useDecideSupplier, useImportSuppliers, useProposeSupplier, useSuppliers, useUpdateSupplier, type SupplierRow } from "@/procurement/hooks/use-procurement-api";
 import { ProcurementCsvImportDialog } from "@/procurement/components/csv-import-dialog";
@@ -24,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Check, FileUp, Loader2, Pencil, Plus, Truck, X } from "lucide-react";
+import { ArrowLeft, Check, Download, FileUp, Loader2, Pencil, Plus, Truck, X } from "lucide-react";
 
 type StatusFilter = "PROPOSED" | "APPROVED" | "REJECTED" | "ALL";
 const STATUS_LABEL: Record<SupplierRow["approvalStatus"], string> = { PROPOSED: "Proposed", APPROVED: "Approved", REJECTED: "Rejected" };
@@ -40,6 +42,9 @@ export default function SuppliersPage() {
   const canDecide = canDecideSuppliers(session?.user);
   const showActions = canSettle || canDecide;
   const canPropose = canSettle || canRequestProcurement(session?.user);
+  // Bulk import and export of the whole master: ADMIN and SUPER_ADMIN only.
+  const canTransfer = canTransferSuppliers(session?.user);
+  const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -55,6 +60,19 @@ export default function SuppliersPage() {
     return (suppliers.data ?? []).filter((s) => !q || s.code.toLowerCase().includes(q) || s.displayName.toLowerCase().includes(q) || s.legalName.toLowerCase().includes(q));
   }, [suppliers.data, search]);
   const proposed = (suppliers.data ?? []).filter((s) => s.approvalStatus === "PROPOSED").length;
+
+  const handleExport = async () => {
+    setExporting(true);
+    const r = await downloadExport({
+      url: "/api/procurement/suppliers/export",
+      filename: supplierExportFilename(new Date()),
+      logKey: "procurement/suppliers:export-failed",
+      forbiddenMessage: "Only an admin can export suppliers.",
+    });
+    setExporting(false);
+    if (r.ok) toast.success("Suppliers exported");
+    else toast.error(r.error ?? "Export failed.");
+  };
 
   if (suppliers.isPending) return <LoadingState label="Loading suppliers…" />;
   if (suppliers.isError) return <ErrorState title="Couldn't load the suppliers" message={(suppliers.error as Error)?.message ?? ""} backHref="/procurement" backLabel="Budgets" />;
@@ -72,10 +90,17 @@ export default function SuppliersPage() {
               {`${rows.length} shown${status === "ALL" && proposed > 0 ? ` · ${proposed} waiting for approval` : ""}. Only an approved supplier can carry a purchase order.`}
             </p>
           </div>
-          {canPropose && (
+          {(canPropose || canTransfer) && (
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setImporting(true)}><FileUp className="h-4 w-4" /> Import CSV</Button>
-              <Button onClick={() => setProposing(true)}><Plus className="h-4 w-4" /> {canSettle ? "Add supplier" : "Propose a supplier"}</Button>
+              {canTransfer && (
+                <>
+                  <Button variant="outline" onClick={handleExport} disabled={exporting}>
+                    {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export CSV
+                  </Button>
+                  <Button variant="outline" onClick={() => setImporting(true)}><FileUp className="h-4 w-4" /> Import CSV</Button>
+                </>
+              )}
+              {canPropose && <Button onClick={() => setProposing(true)}><Plus className="h-4 w-4" /> {canSettle ? "Add supplier" : "Propose a supplier"}</Button>}
             </div>
           )}
         </div>
@@ -147,7 +172,7 @@ export default function SuppliersPage() {
       </div>
 
       {canPropose && <ProposeDialog open={proposing} onOpenChange={setProposing} settle={canSettle} />}
-      {canPropose && (
+      {canTransfer && (
         <ProcurementCsvImportDialog
           open={importing}
           onOpenChange={setImporting}

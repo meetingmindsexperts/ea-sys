@@ -80,6 +80,22 @@ export async function listSuppliers(organizationId: string, opts: { status?: "PR
   });
 }
 
+/**
+ * The whole supplier master for the CSV export: every approval status, active
+ * or not, ordered by code. Its own select rather than SUPPLIER_SELECT, because
+ * that one carries `bankDetails` and this read must not: the export never
+ * contains them, and a column that is never fetched cannot leak by a later edit
+ * to the CSV builder.
+ */
+export const SUPPLIER_EXPORT_SELECT = {
+  code: true, legalName: true, displayName: true, country: true, currency: true, taxRegistrationNo: true,
+  paymentTerms: true, contacts: true, notes: true, approvalStatus: true, isActive: true,
+} as const;
+
+export async function listSuppliersForExport(organizationId: string) {
+  return db.supplier.findMany({ where: { organizationId }, orderBy: { code: "asc" }, select: SUPPLIER_EXPORT_SELECT });
+}
+
 export async function getSupplier(organizationId: string, supplierId: string): Promise<SupplierResult<SupplierRow>> {
   const row = await db.supplier.findFirst({ where: { id: supplierId, organizationId }, select: SUPPLIER_SELECT });
   if (!row) return fail("SUPPLIER_NOT_FOUND", "The supplier was not found.", { supplierId });

@@ -1,6 +1,11 @@
 /**
- * POST a CSV of suppliers (need "propose", the same rule as adding one):
- * a row whose code or legal name already exists is skipped and reported,
+ * POST a CSV of suppliers (need "supplier-transfer": ADMIN and SUPER_ADMIN by
+ * role, owner ruling 24 September 2026). Until then this took "propose", the
+ * same rule as adding one supplier, which let any requester load the whole
+ * master and refused an admin without a grant; proposing ONE supplier through
+ * the dialog is still open to requesters.
+ *
+ * A row whose code or legal name already exists is skipped and reported,
  * the rest are created through the propose path, so they land as Proposed
  * for the settle holder, or approved outright when the importer holds the
  * settle grant. Bank details are never importable (classified, spec §2.9);
@@ -20,7 +25,7 @@ import { importSuppliers } from "@/procurement/services/supplier-service";
 const ROUTE = "procurement/suppliers/import";
 
 export async function POST(req: NextRequest) {
-  const g = await procurementGuard({ route: ROUTE, need: "propose", write: true });
+  const g = await procurementGuard({ route: ROUTE, need: "supplier-transfer", write: true });
   if (!g.ok) return g.response;
   const parsed = importCsvSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: ROUTE, userId: g.user.id });

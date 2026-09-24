@@ -2,9 +2,10 @@
  * The export and the two import routes through the REAL guard with the
  * services and the audit helpers mocked: the flag turns them into 404s, any
  * org staff member exports (audited, as CSV with the BOM and a filename),
- * only an admin imports products, a propose-grant holder imports suppliers
- * as Proposed while a settle holder imports them approved, and an
- * unreadable file is a logged 400 rather than a silent zero-row import.
+ * only an admin imports products, only ADMIN / SUPER_ADMIN import or export
+ * suppliers (by role, since Sep 24 2026; a grant no longer admits), an
+ * admin's import lands Proposed unless they also hold the settle grant, and
+ * an unreadable file is a logged 400 rather than a silent zero-row import.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
@@ -25,7 +26,7 @@ const revenueSvc = vi.hoisted(() => ({ getBudgetRevenue: vi.fn() }));
 vi.mock("@/procurement/services/budget-revenue-service", () => revenueSvc);
 const productSvc = vi.hoisted(() => ({ importBudgetProducts: vi.fn() }));
 vi.mock("@/procurement/services/budget-product-service", () => productSvc);
-const supplierSvc = vi.hoisted(() => ({ importSuppliers: vi.fn() }));
+const supplierSvc = vi.hoisted(() => ({ importSuppliers: vi.fn(), listSuppliersForExport: vi.fn() }));
 vi.mock("@/procurement/services/supplier-service", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/procurement/services/supplier-service")>();
   return { ...real, ...supplierSvc };
@@ -34,6 +35,7 @@ vi.mock("@/procurement/services/supplier-service", async (importOriginal) => {
 import { GET as exportGet } from "@/app/api/procurement/budgets/[budgetId]/export/route";
 import { POST as importProducts } from "@/app/api/procurement/products/import/route";
 import { POST as importSuppliers } from "@/app/api/procurement/suppliers/import/route";
+import { GET as exportSuppliers } from "@/app/api/procurement/suppliers/export/route";
 
 const ORG = "org-1";
 const user = (over: Record<string, unknown>) => ({ user: { id: "u1", organizationId: ORG, role: "MEMBER", ...over } });
@@ -155,29 +157,71 @@ describe("POST /api/procurement/products/import", () => {
 
 describe("POST /api/procurement/suppliers/import", () => {
   const csv = "legalName,code\nGulf AV,GULFAV\nAcme,ACME\n";
-  it("needs the request or settle grant; staff without one are refused", async () => {
-    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+  it("is ADMIN / SUPER_ADMIN only: a request or settle grant no longer admits", async () => {
+    for (const grant of [{ procurementRequest: true }, { procurementSettle: true }, { procurementPermissions: ["procurement.suppliers.propose", "procurement.catalogue.manage"] }]) {
+      authMock.mockResolvedValue(user({ role: "MEMBER", ...grant }));
+      expect((await importSuppliers(post("/api/procurement/suppliers/import", { csv }))).status).toBe(403);
+    }
+    authMock.mockResolvedValue(user({ role: "ORGANIZER", procurementSettle: true }));
     expect((await importSuppliers(post("/api/procurement/suppliers/import", { csv }))).status).toBe(403);
     expect(supplierSvc.importSuppliers).not.toHaveBeenCalled();
   });
-  it("a request-grant holder imports as Proposed; a settle holder imports approved", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER", procurementRequest: true }));
+  it("an admin imports as Proposed; an admin who also holds the settle grant imports approved", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await importSuppliers(post("/api/procurement/suppliers/import", { csv }));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ totalProcessed: 2, created: 1, skipped: 1, skippedDetails: ["Row 3: code ACME already exists (Acme)"], approved: false, errors: [] });
     expect(supplierSvc.importSuppliers).toHaveBeenCalledWith(expect.objectContaining({ approveOnCreate: false, rows: [expect.objectContaining({ legalName: "Gulf AV", code: "GULFAV", currency: "AED" }), expect.objectContaining({ legalName: "Acme", code: "ACME" })] }));
     expect(audit.recordImport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "Supplier", totalProcessed: 2, created: 1, skipped: 1, errors: 0 }));
 
-    authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
+    authMock.mockResolvedValue(user({ role: "SUPER_ADMIN", procurementSettle: true }));
     const res2 = await importSuppliers(post("/api/procurement/suppliers/import", { csv }));
     expect((await res2.json()).approved).toBe(true);
     expect(supplierSvc.importSuppliers).toHaveBeenLastCalledWith(expect.objectContaining({ approveOnCreate: true }));
   });
   it("reports the service's failure as a logged 500 that names what already stands", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     supplierSvc.importSuppliers.mockRejectedValue(new Error("db down"));
     const res = await importSuppliers(post("/api/procurement/suppliers/import", { csv }));
     expect(res.status).toBe(500);
     expect(await res.json()).toMatchObject({ code: "IMPORT_FAILED" });
+  });
+});
+
+describe("GET /api/procurement/suppliers/export", () => {
+  const exportReq = () => new NextRequest("http://localhost/api/procurement/suppliers/export");
+  const rows = [
+    { code: "ACME", legalName: "Acme Trading LLC", displayName: "Acme", country: "AE", currency: "AED", taxRegistrationNo: "100200300400500", paymentTerms: "30 days", contacts: [{ name: "Amal", email: "amal@acme.example" }], notes: null, approvalStatus: "APPROVED", isActive: true },
+  ];
+  beforeEach(() => supplierSvc.listSuppliersForExport.mockResolvedValue(rows));
+
+  it("is a 404 while the module is off", async () => {
+    delete process.env.PROCUREMENT_MODULE_ENABLED;
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    expect((await exportSuppliers(exportReq())).status).toBe(404);
+  });
+  it("refuses everyone but ADMIN / SUPER_ADMIN, whatever grant they hold, and reads nothing", async () => {
+    for (const u of [{ role: "MEMBER", procurementSettle: true }, { role: "ORGANIZER", procurementRequest: true }, { role: "MEMBER", procurementPermissions: ["procurement.suppliers.financials.view"] }]) {
+      authMock.mockResolvedValue(user(u));
+      expect((await exportSuppliers(exportReq())).status).toBe(403);
+    }
+    expect(supplierSvc.listSuppliersForExport).not.toHaveBeenCalled();
+  });
+  it("streams the CSV to an admin with the BOM, a dated filename and an audit row saying bank details were excluded", async () => {
+    for (const role of ["ADMIN", "SUPER_ADMIN"]) {
+      vi.clearAllMocks();
+      supplierSvc.listSuppliersForExport.mockResolvedValue(rows);
+      authMock.mockResolvedValue(user({ role }));
+      const res = await exportSuppliers(exportReq());
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/csv");
+      expect(res.headers.get("content-disposition")).toMatch(/attachment; filename="suppliers-\d{4}-\d{2}-\d{2}\.csv"/);
+      // Response.text() strips a leading byte-order mark by spec, so read the bytes.
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf]);
+      expect(new TextDecoder().decode(bytes)).toContain("ACME");
+      expect(supplierSvc.listSuppliersForExport).toHaveBeenCalledWith(ORG);
+      expect(audit.recordExport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "Supplier", rowCount: 1, format: "csv", filters: expect.objectContaining({ bankDetails: "excluded" }) }));
+    }
   });
 });

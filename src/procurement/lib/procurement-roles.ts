@@ -23,12 +23,13 @@ import {
   canManageAccountingIntegration,
   canRequestProcurement,
   canSettleProcurement,
+  canTransferSuppliers,
   canViewProcurement,
   hasAnyProcurementGrant,
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
-export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier" | "integration";
+export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier" | "integration" | "supplier-transfer";
 
 export type ProcurementSession =
   | { user?: (ProcurementUserLike & { id?: string; organizationId?: string | null }) | null }
@@ -72,6 +73,9 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
       // Linking the accounting system: ADMIN and SUPER_ADMIN, the same
       // population as the other cards on Settings, Integrations.
       return canManageAccountingIntegration(user);
+    case "supplier-transfer":
+      // Bulk supplier import and export: ADMIN and SUPER_ADMIN by role only.
+      return canTransferSuppliers(user);
   }
 }
 
