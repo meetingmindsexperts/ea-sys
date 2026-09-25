@@ -1,0 +1,1027 @@
+// ==================== SPEAKER MANAGEMENT ====================
+
+model Speaker {
+  id                             String        @id @default(cuid())
+  eventId                        String
+  userId                         String?
+  title                          Title?
+  role                           AttendeeRole?
+  email                          String
+  additionalEmail                String?
+  firstName                      String
+  lastName                       String
+  bio                            String?       @db.Text
+  organization                   String?
+  jobTitle                       String?
+  phone                          String?
+  website                        String?
+  photo                          String?
+  city                           String?
+  state                          String?
+  zipCode                        String?
+  country                        String?
+  specialty                      String?
+  customSpecialty                String?
+  registrationType               String?
+  // Honorarium / speaker fee agreed by the organiser (Sep 3, 2026). Organiser-
+  // set only: the reimbursement form renders the line LOCKED and the public
+  // submit writes this value, never the body's (a speaker can neither add nor
+  // change a fee). Null = not agreed, rendered as 0. Currency is one of the
+  // reimbursement currencies (USD/AED/SAR), validated at the honorarium route.
+  // Read through readHonorarium() in src/lib/reimbursement/constants.ts.
+  honorariumAmount               Decimal?      @db.Decimal(12, 2)
+  honorariumCurrency             String?
+  /// Sep 8, 2026: which reimbursement types THIS speaker may claim (subset of
+  /// CLAIM_ITEMS keys: SPEAKER_FEE | FLIGHT | HOTEL | TRANSPORT | OTHER). Null =
+  /// inherit the event default in Event.settings.reimbursement.claimItems
+  /// (absent there = all five). On Speaker, like the honorarium, so it is
+  /// settable before any reimbursement link exists.
+  reimbursementClaimItems        Json?
+  tags                           String[]      @default([])
+  socialLinks                    Json          @default("{}")
+  status                         SpeakerStatus @default(INVITED)
+  // Which public self-signup flow created this submitter-speaker:
+  // "abstract" | "proposal" | null (legacy / organizer-added). Drives the
+  // submitter surface separation (July 30, 2026 — proposal signups see only
+  // Session Proposals, abstract signups only Abstracts; src/lib/submitter-surfaces.ts).
+  // First flow wins — never overwritten once set.
+  submitterSource                String?
+  externalId                     String?
+  agreementAcceptedAt            DateTime?
+  agreementAcceptedIp            String?
+  agreementAcceptedBy            String?
+  agreementTextSnapshot          String?       @db.Text
+  // Presenter (abstract-author) agreement — DISTINCT from the faculty speaker
+  // agreement above. A person can be both a faculty speaker (agreement*) and an
+  // abstract author (presenterAgreement*); the two are accepted independently.
+  // Per-author, per-event: one acceptance covers all their abstracts. See
+  // src/lib/presenter-agreement.ts.
+  presenterAgreementAcceptedAt   DateTime?
+  presenterAgreementAcceptedIp   String?
+  presenterAgreementAcceptedBy   String?
+  presenterAgreementTextSnapshot String?       @db.Text
+  // Optional pointer to the Registration this speaker was imported from.
+  // Null for independent / manually-added / sponsor-suggested speakers (the
+  // common case — a speaker need not be a registrant). Set only on the
+  // import-registrations path. Enables surfacing the registration's activity
+  // on the speaker WITHOUT duplicating it. SetNull so deleting the
+  // registration leaves the speaker intact (it's a first-class entity).
+  sourceRegistrationId           String?
+  // Multi-tenancy Phase 2 (Speaker sweep) — denormalized org for RLS. Nullable
+  // (additive/idempotent, no FK), backfilled 1-hop from Event. See
+  // prisma/rls/speaker.sql + migration 20260730160000.
+  organizationId                 String?
+  createdAt                      DateTime      @default(now())
+  updatedAt                      DateTime      @updatedAt
+
+  event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user                     User?                     @relation(fields: [userId], references: [id])
+  sourceRegistration       Registration?             @relation("SpeakerSourceRegistration", fields: [sourceRegistrationId], references: [id], onDelete: SetNull)
+  sessions                 SessionSpeaker[]
+  topicSpeakers            TopicSpeaker[]
+  abstracts                Abstract[]
+  accommodation            Accommodation?
+  issuedCertificates       IssuedCertificate[]
+  certificateIssueRunItems CertificateIssueRunItem[]
+  documents                SpeakerDocument[]
+  reimbursement            SpeakerReimbursement?
+  travelGrant              TravelGrant?
+  profileForm              SpeakerProfileForm?
+  sessionProposals         SessionProposal[]
+
+  @@unique([eventId, email])
+  @@index([eventId])
+  @@index([status])
+  @@index([sourceRegistrationId])
+  @@index([organizationId])
+}
+
+enum SpeakerStatus {
+  INVITED
+  CONFIRMED
+  DECLINED
+  CANCELLED
+}
+
+enum SpeakerDocumentKind {
+  /// The signed agreement copy the organizer received back (wet signature /
+  /// emailed PDF). App-enforced ONE per speaker (per event -- speakers are
+  /// event-scoped): a new upload replaces the previous one. Deliberately
+  /// SEPARATE from Speaker.agreementAcceptedAt (owner decision July 16,
+  /// 2026) -- storing the file does not mark the agreement accepted.
+  SIGNED_AGREEMENT
+  /// Any other per-speaker file: bio doc, CV, COI form scan, etc.
+  OTHER
+}
+
+/// Per-speaker uploaded documents (July 16, 2026, owner request): the signed
+/// agreement copy for future reference + arbitrary attachments (bio doc ...).
+/// Files live under /uploads/speaker-docs/{eventId}/; PDF + DOC/DOCX only,
+/// magic-byte validated, 10MB cap (see the documents route).
+model SpeakerDocument {
+  id             String              @id @default(cuid())
+  speakerId      String
+  kind           SpeakerDocumentKind @default(OTHER)
+  url            String
+  filename       String
+  label          String?
+  mimeType       String
+  size           Int
+  uploadedById   String?
+  // Multi-tenancy Phase 2 (Speaker sweep) — denormalized org for RLS. Nullable,
+  // backfilled 2-hop via speakerId → Speaker → Event. See prisma/rls/speaker.sql.
+  organizationId String?
+  createdAt      DateTime            @default(now())
+
+  speaker    Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("SpeakerDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([speakerId])
+  @@index([organizationId])
+}
+
+model Abstract {
+  id               String            @id @default(cuid())
+  eventId          String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId   String?
+  speakerId        String
+  title            String
+  content          String            @db.Text
+  trackId          String?
+  themeId          String?
+  // Optional narrowing under the chosen theme. Required to SUBMIT only when
+  // the chosen theme HAS sub-themes (see src/lib/abstract-theme-requirement.ts)
+  // — a theme with none submits exactly as before.
+  subThemeId       String?
+  specialty        String?
+  presentationType PresentationType?
+  // Co-authors entered by the submitter — array of
+  // { name, email, phone, jobTitle, organization, country }. Stored as JSON
+  // (contact info only, not accounts). See src/lib/abstract-coauthors.ts.
+  coAuthors        Json?
+  // Human-readable per-event abstract number (displayed as "A-001" via
+  // formatAbstractSerial). Assigned atomically from AbstractSerialCounter at
+  // create (src/lib/abstract-serial.ts); existing rows backfilled in createdAt
+  // order by migration 20260804120000. Nullable only for blue-green safety —
+  // every create path assigns it.
+  serialId         Int?
+  status           AbstractStatus    @default(SUBMITTED)
+  managementToken  String?           @unique
+  submittedAt      DateTime          @default(now())
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  event        Event                      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker      Speaker                    @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  track        Track?                     @relation(fields: [trackId], references: [id])
+  theme        AbstractTheme?             @relation(fields: [themeId], references: [id])
+  subTheme     AbstractSubTheme?          @relation(fields: [subThemeId], references: [id])
+  eventSession EventSession?
+  sessionTopic SessionTopic?
+  reviewers    AbstractReviewer[]
+  submissions  AbstractReviewSubmission[]
+
+  @@unique([eventId, serialId])
+  @@index([eventId])
+  @@index([speakerId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+model AbstractReviewer {
+  id             String               @id @default(cuid())
+  abstractId     String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Abstract's Event at create; backfilled 2-hop. The reviewer
+  // User is org-independent, but this ROW belongs to the abstract's event's org.
+  organizationId String?
+  userId         String
+  assignedAt     DateTime             @default(now())
+  assignedById   String
+  role           AbstractReviewerRole @default(SECONDARY)
+  conflictFlag   Boolean              @default(false)
+
+  abstract    Abstract                   @relation(fields: [abstractId], references: [id], onDelete: Cascade)
+  user        User                       @relation("ReviewerOnAbstracts", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy  User                       @relation("AssignedAbstractReviewers", fields: [assignedById], references: [id])
+  submissions AbstractReviewSubmission[]
+
+  @@unique([abstractId, userId])
+  @@index([abstractId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model AbstractReviewSubmission {
+  id                 String             @id @default(cuid())
+  abstractId         String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Abstract's Event at create; backfilled 2-hop. The reviewer
+  // User is org-independent, but this ROW belongs to the abstract's event's org.
+  organizationId     String?
+  reviewerUserId     String
+  abstractReviewerId String?
+  criteriaScores     Json?
+  overallScore       Int?
+  reviewNotes        String?            @db.Text
+  recommendedFormat  RecommendedFormat?
+  confidence         Int?
+  submittedAt        DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  abstract         Abstract          @relation(fields: [abstractId], references: [id], onDelete: Cascade)
+  reviewer         User              @relation("UserAbstractSubmissions", fields: [reviewerUserId], references: [id], onDelete: Cascade)
+  abstractReviewer AbstractReviewer? @relation(fields: [abstractReviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([abstractId, reviewerUserId])
+  @@index([abstractId])
+  @@index([reviewerUserId])
+  @@index([organizationId])
+}
+
+/// A narrowing under an AbstractTheme ("Heart Failure" → "Acute", "Chronic").
+/// Optional by design: an event may have themes with no sub-themes at all, and
+/// those submit exactly as they did before. Where sub-themes DO exist on the
+/// chosen theme, picking one is required to submit — the same conditional shape
+/// the theme requirement itself uses (src/lib/abstract-theme-requirement.ts).
+///
+/// eventId is carried alongside themeId so route scoping stays a single bind
+/// rather than a join through the parent, matching AbstractTheme; the theme FK
+/// cascades, so deleting a theme takes its sub-themes with it.
+model AbstractSubTheme {
+  id             String   @id @default(cuid())
+  themeId        String
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event.
+  organizationId String?
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  theme     AbstractTheme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstracts Abstract[]
+
+  @@unique([themeId, name])
+  @@index([themeId])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model AbstractTheme {
+  id             String   @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event     Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstracts Abstract[]
+  subThemes AbstractSubTheme[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+// ── Session proposals (July 30, 2026) ───────────────────────────────────────
+// "Abstracts-shaped but for proposing SESSIONS" — deliberately a SEPARATE
+// model family (no kind-discriminator on Abstract): Abstract carries review
+// machinery (reviewers/submissions/criteria/decisions) that proposals must
+// not inherit. v1 is an organizer INBOX only — no review, no accept/reject
+// (enum leaves additive room). See docs/SESSION_PROPOSALS_PLAN.md.
+
+enum SessionProposalStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+  // v2 room (add additively when a review workflow lands):
+  // UNDER_REVIEW, ACCEPTED, REJECTED
+}
+
+model SessionProposal {
+  id              String       @id @default(cuid())
+  eventId         String
+  // Denormalized tenant key, stamped at create — born multi-tenant-ready
+  // (LoginEvent/HelpChatQuery convention). App-level org scoping is
+  // defence #1; the program-domain RLS sweep picks this up later.
+  organizationId  String?
+  // The proposer's Speaker facet (SUBMITTER-account linkage, like Abstract).
+  speakerId       String
+  title           String
+  description     String       @db.Text
+  themeId         String?
+  // Program kinds only (SESSION/WORKSHOP/SYMPOSIUM) — validated in the app
+  // via SESSION_TYPE_KIND. Reusing SessionType keeps a future
+  // convert-to-session pre-fill free.
+  proposedFormat  SessionType?
+  durationMinutes Int?
+  // Human-readable per-event proposal number (displayed "S-001" via
+  // formatSessionProposalSerial). Assigned atomically from
+  // SessionProposalSerialCounter at create (src/lib/session-proposal-serial.ts);
+  // existing rows backfilled by migration 20260804120000. Nullable only for
+  // blue-green safety — every create path assigns it.
+  serialId        Int?
+
+  status      SessionProposalStatus @default(SUBMITTED)
+  submittedAt DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  event   Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker               @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  theme   SessionProposalTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, serialId])
+  @@index([eventId, status])
+  @@index([organizationId])
+  @@index([speakerId])
+}
+
+// One row per event holding the last-assigned session-proposal serialId
+// (displayed "S-001"). Same atomic upsert+increment pattern as
+// RegistrationSerialCounter / AbstractSerialCounter.
+model SessionProposalSerialCounter {
+  eventId        String  @id
+  // Denormalized tenant key — flat-policy convention (see the sibling
+  // counters for the INSERT … ON CONFLICT under-RLS rationale).
+  organizationId String?
+  lastSerial     Int     @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// Proposal themes are the event's OWN list (owner: "same like abstract it
+// has its own themes") — mirrors AbstractTheme, never shared with it.
+model SessionProposalTheme {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String?
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  proposals SessionProposal[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model ReviewCriterion {
+  id             String   @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
+  name           String
+  weight         Int
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+enum AbstractStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  REVISION_REQUESTED
+  WITHDRAWN
+}
+
+enum PresentationType {
+  ORAL
+  POSTER
+  ORAL_POSTER
+  VIDEO
+  WORKSHOP
+}
+
+enum RecommendedFormat {
+  ORAL
+  POSTER
+  NEITHER
+}
+
+enum AbstractReviewerRole {
+  PRIMARY
+  SECONDARY
+  CONSULTING
+}
+
+// ==================== SESSIONS & SCHEDULE ====================
+
+model Track {
+  id             String   @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
+  name           String
+  description    String?  @db.Text
+  color          String   @default("#3B82F6")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventSessions EventSession[]
+  abstracts     Abstract[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model EventSession {
+  id             String        @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
+  abstractId     String?       @unique
+  trackId        String?
+  name           String
+  description    String?       @db.Text
+  startTime      DateTime
+  endTime        DateTime
+  location       String?
+  capacity       Int?
+  status         SessionStatus @default(SCHEDULED)
+  type           SessionType   @default(SESSION)
+  externalId     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  event            Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstract         Abstract?         @relation(fields: [abstractId], references: [id])
+  track            Track?            @relation(fields: [trackId], references: [id])
+  speakers         SessionSpeaker[]
+  topics           SessionTopic[]
+  zoomMeeting      ZoomMeeting?
+  zoomAttendances  ZoomAttendance[]
+  webinarPresences WebinarPresence[]
+
+  @@index([eventId])
+  @@index([startTime])
+  @@index([trackId])
+  @@index([organizationId])
+}
+
+enum SessionStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum SessionRole {
+  SPEAKER
+  MODERATOR
+  CHAIRPERSON
+  PANELIST
+}
+
+// SESSION is a real program session (speakers, topics, Zoom, detail page).
+// Everything else is a "break item" — an agenda time block with no people
+// attached (registration desk, coffee, lunch, networking). Break items are
+// deliberately track-less in the UI and never get a public detail page.
+enum SessionType {
+  SESSION
+  WORKSHOP
+  SYMPOSIUM
+  REGISTRATION
+  BREAK
+  LUNCH
+  NETWORKING
+}
+
+model SessionSpeaker {
+  sessionId      String
+  speakerId      String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
+  // Event; 2-hop backfill via sessionId. Composite-PK join table (no own id).
+  organizationId String?
+  role           SessionRole @default(SPEAKER)
+
+  session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, speakerId])
+  @@index([organizationId])
+}
+
+model SessionTopic {
+  id             String   @id @default(cuid())
+  sessionId      String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
+  // Event; 2-hop backfill via sessionId.
+  organizationId String?
+  abstractId     String?  @unique
+  title          String
+  sortOrder      Int      @default(0)
+  duration       Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  session  EventSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  abstract Abstract?      @relation(fields: [abstractId], references: [id])
+  speakers TopicSpeaker[]
+
+  @@index([sessionId])
+  @@index([organizationId])
+}
+
+model TopicSpeaker {
+  topicId        String
+  speakerId      String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the topic's
+  // session's Event; 3-hop backfill via topicId. Composite-PK join (no own id).
+  organizationId String?
+
+  topic   SessionTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@id([topicId, speakerId])
+  @@index([organizationId])
+}
+
+// ==================== ZOOM INTEGRATION ====================
+
+model ZoomMeeting {
+  id                   String            @id @default(cuid())
+  sessionId            String            @unique
+  eventId              String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — scalar
+  // only, no FK: RLS + compound-where need the value, not a relation. Stamped
+  // by every writer; backfilled from Event by migration 20260728140000.
+  organizationId       String?
+  zoomMeetingId        String
+  meetingType          ZoomMeetingType
+  joinUrl              String
+  startUrl             String?           @db.Text
+  passcode             String?
+  duration             Int?
+  status               ZoomMeetingStatus @default(CREATED)
+  isRecurring          Boolean           @default(false)
+  recurrenceType       Int?
+  occurrences          Json?
+  zoomResponse         Json?
+  // Live streaming (RTMP → MediaMTX → HLS)
+  liveStreamEnabled    Boolean           @default(false)
+  streamKey            String? // unique key for RTMP path
+  streamStatus         StreamStatus      @default(IDLE)
+  // Cloud recording (fetched by /api/cron/webinar-recordings post-event)
+  recordingUrl         String?           @db.Text
+  recordingPassword    String?
+  recordingDownloadUrl String?           @db.Text
+  recordingDuration    Int? // seconds
+  recordingFetchedAt   DateTime?
+  recordingStatus      RecordingStatus   @default(NOT_REQUESTED)
+  // Attendance tracking (fetched by /api/cron/webinar-attendance post-event)
+  lastAttendanceSyncAt DateTime?
+  // Engagement (polls + Q&A, fetched alongside attendance post-event)
+  lastEngagementSyncAt DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  session     EventSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  attendances ZoomAttendance[]
+  polls       WebinarPoll[]
+  questions   WebinarQuestion[]
+
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([zoomMeetingId])
+  @@index([recordingStatus])
+  @@index([lastAttendanceSyncAt])
+}
+
+// ── Webinar polls (fetched from Zoom's /report/webinars/{id}/polls) ──
+model WebinarPoll {
+  id             String   @id @default(cuid())
+  zoomMeetingId  String
+  // Denormalized tenant key (2 hops from Event via ZoomMeeting) — see ZoomMeeting.
+  organizationId String?
+  zoomPollId     String? // Zoom's poll id (nullable for imported/legacy rows)
+  title          String
+  questions      Json     @default("[]") // [{ name, question_type, answer_details?: [] }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  zoomMeeting ZoomMeeting           @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+  responses   WebinarPollResponse[]
+
+  @@unique([zoomMeetingId, zoomPollId])
+  @@index([zoomMeetingId])
+  @@index([organizationId])
+}
+
+// One row per participant per poll submission
+model WebinarPollResponse {
+  id               String   @id @default(cuid())
+  pollId           String
+  // Denormalized tenant key (3 hops from Event via WebinarPoll → ZoomMeeting).
+  organizationId   String?
+  participantName  String
+  participantEmail String?
+  answers          Json     @default("{}") // { questionName: answer[] }
+  submittedAt      DateTime
+
+  poll WebinarPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@index([pollId])
+  @@index([organizationId])
+}
+
+// ── Webinar Q&A (fetched from Zoom's /report/webinars/{id}/qa) ──
+model WebinarQuestion {
+  id             String   @id @default(cuid())
+  zoomMeetingId  String
+  // Denormalized tenant key (2 hops from Event via ZoomMeeting) — see ZoomMeeting.
+  organizationId String?
+  askerName      String
+  askerEmail     String?
+  question       String   @db.Text
+  answer         String?  @db.Text
+  answeredByName String?
+  askedAt        DateTime
+
+  zoomMeeting ZoomMeeting @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+
+  @@unique([zoomMeetingId, askerName, askedAt])
+  @@index([zoomMeetingId])
+  @@index([organizationId])
+}
+
+// ── Per-attendee join/leave records pulled from Zoom's participant report ──
+model ZoomAttendance {
+  id                 String    @id @default(cuid())
+  zoomMeetingId      String
+  eventId            String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — see ZoomMeeting.
+  organizationId     String?
+  sessionId          String
+  registrationId     String? // best-effort match by email
+  zoomParticipantId  String? // Zoom's per-session participant id
+  name               String
+  email              String?
+  joinTime           DateTime
+  leaveTime          DateTime?
+  durationSeconds    Int // sum from Zoom report
+  attentivenessScore Int? // Zoom returns this for some webinars
+  createdAt          DateTime  @default(now())
+
+  zoomMeeting  ZoomMeeting   @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  // A single Zoom participant id can join+leave multiple times; the report
+  // returns one row per join/leave segment, so the unique key includes joinTime
+  // to keep them distinct without losing the rejoin history.
+  @@unique([zoomMeetingId, zoomParticipantId, joinTime])
+  @@index([zoomMeetingId])
+  @@index([eventId, sessionId])
+  @@index([organizationId])
+  @@index([email])
+  @@index([registrationId])
+}
+
+// Real-time presence of registered attendees on our webinar lobby / live page.
+// This tracks OUR page being open (heartbeat), NOT actual Zoom viewing — the
+// authoritative post-event attendance lives in ZoomAttendance. One row per
+// (session, registration); the heartbeat upserts lastSeenAt, and "who's here
+// now" = rows with a recent lastSeenAt. Kept off the hot Registration row to
+// avoid lock/vacuum churn on a finance-bearing table.
+model WebinarPresence {
+  id             String   @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — see ZoomMeeting.
+  organizationId String?
+  sessionId      String
+  registrationId String
+  firstJoinedAt  DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+  joinCount      Int      @default(1)
+  phase          String   @default("lobby") // "lobby" | "joined"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, registrationId])
+  @@index([sessionId, lastSeenAt])
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([registrationId])
+}
+
+enum RecordingStatus {
+  NOT_REQUESTED // cloud recording not enabled for this webinar
+  PENDING // webinar ended but recording not yet available
+  AVAILABLE // recording fetched and URL stored
+  FAILED // fetch attempts exhausted
+  EXPIRED // recording fetch window closed (>7 days post-event)
+}
+
+enum ZoomMeetingType {
+  MEETING
+  WEBINAR
+  WEBINAR_SERIES
+}
+
+enum ZoomMeetingStatus {
+  CREATED
+  STARTED
+  ENDED
+  DELETED
+}
+
+enum StreamStatus {
+  IDLE
+  ACTIVE
+  ENDED
+  ERROR
+}
+
+// ── Speaker reimbursement (July 20, 2026) ──────────────────────────
+// Web replacement for the paper "Speaker / Faculty Reimbursement Form"
+// (bank wire transfer request). One reimbursement per speaker per event
+// (speakerId is unique; Speaker is already event-scoped). The speaker
+// fills it via a personalized token link (/e/{slug}/reimbursement/{token})
+// — no login. v1 is SUBMISSION-ONLY (owner decision): PENDING → SUBMITTED;
+// approval/payment tracking stays outside the system. Submitted forms are
+// LOCKED; an organizer "Reopen for edits" flips back to PENDING (audited).
+//
+// PII note: passportNumber + bankDetails are wire-transfer data — the most
+// sensitive fields in the system. All dashboard routes are gated to
+// SUPER_ADMIN/ADMIN/ORGANIZER via denyReviewer (its restricted set is
+// exactly the excluded population — owner decision July 20). Uploaded
+// documents (passport scans, receipts) live under
+// public/uploads/reimbursements/ so they ride the persistent Docker volume
+// + hourly DR sync, but the public /uploads catch-all BLOCKS that prefix —
+// files stream only through the authed documents route.
+
+enum ReimbursementStatus {
+  PENDING // invited / reopened — the speaker can (re)submit
+  SUBMITTED // locked; organizer may reopen
+}
+
+model SpeakerReimbursement {
+  id             String              @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy Phase-2 (Domain #17, Aug 3 2026): denormalized tenant key
+  /// (nullable, no FK), backfilled 1-hop from Event; the dashboard add-speakers
+  /// createMany stamps it. Backs prisma/rls/reimbursement.sql (platform-only).
+  organizationId String?
+  speakerId      String              @unique
+  token          String              @unique
+  status         ReimbursementStatus @default(PENDING)
+
+  // Section B — speaker/faculty details (prefilled from Speaker, editable
+  // by the speaker EXCEPT `email`, which is locked to Speaker.email since
+  // Sep 2, 2026; snapshot on this row so a later Speaker edit doesn't
+  // rewrite what was signed).
+  fullName       String? // as on passport
+  designation    String?
+  institution    String?
+  country        String?
+  email          String?
+  phone          String?
+  nationality    String?
+  passportNumber String?
+  roleAtEvent    String?
+
+  // Section C — claim lines: [{ item, currency, amount }] with
+  // item ∈ SPEAKER_FEE|FLIGHT|HOTEL|TRANSPORT|OTHER, currency ∈ USD|AED|SAR.
+  claimLines Json?
+
+  // Section D — bank transfer details: { beneficiaryName, beneficiaryAddress,
+  // bankName, bankAddress, bankCountry, accountNumber, iban, swift,
+  // routingNumber, sortCode, intermediaryBank }. Never queried, only
+  // displayed to staff — hence one JSON blob, not columns.
+  bankDetails Json?
+
+  // Section F — declaration (typed-name e-signature, same shape as the
+  // speaker-agreement acceptance trail).
+  signedName  String?
+  submittedAt DateTime?
+  submittedIp String?
+
+  // Soft ref (no FK) to the staff user who created the invite — the audit
+  // log is the authoritative trail, same pattern as RsvpInvite's soft refs.
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event     Event                          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker   Speaker                        @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  documents SpeakerReimbursementDocument[]
+
+  @@index([eventId])
+  @@index([eventId, status])
+  @@index([organizationId])
+}
+
+model SpeakerReimbursementDocument {
+  id              String   @id @default(cuid())
+  reimbursementId String
+  /// Multi-tenancy Phase-2 (Domain #17): 2-hop tenant key via
+  /// SpeakerReimbursement; the public upload stamps it from the loaded row.
+  organizationId  String?
+  // PASSPORT | FLIGHT_RECEIPT | HOTEL_INVOICE | TRANSPORT_RECEIPT | OTHER —
+  // a string (not an enum) so adding a kind never needs a migration.
+  kind            String
+  // Path under /uploads/reimbursements/{eventId}/ — NOT publicly served
+  // (blocked in the /uploads catch-all); streams via the authed route only.
+  url             String
+  filename        String
+  mimeType        String
+  size            Int
+  createdAt       DateTime @default(now())
+
+  reimbursement SpeakerReimbursement @relation(fields: [reimbursementId], references: [id], onDelete: Cascade)
+
+  @@index([reimbursementId])
+  @@index([organizationId])
+}
+
+// ── Speaker profile form (Aug 4, 2026) ─────────────────────────────
+// Public token form where a speaker submits their own PHOTO (→ Speaker.photo),
+// a PASSPORT photocopy (required) + COVER LETTER (optional) — both stored as
+// SpeakerDocument rows (kind OTHER with fixed labels) so they surface on the
+// existing Documents card — and their BIO (→ Speaker.bio). The organizer
+// mints + emails the personalized link from the speaker page
+// (speaker-profile-form-request template). Mirrors the SpeakerReimbursement
+// token pattern: plaintext unique token (dashboard re-displays the link),
+// PENDING → SUBMITTED conditional claim, organizer may reopen (audited).
+// Uploaded files live under /uploads/speaker-docs/{eventId}/ which is
+// BLOCKED in the public /uploads catch-all (passport = sensitive PII) —
+// staff stream them via the authed documents file route.
+
+enum SpeakerProfileFormStatus {
+  PENDING // link minted / reopened — the speaker can (re)submit
+  SUBMITTED // locked; organizer may reopen
+}
+
+model SpeakerProfileForm {
+  id             String                   @id @default(cuid())
+  eventId        String
+  /// Denormalized tenant key (sweep convention): nullable, no FK, stamped by
+  /// every writer from the event's org.
+  organizationId String?
+  speakerId      String                   @unique
+  token          String                   @unique
+  status         SpeakerProfileFormStatus @default(PENDING)
+  submittedAt    DateTime?
+  submittedIp    String?
+  // Soft ref (no FK) to the staff user who minted the link — the audit log
+  // is the authoritative trail (RsvpInvite soft-ref pattern).
+  createdById    String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+// ── Travel Grant (Aug 25, 2026) ────────────────────────────────────────────
+// An abstract author based OUTSIDE the UAE is offered a travel grant. The
+// offer rides as a block inside the abstract-submission confirmation email
+// (D3) and lands on a token-gated consent form, where the author confirms they
+// are not a UAE resident and wish to be considered. A UAE-based author sees
+// nothing at all: no email block, no link, no row.
+//
+// Plan + the eight locked decisions: docs/TRAVEL_GRANT_PLAN.md.
+//
+// Deliberately NOT a financial record. It captures eligibility and interest
+// only (D1). Amounts, flights, passports and bank details belong to
+// SpeakerReimbursement, and duplicating any of them here would create two
+// places to look for the same person's money.
+model TravelGrant {
+  id             String            @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy: denormalized tenant key (nullable, no FK), stamped from
+  /// the Event at create. Backs prisma/rls/travelgrant.sql (platform-only).
+  organizationId String?
+  /// D2: one grant per person per event. Enforced by a GLOBAL unique here
+  /// rather than a composite on (eventId, speakerId), because Speaker is
+  /// itself event-scoped (@@unique([eventId, email])), so one Speaker row IS
+  /// one person at one event. A composite would add a second index that can
+  /// never bind differently. Same shape as SpeakerReimbursement.speakerId.
+  /// Consequence under RLS: a cross-tenant findUnique({ speakerId }) must miss.
+  speakerId      String            @unique
+  /// Plaintext and GLOBALLY unique, like SpeakerReimbursement.token, because
+  /// the organizer copies the link out of the console. Consequence under RLS:
+  /// the public route MUST resolve the org from the Event by host+slug BEFORE
+  /// this findUnique, or every link fail-closes to "invalid".
+  token          String            @unique
+  status         TravelGrantStatus @default(PENDING)
+
+  /// Snapshotted at consent, never re-derived. Speaker.country and the terms
+  /// text are both editable afterwards, and a later edit must not rewrite what
+  /// somebody signed. Same rule as Speaker.agreementTextSnapshot.
+  countryAtConsent String?
+  fullName         String?
+  institution      String?
+  termsSnapshot    String? @db.Text
+
+  /// Typed-name e-signature, matching the speaker-agreement acceptance trail.
+  signedName  String?
+  submittedAt DateTime?
+  submittedIp String?
+  /// Who set the current status (Sep 8, 2026). Null = the author, through the
+  /// public form. `ORGANIZER:<userId>` = set from the console (reopened,
+  /// recorded as applied, or recorded as declined on the author's behalf), the
+  /// same marker Speaker.agreementAcceptedBy uses. The audit row has the rest.
+  decidedBy   String?
+
+  /// When the link was last put in front of this author. Distinct from
+  /// createdAt because the console can re-send.
+  invitedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  /// An author with three abstracts gets one link and one consent (D2): the
+  /// grant follows the traveller, and a person only travels once. See the
+  /// speakerId comment above for where that is actually enforced.
+  @@index([eventId, status])
+  @@index([organizationId])
+}
+
+enum TravelGrantStatus {
+  /// Invited. The link has been sent; the author has not submitted the form.
+  PENDING
+  /// Confirmed they are not a UAE resident and wish to be considered.
+  CONSENTED
+  /// Opened the form and declined. Recorded so the organizer stops chasing,
+  /// and so the email block does not re-ask on their next abstract.
+  DECLINED
+}
+
+/// A DTCM compliance code the organiser holds but has not handed to anyone yet.
+///
+/// WHY A TABLE. `Registration.dtcmBarcode` can only hold a code that already
+/// belongs to somebody. DTCM issues a BLOCK of codes a day or two before the
+/// event, and the ones left over after the pre-event CSV import are what the
+/// desk hands to walk-ups on the day. A spare has no registration to hang on,
+/// so it needs somewhere to live.
+///
+/// WHAT THIS IS NOT: it is not the record of who holds which code. That stays
+/// `Registration.dtcmBarcode`, which is what the badge renders and what the
+/// door scans. A pool row says only "we were issued this code".
+///
+/// AVAILABILITY IS DERIVED, NEVER STORED. A code is spare iff no registration
+/// on this event holds it. There is deliberately no `assignedRegistrationId`
+/// column: a second copy of "who has this" would drift the moment somebody
+/// typed a code into the detail sheet or re-ran the CSV import, and a pool
+/// that believes a code is spare when an attendee is already wearing it hands
+/// the same compliance credential to two people. One source of truth costs a
+/// second query and cannot be wrong.
+model DtcmCode {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy: denormalized tenant key (nullable, no FK), stamped from
+  /// the Event at create. Backs prisma/rls/dtcmcode.sql (platform-only).
+  organizationId String?
+  /// The externally-issued value, verbatim. NOT globally unique here: global
+  /// uniqueness lives on `Registration.dtcmBarcode`, which is what actually
+  /// grants entry. Two events legitimately hold the same code in their pools
+  /// if the organiser imports one block twice; only one can ever assign it,
+  /// and the assign path surfaces that rather than the import.
+  code           String
+  importedAt     DateTime @default(now())
+  importedById   String?
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, code])
+  @@index([eventId])
+  @@index([organizationId])
+}
+

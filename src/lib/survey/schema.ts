@@ -7,7 +7,7 @@
  *   - the public submit route's answer validation
  *
  * Storage shape: `Event.surveyConfig` holds the ordered question array
- * verbatim (see prisma/schema.prisma:~205 + migration
+ * verbatim (see SurveyResponse in prisma/models/engagement.prisma + migration
  * 20260605120000_add_survey). `SurveyResponse.answers` is a flat
  * `{ [questionId]: value }` map; skipped optional questions are
  * ABSENT from the map (not null) so a `Object.keys(answers).length`

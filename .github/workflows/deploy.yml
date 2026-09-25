@@ -387,7 +387,9 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@localhost:55433/replay
         run: npx prisma migrate deploy
 
-      # The replayed database must be indistinguishable from schema.prisma —
+      # The replayed database must be indistinguishable from the Prisma schema
+      # (the prisma/ folder: schema.prisma + prisma/models/*.prisma since Sep 25,
+      # 2026; pointing this at schema.prisma alone would compare against no models) —
       # a chain that *completes* but produces a different schema is still a
       # broken chain (that is the db-push-drift failure class).
       - name: Assert replayed schema matches schema.prisma
@@ -397,7 +399,7 @@ jobs:
         run: >
           npx prisma migrate diff
           --from-url "$DATABASE_URL"
-          --to-schema-datamodel prisma/schema.prisma
+          --to-schema-datamodel prisma
           --exit-code
 
   # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
@@ -647,7 +649,7 @@ jobs:
 
             Reproduce locally: empty postgres + 'npx prisma migrate deploy',
             then 'npx prisma migrate diff --from-url <db> --to-schema-datamodel
-            prisma/schema.prisma --exit-code'."
+            prisma --exit-code'."
               bash scripts/ops-alert.sh "$SUBJECT" "$BODY" || exit 1
               exit 0
             fi

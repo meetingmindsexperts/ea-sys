@@ -18,7 +18,7 @@
  * assert the invite's event matches the URL slug.
  *
  * Was "Dinner RSVP" until August 2026; the physical tables keep their old
- * names via @@map (see prisma/schema.prisma).
+ * names via @@map (see prisma/models/engagement.prisma).
  *
  * Docs: docs/RSVP.md, docs/CUSTOMIZABLE_RSVP_PLAN.md.
  */

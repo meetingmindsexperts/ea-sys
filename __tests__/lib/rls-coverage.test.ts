@@ -32,9 +32,8 @@
  * gate that cries wolf gets muted, which is worse than no gate.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { readPolicyFiles, sharedPolicyDir } from "../../prisma/rls/apply";
+import { readPrismaSchema } from "../../prisma/schema-text";
 
 /**
  * Tables that carry `organizationId` and deliberately have NO policy.
@@ -77,7 +76,7 @@ interface ModelInfo {
 }
 
 function parseModels(): ModelInfo[] {
-  const schema = readFileSync(path.join(process.cwd(), "prisma", "schema.prisma"), "utf8");
+  const schema = readPrismaSchema();
   return [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)].map(([, name, body]) => ({
     name,
     table: body.match(/@@map\("([^"]+)"\)/)?.[1] ?? name,

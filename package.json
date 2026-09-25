@@ -45,6 +45,9 @@
     "db:local:setup": "tsx prisma/seed-local-cancel-scenarios.ts",
     "verify:cancel": "tsx prisma/seed-local-cancel-scenarios.ts && tsx prisma/verify-cancel-financials.ts"
   },
+  "prisma": {
+    "schema": "prisma"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
     "@auth/prisma-adapter": "^2.11.1",

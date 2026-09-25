@@ -147,7 +147,9 @@ ea-sys/
 │   │                              #   daily-digest · log-archive · mirror-archive · oauth-cleanup
 │   └── lib/                       # advisory-lock (singleton) · health-server · shutdown
 ├── prisma/
-│   ├── schema.prisma  migrations/ # forward-only, additive + idempotent
+│   ├── schema.prisma  migrations/ # generator + datasource; migrations forward-only, additive + idempotent
+│   ├── models/                    # the models, one file per area: core · registrations · program ·
+│   │                              #   communications · engagement · operations · crm · hr · procurement
 │   ├── rls/                       # per-domain RLS policies (platform instance only)
 │   └── seed-*.ts                  # e2e · docs-screenshots · tenancy · local scenarios
 ├── __tests__/                     # vitest unit/route tests (the main suite)
@@ -175,7 +177,7 @@ spine you need in order to start, and the files where the obvious call is the wr
 
 ### The spine
 
-- [prisma/schema.prisma](prisma/schema.prisma) - the database, ~150 models. This is the reference; the Database Models section below is orientation only.
+- [prisma/models/](prisma/models/) - the database, ~150 models in nine area files (split from `prisma/schema.prisma` on Sep 25, 2026; that file now holds only the generator + datasource and a map of the files). This is the reference; the Database Models section below is orientation only. Tools that read the schema text use `prisma/schema-text.ts`.
 - [src/lib/auth.ts](src/lib/auth.ts) - NextAuth v5 configuration and the credentials authorize path.
 - [src/lib/auth.config.ts](src/lib/auth.config.ts) - `SESSION_CONFIG` (48h), consumed by BOTH NextAuth instances (Node + Edge) so the two cannot drift. Background: [docs/SESSION_ARCHITECTURE.md](docs/SESSION_ARCHITECTURE.md).
 - [src/lib/auth-guards.ts](src/lib/auth-guards.ts) - `denyReviewer(session, { route })` (**`route` is required**), `denyFinance`, and the role sets `WRITE_ROLES` (an ALLOW-list since Sep 16, 2026), `REGISTRATION_DESK_ALLOW`, `WEBINAR_STAFF_ALLOW`, `ASSIGNABLE_USER_ROLES`.
@@ -207,7 +209,7 @@ spine you need in order to start, and the files where the obvious call is the wr
 
 ## Database Models
 
-**[prisma/schema.prisma](prisma/schema.prisma) is the reference: ~150 models.** This section
+**[prisma/models/](prisma/models/) is the reference: ~150 models.** This section
 cannot be a model list and does not try to be. It holds only the models whose BEHAVIOUR would
 surprise you, where reading the columns is not enough to know how the thing works.
 

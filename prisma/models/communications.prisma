@@ -1,0 +1,245 @@
+// ==================== CONTACT STORE ====================
+
+model Contact {
+  id               String        @id @default(cuid())
+  organizationId   String
+  org              Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title            Title?
+  role             AttendeeRole?
+  email            String
+  additionalEmail  String?
+  firstName        String
+  lastName         String
+  organization     String?
+  jobTitle         String?
+  bio              String?       @db.Text
+  specialty        String?
+  customSpecialty  String?
+  registrationType String?
+  phone            String?
+  photo            String?
+  city             String?
+  state            String?
+  zipCode          String?
+  country          String?
+  associationName  String?
+  memberId         String?
+  studentId        String?
+  studentIdExpiry  DateTime?
+  tags             String[]      @default([])
+  eventIds         String[]      @default([])
+  notes            String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  /// CRM module: business contacts (pharma reps, exhibitor sales, procurement)
+  /// live in their own `CrmContact` table, NOT here. This table is the EVENT
+  /// contact store — HCPs: doctors, nurses, allied health — and every row in it
+  /// is mirrored to the external `contacts_centralv1` marketing table by
+  /// contacts-central-sync (which has NO where-clause). Putting a pharma rep in
+  /// here would market to them as if they were a doctor.
+  ///
+  /// The rare person who is BOTH (a rep who also attends) is POINTED AT from
+  /// `CrmContact.contactId` — linked, never duplicated. Same shape as
+  /// `Speaker.sourceRegistrationId`.
+  crmContacts CrmContact[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+}
+
+// ==================== MEDIA ====================
+
+model MediaFile {
+  id             String   @id @default(cuid())
+  organizationId String
+  eventId        String?
+  uploadedById   String
+  filename       String
+  url            String
+  mimeType       String
+  size           Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+
+  spendRequestQuotes SpendRequestQuote[]
+
+  @@index([organizationId])
+  @@index([eventId])
+}
+
+// ==================== EMAIL TEMPLATES ====================
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  eventId     String
+  slug        String // e.g. "registration-confirmation", "speaker-invitation"
+  name        String // Human-readable: "Registration Confirmation"
+  subject     String // Subject line with {{variables}}
+  htmlContent String   @db.Text // HTML body with {{variables}}
+  textContent String?  @db.Text // Plain text fallback
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, slug])
+  @@index([eventId])
+}
+
+// ==================== NOTIFICATIONS ====================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String?
+  type      String // REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN
+  title     String
+  message   String
+  link      String? // URL to navigate to when clicked
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+// ==================== MOBILE PUSH NOTIFICATIONS ====================
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  platform  String // "ios" or "android"
+  pushToken String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pushToken])
+  @@index([userId])
+}
+
+// ==================== SCHEDULED COMMUNICATIONS ====================
+
+enum ScheduledEmailStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model ScheduledEmail {
+  id             String @id @default(cuid())
+  eventId        String
+  organizationId String
+  createdById    String
+
+  recipientType String // "speakers" | "registrations" | "reviewers" | "abstracts"
+  emailType     String // matches bulkEmailSchema.emailType values
+  customSubject String?
+  customMessage String?  @db.Text
+  attachments   Json? // [{ name, content (base64), contentType }]
+  filters       Json? // { status?, ticketTypeId? }
+  // Explicitly-selected recipient ids (the "send to selected" path). Empty
+  // array = filter-based send (resolve recipients at fire time). Lets the
+  // immediate-send route queue selected-recipient sends without losing the
+  // selection — the worker passes these through to executeBulkEmail.
+  recipientIds  String[] @default([])
+  // Recipient ids already successfully emailed by a run of this send. Appended
+  // per-batch by the worker; on a re-run (retry after a crash) executeBulkEmail
+  // skips these so a partial send resumes instead of re-emailing everyone who
+  // already received it. Empty for a fresh send. (Review H1.)
+  emailedKeys   String[] @default([])
+
+  scheduledFor DateTime
+  status       ScheduledEmailStatus @default(PENDING)
+  /// Ownership nonce stamped by the PENDING→PROCESSING claim (review C1,
+  /// July 16 2026). Heartbeat + completion/failure writes are conditioned on
+  /// status AND this token, so a zombie sender (swept FAILED mid-outage, then
+  /// Retry'd and re-claimed by another worker) can no longer mark the
+  /// re-claimed row SENT with its own counts — `status = PROCESSING` alone
+  /// proves liveness, not ownership. Cleared on retry; overwritten per claim.
+  claimToken   String?
+  sentAt       DateTime?
+  successCount Int?
+  failureCount Int?
+  totalCount   Int?
+  lastError    String?              @db.Text
+  retryCount   Int                  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([eventId, status])
+  // Multi-tenancy (Domain #18): indexable RLS predicate — the column itself
+  // has existed (non-null, FK'd) since the model was born.
+  @@index([organizationId])
+}
+
+// ==================== EMAIL LOG (per-send audit) ====================
+
+enum EmailLogEntityType {
+  REGISTRATION
+  SPEAKER
+  CONTACT
+  USER
+  OTHER
+}
+
+enum EmailLogStatus {
+  SENT
+  FAILED
+}
+
+model EmailLog {
+  id                String              @id @default(cuid())
+  organizationId    String?
+  eventId           String?
+  entityType        EmailLogEntityType?
+  entityId          String?
+  to                String
+  cc                String?
+  bcc               String?
+  subject           String
+  templateSlug      String?
+  provider          String
+  providerMessageId String?
+  status            EmailLogStatus
+  errorMessage      String?             @db.Text
+  // Final rendered HTML of the sent email — audit copy, populated only for
+  // opt-in senders (certificate deliveries; see EmailLogContext.storeBody).
+  htmlBody          String?             @db.Text
+  // Filenames of the attachments that rode on this send (e.g. the paid
+  // invoice + receipt PDFs on a payment confirmation). NAMES ONLY, never the
+  // bytes — the documents themselves stay re-downloadable from their own
+  // surfaces. Captured centrally in sendEmail, so every sender is covered.
+  // Empty for rows logged before Aug 3, 2026 (not backfillable).
+  attachmentNames   String[]            @default([])
+  triggeredByUserId String?
+  createdAt         DateTime            @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  event        Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  triggeredBy  User?         @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([organizationId])
+  @@index([eventId])
+  @@index([to])
+  @@index([createdAt])
+}
+

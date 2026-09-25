@@ -1,0 +1,534 @@
+// ==================== AUDIT & LOGGING ====================
+
+/// Outcome of a single sign-in attempt.
+///
+/// FAILED_UNKNOWN_EMAIL is kept DISTINCT from FAILED_PASSWORD deliberately:
+/// together they separate "someone is guessing this person's password" (the
+/// account is real and under attack) from "someone is spraying addresses at
+/// us" (reconnaissance). Collapsing them into one FAILED value would lose
+/// exactly the distinction an admin needs to decide whether to act.
+enum LoginOutcome {
+  SUCCESS
+  FAILED_PASSWORD
+  FAILED_UNKNOWN_EMAIL
+  BLOCKED_RATE_LIMIT
+  /// Correct password, but the account is deactivated. Distinct from
+  /// FAILED_PASSWORD on purpose: an admin reading a run of failures needs to
+  /// tell "they cannot get in because we switched them off" apart from "someone
+  /// is guessing passwords".
+  BLOCKED_DEACTIVATED
+}
+
+/// Which door the sign-in came through. A hint for the admin view, not a
+/// security boundary — the web values are supplied by the login page.
+enum LoginSurface {
+  DASHBOARD
+  EVENT_PAGE
+  MOBILE
+}
+
+/// One row per sign-in ATTEMPT — successful or not.
+///
+/// WHY ITS OWN TABLE RATHER THAN AuditLog ROWS
+/// -------------------------------------------
+/// AuditLog has the right columns (userId / ipAddress / userAgent / createdAt)
+/// and using it would have been free. Three things ruled it out:
+///
+///  1. Failed attempts are an UNAUTHENTICATED, attacker-controllable write
+///     path. AuditLog is the business audit trail that `GET /api/activity`
+///     reads; letting an anonymous brute-forcer append thousands of rows to it
+///     would drown the record of what staff actually did.
+///  2. AuditLog has no prune job and its rows survive a subject-erasure
+///     request. Sign-in IP + geo is personal data that needs a bounded
+///     retention window — hence the `login-event-prune` worker job.
+///  3. `entityType`/`entityId` are required on AuditLog and mean nothing for a
+///     failed attempt on an address that resolves to no user at all.
+///
+/// `userId`/`organizationId` are BOTH nullable, and null carries meaning: a
+/// FAILED_UNKNOWN_EMAIL attempt has no user and therefore no org, so it is
+/// invisible in the org-scoped admin view by construction. That is intended —
+/// address spray is noise; an attack on a real account in your org resolves to
+/// a user and so IS visible.
+///
+/// Geo columns are populated LAZILY (see src/lib/login-geo.ts): the login path
+/// never makes an outbound call, because a slow or unreachable geo provider
+/// would sit between the password check and session creation and make signing
+/// in feel broken. They stay null until an admin opens the view, and null in
+/// `geoResolvedAt` means "not looked up yet", not "no location".
+/// One measured hit on a public page. A pageview is a hit whose `name` is
+/// "pageview"; conversions are hits with a different name and optionally a
+/// `value`. See docs/ANALYTICS_PLAN.md.
+///
+/// WHAT IS DELIBERATELY ABSENT, and must stay absent:
+///   - There is NO ipAddress column. Not nullable, not optional. Absent. The IP
+///     is consumed at the request boundary to derive visitorHash, deviceType,
+///     browser and os, and then discarded. A column that does not exist cannot
+///     be filled in by a well-meaning future change, which is the whole point.
+///   - There is no userId. Linking a hit to an account would make this personal
+///     data and collapse the argument that no consent banner is needed.
+///   - `path` never carries a query string. Enforced upstream in
+///     src/analytics/core/path-policy.ts and asserted by test.
+///
+/// No FK relations, on purpose. This is the highest-write table in the system,
+/// and a hit that outlives its event is still a valid historical fact; a
+/// cascade would silently delete traffic history when an event is removed.
+/// organizationId is the denormalized tenancy scalar (the LoginEvent
+/// convention), stamped at write from the resolved site.
+model AnalyticsEvent {
+  id             String   @id @default(cuid())
+  organizationId String?
+  /// Which conference's public pages. Null only for a site we could not resolve.
+  eventId        String?
+  /// Opaque tenant/site key. In EA-SYS this is the event slug.
+  siteId         String
+  /// "pageview", or a conversion name such as "register_submitted".
+  name           String
+  /// Pathname only, allow-listed, query stripped.
+  path           String
+  /// The matched pattern, e.g. "/e/:slug/register/:category", so one page can
+  /// be compared across events.
+  routePattern   String
+  /// Rotating-salt identity. Unlinkable across days by construction.
+  visitorHash    String
+  /// Derived 30-minute window. Nothing is stored client-side.
+  sessionHash    String
+  /// Host only, never the full referrer URL.
+  referrerHost   String?
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  deviceType     String?
+  browser        String?
+  os             String?
+  /// ISO 3166-1 alpha-2. Phase 2 of the plan; always null in v1.
+  country        String?
+  durationMs     Int?
+  /// 0-100.
+  scrollDepth    Int?
+  /// Conversion value, e.g. a ticket price.
+  value          Decimal? @db.Decimal(10, 2)
+  /// When the hit happened, not when the buffer flushed.
+  createdAt      DateTime @default(now())
+
+  /// "How did this site do over this window?" — the main chart.
+  @@index([siteId, createdAt])
+  /// "How many reached each funnel step for this event?"
+  @@index([eventId, name, createdAt])
+  /// Tenancy scoping.
+  @@index([organizationId])
+  /// Unique-visitor and session rollups.
+  @@index([visitorHash, createdAt])
+  /// Retention sweep (prune by age, across all orgs).
+  @@index([createdAt])
+}
+
+model LoginEvent {
+  id             String       @id @default(cuid())
+  userId         String?
+  organizationId String?
+  /// The address that was ATTEMPTED, normalized to lowercase. Present even
+  /// when no user matched — that is the whole point of recording it.
+  email          String
+  outcome        LoginOutcome
+  surface        LoginSurface @default(DASHBOARD)
+  ipAddress      String?
+  userAgent      String?      @db.Text
+
+  // ── Lazily-resolved location (null until first viewed) ──
+  geoCity       String?
+  geoCountry    String?
+  geoResolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  // The admin view's default query: newest-first within one org.
+  @@index([organizationId, createdAt])
+  // "Show me this person's sign-in history."
+  @@index([userId, createdAt])
+  // "Who has been trying this address?" — works for unknown emails too, which
+  // have no userId to index on.
+  @@index([email, createdAt])
+  // "What else has this address been doing?" — the brute-force pivot.
+  @@index([ipAddress, createdAt])
+  // Retention sweep (prune by age, across all orgs).
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  eventId        String?
+  userId         String?
+  // Denormalized tenant key (Domain #19 sweep, Aug 3 2026). Deliberately a
+  // bare scalar with NO FK (sweep convention): the audit trail must survive
+  // org deletion with its attribution intact — an FK SetNull would erase
+  // exactly the column RLS scopes on (the same failure mode eventId already
+  // exhibits: deleting an Event nulls eventId on its audit rows). Stamped
+  // centrally by the withAuditOrgStamp client extension in src/lib/db.ts
+  // (explicit-in-data → ambient tenant lane → eventId 1-hop), plus explicit
+  // stamps at the org-scoped writers that have neither. Nullable: org-null
+  // actors (registrant/reviewer auth flows) legitimately produce
+  // unattributable rows — see prisma/rls/auditlog.sql for the NULL policy.
+  organizationId String?
+  action         String
+  entityType     String
+  entityId       String
+  changes        Json     @default("{}")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  // Analytics time-series: "all CHECK_IN / BADGE_PRINTED actions for event E,
+  // bucketed by time" — without this the histogram queries full-scan.
+  @@index([eventId, action, createdAt])
+  // Serves the global /api/activity feed's org-scoped, createdAt-desc query.
+  @@index([organizationId, createdAt])
+}
+
+/// A repo HTML doc the platform operator made public (Sep 25, 2026): the
+/// shared link /admin/docs/<path> opens without sign-in while a row exists.
+/// Platform-level, not tenant data (no organizationId, so no RLS policy); only
+/// honoured where ADMIN_DOC_LINKS_ENABLED=true (master). Deleting the row
+/// makes the doc private again at once.
+model PublicDoc {
+  /// Repo-relative path as the docs reader resolves it, e.g. "docs/WEBINAR_EVENTS.html".
+  path           String   @id
+  sharedByUserId String
+  sharedAt       DateTime @default(now())
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     String // error, warn, info, debug
+  module    String // api, auth, database, events, middleware
+  message   String   @db.Text
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([level])
+  @@index([module])
+}
+
+// ==================== HELP-ASSISTANT QUERY CAPTURE ====================
+
+/// One row per completed help-assistant answer — the user's question plus the
+/// assistant's reply, with a snapshot of who asked. Who/org are stored as plain
+/// SCALARS (no FK), matching the tenancy convention: a deleted user's history
+/// survives and we don't have to carry a User/Organization back-relation.
+///
+/// Written FIRE-AND-FORGET from POST /api/help-chat after the SSE stream
+/// completes, so a persistence failure can never break the chat. Read only via
+/// SUPER_ADMIN /admin/help-queries.
+///
+/// This deliberately reverses the route's original "never persist question
+/// bodies" stance (owner decision, 2026-07-29): the questions ARE the product
+/// signal. Because questions can reference real attendee data, the ONLY read
+/// surface is SUPER_ADMIN — never exposed to any other role or org-scoped view.
+model HelpChatQuery {
+  id               String   @id @default(cuid())
+  userId           String?
+  userEmail        String?
+  userName         String?
+  role             String?
+  organizationId   String?
+  organizationName String?
+  question         String   @db.Text
+  answer           String   @db.Text
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+// ==================== AGENT RUNS ====================
+
+/// How an Event Agent request ended. RUNNING is the row's state while the
+/// loop is live; a row left RUNNING past its lifetime is a crashed process,
+/// which the digest counts as an error a day later.
+enum AgentRunOutcome {
+  RUNNING
+  COMPLETED
+  ERROR
+  TURN_LIMIT
+}
+
+/// What happened to one tool call inside a run.
+enum AgentStepOutcome {
+  RAN
+  ERROR
+  REFUSED
+  APPROVAL_REQUESTED
+  UNKNOWN_TOOL
+}
+
+/// One request to the in-app Event Agent (docs/AGENT_ARCHITECTURE_REVIEW.md
+/// §4.6, the readiness review's O1). Names, counts, tokens and outcomes only:
+/// the message text, the tool inputs and the tool results are NEVER stored,
+/// because they carry attendee data. The message is recorded as a length.
+///
+/// People are scalar ids, never foreign keys (the LoginEvent convention), so
+/// a run outlives the account and the event it named. organizationId is NOT
+/// NULL: the route requires an org-bound actor, so every row has a lane.
+/// Written by src/lib/agent/run-store.ts inside runWithTenant; pruned after
+/// 180 days by the agent-run-prune job.
+model AgentRun {
+  id             String          @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String
+  eventId        String?
+  /// Which door: "org" (/api/agent/execute) or "event" (the per-event alias).
+  route          String
+  source         String          @default("agent")
+  /// Length of the person's message in characters (kept for the counts).
+  messageLength  Int
+  /// The person's message and the agent's reply. Stored since Sep 21, 2026
+  /// (owner decision: "I need messages list") for the SUPER_ADMIN
+  /// /admin/agent-messages page. Both carry attendee data; they leave with
+  /// the row in the 180-day agent-run prune. Bounded by the recorder.
+  message        String?         @db.Text
+  reply          String?         @db.Text
+  historyPairs   Int             @default(0)
+  /// The tool the request carried an approved call for, if any.
+  approvedTool   String?
+  model          String?
+  outcome        AgentRunOutcome @default(RUNNING)
+  /// A short class for ERROR rows ("provider", "unexpected"), never the message.
+  errorClass     String?
+  turns          Int             @default(0)
+  toolCalls      Int             @default(0)
+  writes         Int             @default(0)
+  refusals       Int             @default(0)
+  approvalsRequested Int         @default(0)
+  approvalsRun   Int             @default(0)
+  toolErrors     Int             @default(0)
+  inputTokens    Int             @default(0)
+  outputTokens   Int             @default(0)
+  cacheReadTokens     Int        @default(0)
+  cacheCreationTokens Int        @default(0)
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+  durationMs     Int?
+
+  steps AgentStep[]
+
+  @@index([organizationId, startedAt])
+  @@index([userId, startedAt])
+  @@index([eventId, startedAt])
+  @@index([startedAt])
+}
+
+/// One tool call inside a run: the tool's name, whether it was a write, whether
+/// the person had approved it, how it ended and how long it took. The
+/// organizationId is denormalized from the run so the row has its own lane.
+model AgentStep {
+  id             String           @id @default(cuid())
+  runId          String
+  organizationId String
+  seq            Int
+  tool           String
+  outcome        AgentStepOutcome
+  /// A short machine code (READ_ONLY_ROLE, WRITE_LIMIT, APPROVAL_REQUIRED, a
+  /// tool's own error code); free text never lands here.
+  code           String?
+  write          Boolean          @default(false)
+  approved       Boolean          @default(false)
+  durationMs     Int
+  /// The tool's exact input, stored since Sep 21, 2026 (owner decision);
+  /// never the result. Bounded by the recorder (a very large input is
+  /// replaced by a marker).
+  input          Json?
+  createdAt      DateTime         @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, seq])
+  @@index([organizationId, createdAt])
+  @@index([tool, createdAt])
+}
+
+// ==================== IMPORT LOGS ====================
+
+model ImportLog {
+  id             String   @id @default(cuid())
+  eventId        String
+  userId         String
+  source         String // "eventsair" | "csv"
+  entityType     String // "contacts" | "registrations" | "speakers" | "sessions"
+  totalProcessed Int
+  totalCreated   Int
+  totalSkipped   Int
+  totalErrors    Int
+  skippedDetails Json     @default("[]") // [{ email, reason }]
+  errors         Json     @default("[]") // string[]
+  createdAt      DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([createdAt])
+}
+
+// ── Worker job runs ────────────────────────────────────────────────
+// One row per background-worker tick (written by withJobLock). Powers
+// the Infra / Ops "Cron / Jobs" card — did each cron run, when, did it
+// fail. Successful ticks log at debug (skipped by SystemLog), so this
+// persisted record is the reliable "last good run" source. Pruned to
+// 14 days by the hourly oauth-cleanup job. Docs: docs/INFRA_OPS.md.
+
+enum JobRunStatus {
+  OK
+  FAILED
+}
+
+/// One row per refund ATTEMPT, persisted BEFORE the Stripe call (crash-safety
+/// for money movement — review finding H4/H5, July 10 2026). The row id is the
+/// Stripe idempotency key (`refund-attempt-{id}`) and rides in the Stripe
+/// refund's metadata, so a crashed/ambiguous attempt can always be verified
+/// against Stripe and reconciled by the sweep in
+/// src/lib/refund-reconciliation.ts:
+///   PENDING   — booked in refundedAmount; Stripe call in flight (or process
+///               died before it — the sweep resolves which).
+///   SUCCEEDED — money moved (or manual refund recorded).
+///   FAILED    — Stripe refused and the booking was rolled back.
+///   UNKNOWN   — Stripe errored AND verification failed; booking kept, sweep
+///               retries verification until it can resolve.
+model RefundAttempt {
+  id                    String              @id @default(cuid())
+  registrationId        String
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep,
+  // 2 hops from Event via Registration; paymentId has no FK so Registration
+  // is this table's only real parentage) — see Registration.organizationId.
+  organizationId        String?
+  registration          Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  /// Payment row targeted (plain column, no FK — audit/ops record).
+  paymentId             String?
+  /// Stripe payment intent the refund runs against; null for manual/offline.
+  stripePaymentIntentId String?
+  amount                Decimal             @db.Decimal(10, 2)
+  refundedBefore        Decimal             @db.Decimal(10, 2)
+  refundedAfter         Decimal             @db.Decimal(10, 2)
+  /// Whether the registration was flipped to REFUNDED by this attempt's
+  /// booking — the sweep needs it to roll the flip back on a failed attempt.
+  flippedToRefunded     Boolean             @default(false)
+  kind                  String // "stripe" | "manual"
+  status                RefundAttemptStatus @default(PENDING)
+  stripeRefundId        String?
+  error                 String?
+  source                String?
+  issuedByUserId        String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([registrationId])
+  @@index([organizationId])
+  @@index([status, createdAt])
+}
+
+enum RefundAttemptStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+
+model JobRun {
+  id         String       @id @default(cuid())
+  job        String
+  startedAt  DateTime
+  finishedAt DateTime
+  status     JobRunStatus
+  durationMs Int
+  error      String?      @db.Text
+  createdAt  DateTime     @default(now())
+
+  @@index([job, startedAt])
+  @@index([startedAt])
+}
+
+/// One row per background job — the "who is running this right now" sheet.
+///
+/// Replaces the session-scoped `pg_try_advisory_lock` the worker used until
+/// 2026-08-10. That lock has to be RELEASED by the same database connection
+/// that TOOK it, and Prisma's pool hands out whichever connection is free — so
+/// the release routinely landed on a connection that never held the lock, the
+/// lock leaked, and every subsequent tick skipped. Measured on prod:
+/// `scheduled-emails` ran 7 times in 30 minutes instead of 30, with locks
+/// observably held by connections sitting idle.
+///
+/// A lease fixes that structurally: claiming is ONE atomic statement
+/// (`INSERT … ON CONFLICT DO UPDATE … WHERE` expired-or-free), so it does not
+/// matter which connection executes it, and `lockedUntil` means a lease whose
+/// holder died **expires by itself** rather than wedging the job forever.
+///
+/// Deliberately has NO organizationId: this is platform infrastructure, not
+/// tenant data — the worker is a single process serving every tenant, and a
+/// per-tenant lease would let one tenant's stuck job block another's.
+model JobLease {
+  /// Job name (matches worker/jobs/*.ts JOB_NAME). One row per job.
+  job         String    @id
+  /// Random per-tick token. Every mutation is conditional on this, so a tick
+  /// whose lease already expired can never release or extend its successor's.
+  owner       String?
+  /// Lease expiry. NULL = free. Past = expired and reclaimable.
+  lockedUntil DateTime?
+  acquiredAt  DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+}
+
+// ==================== DR MIRROR ARCHIVE (/admin/backups) ====================
+
+enum MirrorArchiveStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  EXPIRED
+}
+
+/// One request to zip the whole Singapore uploads mirror into the DR bucket
+/// (Sep 11, 2026, owner request: "download all S3 mirror backups"). The row
+/// is the queue: /api/admin/backups/mirror-archive creates it PENDING, the
+/// `mirror-archive` worker job (every three minutes) claims it RUNNING, builds the zip, uploads it
+/// under mirror-archives/ and marks it DONE with the key; the page then mints
+/// a presigned link for it. DONE archives are deleted and marked EXPIRED
+/// after 7 days so the bucket does not accumulate a full copy per request.
+///
+/// OPERATOR-GLOBAL, deliberately no organizationId: the mirror is the whole
+/// silo's uploads, and only the platform operator may request or download an
+/// archive (the route is denyNonOperator-gated). Same class as JobRun and
+/// SystemLog. The requester is a scalar snapshot (no FK), the LoginEvent
+/// convention, so the row outlives the account.
+model MirrorArchive {
+  id               String              @id @default(cuid())
+  status           MirrorArchiveStatus @default(PENDING)
+  /// The mirrored prefix that was zipped. Always "uploads/" today.
+  prefix           String              @default("uploads/")
+  requestedById    String?
+  requestedByEmail String?
+  /// S3 key of the finished zip under mirror-archives/. Null until DONE.
+  key              String?
+  fileCount        Int?
+  /// Bytes of the zip. Int caps at ~2 GB; the mirror is 165 MB (Sep 2026).
+  sizeBytes        Int?
+  error            String?             @db.Text
+  createdAt        DateTime            @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+

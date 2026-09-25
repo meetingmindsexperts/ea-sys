@@ -375,12 +375,11 @@ describe("unique constraint safety", () => {
 // them. But that list is hand-maintained too, so it only fails once somebody
 // remembers to extend it — which is exactly the step that keeps being missed.
 //
-// So this reads prisma/schema.prisma and requires EVERY scalar on TicketType to
+// So this reads the Prisma schema (prisma/schema-text.ts) and requires EVERY scalar on TicketType to
 // be explicitly classified: copied, reset, auto-generated, or deliberately
 // excluded with a reason. Adding a column and doing nothing else fails here,
 // which is the only version of this guard that can stop a fourth.
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readPrismaSchema } from "../../prisma/schema-text";
 
 const PRISMA_SCALARS = new Set([
   "String", "Int", "Boolean", "DateTime", "Decimal", "Json", "Float", "BigInt", "Bytes",
@@ -388,9 +387,9 @@ const PRISMA_SCALARS = new Set([
 
 /** Scalar (non-relation) field names on a model, read from the schema. */
 function scalarFieldsOf(model: string): string[] {
-  const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  const schema = readPrismaSchema();
   const block = new RegExp(`^model ${model} \\{([\\s\\S]*?)^\\}`, "m").exec(schema);
-  if (!block) throw new Error(`model ${model} not found in schema.prisma`);
+  if (!block) throw new Error(`model ${model} not found in the Prisma schema`);
   const fields: string[] = [];
   for (const raw of block[1].split("\n")) {
     const line = raw.trim();

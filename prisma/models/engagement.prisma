@@ -1,0 +1,535 @@
+// ==================== CERTIFICATES ====================
+
+// Collapsed from 4 to 2 values on 2026-06-02. Designers typically hand
+// the organizer two physical cert PDFs — "Certificate of Attendance"
+// and "Certificate of Appreciation" — and the organizer modifies the
+// per-recipient text via {{tokens}} on text boxes overlaid on each.
+// PRESENTER + POSTER + CME were collapsed into APPRECIATION; CME
+// metadata (hours + accrediting bodies) stays on the event itself and
+// is rendered into either cert type via tokens (`{{cmeHours}}`,
+// `{{accreditationBody}}`, `{{accreditationReference}}`).
+enum CertificateType {
+  ATTENDANCE
+  APPRECIATION
+}
+
+/// Per-event-per-type atomic serial counter — mirrors RegistrationSerialCounter
+/// (added 2026-05-18). One row per `(eventId, type)`. PK is composite so we
+/// can upsert+increment in a single statement under concurrent issues
+/// without P2002 collisions on `IssuedCertificate.serial`'s unique index.
+///
+/// Serials are CATEGORY-scoped, not template-scoped — a single attendance
+/// numbering sequence covers Standard + VIP + any other Attendance variant
+/// the organizer creates. The category is what reads as the cert's identity
+/// in serial-number registries.
+model CertificateSerialCounter {
+  eventId        String
+  type           CertificateType
+  lastSerial     Int             @default(0)
+  // tenancy (Certificates sweep): denormalized org, no FK. FLAT column on this
+  // composite-PK counter for the RegistrationSerialCounter reason — the atomic
+  // INSERT…ON CONFLICT upsert against a policy-invisible row would raise a
+  // spurious unique violation the app misreads; a flat column the writer stamps
+  // sidesteps it. Backfilled 1-hop from Event.
+  organizationId String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, type])
+  @@index([organizationId])
+}
+
+/// User-defined certificate template (2026-06-02 — N templates per event-per-
+/// category, replacing the previous 2-slot JSON on Event.settings). Each
+/// row carries its own background PDF + positioned text boxes; the operator
+/// can have multiple Attendance designs (e.g. "Standard", "VIP", "Sponsor
+/// Guest") and multiple Appreciation designs (e.g. "Speaker", "Moderator",
+/// "Chairman") per event.
+///
+/// `category` derives the eligibility query (Attendance → checked-in
+/// registrants; Appreciation → speakers + poster authors). One cert per
+/// recipient per category — the uniqueness on IssuedCertificate prevents
+/// double-issue even when multiple templates of the same category exist.
+///
+/// Template DELETE is blocked at the application layer when any
+/// IssuedCertificate still references it (FK is SetNull so the row can be
+/// orphaned in extremis, but the API rejects). This preserves issued-cert
+/// audit trail integrity.
+model CertificateTemplate {
+  id                String          @id @default(cuid())
+  eventId           String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from Event.
+  organizationId    String?
+  name              String // organizer-defined, e.g. "VIP Attendance"
+  category          CertificateType // ATTENDANCE | APPRECIATION
+  // Role/designation this template certifies (e.g. "Speaker", "Moderator",
+  // "Organizing Committee"). Drives the {{role}} token. Lets one person hold
+  // several role-specific certs — uniqueness is per-template (see
+  // IssuedCertificate @@unique), so 3 role-templates → 3 certs.
+  role              String?
+  // Static per-template CME hours (organizer-entered). Snapshotted onto the
+  // issued cert; overrides the event-level CME hours when set.
+  cmeHours          Decimal?        @db.Decimal(4, 1)
+  // Phase-2 survey-gated auto-issue. When `autoIssueOnSurvey` is on, the
+  // cert worker auto-issues this template to anyone who completes the
+  // survey AND holds `autoIssueTag` (attendee tag for ATTENDANCE, speaker
+  // tag for APPRECIATION). Off by default — opt-in per template.
+  autoIssueOnSurvey Boolean         @default(false)
+  autoIssueTag      String?
+  backgroundPdfUrl  String?
+  // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
+  textBoxes         Json            @default("[]")
+  sortOrder         Int             @default(0)
+  // UNREAD since Sep 18, 2026. These held a per-template cover email that
+  // won over the event's Certificate Delivery email template; the owner
+  // removed that layer so one wording per category per event is the only
+  // place to edit. Kept because a column is never dropped (blue-green); no
+  // code reads or writes them. The cover wording lives on EmailTemplate
+  // (certificate-attendance-delivery / -appreciation-delivery / -bundle-).
+  emailSubject      String?
+  emailBody         String?         @db.Text
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  event              Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  issuedCertificates IssuedCertificate[]
+  issueRuns          CertificateIssueRun[]
+
+  @@index([eventId, category, sortOrder])
+  @@index([organizationId])
+}
+
+/// Audit record of a certificate that was actually issued + emailed. One row
+/// per (event, type, recipient) — the dual @@unique constraints prevent
+/// accidental double-issue from concurrent operator clicks or MCP retries.
+///
+/// `recipientSnapshot` and `cmeHoursSnapshot` lock in the values at issue
+/// time so a reprint months later matches the original PDF byte-for-byte
+/// even if the underlying Attendee/Speaker/Event record drifts. Mirrors
+/// the immutability strategy `Speaker.agreementTextSnapshot` uses for
+/// legal-text fixity.
+model IssuedCertificate {
+  id                    String          @id @default(cuid())
+  eventId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from Event.
+  organizationId        String?
+  registrationId        String?
+  speakerId             String?
+  type                  CertificateType
+  /// Specific template that rendered this cert. Nullable so legacy rows
+  /// (pre-2026-06-02 multi-template flip) survive; new issues always set it.
+  /// SetNull on template delete — audit trail preserved even if the
+  /// organizer later deletes the template that produced this cert.
+  certificateTemplateId String?
+  serial                String          @unique
+  issuedAt              DateTime        @default(now())
+  /// Operator who issued this cert. NULL for survey-gated auto-issued
+  /// certs (Phase 2) — no human clicked Issue, the worker did it on
+  /// survey completion. The owning CertificateIssueRun.autoIssue flag
+  /// records the same fact at the run level.
+  issuedByUserId        String?
+  lastReprintedAt       DateTime?
+  reprintCount          Int             @default(0)
+  /// Tracks individual-recipient resends from the registration/speaker
+  /// detail sheets (distinct from reprint which re-renders the PDF —
+  /// resend reuses the existing pdfUrl and just re-fires the delivery
+  /// email). Each resend bumps both fields atomically. resendCount=0
+  /// means the cert was sent once via the original CertificateIssueRun
+  /// and never resent.
+  lastResentAt          DateTime?
+  resendCount           Int             @default(0)
+  /// Re-render + resend from the CURRENT template (the "resend latest version"
+  /// action + bulk reissue). Distinct from resendCount (which replays the
+  /// frozen original) — a reissue re-renders the PDF AND re-sends, so it also
+  /// bumps reprintCount + resendCount, but reissueCount is the clean count of
+  /// how many times the recipient got a *refreshed* certificate.
+  lastReissuedAt        DateTime?
+  reissueCount          Int             @default(0)
+  revokedAt             DateTime?
+  revocationReason      String?
+
+  // Frozen at issue time. Schema:
+  //   { title, firstName, lastName, fullName (formatted),
+  //     organization?, jobTitle?, city?, country? }
+  recipientSnapshot Json
+  cmeHoursSnapshot  Decimal? @db.Decimal(4, 1)
+
+  // URL to the rendered PDF — populated by the issue cron during the
+  // RENDERING phase. Path convention: /uploads/certificates/{eventId}/{certId}.pdf
+  // (local) or certificates/{eventId}/{certId}.pdf (Supabase storage).
+  // Reused for re-download + email attachment so we don't re-render. NULL
+  // until the render phase completes for this cert.
+  pdfUrl String?
+
+  /// The run item that produced/delivered this cert — the 1:N side of the
+  /// multi-cert-per-email model (one person-keyed run item can carry several
+  /// certs, one per template in the run's templateIds). The legacy 1:1 link
+  /// (CertificateIssueRunItem.issuedCertificateId, relation
+  /// "RunItemPrimaryCert") still gets the FIRST cert so pre-bundle readers
+  /// keep working. SetNull so deleting a run keeps the cert audit trail.
+  issueRunItemId String?
+
+  event               Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration        Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker             Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  issuedBy            User?                    @relation(fields: [issuedByUserId], references: [id])
+  certificateTemplate CertificateTemplate?     @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
+  issueRunItem        CertificateIssueRunItem? @relation("RunItemPrimaryCert")
+  deliveredViaItem    CertificateIssueRunItem? @relation("RunItemBundleCerts", fields: [issueRunItemId], references: [id], onDelete: SetNull)
+
+  // One cert per TEMPLATE per recipient (was per type) — lets one person hold
+  // multiple role-specific certs (Speaker + Moderator + Committee), each from
+  // its own template. Safe swap on live data: every existing (event, type,
+  // person) holds ≤1 cert and a template belongs to one type, so no collision
+  // on (event, template, person); null-template legacy certs are distinct.
+  @@unique([eventId, certificateTemplateId, registrationId])
+  @@unique([eventId, certificateTemplateId, speakerId])
+  @@index([eventId, type])
+  @@index([certificateTemplateId])
+  @@index([serial])
+  @@index([issueRunItemId])
+  @@index([organizationId])
+}
+
+/// Bulk certificate-issuing run. One row per "issue all certificates of
+/// type X" operator action. Drives a two-phase pipeline:
+///   PENDING → RENDERING → AWAITING_REVIEW → SENDING → COMPLETED
+/// The AWAITING_REVIEW gate is the operator preview — they can verify
+/// the rendered PDFs look right before emails go out.
+///
+/// The cron worker /api/cron/certificate-issues picks up runs in
+/// non-terminal states and drains them in batches of 50 per tick. App-
+/// level guard in POST /issue ensures only one non-terminal run per
+/// (event, type) so concurrent operator clicks don't double-issue.
+model CertificateIssueRun {
+  id                    String             @id @default(cuid())
+  eventId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from
+  // Event. The cert worker reads this off the run row to wrap each run's
+  // render/send in runWithTenant (org-blind candidate scan, per-run wrap).
+  organizationId        String?
+  type                  CertificateType
+  /// Which template fired this run. Nullable for legacy rows (pre-flip);
+  /// SINGLE-template runs still set it (legacy readers depend on it). A
+  /// MULTI-template bundle run leaves it null and lists its templates in
+  /// `templateIds`. SetNull on template delete — the run row survives as
+  /// audit even if the template is later removed.
+  certificateTemplateId String?
+  /// Multi-cert-per-email model: ALL templates this run issues (1..3).
+  /// Empty array = legacy single-template run → read certificateTemplateId.
+  /// Plain id array (not a junction) — runs are short-lived work orders;
+  /// the durable template link lives on each IssuedCertificate.
+  templateIds           String[]           @default([])
+  status                CertIssueRunStatus @default(PENDING)
+  totalCount            Int
+  renderedCount         Int                @default(0)
+  emailedCount          Int                @default(0)
+  failedCount           Int                @default(0)
+  /// Operator who clicked Issue. NULL for survey-gated auto-issue runs
+  /// (Phase 2) — created by the worker, no operator. See `autoIssue`.
+  triggeredByUserId     String?
+  /// True when this run was created automatically by the survey-gated
+  /// cert worker (Phase 2). Auto runs SKIP the AWAITING_REVIEW gate:
+  /// render → SENDING directly, so the cert lands in the inbox without
+  /// an operator click. Manual runs (false) keep the review gate.
+  autoIssue             Boolean            @default(false)
+  /// True when this run RE-RENDERS + re-sends already-issued certs from the
+  /// CURRENT template (bulk "resend latest to everyone") instead of issuing
+  /// new ones. Reissue runs skip the render/AWAITING_REVIEW gates: the worker
+  /// drains each item via reRenderAndResendCert (re-render existing + resend).
+  reissue               Boolean            @default(false)
+  triggeredAt           DateTime           @default(now())
+  rendererStartedAt     DateTime?
+  rendererFinishedAt    DateTime?
+  emailerStartedAt      DateTime?
+  emailerFinishedAt     DateTime?
+  // Heartbeat — cron worker updates on every tick. Stall detector
+  // reclaims any IN_PROGRESS run (RENDERING / SENDING) whose lastTickAt
+  // is older than 10 minutes back to PENDING / AWAITING_REVIEW so a
+  // crashed mid-tick run doesn't get stuck forever.
+  lastTickAt            DateTime?
+  // [{ recipientName, phase, code, message }] — capped at last 100 in code.
+  errors                Json?
+  // Optional: when SENDING completes, snapshot the sender's cc list so
+  // re-runs can replay. Not required for v1.
+  notes                 String?
+  // Snapshot of the email content the operator confirmed at Issue time
+  // (copied from the template default into the dialog, optionally
+  // tweaked, then frozen onto the run). The send phase reads from here
+  // — NOT from the template — so a template-default-change mid-run
+  // doesn't retroactively alter the in-flight emails.
+  emailSubject          String?
+  emailBody             String?            @db.Text
+
+  event               Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  triggeredBy         User?                     @relation(fields: [triggeredByUserId], references: [id])
+  certificateTemplate CertificateTemplate?      @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
+  items               CertificateIssueRunItem[]
+
+  @@index([eventId, type, status])
+  @@index([certificateTemplateId])
+  @@index([status, lastTickAt])
+  @@index([organizationId])
+}
+
+enum CertIssueRunStatus {
+  PENDING
+  RENDERING
+  AWAITING_REVIEW
+  SENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// One row per (run, recipient) — the unit of work the cron drains.
+/// Disambiguated by registrationId XOR speakerId. Carries per-item
+/// progress (renderedAt, issuedCertificateId, emailedAt, error*) so
+/// the cron can resume mid-batch + re-issue-failed-only is trivial.
+model CertificateIssueRunItem {
+  id                  String    @id @default(cuid())
+  runId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 2-hop
+  // from Event via the parent CertificateIssueRun (stamped first).
+  organizationId      String?
+  registrationId      String?
+  speakerId           String?
+  // Snapshot at run-creation time — used to display the recipient list
+  // in the UI without joining + handles the case where the underlying
+  // Registration/Speaker is later cancelled (we still want to show
+  // who was on the run).
+  recipientName       String
+  recipientEmail      String?
+  /// The subset of the run's templateIds THIS person earned at issue time
+  /// (tag-matched per facet). The render phase issues exactly these — facet
+  /// presence alone can't disambiguate two same-category templates. Empty =
+  /// legacy item → falls back to the run's template list.
+  templateIds         String[]  @default([])
+  renderedAt          DateTime?
+  issuedCertificateId String?   @unique
+  emailedAt           DateTime?
+  errorPhase          String? // "render" | "email"
+  errorMessage        String?
+
+  run                CertificateIssueRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  registration       Registration?       @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker            Speaker?            @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  /// Legacy 1:1 link — the FIRST cert this item produced. Kept populated on
+  /// every new write so pre-bundle readers (issued list, resend route, run
+  /// UI) work unchanged. Bundle runs link EVERY cert via bundleCertificates.
+  issuedCertificate  IssuedCertificate?  @relation("RunItemPrimaryCert", fields: [issuedCertificateId], references: [id])
+  /// All certs produced/delivered by this (person-keyed) item — one per
+  /// applicable template in the run's templateIds.
+  bundleCertificates IssuedCertificate[] @relation("RunItemBundleCerts")
+
+  @@unique([runId, registrationId])
+  @@unique([runId, speakerId])
+  @@index([runId, renderedAt])
+  @@index([runId, emailedAt])
+  @@index([organizationId])
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum EventType {
+  CONFERENCE
+  WEBINAR
+  HYBRID
+}
+
+// ==================== SURVEY ====================
+// Per-event post-event feedback survey. Question definitions live as
+// JSON on `Event.surveyConfig` (see prisma/schema.prisma:~205 and
+// src/lib/survey/schema.ts for the Zod-validated type). Each
+// registration can submit AT MOST one response — the unique
+// (eventId, registrationId) constraint is the dedup gate. The submit
+// handler also writes the "survey-completed" tag onto Attendee.tags,
+// which the cert Issue UI's tag picker filters by (CME certs gate on
+// it; ATTENDANCE certs typically don't). See
+// docs/SURVEYS.md (when added) for the full operator workflow.
+
+model SurveyResponse {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// Multi-tenancy Phase-2 (Domain #16, Aug 3 2026): denormalized tenant key
+  /// (nullable, no FK), backfilled 1-hop from Event; the public submit stamps
+  /// it from the registration's event. Backs the flat RLS policy in
+  /// prisma/rls/survey.sql (platform-only; master ignores it).
+  organizationId String?
+  /// One response per registration — enforced by `@unique`. The 1:1
+  /// relation requires this on the FK side; conceptually it's also
+  /// the dedup gate (a second POST returns 200 no-op via P2002).
+  registrationId String   @unique
+  submittedAt    DateTime @default(now())
+  /// Hashed (NEXTAUTH_SECRET-peppered) source IP, for abuse triage
+  /// without leaking the raw address. Optional — empty for anonymous
+  /// flows we don't currently support.
+  ipHash         String?
+  /// Frozen answers keyed by question.id from Event.surveyConfig at
+  /// submit time. Values are typed by the question type:
+  ///   single_select → string (one of the configured options)
+  ///   rating_1_to_5 → number 1..5
+  ///   text          → string
+  /// Skipped (optional) questions are absent from the map, NOT null.
+  answers        Json
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, submittedAt])
+  @@index([organizationId])
+}
+
+// ── RSVP (customizable) ────────────────────────────────────────────
+// An event runs N INDEPENDENT RSVPs (`RsvpCampaign`): a gala dinner, a set
+// of parallel workshops, a site visit. Each campaign owns its own items AND
+// its own invite list, which is the whole point — the dinner audience and
+// the workshop audience are different people.
+//
+// Was "Dinner RSVP" (July 2026), where the invite was EVENT-level with
+// @@unique([eventId, inviteeEmail]), so an event could only ever have ONE
+// audience and one link covering every dinner. Generalized August 2026.
+//
+// ⚠ The three original tables keep their SQL names via @@map / @map. A real
+// ALTER TABLE ... RENAME is not blue/green safe: migrations run BEFORE the
+// container swap, so the still-live old container would query a table that
+// no longer exists. Same call the Aug 13 supporting-document round made for
+// Registration's columns. Cost: the physical table is still "RsvpDinner"
+// while holding workshops. Documented, deliberate.
+//
+// Docs: docs/RSVP.md.
+
+enum RsvpStatus {
+  PENDING // invited, not yet responded
+  RESPONDED // submitted the form (attending ≥0 items)
+}
+
+/// How an invitee answers a campaign: tick any of the items, or pick exactly
+/// one. SINGLE is enforced server-side, not just by the radio group.
+enum RsvpSelectionMode {
+  SINGLE // parallel workshop tracks — pick one
+  MULTI // dinners across several nights — tick any
+}
+
+model RsvpCampaign {
+  id             String            @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (Domain #15). Nullable, no FK; stamped at create
+  // from the event. Drives the RLS policy in prisma/rls/rsvp.sql.
+  organizationId String?
+  name           String
+  description    String?           @db.Text
+  selectionMode  RsvpSelectionMode @default(MULTI)
+  // Guests and dietary are INDEPENDENT, deliberately not one `kind` enum: a
+  // site visit collects dietary (packed lunch) but no guests; a workshop
+  // takes neither. Collapsing them makes those cases unrepresentable.
+  allowGuests    Boolean           @default(false)
+  collectDietary Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  items   RsvpItem[]
+  invites RsvpInvite[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+/// One thing an invitee can say yes to: a dinner, a workshop slot, a tour.
+model RsvpItem {
+  id             String    @id @default(cuid())
+  campaignId     String
+  // Denormalized from the campaign. Kept so the existing event-scoped indexes
+  // and tenancy backfill keep working; ALWAYS set from campaign.eventId, never
+  // independently.
+  eventId        String
+  organizationId String?
+  name           String
+  startsAt       DateTime  @map("dinnerAt")
+  location       String?
+  description    String?   @db.Text
+  rsvpDeadline   DateTime?
+  /// "Close automatically at N attending" (Sep 10, 2026): the number of SEATS
+  /// (attendees plus their guests) this option accepts. Null = unlimited. Once
+  /// reached, the public form refuses a NEW yes for the option (409 ITEM_FULL);
+  /// people already attending keep their seat and may still change to no.
+  capacity       Int?
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  campaign  RsvpCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpResponse[]
+
+  @@index([campaignId])
+  @@index([eventId])
+  @@index([organizationId])
+  @@map("RsvpDinner")
+}
+
+model RsvpInvite {
+  id             String     @id @default(cuid())
+  campaignId     String
+  // Denormalized from the campaign (see RsvpItem.eventId).
+  eventId        String
+  organizationId String?
+  token          String     @unique
+  inviteeName    String
+  inviteeEmail   String
+  // Soft references (no FK) to the person's Registration/Speaker facet,
+  // if the invitee was picked from an existing record. The invite keeps
+  // its own name/email snapshot, so a dangling id is harmless. Submitters
+  // are Speaker rows, so they arrive via speakerId.
+  registrationId String?
+  speakerId      String?
+  dietary        String?    @db.Text
+  status         RsvpStatus @default(PENDING)
+  respondedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  campaign  RsvpCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpResponse[]
+
+  // THE load-bearing line. Was @@unique([eventId, inviteeEmail]), which made a
+  // second audience on one event impossible — adding someone to the workshop
+  // list collided with their dinner invite.
+  @@unique([campaignId, inviteeEmail])
+  @@index([campaignId])
+  @@index([campaignId, status])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model RsvpResponse {
+  id             String   @id @default(cuid())
+  inviteId       String
+  itemId         String   @map("dinnerId")
+  organizationId String?
+  attending      Boolean  @default(false)
+  guestCount     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invite RsvpInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  item   RsvpItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([inviteId, itemId])
+  @@index([itemId])
+  @@index([inviteId])
+  @@index([organizationId])
+  @@map("RsvpDinnerResponse")
+}
+

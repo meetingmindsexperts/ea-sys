@@ -1,0 +1,775 @@
+// ==================== CORE ENTITIES ====================
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  logo           String?
+  primaryColor   String?  @map("primary_color")
+  settings       Json     @default("{}")
+  // Billing/Company info (for invoice "From" section)
+  companyName    String?
+  companyAddress String?  @db.Text
+  companyCity    String?
+  companyState   String?
+  companyZipCode String?
+  companyCountry String?
+  companyPhone   String?
+  companyEmail   String?
+  taxId          String?
+  invoicePrefix  String?  @default("INV")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users           User[]
+  events          Event[]
+  contacts        Contact[]
+  apiKeys         ApiKey[]
+  mediaFiles      MediaFile[]
+  invoices        Invoice[]
+  scheduledEmails ScheduledEmail[]
+  emailLogs       EmailLog[]
+  billingAccounts BillingAccount[]
+  tenantDomains   TenantDomain[]
+
+  // CRM module — see docs/CRM_MODULE_PLAN.md
+  crmCompanies                CrmCompany[]
+  crmContacts                 CrmContact[]
+  crmPipelineStages           CrmPipelineStage[]
+  crmDealTypes                CrmDealType[]
+  crmDeals                    CrmDeal[]
+  crmTasks                    CrmTask[]
+  employees                   Employee[]
+  leaveCodes                  LeaveCode[]
+  attendanceEntries           AttendanceEntry[]
+  leaveGrants                 LeaveGrant[]
+  publicHolidays              PublicHoliday[]
+  attendanceRules             AttendanceRule[]
+  // Budget & Procurement module, see docs/BUDGET_PROCUREMENT_MODULE.html
+  budgetCategories            BudgetCategory[]
+  budgetProducts              BudgetProduct[]
+  budgetTemplates             BudgetTemplate[]
+  budgetTemplateLines         BudgetTemplateLine[]
+  eventBudgets                EventBudget[]
+  budgetLines                 BudgetLine[]
+  budgetRevenueLines          BudgetRevenueLine[]
+  approvalWorkflowDefinitions ApprovalWorkflowDefinition[]
+  approvalRequests            ApprovalRequest[]
+  approvalSteps               ApprovalStep[]
+  eventFinancialSummaries     EventFinancialSummary[]
+  crmNotes                    CrmNote[]
+  crmActivities               CrmActivity[]
+  crmNotifications            CrmNotification[]
+  crmDealDocuments            CrmDealDocument[]
+  crmEmailTemplates           CrmEmailTemplate[]
+  crmProducts                 CrmProduct[]
+  crmEmailThreads             CrmEmailThread[]
+  crmEmailSendClaims          CrmEmailSendClaim[]
+  crmQuotes                   CrmQuote[]
+  loginEvents                 LoginEvent[]
+  suppliers                   Supplier[]
+  supplierProducts            SupplierProduct[]
+  spendRequests               SpendRequest[]
+  spendRequestQuotes          SpendRequestQuote[]
+  commitments                 Commitment[]
+  commitmentLines             CommitmentLine[]
+  paymentRecords              PaymentRecord[]
+
+  // Custom roles (docs/PROCUREMENT_ROLES_PLAN.md §5). Named generically, not
+  // `procurement*`: D5 reuses these three tables for CRM and HR, so a future
+  // module adds permission KEYS rather than tables.
+  permissionSets      PermissionSet[]
+  permissionSetGrants PermissionSetGrant[]
+  userPermissionSets  UserPermissionSet[]
+}
+
+// Host → organization mapping for multi-tenant routing (Phase 0 spine —
+// docs/MULTI_TENANCY.md §0/§3.1). A domain maps to exactly one org; an org may
+// hold several domains (subdomain + custom apex). `domain` is stored
+// lowercased with no port. Rows are seeded via scripts/add-tenant-domain.ts
+// (never a data migration). Unknown hosts fall back per the resolver's safety
+// ramp in src/lib/tenant/resolver.ts — master keeps working with zero rows.
+model TenantDomain {
+  id             String    @id @default(cuid())
+  organizationId String
+  domain         String    @unique
+  isPrimary      Boolean   @default(false)
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model User {
+  id                           String    @id @default(cuid())
+  organizationId               String?
+  email                        String    @unique
+  passwordHash                 String
+  firstName                    String
+  lastName                     String
+  role                         UserRole  @default(ORGANIZER)
+  specialty                    String?
+  emailVerified                DateTime?
+  termsAcceptedAt              DateTime?
+  termsAcceptedIp              String?
+  image                        String?
+  emailSignature               String?   @db.Text
+  /// Last time this account was seen making an authenticated request.
+  ///
+  /// Stamped from the NextAuth JWT callback, piggybacking on the role
+  /// re-validation block that already runs at most every 5 minutes — so an
+  /// active user costs one extra write per 5 minutes, not one per request.
+  /// "Online now" = this within LAST_SEEN_ONLINE_WINDOW_MS (src/lib/active-users.ts).
+  ///
+  /// This is a scalar ON User rather than a side table, unlike WebinarPresence
+  /// (which was deliberately kept off the hot Registration row). The scale is
+  /// three orders of magnitude apart: WebinarPresence carries thousands of
+  /// attendees heartbeating every 30s, whereas this is a handful of staff
+  /// accounts at 5-minute granularity — nowhere near enough row churn to be
+  /// worth a join on every read.
+  lastSeenAt                   DateTime?
+  /// Session revocation counter (Aug 11, 2026). Sessions are stateless JWTs, so
+  /// there is no session row to delete — a cookie keeps working until it
+  /// expires no matter what happens to this user. Deleting the account did NOT
+  /// log anyone out; their token kept its cached role indefinitely, because the
+  /// rolling 24h window only expires on IDLE.
+  ///
+  /// This is the standard fix: the value is stamped into the token at sign-in
+  /// and compared on the periodic re-validation that already runs. Bump it and
+  /// every token issued for this user stops matching, so they are signed out.
+  ///
+  /// Bump on: password reset, and any explicit "sign this person out" action.
+  /// Deliberately NOT on an ordinary role change — the same re-validation
+  /// already rewrites the role in place, and bumping would only convert a
+  /// silent downgrade into a forced sign-out WITHOUT making it any faster
+  /// (both are bounded by the same 5-minute cycle). Promoting a colleague
+  /// should not log them out.
+  ///
+  /// Deletion needs no bump either: the row is gone, so the re-validation's
+  /// "user not found" branch invalidates the session on its own.
+  ///
+  /// It rides an existing query rather than adding one — the 5-minute block
+  /// already reads this row for `role`, so this is one more column in the same
+  /// `select`. See docs/SESSION_ARCHITECTURE.md.
+  tokenVersion                 Int       @default(0)
+  /// May this person see the HR module? (owner, Aug 31 2026)
+  ///
+  /// HR used to follow from being an ADMIN. That was the mistake `hr-roles.ts`
+  /// warns about in general terms: ADMIN means "runs the events business", it
+  /// has never meant "may read a colleague's sick leave", and deriving one from
+  /// the other made the population accidental. There are three admins and only
+  /// two of them should be in there.
+  ///
+  /// So the grant is now explicit and per person, and it FAILS CLOSED: nobody
+  /// is backfilled, a new admin gets nothing, and the box has to be ticked.
+  /// SUPER_ADMIN and HR_USER do not need it (see `canViewHr`).
+  ///
+  /// It rides the session re-validation query that already reads this row, so
+  /// it costs no extra round trip and a change takes effect on an internal
+  /// user's next request rather than at their next sign-in.
+  hrAccess                     Boolean   @default(false)
+  /// Budget & Procurement grants (Phase 1, Sep 14 2026). Additive capabilities
+  /// on top of the primary role, never a new exclusive role (spec §4): an
+  /// ORGANIZER who raises purchase requests keeps ORGANIZER and gains
+  /// `procurementRequest`. Carried in the JWT and re-validated on the same
+  /// 5-minute cycle as `hrAccess`. Approval authority is an AED ceiling checked
+  /// at decision time on the AED-converted amount; `procurementApproveUnlimited`
+  /// is the final approver and outranks any ceiling. `procurementSettle` is the
+  /// finance role that checks completeness and signs off, and can NEVER decide
+  /// a spend request or a budget (the approvals service refuses it). The final
+  /// approver's account never holds `procurementRequest` (spec §8.8), enforced
+  /// where the grant is written.
+  procurementRequest           Boolean   @default(false)
+  procurementApproveCeilingAed Decimal?  @db.Decimal(18, 2)
+  procurementApproveUnlimited  Boolean   @default(false)
+  procurementSettle            Boolean   @default(false)
+  /// The approver who stands in when this person has not decided a step for
+  /// 48 hours (spec §8.3). A scalar user id like every person on the module's
+  /// tables. Null = the next tier stands in. SUPER_ADMIN-set; the final
+  /// approver never has one (decision 9 Sep 2026: no standby for Medhat).
+  procurementDelegateUserId    String?
+  /// Set to deactivate an INTERNAL user without deleting them (Aug 11, 2026).
+  /// Null means active. Their access stops immediately and they cannot sign
+  /// back in, but the row and every foreign key pointing at it survive.
+  ///
+  /// Deliberately a TIMESTAMP, not a `DEACTIVATED` role value. A role answers
+  /// "what may you do"; this answers "may you be here at all", and collapsing
+  /// the two axes causes three problems: it OVERWRITES the real role (so
+  /// reactivating means guessing what they were), it must be handled in every
+  /// role predicate (canViewFinance, denyReviewer, isTeamRole,
+  /// buildEventAccessWhere, the CRM set...) where a single miss leaves that
+  /// capability intact, and it breaks every exhaustive Record<UserRole, ...>.
+  /// As a flag it is checked in exactly ONE place and cannot fail open.
+  ///
+  /// Deactivating preserves ownership on purpose: CRM deals, sent-email
+  /// attribution, audit rows, group coordinator and document uploader all keep
+  /// pointing at them until someone reassigns. Deleting would SetNull most of
+  /// those and silently orphan the work.
+  deactivatedAt                DateTime?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+
+  organization              Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  speakers                  Speaker[]
+  registrations             Registration[]
+  auditLogs                 AuditLog[]
+  accounts                  Account[]
+  sessions                  AuthSession[]
+  notifications             Notification[]
+  mediaFiles                MediaFile[]
+  deviceTokens              DeviceToken[]
+  scheduledEmails           ScheduledEmail[]
+  mcpOAuthAuthCodes         McpOAuthAuthCode[]
+  mcpOAuthAccessTokens      McpOAuthAccessToken[]
+  abstractReviewerOf        AbstractReviewer[]         @relation("ReviewerOnAbstracts")
+  assignedAbstractReviewers AbstractReviewer[]         @relation("AssignedAbstractReviewers")
+  abstractSubmissions       AbstractReviewSubmission[] @relation("UserAbstractSubmissions")
+  triggeredEmailLogs        EmailLog[]
+  attachedBillingAccounts   EventBillingAccount[]
+  issuedCertificates        IssuedCertificate[]
+  triggeredCertificateRuns  CertificateIssueRun[]
+
+  // CRM module — all SetNull on user delete, so removing a team member never
+  // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
+  ownedCrmDeals            CrmDeal[]           @relation("CrmDealOwner")
+  ownedCrmContacts         CrmContact[]        @relation("CrmContactOwner")
+  ownedCrmTasks            CrmTask[]           @relation("CrmTaskOwner")
+  authoredCrmNotes         CrmNote[]           @relation("CrmNoteAuthor")
+  crmActivities            CrmActivity[]       @relation("CrmActivityActor")
+  uploadedCrmDealDocuments CrmDealDocument[]   @relation("CrmDealDocumentUploader")
+  crmNotifications         CrmNotification[]   @relation("CrmNotificationRecipient")
+  createdCrmEmailTemplates CrmEmailTemplate[]  @relation("CrmEmailTemplateCreator")
+  createdCrmProducts       CrmProduct[]        @relation("CrmProductCreator")
+  sentCrmEmailMessages     CrmEmailMessage[]   @relation("CrmEmailMessageSender")
+  preparedCrmQuotes        CrmQuote[]          @relation("CrmQuotePreparer")
+  uploadedSpeakerDocuments SpeakerDocument[]   @relation("SpeakerDocumentUploader")
+  coordinatedGroups        RegistrationGroup[] @relation("CoordinatedGroups")
+  loginEvents              LoginEvent[]
+  /// HR: the employee record for this login, when the person is on staff.
+  /// Muthu (Admin & Accounts Manager) is the live case: he records everyone's
+  /// attendance AND has his own Employee row, so his own leave is a self-entry.
+  /// Fine at this size, but it means there is no separation of duties, which is
+  /// exactly why every attendance write is audited with the actor.
+  employeeRecord           Employee?           @relation("EmployeeUser")
+  /// Custom roles this person holds. Their procurement capability is the UNION
+  /// of these on top of whatever their base role already grants (D2).
+  permissionSets           UserPermissionSet[] @relation("PermissionSetHolder")
+  /// Assignments this person made, kept for the audit trail.
+  assignedPermissionSets   UserPermissionSet[] @relation("PermissionSetAssigner")
+
+  @@index([organizationId])
+  @@index([email])
+  // "Who in my org was active recently?" — the Active Now card's only query.
+  @@index([organizationId, lastSeenAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model AuthSession {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ORGANIZER
+  MEMBER
+  REVIEWER
+  SUBMITTER
+  REGISTRANT
+  // CRM User — org-bound team role CONFINED to the CRM (sponsorship pipeline).
+  // Can fully work the CRM (own deals, companies, CRM contacts, tasks, notes,
+  // reports, export) and SEES deal values — but is blocked from everything
+  // outside /crm: no events, registrations, speakers, invoices, settings.
+  // NOT in FINANCE_ROLES (sees CRM deal money, not event invoices/payments);
+  // buildEventAccessWhere returns zero events for it (it uses /api/crm/events-lite
+  // for the name-only event picker). Added 2026-07-15. See src/crm/lib/crm-roles.ts.
+  CRM_USER
+  // Onsite Staff — registration-desk role, scoped PER EVENT (org-bound AND
+  // assigned via Event.settings.onsiteUserIds — see buildEventAccessWhere).
+  // Can ONLY create registrations + check attendees in + view the registrations
+  // list + print badges, for its assigned events. Blocked from everything else.
+  //
+  // ONSITE is finance-CAPABLE (FINANCE_ROLES includes it, and MEMBER, since the
+  // 2026-06-17 "desk staff record payments" decision) — it SEES payment amounts
+  // for its assigned events. Do not assume money is hidden from it.
+  ONSITE
+  // Webinars team — org-bound internal staff (added 2026-08-03, owner spec:
+  // "ONSITE role + webinar full control, not organizer"). TWO-TIER access:
+  //  (1) ALL of the org's WEBINAR-type events: FULL organizer-grade control
+  //      (create webinars, registrations, communications, console, content,
+  //      event settings) — automatic, no per-event assignment.
+  //  (2) Non-webinar events: ONSITE-equivalent registration desk ONLY, via the
+  //      SAME per-event assignment list (Event.settings.onsiteUserIds).
+  // Blocked from org-level surfaces (org settings/users/API keys, CRM,
+  // invoices, reimbursements, refunds/credit-notes, certificates v1, agent).
+  // Enforcement is opt-in per route (denyReviewer restricted set + allow
+  // lists) with event resolution through buildEventAccessWhere — a missed
+  // route fails CLOSED. Finance-capable (desk records payments) and holds
+  // Zoom HOST credentials for webinar events (the producer role).
+  WEBINARS
+  // HR User — org-bound team role CONFINED to the HR module (attendance and
+  // leave). Added 2026-08-27. Sees no events, registrations, speakers, invoices
+  // or settings; buildEventAccessWhere returns zero events for it, and it is in
+  // denyReviewer's restricted set so every non-HR write is refused.
+  //
+  // AVAILABILITY IS GATED SEPARATELY. The HR module is master-silo only
+  // (HR_MODULE_ENABLED), so this role is not offered in the invite dropdown on
+  // a deployment where the module is off. The enum value exists everywhere
+  // because the enum is shared; being grantable is a different question from
+  // existing.
+  HR_USER
+}
+
+enum Title {
+  DR
+  MR
+  MRS
+  MS
+  PROF
+}
+
+enum AttendeeRole {
+  ACADEMIA
+  ALLIED_HEALTH
+  MEDICAL_DEVICES
+  PHARMA
+  PHYSICIAN
+  RESIDENT
+  SPEAKER
+  STUDENT
+  OTHERS
+}
+
+model Event {
+  id                               String      @id @default(cuid())
+  organizationId                   String
+  name                             String
+  slug                             String
+  description                      String?     @db.Text
+  startDate                        DateTime
+  endDate                          DateTime
+  timezone                         String      @default("Asia/Dubai")
+  venue                            String?
+  address                          String?
+  city                             String?
+  country                          String?
+  eventType                        EventType?
+  tag                              String?
+  specialty                        String?
+  code                             String?
+  // Dubai (DET/DTCM) compliance: when true, the per-registration DTCM
+  // barcode field is surfaced for this event. DTCM barcodes are a Dubai
+  // tourism requirement and are NOT applicable to Abu Dhabi / Fujairah /
+  // Al Ain / non-UAE events — organizer ticks this only for Dubai events.
+  // It does NOT make DTCM the entry barcode (that's always qrCode); it
+  // only controls visibility of the separate DTCM field.
+  requiresDtcmBarcode              Boolean     @default(false)
+  status                           EventStatus @default(DRAFT)
+  settings                         Json        @default("{}")
+  bannerImage                      String?
+  // Optional phone banner (art-direction). When set it renders on screens
+  // below 576px via a <picture> source; `bannerImage` shows at 576px and above.
+  // Recommended ~700x300 (main banner ~1400x300). Null => the main banner is
+  // used at every breakpoint.
+  bannerImageMobile                String?
+  footerHtml                       String?     @db.Text
+  emailHeaderImage                 String?
+  // Responsive logo / sign-off image rendered at the very bottom of
+  // every event email body (below the optional emailFooterHtml).
+  // Same responsive treatment as emailHeaderImage — width="600"
+  // attribute + max-width:600px CSS so Outlook desktop and modern
+  // clients both render at the email-body width.
+  emailFooterImage                 String?
+  emailFooterHtml                  String?     @db.Text
+  emailFromAddress                 String?
+  emailFromName                    String?
+  // Addresses CC'd on every event-scoped email — both automated
+  // (registration confirmation, speaker invite, abstract status,
+  // bulk email, scheduled email) and manual single-sends from the
+  // detail sheets. Empty array = no auto-CC.
+  emailCcAddresses                 String[]    @default([])
+  supportEmail                     String?
+  registrationTermsHtml            String?     @db.Text
+  registrationWelcomeHtml          String?     @db.Text
+  abstractWelcomeHtml              String?     @db.Text
+  sessionProposalWelcomeHtml       String?     @db.Text
+  abstractGuidelinesHtml           String?     @db.Text
+  abstractTermsHtml                String?     @db.Text
+  /// Travel Grant (see docs/TRAVEL_GRANT_PLAN.md). Two texts, not one,
+  /// because they answer different questions: the message says WHY you are
+  /// receiving this and renders inside the abstract-submission confirmation
+  /// email; the terms say WHAT you are agreeing to and render on the consent
+  /// form itself, where they are snapshotted onto the row at consent.
+  travelGrantMessageHtml           String?     @db.Text
+  travelGrantTermsHtml             String?     @db.Text
+  abstractConfirmationHtml         String?     @db.Text
+  registrationConfirmationHtml     String?     @db.Text
+  speakerAgreementHtml             String?     @db.Text
+  /// Organizer-authored rich-text intro shown at the top of the public
+  /// survey form (Tiptap WYSIWYG, sanitized on render). Null = use the
+  /// default intro copy.
+  surveyIntroHtml                  String?     @db.Text
+  /// Organizer-authored rich-text thank-you shown on the public survey page
+  /// once the respondent submits (and on a later invitation after answering). Edited
+  /// beside the intro message. Null = the default thank-you copy.
+  surveyThankYouHtml               String?     @db.Text
+  speakerAgreementTemplate         Json?
+  /// Letterhead images for the generated agreement PDFs (the inline
+  /// HTML→PDF paths only — an uploaded .docx speaker template carries its
+  /// own branding). Full-page-width banners drawn at the top/bottom of
+  /// every page. Local upload URLs under /uploads/agreements/{eventId}/ —
+  /// PNG or JPEG only (pdfkit cannot embed WebP). The speaker and
+  /// presenter agreements each have their own pair.
+  speakerAgreementPdfHeaderImage   String?
+  speakerAgreementPdfFooterImage   String?
+  presenterAgreementPdfHeaderImage String?
+  presenterAgreementPdfFooterImage String?
+  /// Per-event post-event evaluation/feedback survey definition. Null
+  /// when no survey is configured. Shape: ordered array of
+  /// SurveyQuestion (discriminated union: single_select / rating_1_to_5
+  /// / text) — see `src/lib/survey/schema.ts` for the Zod-validated
+  /// type. Renderer pulls this at request time on both the admin
+  /// builder + the public form, so changing it mid-collection is
+  /// allowed but care must be taken not to invalidate in-flight
+  /// responses (answer linkage is by question.id, not array index).
+  surveyConfig                     Json?
+  /// RETIRED Sep 17, 2026 and no longer read or written. Was the
+  /// organizer-generated shareable survey link (`{ token, expiresAt, ... }`);
+  /// surveys are now reached only through the personal `?token=` link in the
+  /// Survey Invitation email, and an old `?share=` URL answers 410. Kept
+  /// because dropping a column is destructive and not blue/green safe.
+  surveyShareLink                  Json?
+  taxRate                          Decimal?    @db.Decimal(5, 2)
+  taxLabel                         String?     @default("VAT")
+  bankDetails                      String?     @db.Text
+  badgeVerticalOffset              Int         @default(0)
+  // Event-wide attendee cap (July 24, 2026). Null = unlimited. Deliberately
+  // NOT seeded from the legacy (never-enforced) `settings.maxAttendees` JSON
+  // key — silently activating a forgotten number could block a live event's
+  // registration; organizers re-enter the cap deliberately in Settings.
+  maxAttendees                     Int?
+  // The enforcement counter for maxAttendees — mirrors TicketType.soldCount.
+  // Counts registrations that hold a ticket/tier seat (non-CANCELLED +
+  // IN_PERSON + not a speaker companion; see seatCounter() in
+  // src/lib/registration-seat.ts) — so virtual attendees and faculty never
+  // consume the cap. Maintained via raw conditional UPDATEs (Prisma updateMany
+  // can't compare seatCount < maxAttendees column-to-column); RECOMPUTED from
+  // row-truth inside the same tx whenever an organizer sets/changes
+  // maxAttendees, so pre-cap drift self-heals at the moment a cap goes live.
+  seatCount                        Int         @default(0)
+  // CME / CPD hours awarded for attending this event. Read by the CME
+  // certificate template. Decimal(4,1) allows fractional hours up to
+  // 999.9 — accreditors routinely award half-hour increments.
+  // Nullable: events that aren't CME-accredited leave this empty and
+  // the Issue CME button stays disabled. Per-event accreditor list
+  // (DHA / DOH / SCFHS / EACCME / ACCME / OTHER — multiple allowed)
+  // lives in `settings.cme.accreditations[]` JSON, not a separate
+  // column, because: at most 2-3 accreditations per event in practice,
+  // we never query by reference, and it matches the existing
+  // settings-blob pattern (settings.zoom, settings.sponsors,
+  // settings.webinar). Design-approval flag for cert templates lives
+  // in `settings.cme.designApprovedBy` + `designApprovedAt`.
+  cmeHours                         Decimal?    @db.Decimal(4, 1)
+  externalId                       String?
+  externalSource                   String?
+  createdAt                        DateTime    @default(now())
+  updatedAt                        DateTime    @updatedAt
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticketTypes        TicketType[]
+  registrations      Registration[]
+  registrationGroups RegistrationGroup[]
+  speakers           Speaker[]
+  eventSessions      EventSession[]
+  tracks             Track[]
+  hotels             Hotel[]
+  accommodations     Accommodation[]
+  abstracts          Abstract[]
+  abstractThemes     AbstractTheme[]
+  abstractSubThemes  AbstractSubTheme[]
+  reviewCriteria     ReviewCriterion[]
+  auditLogs          AuditLog[]
+
+  sessionProposals      SessionProposal[]
+  sessionProposalThemes SessionProposalTheme[]
+
+  importLogs                   ImportLog[]
+  emailTemplates               EmailTemplate[]
+  notifications                Notification[]
+  mediaFiles                   MediaFile[]
+  invoices                     Invoice[]
+  invoiceCounters              InvoiceCounter[]
+  registrationSerialCounter    RegistrationSerialCounter?
+  abstractSerialCounter        AbstractSerialCounter?
+  sessionProposalSerialCounter SessionProposalSerialCounter?
+  billingAccounts              EventBillingAccount[]
+  zoomMeetings                 ZoomMeeting[]
+  zoomAttendances              ZoomAttendance[]
+  webinarPresences             WebinarPresence[]
+  promoCodes                   PromoCode[]
+  sponsors                     Sponsor[]
+  scheduledEmails              ScheduledEmail[]
+  eventStats                   EventStats?
+  emailLogs                    EmailLog[]
+  issuedCertificates           IssuedCertificate[]
+  certificateSerialCounters    CertificateSerialCounter[]
+  certificateIssueRuns         CertificateIssueRun[]
+  certificateTemplates         CertificateTemplate[]
+  surveyResponses              SurveyResponse[]
+  rsvpCampaigns                RsvpCampaign[]
+  rsvpItems                    RsvpItem[]
+  rsvpInvites                  RsvpInvite[]
+  speakerReimbursements        SpeakerReimbursement[]
+  travelGrants                 TravelGrant[]
+  dtcmCodes                    DtcmCode[]
+  speakerProfileForms          SpeakerProfileForm[]
+
+  // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
+  // event it was sold against.
+  crmDeals CrmDeal[]
+
+  // Budget & Procurement module (Phase 1, Sep 14 2026).
+  /// The edition this event repeats (spec §6c): the default benchmark source
+  /// for a repeat event. Set by the clone route, otherwise in Settings; SetNull
+  /// so deleting last year's event never blocks or cascades into this one.
+  previousEditionEventId String?
+  previousEdition        Event?        @relation("EventEditions", fields: [previousEditionEventId], references: [id], onDelete: SetNull)
+  nextEditions           Event[]       @relation("EventEditions")
+  budgets                EventBudget[]
+
+  /// `code` is the QuickBooks Class label and every budget's `eventCode`, so it
+  /// is unique per organisation (nulls stay distinct: an event without a code
+  /// simply cannot hold a budget yet; owner decision Sep 14 2026, no backfill).
+  /// Immutable once a budget references it, enforced in the event PUT, the
+  /// Settings form and the MCP update_event whitelist.
+  @@unique([organizationId, code])
+  @@unique([organizationId, slug])
+  @@index([previousEditionEventId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([startDate])
+  @@index([externalSource, externalId])
+}
+
+// ==================== API KEYS ====================
+
+model ApiKey {
+  id             String              @id @default(cuid())
+  organizationId String
+  name           String
+  keyHash        String              @unique
+  prefix         String
+  createdAt      DateTime            @default(now())
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean             @default(true)
+  rateLimitTier  ApiKeyRateLimitTier @default(NORMAL)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([isActive])
+}
+
+enum ApiKeyRateLimitTier {
+  NORMAL
+  INTERNAL
+}
+
+// ==================== MCP OAUTH 2.1 (RFC 7591 DCR + PKCE) ====================
+
+model McpOAuthClient {
+  id                      String              @id @default(cuid())
+  clientId                String              @unique
+  clientSecretHash        String?
+  clientName              String?
+  redirectUris            String[]
+  grantTypes              String[]            @default(["authorization_code", "refresh_token"])
+  tokenEndpointAuthMethod String              @default("none")
+  scope                   String              @default("mcp")
+  rateLimitTier           ApiKeyRateLimitTier @default(NORMAL)
+  createdAt               DateTime            @default(now())
+
+  authCodes    McpOAuthAuthCode[]
+  accessTokens McpOAuthAccessToken[]
+
+  @@index([clientId])
+}
+
+model McpOAuthAuthCode {
+  id                  String   @id @default(cuid())
+  codeHash            String   @unique
+  clientId            String
+  userId              String
+  organizationId      String
+  codeChallenge       String
+  codeChallengeMethod String   @default("S256")
+  redirectUri         String
+  scope               String   @default("mcp")
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+
+  client McpOAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model McpOAuthAccessToken {
+  id             String    @id @default(cuid())
+  tokenHash      String    @unique
+  refreshHash    String?   @unique
+  clientId       String
+  userId         String
+  organizationId String
+  scope          String    @default("mcp")
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  client McpOAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ==================== EVENT STATS (denormalized read model) ====================
+
+model EventStats {
+  id                     String   @id @default(cuid())
+  eventId                String   @unique
+  registrationsByStatus  Json     @default("{}")
+  registrationsByPayment Json     @default("{}")
+  totalRegistrations     Int      @default(0)
+  checkedInCount         Int      @default(0)
+  speakersByStatus       Json     @default("{}")
+  totalSpeakers          Int      @default(0)
+  agreementsSigned       Int      @default(0)
+  abstractsByStatus      Json     @default("{}")
+  totalSessions          Int      @default(0)
+  totalTracks            Int      @default(0)
+  computedAt             DateTime @default(now())
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+/// A CUSTOM ROLE: a named set of permission keys, tagged onto people (D8).
+///
+/// Named `PermissionSet` rather than `Role` on purpose. `UserRole` is already
+/// the base-role enum, and a second thing called a role in the same schema is
+/// how somebody eventually writes `user.role` meaning this. A person keeps
+/// exactly one `UserRole` and holds zero or more PermissionSets on top (D2).
+///
+/// ARCHIVED, NEVER DELETED. A set that was held by somebody is part of the
+/// answer to "who could approve this, and when", so `archivedAt` hides it from
+/// the picker and keeps the history readable.
+///
+/// `version` is bumped on every permission change so a session carrying a
+/// stale set can be detected on the 5-minute revalidation rather than trusted
+/// until sign-out.
+model PermissionSet {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?   @db.Text
+  version        Int       @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  PermissionSetGrant[]
+  holders      UserPermissionSet[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// One ticked checkbox on one custom role.
+///
+/// `permission` is a plain string validated against the code catalogue
+/// (`src/lib/permissions/catalogue.ts`) on every write, NOT a Postgres enum: a
+/// module that adds a capability would otherwise need a migration to express
+/// it, and an enum value that no route enforces reads as access while granting
+/// none. The code is the authority; this column is storage.
+model PermissionSetGrant {
+  id              String   @id @default(cuid())
+  organizationId  String
+  permissionSetId String
+  permission      String
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissionSet PermissionSet @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([permissionSetId, permission])
+  @@index([organizationId])
+}
+
+/// One person holding one custom role.
+///
+/// Cascades on the holder so removing a team member removes their access, and
+/// SetNull on the assigner so the assignment survives the assigner leaving:
+/// the same asymmetry the CRM tables use, for the same reason.
+///
+/// The APPROVAL AMOUNT is deliberately not here. It stays on `User`
+/// (`procurementApproveCeilingAed` / `procurementApproveUnlimited`) because it
+/// is a property of the PERSON, not of the role (D3): two people holding "PO
+/// Approver" approve to different limits.
+model UserPermissionSet {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  permissionSetId String
+  assignedById    String?
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user          User          @relation("PermissionSetHolder", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy    User?         @relation("PermissionSetAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  permissionSet PermissionSet @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionSetId])
+  @@index([organizationId])
+  @@index([permissionSetId])
+}

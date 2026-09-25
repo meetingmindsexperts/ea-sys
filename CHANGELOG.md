@@ -24,6 +24,34 @@ fall-through. Unticked tiers keep their direct link (owner decision: link-only,
 like a private rate). Presenter tiers can never be ticked. Cloned
 with the event. `src/lib/main-register-tiers.ts`.
 
+### Changed: `schema.prisma` split into nine area files (September 25)
+
+Owner: "should we work on breaking down the schema.prisma", then "keep HR,
+CRM, procurement separate, rest see what you can combine". The file was 6,232
+lines and 267 KB (139 models, 79 enums).
+
+- **Layout.** `prisma/schema.prisma` keeps only the generator, the datasource
+  and a map of the files; the models are in `prisma/models/`: `core`,
+  `registrations`, `program`, `communications`, `engagement`, `operations`,
+  `crm`, `hr`, `procurement`. `package.json` sets `"prisma": { "schema":
+  "prisma" }` so Prisma reads the whole folder (Prisma's multi-file schema;
+  it warns that this key moves to `prisma.config.ts` in Prisma 7, which was
+  not used because in Prisma 6 that file stops `.env` loading).
+  `prisma/migrations` did not move: it stays beside the datasource, where
+  `migrate deploy` looks.
+- **Mechanical only.** Cut along the existing section banners; no model
+  moved out of its section and no text changed. Proven four ways: the pieces
+  reassemble to the original byte for byte; a schema-to-schema
+  `migrate diff` from the old file to the folder is empty; the generated
+  client types differ only in model order; and the CI replay check (every
+  migration on an empty database, diffed against the folder) passes locally.
+- **Readers updated.** The CI replay step now diffs against `prisma` (against
+  `schema.prisma` alone it would have compared against no models and failed
+  every run). Tests that read the schema text go through the new
+  `prisma/schema-text.ts`. CLAUDE.md and four code comments point to the new
+  files. The Dockerfiles, `deploy.sh` and Vercel needed no change: each copies
+  `package.json` before `prisma generate` and relies on default discovery.
+
 ### Added: a "Public link" switch on each HTML doc (September 25)
 
 Owner: "give an option against an html file to be shareable to public". Asked

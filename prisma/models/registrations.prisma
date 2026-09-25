@@ -1,0 +1,960 @@
+// ==================== REGISTRATION & TICKETING ====================
+
+model TicketType {
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?  @db.Text
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  // Faculty/speaker ticket type — hidden from public registration and excluded
+  // from paid-capacity counting. The auto-provisioned "Faculty" type that backs
+  // speaker companion registrations (comp, uncapped) carries this flag.
+  isFaculty   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Deprecated: kept for migration backward compat, will be removed
+  category         String    @default("Standard")
+  price            Decimal   @default(0) @db.Decimal(10, 2)
+  /// Flat price charged when a registrant picks VIRTUAL attendance on a
+  /// HYBRID event. null ⇒ virtual uses the in-person `price`. 0 ⇒ free
+  /// virtual. Pricing tiers (Early Bird, etc.) apply to IN_PERSON only in v1.
+  virtualPrice     Decimal?  @db.Decimal(10, 2)
+  currency         String    @default("USD")
+  quantity         Int       @default(999999)
+  soldCount        Int       @default(0)
+  maxPerOrder      Int       @default(10)
+  salesStart       DateTime?
+  salesEnd         DateTime?
+  requiresApproval Boolean   @default(false)
+
+  /// Supporting-document policy for this rate (Aug 13, 2026). Replaces the
+  /// name-pattern guess (/resident|trainee/i) the Resident letter shipped
+  /// with: configuration encoded in a NAME is configuration nobody can see,
+  /// change or audit — renaming "Resident" to "Junior Doctor" silently turned
+  /// the requirement off. See docs/PER_TYPE_DOCUMENT_UPLOAD_PLAN.md.
+  ///
+  /// The two booleans are deliberately NOT one tri-state enum: collapsing them
+  /// makes "show the field but do not block" unrepresentable, and that is the
+  /// default the letter shipped with for a real reason — some events would
+  /// rather take the registration and chase the paperwork than lose a delegate
+  /// at the form at 11pm.
+  ///
+  /// Asks this type's registrants for a document.
+  requiresDocument     Boolean @default(false)
+  /// ...and refuses the registration when it is missing. Ignored unless
+  /// `requiresDocument` is true.
+  documentRequired     Boolean @default(false)
+  /// Organizer-authored field label, e.g. "Official Letter" / "Membership Card".
+  documentLabel        String?
+  /// Organizer-authored instructions rendered above the file input.
+  documentInstructions String? @db.Text
+
+  /// ── Identity-evidence switches (Sept 2, 2026) ──────────────────────────
+  ///
+  /// Replaces a NAME MATCH. Before this, a type whose name contained "member"
+  /// asked for a membership number and one containing "student" asked for a
+  /// student ID + expiry. Configuration encoded in a name is configuration
+  /// nobody can see, change or audit: renaming "Student" to "Undergraduate"
+  /// silently switched verification OFF, and "Trainee / Student" asked only
+  /// because of the slash in its name. Worst of all, "Resident" — the most-used
+  /// type in this family, on 19 events — matched neither pattern and so asked
+  /// for nothing at all, which is not what any organizer who created it meant.
+  ///
+  /// Same correction the supporting-document switches above made on Aug 13.
+  ///
+  /// Unlike those, there is deliberately NO separate "ask but do not block"
+  /// flag. That distinction exists for a DOCUMENT, which a delegate may not
+  /// have to hand at 11pm; an ID number is something they know by heart, so
+  /// asked means required and a second switch would be a control nobody sets.
+  requiresMemberId        Boolean @default(false)
+  /// Asks for a student/trainee ID number.
+  requiresStudentId       Boolean @default(false)
+  /// ...and its expiry date. Ignored unless `requiresStudentId` is true — an
+  /// expiry with no ID to expire is not a thing anyone means to ask for.
+  requiresStudentIdExpiry Boolean @default(false)
+
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 1-hop from Event; RLS-gated on the platform.
+  organizationId String?
+
+  event          Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pricingTiers   PricingTier[]
+  registrations  Registration[]
+  promoCodeLinks PromoCodeTicketType[]
+
+  @@index([eventId])
+  @@index([isActive])
+  @@index([organizationId])
+}
+
+model PricingTier {
+  id               String    @id @default(cuid())
+  ticketTypeId     String
+  name             String
+  price            Decimal   @default(0) @db.Decimal(10, 2)
+  currency         String    @default("USD")
+  quantity         Int       @default(999999)
+  soldCount        Int       @default(0)
+  maxPerOrder      Int       @default(10)
+  salesStart       DateTime?
+  salesEnd         DateTime?
+  isActive         Boolean   @default(true)
+  requiresApproval Boolean   @default(false)
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via TicketType → Event.
+  organizationId String?
+
+  ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  @@unique([ticketTypeId, name])
+  @@index([ticketTypeId])
+  @@index([isActive])
+  @@index([organizationId])
+}
+
+model Attendee {
+  id               String        @id @default(cuid())
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep).
+  // Attendee has NO event link — the org is derived from its registrations'
+  // events (backfill stamps only rows whose registrations all agree on ONE
+  // org; orphans/conflicted stay NULL and fail closed under RLS). The public
+  // register orphan-reuse lookup binds this column so one tenant can never
+  // adopt + overwrite another tenant's attendee PII. Same person registering
+  // with two tenants = two Attendee rows, by design.
+  organizationId   String?
+  title            Title?
+  role             AttendeeRole?
+  email            String
+  additionalEmail  String?
+  firstName        String
+  lastName         String
+  organization     String?
+  jobTitle         String?
+  phone            String?
+  photo            String?
+  city             String?
+  state            String?
+  zipCode          String?
+  country          String?
+  bio              String?       @db.Text
+  specialty        String?
+  customSpecialty  String?
+  registrationType String?
+  tags             String[]      @default([])
+  dietaryReqs      String?
+  associationName  String?
+  memberId         String?
+  studentId        String?
+  studentIdExpiry  DateTime?
+  customFields     Json          @default("{}")
+  externalId       String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  registrations Registration[]
+
+  @@index([email])
+  @@index([organizationId])
+}
+
+model Registration {
+  id                         String                     @id @default(cuid())
+  eventId                    String
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep) —
+  // scalar only, no FK (RLS + compound-where need the value, not a relation).
+  // Stamped by every writer; backfilled from Event by migration 20260728160000.
+  organizationId             String?
+  ticketTypeId               String?
+  pricingTierId              String?
+  attendeeId                 String
+  userId                     String?
+  serialId                   Int?
+  status                     RegistrationStatus         @default(PENDING)
+  paymentStatus              PaymentStatus              @default(UNPAID)
+  /// venue vs online; only a choice on HYBRID events. VIRTUAL ⇒ no
+  /// qrCode/badge, uncapped (skips soldCount), no DTCM barcode.
+  attendanceMode             AttendanceMode             @default(IN_PERSON)
+  qrCode                     String?                    @unique
+  /// DTCM compliance code. NOT unique since Aug 27 2026 (owner decision, asked
+  /// twice): two registrations may deliberately share one code. See the
+  /// migration and docs/DTCM.md for what that costs — the pool's spare maths is
+  /// unaffected (it counts DISTINCT codes), but a scan of a shared code cannot
+  /// identify one person, so the check-in route refuses an ambiguous DTCM scan
+  /// and points the desk at the entry barcode, which is still unique per person.
+  dtcmBarcode                String?
+  badgeType                  String?
+  referrer                   String?
+  utmSource                  String?
+  utmMedium                  String?
+  utmCampaign                String?
+  checkedInAt                DateTime?
+  /// First time this registrant entered our webinar lobby / joined the live
+  /// view (set by the presence heartbeat). Durable "Joined" indicator; the
+  /// live who's-here-now state lives in WebinarPresence. Same write-once
+  /// convention as checkedInAt.
+  webinarFirstJoinedAt       DateTime?
+  // Badge-print analytics: first-print timestamp + total prints (reprints
+  // bump the count). Set by the badge route; powers "badges printed vs
+  // registered" and reprint metrics. Per-print history lives in AuditLog
+  // (action BADGE_PRINTED).
+  badgePrintedAt             DateTime?
+  badgePrintCount            Int                        @default(0)
+  /// Set when the registrant submits the post-event feedback survey
+  /// at `/e/[slug]/survey?token=...`. Used by the reporting view +
+  /// audit trail; NOT consumed by the cert eligibility query (the
+  /// cert system filters by `Attendee.tags` containing "survey-
+  /// completed" which the same submit handler writes). Mirrors the
+  /// existing `checkedInAt` / `badgePrintedAt` convention.
+  surveyCompletedAt          DateTime?
+  /// Phase-2 survey-gated cert auto-issue state. The cert worker sweeps
+  /// registrations where `surveyCompletedAt IS NOT NULL AND
+  /// certAutoIssueCheckedAt IS NULL AND (nextAttemptAt IS NULL OR <= now)`,
+  /// resolves matching auto-issue templates (per tag), enqueues the certs,
+  /// then stamps `checkedAt` (terminal). On a transient failure it bumps
+  /// `attempts`, records `error`, and sets `nextAttemptAt = now + backoff`
+  /// (exponential) so the row defers instead of blocking the queue; after
+  /// MAX attempts it gives up terminally (checkedAt set + error kept).
+  /// Derivable analytics state:
+  ///   checkedAt NULL, attempts 0           → pending (first sweep)
+  ///   checkedAt NULL, attempts > 0         → retrying/backing off
+  ///   checkedAt set,  error NULL           → resolved OK
+  ///   checkedAt set,  error non-NULL       → gave up after retries
+  /// Partial index in the migration keeps the candidate scan cheap.
+  certAutoIssueCheckedAt     DateTime?
+  certAutoIssueAttempts      Int                        @default(0)
+  certAutoIssueNextAttemptAt DateTime?
+  certAutoIssueError         String?
+  /// Which code path created this row — public form vs admin add vs
+  /// MCP agent vs CSV import etc. See enum `RegistrationCreatedSource`
+  /// for the full list. NULL on historical rows that pre-date the
+  /// column; the detail sheet renders "Unknown" for those.
+  createdSource              RegistrationCreatedSource?
+  notes                      String?                    @db.Text
+  /// Supporting document substantiating this registration's rate (an
+  /// institutional letter, a membership card, a certificate) — the path to the
+  /// uploaded file. Served ONLY via the authed staff route (the public
+  /// /uploads catch-all blocks the prefix): it names a person, their employer
+  /// and may carry a signature. See src/lib/supporting-document.ts.
+  ///
+  /// @map to the ORIGINAL column names: this shipped Aug 12 2026 as a
+  /// Resident-only letter and was generalised Aug 13. Deploys are blue/green
+  /// (migrations run BEFORE the container swap), so an ALTER ... RENAME COLUMN
+  /// would leave the still-live old container querying a column that no longer
+  /// exists. @map gives the honest field name at zero migration risk; the
+  /// physical rename is a later cleanup, not a blocker.
+  supportingDocumentUrl      String?                    @map("residentLetterUrl")
+  /// The registrant's own filename, kept for the download and so staff can see
+  /// what was sent. The stored file is renamed to a uuid.
+  supportingDocumentFilename String?                    @map("residentLetterFilename")
+  // Billing details (for invoices/tax)
+  taxNumber                  String?
+  billingFirstName           String?
+  billingLastName            String?
+  billingEmail               String?
+  billingPhone               String?
+  billingAddress             String?
+  billingCity                String?
+  billingState               String?
+  billingZipCode             String?
+  billingCountry             String?
+  // Promo code discount
+  promoCodeId                String?
+  discountAmount             Decimal?                   @db.Decimal(10, 2)
+  originalPrice              Decimal?                   @db.Decimal(10, 2)
+  /// Running total refunded so far (partial refunds accumulate here). The
+  /// registration stays PAID while 0 < refundedAmount < paidTotal and flips
+  /// to REFUNDED only when the full paid amount is returned. The Billing UI
+  /// shows "Refunded X of Y". Written by the refund route + charge.refunded
+  /// webhook reconciliation.
+  refundedAmount             Decimal                    @default(0) @db.Decimal(10, 2)
+  // Sponsor attribution — set when paymentStatus = INCLUSIVE so reports
+  // can group "all Abbott-sponsored attendees." References the entry's
+  // id inside Event.settings.sponsors[] JSON (no FK because sponsors
+  // are stored as a JSON array on the event, not a Prisma table).
+  sponsorId                  String?
+  // Third-party billing ("charge to another account") — when set, the
+  // invoice is addressed to this BillingAccount (the attendee's hospital,
+  // or a pharma/grant covering this specific doctor) instead of the
+  // attendee. ORTHOGONAL to paymentStatus: money is still owed and the
+  // registration stays UNPAID/PENDING until the payer settles — this only
+  // redirects the bill-to party. null = self-pay (unchanged behavior).
+  billingAccountId           String?
+  // Optional PO / grant / authorization reference printed on the invoice.
+  payerReference             String?
+  /// Open Stripe Checkout session for this registration, stored at session
+  /// create so a CANCEL can EXPIRE it (review H2 sub-item — sessions live
+  /// ~24h and a cancelled attendee's still-open payment tab could complete).
+  /// Cleared when the session completes or expires.
+  stripeCheckoutSessionId    String?
+  // Per-registration fallback: when true, an unpaid third-party invoice
+  // may be reassigned back to the attendee (finance action); also keeps
+  // the attendee's Pay-Now path available as a guarantor.
+  attendeeIsGuarantor        Boolean                    @default(false)
+  /// Group-registration membership (docs/GROUP_REGISTRATION_PLAN.md).
+  /// SetNull: a member survives group deletion as a normal registration.
+  groupId                    String?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+
+  event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType               TicketType?               @relation(fields: [ticketTypeId], references: [id])
+  pricingTier              PricingTier?              @relation(fields: [pricingTierId], references: [id])
+  attendee                 Attendee                  @relation(fields: [attendeeId], references: [id])
+  user                     User?                     @relation(fields: [userId], references: [id])
+  promoCode                PromoCode?                @relation(fields: [promoCodeId], references: [id])
+  sponsor                  Sponsor?                  @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
+  billingAccount           BillingAccount?           @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  group                    RegistrationGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  payments                 Payment[]
+  accommodation            Accommodation?
+  invoices                 Invoice[]
+  promoRedemption          PromoCodeRedemption?
+  zoomAttendances          ZoomAttendance[]
+  webinarPresences         WebinarPresence[]
+  issuedCertificates       IssuedCertificate[]
+  certificateIssueRunItems CertificateIssueRunItem[]
+  // Speakers imported from this registration (0 or 1 in practice; the link
+  // is best-effort + nullable, set on the import-registrations path).
+  importedSpeakers         Speaker[]                 @relation("SpeakerSourceRegistration")
+  surveyResponse           SurveyResponse?
+  refundAttempts           RefundAttempt[]
+
+  @@unique([eventId, serialId])
+  @@index([sponsorId])
+  @@index([billingAccountId])
+  @@index([groupId])
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([eventId, status])
+  @@index([eventId, ticketTypeId])
+  @@index([eventId, attendanceMode])
+  @@index([dtcmBarcode])
+  @@index([pricingTierId])
+  @@index([attendeeId])
+  @@index([userId])
+  @@index([promoCodeId])
+  @@index([status])
+  @@index([qrCode])
+}
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+  CHECKED_IN
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  COMPLIMENTARY
+  REFUNDED
+  FAILED
+  UNASSIGNED
+  INCLUSIVE
+}
+
+/// Whether a registrant attends physically at the venue or online.
+/// Only surfaced as a choice on HYBRID events. IN_PERSON is the default
+/// and the back-compat value for every pre-existing registration.
+/// VIRTUAL registrations get NO entry barcode/badge and are uncapped
+/// (they don't consume the ticket-type seat count).
+enum AttendanceMode {
+  IN_PERSON
+  VIRTUAL
+}
+
+/// Identifies which entry path created a Registration. Used by the
+/// detail sheet to show "where did this row come from" so an
+/// organizer can tell a self-service public registration from an
+/// admin-entered one at a glance. NULL on historical rows that
+/// pre-date the column.
+enum RegistrationCreatedSource {
+  /// Public registration form `/e/[slug]/register/[category]` — the
+  /// canonical self-service path. Free + paid both land here.
+  PUBLIC_REGISTER
+  /// Public abstract-submitter sign-up at `/e/[slug]/abstract/register`
+  /// — creates a SUBMITTER user + a Registration in one shot.
+  PUBLIC_SUBMITTER
+  /// Token-gated completion form at `/e/[slug]/complete-registration`
+  /// — used after a CSV import where the admin sends "complete your
+  /// registration" emails to imported rows.
+  PUBLIC_COMPLETION_FORM
+  /// Admin "Add Registration" full-page form or dialog on the
+  /// dashboard registrations list. Goes through registration-service.
+  ADMIN_DASHBOARD
+  /// Bulk CSV import via the dashboard CSV importer.
+  CSV_IMPORT
+  /// MCP agent tool — `create_registration` or
+  /// `create_registrations_bulk` called by an external integration
+  /// (n8n, Claude Desktop, claude.ai web).
+  MCP_AGENT
+  /// Auto-created companion registration backing a Speaker (the "attendee
+  /// facet"): comp, uncapped Faculty type, organizer-added. Gives the
+  /// speaker badge/barcode/DTCM/check-in/survey via the normal machinery.
+  SPEAKER_COMPANION
+  /// Member of a group registration — created by the coordinator via the
+  /// public `/e/[slug]/group/register` flow (docs/GROUP_REGISTRATION_PLAN.md).
+  /// The company payer covers the money (billingAccountId + groupId set);
+  /// members are never dunned individually.
+  GROUP_REGISTER
+  /// Catch-all for legacy paths or paths we haven't tagged yet.
+  /// Rows landing here are a signal to extend coverage.
+  OTHER
+}
+
+/// Group registration (docs/GROUP_REGISTRATION_PLAN.md, Phase 1) — the anchor
+/// for a company rep ("coordinator") registering N people with ONE payer and
+/// ONE consolidated invoice. The structural reason it exists: Invoice /
+/// Payment historically required exactly one Registration; a consolidated
+/// document spanning N members needs this row to hang off instead
+/// (`Invoice.groupId` / `Payment.groupId` — app-level XOR with
+/// `registrationId`). Line items are DERIVED at render time from the member
+/// registrations, grouped by ticket type — never stored.
+model RegistrationGroup {
+  id                   String   @id @default(cuid())
+  eventId              String
+  // Denormalized tenant key (born-compliant per the Phase-2 convention) —
+  // scalar only, no FK; stamped from the Event at create.
+  organizationId       String?
+  /// The REGISTRANT account that manages the group ("My Group"). Nullable +
+  /// SetNull so deleting a temp account never destroys the group; the
+  /// snapshot fields below keep the contact identity for organizer surfaces
+  /// and the invoice contact line.
+  coordinatorUserId    String?
+  coordinatorName      String
+  coordinatorEmail     String
+  /// false = the coordinator is contact-only (companies outsource this);
+  /// true = their details are also member #1 (a Registration linked to them).
+  coordinatorAttending Boolean  @default(true)
+  /// The company payer — REQUIRED (the whole point of a group). Restrict
+  /// mirrors Registration.billingAccountId: a payer backing a group cannot
+  /// be hard-deleted (soft-delete via isActive).
+  billingAccountId     String
+  /// Optional PO / grant reference for the consolidated invoice (also
+  /// stamped onto member rows so per-registration surfaces agree).
+  payerReference       String?
+  /// Promo code negotiated for this group (Aug 2026, owner: "the code is
+  /// against the full and final invoice").
+  ///
+  /// Held on the GROUP rather than on a member or on one invoice, because the
+  /// discount belongs to the deal: when members are added and an unpaid
+  /// invoice is cancelled and reissued, the reissued invoice must carry the
+  /// same code. The money itself lands on `Invoice.discountCode` /
+  /// `discountAmount`, so each issued document stays a frozen snapshot.
+  ///
+  /// SetNull: deleting a promo code must never take a group's registrations
+  /// with it — the invoices already issued keep their own frozen discount.
+  promoCodeId          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coordinator    User?          @relation("CoordinatedGroups", fields: [coordinatorUserId], references: [id], onDelete: SetNull)
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  promoCode      PromoCode?     @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  registrations  Registration[]
+  invoices       Invoice[]
+  payments       Payment[]
+
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([coordinatorUserId])
+  @@index([billingAccountId])
+  @@index([promoCodeId])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  /// Nullable since the group-registration build (Aug 2026): a payment
+  /// belongs to EITHER one registration OR one group — app-level XOR with
+  /// `groupId` (exactly one set). Single-registration payments are unchanged.
+  registrationId    String?
+  /// Group settlement — one card charge / transfer covering all members
+  /// (docs/GROUP_REGISTRATION_PLAN.md).
+  groupId           String?
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep,
+  // 2 hops from Event via Registration) — see Registration.organizationId.
+  organizationId    String?
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("USD")
+  stripePaymentId   String?       @unique
+  stripeCustomerId  String?
+  status            PaymentStatus @default(PENDING)
+  /// Per-PAYMENT refunded running total (review H6/M4, July 10 2026). The
+  /// registration-level `Registration.refundedAmount` mixes Stripe + manual
+  /// money; this column tracks how much of THIS payment has been returned, so
+  /// refunds allocate across payments (each Stripe slice capped at its own
+  /// charge) and `charge.refunded` reconciles Stripe's per-charge cumulative
+  /// against the right counter. `status` flips to REFUNDED when this reaches
+  /// `amount`.
+  refundedAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  receiptUrl        String?
+  /// Stripe's hosted receipt page URL (charge.receipt_url) — the canonical
+  /// "stripe_receipt". `stripeReceiptFile` is our durable local snapshot of that
+  /// page (downloaded at settlement), so the receipt survives even if Stripe's
+  /// URL ever breaks. Both null for manual/offline payments.
+  stripeReceiptUrl  String?
+  stripeReceiptFile String?
+  // Card / payment instrument details captured from the Stripe PaymentIntent
+  // at settlement time. `cardBrand` + `cardLast4` appear on the post-payment
+  // Invoice PDF and the registration Billing panel so organizers can
+  // reconcile. `paymentMethodType` is Stripe's top-level classification
+  // (`card`, `bank_transfer`, `sepa_debit`, etc.). `paidAt` is the authoritative
+  // settlement timestamp — `createdAt` records when we inserted the row,
+  // which drifts from the actual capture moment under webhook retries.
+  cardBrand         String?
+  cardLast4         String?
+  paymentMethodType String?
+  paidAt            DateTime?
+  metadata          Json          @default("{}")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  registration Registration?      @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  group        RegistrationGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  invoice      Invoice?
+
+  @@index([registrationId])
+  @@index([groupId])
+  @@index([organizationId])
+  @@index([stripePaymentId])
+}
+
+// ==================== ACCOMMODATION ====================
+
+model Hotel {
+  id             String   @id @default(cuid())
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId String?
+  name           String
+  address        String?
+  description    String?  @db.Text
+  contactEmail   String?
+  contactPhone   String?
+  stars          Int?
+  images         Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roomTypes RoomType[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model RoomType {
+  id             String   @id @default(cuid())
+  hotelId        String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Hotel's Event at create; backfilled 2-hop. Backs the RLS policy.
+  organizationId String?
+  name           String
+  description    String?  @db.Text
+  pricePerNight  Decimal  @db.Decimal(10, 2)
+  currency       String   @default("USD")
+  capacity       Int      @default(2)
+  totalRooms     Int
+  bookedRooms    Int      @default(0)
+  amenities      Json     @default("[]")
+  images         Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  hotel          Hotel           @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  accommodations Accommodation[]
+
+  @@index([hotelId])
+  @@index([organizationId])
+}
+
+model Accommodation {
+  id              String              @id @default(cuid())
+  eventId         String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId  String?
+  registrationId  String?             @unique
+  speakerId       String?             @unique
+  roomTypeId      String
+  checkIn         DateTime
+  checkOut        DateTime
+  guestCount      Int                 @default(1)
+  specialRequests String?             @db.Text
+  status          AccommodationStatus @default(PENDING)
+  totalPrice      Decimal             @db.Decimal(10, 2)
+  currency        String              @default("USD")
+  confirmationNo  String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  speaker      Speaker?      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  roomType     RoomType      @relation(fields: [roomTypeId], references: [id])
+
+  @@index([eventId])
+  @@index([roomTypeId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+enum AccommodationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  CHECKED_IN
+  CHECKED_OUT
+}
+
+// ==================== INVOICES & RECEIPTS ====================
+
+model Invoice {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  eventId                String
+  /// Nullable since the group-registration build (Aug 2026): an invoice
+  /// bills EITHER one registration OR one group — app-level XOR with
+  /// `groupId` (exactly one set). Single-registration invoices unchanged.
+  registrationId         String?
+  /// Consolidated group invoice — line items derived at render time from
+  /// the group's member registrations, one line per person.
+  groupId                String?
+  /// Which member registrations THIS group invoice bills.
+  ///
+  /// Needed once a coordinator can add people to a group that already paid:
+  /// the supplementary invoice must bill only the new arrivals, while the
+  /// settled one keeps its own frozen set. Without it both invoices would
+  /// derive their lines from the whole group and bill everybody twice.
+  ///
+  /// EMPTY MEANS "every non-cancelled member" — the pre-Aug-2026 behaviour —
+  /// so existing invoices are unaffected and need no backfill. Only
+  /// group invoices populate it; single-registration invoices use
+  /// `registrationId`.
+  coveredRegistrationIds String[] @default([])
+  paymentId              String?  @unique
+
+  type           InvoiceType
+  invoiceNumber  String      @unique
+  sequenceNumber Int
+
+  status InvoiceStatus @default(DRAFT)
+
+  issueDate DateTime  @default(now())
+  dueDate   DateTime?
+  paidDate  DateTime?
+
+  // Financial snapshot (frozen at creation time)
+  subtotal       Decimal  @db.Decimal(10, 2)
+  discountCode   String?
+  discountAmount Decimal  @default(0) @db.Decimal(10, 2)
+  taxRate        Decimal? @db.Decimal(5, 2)
+  taxLabel       String?
+  taxAmount      Decimal  @default(0) @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+  currency       String   @default("USD")
+
+  paymentMethod    String?
+  paymentReference String?
+  parentInvoiceId  String?
+
+  notes  String?   @db.Text
+  sentAt DateTime?
+  sentTo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event         Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration  Registration?      @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  group         RegistrationGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payment       Payment?           @relation(fields: [paymentId], references: [id])
+  parentInvoice Invoice?           @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
+  creditNotes   Invoice[]          @relation("CreditNotes")
+
+  @@unique([eventId, sequenceNumber, type])
+  @@index([eventId])
+  @@index([registrationId])
+  @@index([groupId])
+  @@index([status])
+  @@index([issueDate])
+}
+
+model InvoiceCounter {
+  id           String      @id @default(cuid())
+  eventId      String
+  type         InvoiceType
+  lastSequence Int         @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, type])
+}
+
+// One row per event holding the last-assigned registration serialId.
+// Mutated via an atomic upsert+increment (see src/lib/registration-serial.ts)
+// so concurrent registrations can't collide on @@unique([eventId, serialId]).
+model RegistrationSerialCounter {
+  eventId        String  @id
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep).
+  // A FLAT policy on this column sidesteps the join-policy hazard where an
+  // INSERT … ON CONFLICT against a policy-invisible row raises a unique
+  // violation misread as "already registered" (the exact bug this counter
+  // was introduced to fix). Stamped on the upsert's create branch.
+  organizationId String?
+  lastSerial     Int     @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// One row per event holding the last-assigned abstract serialId (displayed
+// "A-001"). Same atomic upsert+increment pattern as RegistrationSerialCounter
+// (see src/lib/abstract-serial.ts) so concurrent submissions can't collide on
+// @@unique([eventId, serialId]).
+model AbstractSerialCounter {
+  eventId        String  @id
+  // Denormalized tenant key — flat-policy convention, mirrors
+  // RegistrationSerialCounter (same INSERT … ON CONFLICT under-RLS rationale).
+  organizationId String?
+  lastSerial     Int     @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// Reusable org-scoped payer for "charge to another account" — a doctor's
+// hospital, or a pharma/grant covering specific HCPs. Distinct from
+// Event.settings.sponsors[] (bulk pre-paid INCLUSIVE deals) and from the
+// Registration.billing* block (same payer, different address). Soft-delete
+// via isActive; the Registration FK is Restrict so a payer with linked
+// registrations can't be hard-deleted out from under them.
+model BillingAccount {
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String
+  type           BillingAccountType @default(INSTITUTION)
+  email          String?
+  phone          String?
+  contactName    String?
+  address        String?
+  city           String?
+  state          String?
+  zipCode        String?
+  country        String?
+  taxNumber      String?
+  notes          String?            @db.Text
+  isActive       Boolean            @default(true)
+  // True until finance reviews a payer created from the public
+  // registration flow (prevents "Cleveland Clinic" vs "cleveland clinic
+  // inc" duplicates from going straight into the canonical list).
+  needsReview    Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations      Registration[]
+  registrationGroups RegistrationGroup[]
+  events             EventBillingAccount[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum BillingAccountType {
+  INSTITUTION
+  COMPANY
+  OTHER
+}
+
+// Per-event availability of a BillingAccount. Junction (a.k.a. associative)
+// table giving a many-to-many between Event and BillingAccount with SHARED
+// IDENTITY — one logical "Cleveland Clinic" payer can be attached to many
+// events, but the BillingAccount row is never duplicated. The picker on
+// each event filters to the payers attached via this table, so events
+// don't see an overflow of every payer in the org.
+model EventBillingAccount {
+  id               String   @id @default(cuid())
+  eventId          String
+  billingAccountId String
+  addedAt          DateTime @default(now())
+  addedByUserId    String?
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+  addedBy        User?          @relation(fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, billingAccountId])
+  @@index([eventId])
+  @@index([billingAccountId])
+}
+
+enum InvoiceType {
+  INVOICE
+  RECEIPT
+  CREDIT_NOTE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
+}
+
+// ==================== PROMO CODES ====================
+
+/// An event's sponsor. Promoted out of `Event.settings.sponsors[]` JSON on
+/// Sep 2 2026 (docs/SPONSOR_ATTRIBUTION_PLAN.md phase 2), because reporting an
+/// organiser invoices against should not rest on a string pointer into a JSON
+/// array with no referential integrity: removing a sponsor from that array
+/// silently orphaned every registration pointing at it, which the registration
+/// detail sheet already anticipated by rendering "(sponsor removed)".
+///
+/// NO DATABASE UNIQUE on (eventId, name, tier), deliberately. The identity the
+/// application uses is CASE-INSENSITIVE on that composite (MCP `upsert_sponsors`
+/// merge mode matches "by case-insensitive (name, tier) composite"), and a plain
+/// unique index is case-SENSITIVE, so it would happily admit "Abbott" beside
+/// "abbott" while the app treats them as one row: a constraint that does not
+/// enforce the rule in force. A functional index over `lower(...)` would match,
+/// and cannot be expressed in schema.prisma, which is exactly the shape that
+/// made `db:push` permanently unusable on the local copy once already
+/// (CLAUDE.md, the CertificateIssueRunItem partial-index caveat). Uniqueness is
+/// enforced in the service, where the case rule already lives.
+model Sponsor {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// Denormalized tenant key, the house convention. Scalar, no FK.
+  organizationId String?
+  name           String
+  /// One of SPONSOR_TIERS in src/lib/webinar.ts. A string rather than an enum
+  /// because the JSON it was promoted from never constrained it and a legacy
+  /// row may carry anything; the writers validate.
+  tier           String?
+  logoUrl        String?
+  websiteUrl     String?
+  description    String?  @db.Text
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+  promoCodes    PromoCode[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+model PromoCode {
+  id              String       @id @default(cuid())
+  eventId         String
+  code            String
+  /// The sponsor this code belongs to, as an id into `Event.settings.sponsors[]`
+  /// (a string, not an FK, matching `Registration.sponsorId`; both become real
+  /// FKs when sponsors are promoted to a table, see
+  /// docs/SPONSOR_ATTRIBUTION_PLAN.md phase 2). Optional: most codes are a plain
+  /// discount and belong to nobody.
+  ///
+  /// It exists so "everyone this sponsor brought" is ONE query rather than two
+  /// manual pulls: a sponsor's exhibitor staff carry Registration.sponsorId,
+  /// the doctors they invited carry the code, and before this nothing joined
+  /// the two. VALIDATED on write against the event's sponsor list, so this does
+  /// not become a second unvalidated pointer.
+  sponsorId       String?
+  description     String?      @db.Text
+  discountType    DiscountType
+  discountValue   Decimal      @db.Decimal(10, 2)
+  currency        String?
+  maxUses         Int?
+  maxUsesPerEmail Int?         @default(1)
+  usedCount       Int          @default(0)
+  validFrom       DateTime?
+  validUntil      DateTime?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 1-hop from Event.
+  organizationId String?
+
+  event         Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sponsor       Sponsor?              @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
+  ticketTypes   PromoCodeTicketType[]
+  redemptions   PromoCodeRedemption[]
+  registrations Registration[]
+  groups        RegistrationGroup[]
+
+  @@unique([eventId, code])
+  @@index([eventId])
+  @@index([code])
+  @@index([organizationId])
+  @@index([sponsorId])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model PromoCodeTicketType {
+  id           String @id @default(cuid())
+  promoCodeId  String
+  ticketTypeId String
+
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via PromoCode → Event.
+  organizationId String?
+
+  promoCode  PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, ticketTypeId])
+  @@index([promoCodeId])
+  @@index([ticketTypeId])
+  @@index([organizationId])
+}
+
+model PromoCodeRedemption {
+  id             String   @id @default(cuid())
+  promoCodeId    String
+  registrationId String   @unique
+  email          String
+  originalPrice  Decimal  @db.Decimal(10, 2)
+  discountAmount Decimal  @db.Decimal(10, 2)
+  finalPrice     Decimal  @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via PromoCode → Event.
+  organizationId String?
+
+  promoCode    PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([promoCodeId])
+  @@index([email])
+  @@index([organizationId])
+}
+

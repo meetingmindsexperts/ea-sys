@@ -116,7 +116,7 @@ export async function saveSponsors(input: {
 
     // The uniqueness rule lives here rather than in a database index, because
     // it is CASE-INSENSITIVE and a plain unique index is not. See the model's
-    // header in schema.prisma.
+    // header in prisma/models/registrations.prisma.
     const seen = new Set<string>();
     for (const r of rows) {
       const key = identityKey(r.name!, r.tier);
