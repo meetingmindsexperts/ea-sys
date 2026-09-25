@@ -61,6 +61,22 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Shared doc links (/admin/docs/<path>): the no-script policy the
+        // route sets. The global rule above would otherwise REPLACE it (the
+        // last matching rule wins per key), which it silently did until Sep 25,
+        // 2026, when public doc links made it matter: a committed <script>
+        // must never run on our origin for anyone who opens a shared doc.
+        // `:path+` (one or more segments) so the viewer page /admin/docs
+        // itself, which needs its scripts, is not caught.
+        source: "/admin/docs/:path+",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+          },
+        ],
+      },
+      {
         // Allow microphone for Zoom embedded meetings on session pages
         source: "/e/:slug/session/:path*",
         headers: [

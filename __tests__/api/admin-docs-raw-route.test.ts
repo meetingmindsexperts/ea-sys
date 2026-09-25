@@ -7,13 +7,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockReadDocFile } = vi.hoisted(() => ({
+const { mockAuth, mockReadDocFile, mockPublic } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockReadDocFile: vi.fn(),
+  mockPublic: { enabled: vi.fn(() => false), isPublic: vi.fn<(p: string) => Promise<boolean>>(async () => false) },
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/docs-fs", () => ({ readDocFile: mockReadDocFile }));
+vi.mock("@/lib/public-docs", () => ({
+  publicDocLinksEnabled: () => mockPublic.enabled(),
+  isDocPublic: (p: string) => mockPublic.isPublic(p),
+}));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -39,6 +44,8 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   mockAuth.mockResolvedValue(OPERATOR);
   mockReadDocFile.mockResolvedValue(HTML_FILE);
+  mockPublic.enabled.mockReturnValue(false);
+  mockPublic.isPublic.mockResolvedValue(false);
 });
 
 describe("GET /admin/docs/[...path]", () => {
@@ -153,5 +160,57 @@ describe("GET /admin/docs/[...path]", () => {
     mockReadDocFile.mockResolvedValue(null);
     const miss = await GET(req("nope.html"), params("nope.html"));
     expect(miss.status).toBe(404);
+  });
+});
+
+describe("GET /admin/docs/[...path]: public docs (Sep 25, 2026)", () => {
+  const PUBLIC_HTML = { path: "docs/WEBINAR_EVENTS.html", content: "<h1>Webinars</h1>", type: "html" as const, size: 17 };
+  beforeEach(() => {
+    mockPublic.enabled.mockReturnValue(true);
+    mockReadDocFile.mockImplementation(async (p: string) => (p === "docs/WEBINAR_EVENTS.html" ? PUBLIC_HTML : null));
+    mockPublic.isPublic.mockImplementation(async (p: string) => p === "docs/WEBINAR_EVENTS.html");
+  });
+
+  it("serves a public HTML doc to a signed-out visitor, by its short URL, with the no-script headers", async () => {
+    mockAuth.mockResolvedValue(null);
+    const res = await GET(req("WEBINAR_EVENTS.html"), params("WEBINAR_EVENTS.html"));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Webinars");
+    expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(mockPublic.isPublic).toHaveBeenCalledWith("docs/WEBINAR_EVENTS.html");
+  });
+
+  it("serves it to a signed-in role with no docs access too (a registrant opening a shared link)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "r1", role: "REGISTRANT", organizationId: null } });
+    expect((await GET(req("WEBINAR_EVENTS.html"), params("WEBINAR_EVENTS.html"))).status).toBe(200);
+  });
+
+  it("answers a private doc exactly as before: login for the signed-out, 403 for a role without access", async () => {
+    mockReadDocFile.mockResolvedValue(HTML_FILE);
+    mockAuth.mockResolvedValue(null);
+    expect((await GET(req("CODE_REVIEW_REGISTRATIONS_SPEAKERS.html"), params("CODE_REVIEW_REGISTRATIONS_SPEAKERS.html"))).status).toBe(307);
+    mockAuth.mockResolvedValue({ user: { id: "r1", role: "REGISTRANT", organizationId: null } });
+    expect((await GET(req("CODE_REVIEW_REGISTRATIONS_SPEAKERS.html"), params("CODE_REVIEW_REGISTRATIONS_SPEAKERS.html"))).status).toBe(403);
+  });
+
+  it("does not let a missing file or a traversal attempt tell a signed-out visitor anything: both are the login redirect", async () => {
+    mockAuth.mockResolvedValue(null);
+    expect((await GET(req("NOPE.html"), params("NOPE.html"))).status).toBe(307);
+    mockReadDocFile.mockRejectedValueOnce(new Error("traversal"));
+    expect((await GET(req("..%2F.env"), params("..", ".env"))).status).toBe(307);
+  });
+
+  it("never serves markdown publicly, even when a row names it", async () => {
+    mockAuth.mockResolvedValue(null);
+    mockReadDocFile.mockResolvedValue({ path: "docs/ROLLBACK.md", content: "# r", type: "markdown", size: 3 });
+    mockPublic.isPublic.mockResolvedValue(true);
+    expect((await GET(req("docs/ROLLBACK.md"), params("docs", "ROLLBACK.md"))).status).toBe(307);
+  });
+
+  it("ignores public rows where the deployment does not enable doc links (the platform instance)", async () => {
+    mockPublic.enabled.mockReturnValue(false);
+    mockAuth.mockResolvedValue(null);
+    expect((await GET(req("WEBINAR_EVENTS.html"), params("WEBINAR_EVENTS.html"))).status).toBe(307);
   });
 });

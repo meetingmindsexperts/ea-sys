@@ -21,7 +21,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -36,9 +36,11 @@ import {
   ExternalLink,
   Copy,
   Check,
+  Globe,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 // ── Types — mirror src/lib/docs-fs.ts ────────────────────────────────────
@@ -69,9 +71,11 @@ interface TreeProps {
   onSelect: (path: string) => void;
   depth?: number;
   defaultExpanded?: boolean;
+  /** Docs anyone can open without signing in (Sep 25, 2026). */
+  publicPaths?: ReadonlySet<string>;
 }
 
-function Tree({ nodes, activePath, onSelect, depth = 0, defaultExpanded = false }: TreeProps) {
+function Tree({ nodes, activePath, onSelect, depth = 0, defaultExpanded = false, publicPaths }: TreeProps) {
   return (
     <ul className="space-y-0.5">
       {nodes.map((node) => (
@@ -82,6 +86,7 @@ function Tree({ nodes, activePath, onSelect, depth = 0, defaultExpanded = false 
           onSelect={onSelect}
           depth={depth}
           defaultExpanded={defaultExpanded}
+          publicPaths={publicPaths}
         />
       ))}
     </ul>
@@ -94,9 +99,10 @@ interface TreeItemProps {
   onSelect: (path: string) => void;
   depth: number;
   defaultExpanded: boolean;
+  publicPaths?: ReadonlySet<string>;
 }
 
-function TreeItem({ node, activePath, onSelect, depth, defaultExpanded }: TreeItemProps) {
+function TreeItem({ node, activePath, onSelect, depth, defaultExpanded, publicPaths }: TreeItemProps) {
   // Auto-expand directories at depth 0 OR if any active descendant lives
   // under them — so opening a deep-linked file lights up the right path.
   const containsActive = useMemo(() => {
@@ -132,6 +138,9 @@ function TreeItem({ node, activePath, onSelect, depth, defaultExpanded }: TreeIt
         >
           <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
           <span className="truncate">{node.name}</span>
+          {publicPaths?.has(node.path) && (
+            <Globe className="ml-auto h-3 w-3 shrink-0 text-emerald-600" aria-label="Public" />
+          )}
         </button>
       </li>
     );
@@ -159,6 +168,7 @@ function TreeItem({ node, activePath, onSelect, depth, defaultExpanded }: TreeIt
           onSelect={onSelect}
           depth={depth + 1}
           defaultExpanded={false}
+          publicPaths={publicPaths}
         />
       )}
     </li>
@@ -222,6 +232,38 @@ export default function AdminDocsPage() {
       if (found) setActivePath(found);
     }
   }
+
+  // Public doc links (Sep 25, 2026): which HTML docs open without sign-in.
+  const queryClient = useQueryClient();
+  const publicQuery = useQuery({
+    queryKey: ["admin-docs-public"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/docs/public");
+      if (!res.ok) throw new Error("Failed to load public docs");
+      return (await res.json()) as { enabled: boolean; paths: string[] };
+    },
+    enabled: status === "authenticated" && canViewDocs,
+  });
+  const publicPaths = useMemo(() => new Set(publicQuery.data?.paths ?? []), [publicQuery.data]);
+  const [savingPublic, setSavingPublic] = useState(false);
+  const setPublic = async (path: string, makePublic: boolean) => {
+    setSavingPublic(true);
+    try {
+      const res = await fetch("/api/admin/docs/public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, public: makePublic }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Could not change the doc");
+      await queryClient.invalidateQueries({ queryKey: ["admin-docs-public"] });
+      toast.success(makePublic ? "Public: anyone with the link can open it." : "Private again: the link now needs sign-in.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change the doc");
+    } finally {
+      setSavingPublic(false);
+    }
+  };
 
   const fileQuery = useQuery({
     queryKey: ["admin-docs-file", activePath],
@@ -325,6 +367,7 @@ export default function AdminDocsPage() {
                     nodes={treeQuery.data?.tree ?? []}
                     activePath={activePath}
                     onSelect={setActivePath}
+                    publicPaths={publicPaths}
                   />
                 )}
               </>
@@ -350,7 +393,14 @@ export default function AdminDocsPage() {
               </div>
             </div>
           ) : fileQuery.data ? (
-            <FileViewer file={fileQuery.data.file} onCopyPath={copyPath} />
+            <FileViewer
+              file={fileQuery.data.file}
+              onCopyPath={copyPath}
+              publicLinks={publicQuery.data?.enabled ?? false}
+              isPublic={publicPaths.has(fileQuery.data.file.path)}
+              savingPublic={savingPublic}
+              onSetPublic={(on) => void setPublic(fileQuery.data!.file.path, on)}
+            />
           ) : null}
         </main>
       </div>
@@ -434,10 +484,26 @@ function SearchResults({
 function FileViewer({
   file,
   onCopyPath,
+  publicLinks,
+  isPublic,
+  savingPublic,
+  onSetPublic,
 }: {
   file: FileContent;
   onCopyPath: (p: string) => void;
+  /** Whether this deployment honours public links (master only). */
+  publicLinks: boolean;
+  isPublic: boolean;
+  savingPublic: boolean;
+  onSetPublic: (on: boolean) => void;
 }) {
+  const copyPublicLink = () => {
+    const url = `${window.location.origin}/admin/docs/${file.path}`;
+    void navigator.clipboard.writeText(url).then(
+      () => toast.success("Public link copied"),
+      () => toast.error("Could not copy the link"),
+    );
+  };
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -493,6 +559,24 @@ function FileViewer({
           <div className="flex-1 flex flex-col h-full">
             <div className="bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground border-b flex items-center justify-between">
               <span>HTML rendered in sandboxed frame</span>
+              {publicLinks && (
+                <span className="flex items-center gap-2">
+                  {isPublic && (
+                    <button type="button" onClick={copyPublicLink} className="flex items-center gap-1 text-emerald-700 hover:underline">
+                      <Globe className="h-3 w-3" /> Copy public link
+                    </button>
+                  )}
+                  <label className="flex items-center gap-1.5">
+                    <Switch
+                      checked={isPublic}
+                      disabled={savingPublic}
+                      onCheckedChange={(on) => onSetPublic(on)}
+                      aria-label="Public link: anyone with the link can open this doc without signing in"
+                    />
+                    <span className={isPublic ? "font-medium text-emerald-700" : ""}>Public link</span>
+                  </label>
+                </span>
+              )}
               <a
                 // Raw shareable URL — served admin-gated with a no-script CSP
                 // by src/app/admin/docs/[...path]/route.ts. (The old `/${path}`

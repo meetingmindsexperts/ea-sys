@@ -2438,6 +2438,18 @@ model AuditLog {
   @@index([organizationId, createdAt])
 }
 
+/// A repo HTML doc the platform operator made public (Sep 25, 2026): the
+/// shared link /admin/docs/<path> opens without sign-in while a row exists.
+/// Platform-level, not tenant data (no organizationId, so no RLS policy); only
+/// honoured where ADMIN_DOC_LINKS_ENABLED=true (master). Deleting the row
+/// makes the doc private again at once.
+model PublicDoc {
+  /// Repo-relative path as the docs reader resolves it, e.g. "docs/WEBINAR_EVENTS.html".
+  path           String   @id
+  sharedByUserId String
+  sharedAt       DateTime @default(now())
+}
+
 model SystemLog {
   id        String   @id @default(cuid())
   level     String // error, warn, info, debug

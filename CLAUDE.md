@@ -87,8 +87,10 @@ ea-sys/
 │   │   ├── .well-known/           # OAuth protected-resource + authorization-server metadata
 │   │   ├── mcp-authorize/         # OAuth consent screen (outside the dashboard shell)
 │   │   ├── admin/docs/[...path]/  # shareable direct-URL doc server: operator, + ADMIN where
-│   │   │                          #   ADMIN_DOC_LINKS_ENABLED=true (master only). The browsable
-│   │   │                          #   viewer at (dashboard)/admin/docs stays operator-only
+│   │   │                          #   ADMIN_DOC_LINKS_ENABLED=true (master only), + ANYONE for an
+│   │   │                          #   HTML doc the operator switched to public (PublicDoc table,
+│   │   │                          #   src/lib/public-docs.ts). The viewer at (dashboard)/admin/docs
+│   │   │                          #   stays operator-only
 │   │   ├── uploads/[...path]/     # streams files from public/uploads/ (standalone mode)
 │   │   ├── api-docs/              # public Scalar OpenAPI reference
 │   │   ├── health/ worker/health/ # liveness probes (app + worker proxy)

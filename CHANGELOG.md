@@ -24,6 +24,45 @@ fall-through. Unticked tiers keep their direct link (owner decision: link-only,
 like a private rate). Presenter tiers can never be ticked. Cloned
 with the event. `src/lib/main-register-tiers.ts`.
 
+### Added: a "Public link" switch on each HTML doc (September 25)
+
+Owner: "give an option against an html file to be shareable to public". Asked
+first whether every HTML doc should simply be public; the owner chose a
+per-doc switch instead, since `docs/` holds security reviews with open
+findings, the EC2 hardening notes and HR and hiring material.
+
+- **The switch.** In the docs viewer (`/admin/docs`, platform operator only)
+  each HTML doc gets a "Public link" switch and, when on, "Copy public link";
+  the tree marks public docs with a globe. `POST /api/admin/docs/public`
+  (operator only) flips it; `GET` lists them.
+- **The shared link.** `/admin/docs/<path>` serves a public HTML doc to anyone,
+  signed in or not, with the same no-script CSP, `noindex` and `no-store`
+  headers. A caller without access who asks for anything else gets exactly
+  what they got before (login redirect, or 403), so the public lane does not
+  reveal which private docs exist; a missing file and a traversal attempt
+  both look like a private doc.
+- **Rules** (`src/lib/public-docs.ts`): HTML only, never markdown; the path is
+  resolved the way the shared link resolves it, so the short and long URLs
+  match one row; honoured only where `ADMIN_DOC_LINKS_ENABLED=true` (master),
+  so the platform instance never serves a public doc; every switch audited
+  (`SHARE` / `UNSHARE` on entity `PublicDoc`). Switching off deletes the row
+  and the next request needs sign-in again.
+- **Found and fixed on the way: the no-script CSP never applied.** The route
+  sets `default-src 'none'`, but `next.config.ts`'s global header rule
+  replaced it with `frame-ancestors 'self'` (the last matching rule wins per
+  key), so a shared doc never carried the policy the route's comment
+  promised, for signed-in admins either. Harmless while only staff opened
+  them, not once a doc is public. A dedicated rule for `/admin/docs/:path+`
+  after the global one restores it; `:path+` leaves the viewer page
+  `/admin/docs` (which needs its scripts) alone. Verified with curl on the
+  standalone build; pinned by `next-config-doc-csp.test.ts`.
+- **Schema.** New `PublicDoc` table (path, who, when). Migration
+  `20260925120000_add_public_doc` is a single `CREATE TABLE IF NOT EXISTS`.
+  Platform-level, no `organizationId`, so outside the RLS coverage rule.
+- **Tests:** 17 new or extended across the route, the API, the rules and the header;
+  mutation-checked (serving markdown, ignoring the flag, serving a private
+  doc, sharing markdown, storing the unresolved path each turn a test red).
+
 ### Added: the presenter agreement in any email, `{{presenterAgreementAttachment}}` and `{{presenterAgreementLink}}` (September 25)
 
 Owner: "whichever email has {{presenterAgreementAttachment}} has to send that".

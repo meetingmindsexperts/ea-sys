@@ -21,6 +21,12 @@
  * (traversal guard, extension allowlist, directory blocklist, 1 MB cap)
  * comes from the same readDocFile() the viewer uses.
  *
+ * Public docs (Sep 25, 2026): an HTML doc the operator switched to public in
+ * the viewer (src/lib/public-docs.ts) is served to ANYONE, signed in or not,
+ * where ADMIN_DOC_LINKS_ENABLED=true. A caller without access who asks for
+ * any other path gets exactly what they got before (login redirect, or 403),
+ * so the public lane does not reveal which private docs exist.
+ *
  * Script safety: the viewer renders HTML docs in a sandboxed iframe so a
  * committed <script> can't run in the dashboard origin. Serving raw HTML
  * here would reopen that hole, so the response carries a CSP that permits
@@ -33,6 +39,7 @@ import { canActAsPlatformOperator } from "@/lib/platform-operator";
 import { isAdminDocLinksEnabled } from "@/lib/module-flags";
 import { readDocFile, type DocsFileContent } from "@/lib/docs-fs";
 import { apiLogger } from "@/lib/logger";
+import { isDocPublic, publicDocLinksEnabled } from "@/lib/public-docs";
 
 interface RouteParams {
   params: Promise<{ path: string[] }>;
@@ -72,10 +79,47 @@ function docAccess(user: { role?: string | null; organizationId?: string | null 
   return null;
 }
 
+/**
+ * The file for a URL path: as given, then under docs/. Throws on traversal
+ * (resolveSafe), which callers treat as a bad path.
+ */
+async function resolveDoc(relPath: string): Promise<DocsFileContent | null> {
+  const file = await readDocFile(relPath);
+  if (file || relPath.startsWith("docs/")) return file;
+  return readDocFile(`docs/${relPath}`);
+}
+
+/**
+ * The public lane: the doc when it is HTML and switched to public, else null
+ * (and the caller answers exactly as it would have without this lane).
+ */
+async function servePublicDoc(relPath: string, userId: string | undefined): Promise<NextResponse | null> {
+  if (!relPath || !publicDocLinksEnabled()) return null;
+  let file: DocsFileContent | null;
+  try {
+    file = await resolveDoc(relPath);
+  } catch {
+    return null;
+  }
+  if (!file || file.type !== "html" || !(await isDocPublic(file.path))) return null;
+  apiLogger.info({ msg: "admin-docs:raw:served-public", path: file.path, signedIn: Boolean(userId) });
+  return new NextResponse(file.content, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8", ...HTML_SECURITY_HEADERS },
+  });
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { path: segments }] = await Promise.all([auth(), params]);
     const relPath = (segments ?? []).join("/");
+
+    const access = session?.user ? docAccess(session.user) : null;
+    if (!access) {
+      // A doc the operator made public opens for anyone (Sep 25, 2026).
+      const shared = await servePublicDoc(relPath, session?.user?.id);
+      if (shared) return shared;
+    }
 
     if (!session?.user) {
       // Shared-link friendliness: sign in, land on the doc.
@@ -86,7 +130,6 @@ export async function GET(req: Request, { params }: RouteParams) {
     // those: it serves the raw file at a shareable URL, so a link pasted into
     // a chat is only as safe as this check.
     // Widened again for org ADMINs on master only, Sep 24 2026 (docAccess).
-    const access = docAccess(session.user);
     if (!access) {
       apiLogger.warn({
         msg: "admin-docs:raw:forbidden",
@@ -103,10 +146,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     let file: DocsFileContent | null = null;
     try {
-      file = await readDocFile(relPath);
-      if (!file && !relPath.startsWith("docs/")) {
-        file = await readDocFile(`docs/${relPath}`);
-      }
+      file = await resolveDoc(relPath);
     } catch (e) {
       // resolveSafe() throws on traversal attempts — log + 400.
       apiLogger.warn({
