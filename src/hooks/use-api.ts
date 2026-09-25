@@ -1178,6 +1178,8 @@ export function useEmailTemplate(eventId: string, templateId: string) {
         variables: { key: string; description: string }[];
         /** The wider set the save-time token check runs against. */
         allowedTokens: string[];
+        /** Custom templates only: the tokens grouped by the audience that fills them. */
+        variableGroups?: { label: string; hint: string; variables: { key: string; description: string }[] }[];
       }>(`/api/events/${eventId}/email-templates/${templateId}`),
     enabled: !!eventId && !!templateId,
   });

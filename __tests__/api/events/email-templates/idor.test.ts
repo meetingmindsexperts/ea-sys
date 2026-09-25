@@ -88,6 +88,17 @@ describe("email-templates/[templateId] tenant isolation", () => {
     expect((await res.json()).template.id).toBe("tpl-1");
   });
 
+  it("GET: a custom template carries the audience-grouped variables, a built-in does not (Sep 25, 2026)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+    mockDb.emailTemplate.findFirst.mockResolvedValueOnce({ id: "tpl-1", slug: "speaker-invitation-copy" });
+    const custom = await (await GET(new Request("http://t"), { params })).json();
+    expect(custom.variableGroups.map((g: { label: string }) => g.label)).toContain("Sent to speakers");
+    mockDb.emailTemplate.findFirst.mockResolvedValueOnce({ id: "tpl-2", slug: "speaker-invitation" });
+    const builtIn = await (await GET(new Request("http://t"), { params })).json();
+    expect(builtIn.variableGroups).toBeUndefined();
+    expect(builtIn.variables.map((v: { key: string }) => v.key)).toContain("agreementBlock");
+  });
+
   it("DELETE: cross-tenant → 404 and template.delete NEVER called", async () => {
     mockDb.event.findFirst.mockResolvedValue(null);
     const res = await DELETE(new Request("http://t"), { params });

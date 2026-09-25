@@ -968,6 +968,86 @@ export const BULK_CONDITIONAL_VARIABLES: readonly string[] = ["rsvpLink", "rsvpN
 export const BULK_SPEAKER_VARIABLES: readonly string[] = ["honorarium", "honorariumAmount", "honorariumCurrency"];
 
 /**
+ * What a CUSTOM template's editor lists, grouped by who the email goes to
+ * (Sep 25, 2026). The panel used to show only the four event tokens, so an
+ * organiser reading it concluded that a copy of the speaker invitation could
+ * not fill {{presentationDetails}} or the agreement button, when a send to
+ * speakers fills both. Every key here is one `templateAllowedTokenKeys`
+ * accepts for a custom slug, pinned by test in both directions (nothing
+ * listed that would be refused, nothing accepted that is left out), except
+ * `CUSTOM_TEMPLATE_UNLISTED` below.
+ *
+ * Grouped by audience because that is what decides whether a token has a
+ * value: a speaker token sent to registrations renders empty.
+ */
+export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hint: string; variables: ReadonlyArray<TemplateVariable> }> = [
+  {
+    label: "Every email",
+    hint: "Filled whoever you send to.",
+    variables: [
+      { key: "firstName", description: "Recipient's first name" },
+      { key: "lastName", description: "Recipient's last name" },
+      { key: "title", description: "Title prefix (e.g. Dr.)" },
+      { key: "eventName", description: "Event name" },
+      { key: "eventDate", description: "Event start date, in the event's timezone" },
+      { key: "eventDateRange", description: "Event dates, collapsed on a single-day event" },
+      { key: "eventVenue", description: "Venue and city" },
+      { key: "eventCity", description: "Event city" },
+      { key: "eventCountry", description: "Event country" },
+      { key: "eventAddress", description: "Venue street address" },
+      { key: "daysUntilEvent", description: "Days until the event starts" },
+      { key: "personalMessage", description: "The message typed in the send dialog" },
+      { key: "organizerName", description: "Organizer name" },
+      { key: "organizerEmail", description: "Organizer email" },
+      { key: "organizerSignature", description: "Sender's personal email signature" },
+    ],
+  },
+  {
+    label: "Sent to speakers",
+    hint: "Filled when the audience is speakers; empty for anyone else.",
+    variables: [
+      { key: "speakerName", description: "Full name with title" },
+      { key: "presentationDetails", description: "Their speaking sessions, with a heading" },
+      { key: "moderatorDetails", description: "Sessions they moderate or chair, with the run-sheet" },
+      { key: "sessionDetails", description: "Their session titles, comma-separated" },
+      { key: "agreementBlock", description: "The Review & Agree button (a signed speaker sees a note instead)" },
+      { key: "agreementLink", description: "The bare agreement URL" },
+      { key: "agreementAttachment", description: "Invisible: attaches their personalised agreement file" },
+      { key: "honorarium", description: "Agreed fee, e.g. USD 1,500.00 (0.00 when none)" },
+      { key: "honorariumAmount", description: "The fee amount alone" },
+      { key: "honorariumCurrency", description: "The fee currency alone" },
+    ],
+  },
+  {
+    label: "Sent to registrations",
+    hint: "Filled when the audience is registrations.",
+    variables: [
+      { key: "ticketType", description: "Registration type" },
+      { key: "registrationId", description: "Registration number" },
+      { key: "entryBarcode", description: "Entry barcode image (in-person registrations)" },
+    ],
+  },
+  {
+    label: "With an RSVP chosen",
+    hint: "Filled only when an RSVP is picked in the send dialog.",
+    variables: [
+      { key: "rsvpLink", description: "Their personal RSVP link" },
+      { key: "rsvpName", description: "The RSVP's name" },
+      { key: "rsvpButton", description: "An RSVP button" },
+    ],
+  },
+];
+
+/**
+ * Accepted in a custom template but deliberately not listed: the plain-text
+ * mirrors (the text part uses them automatically) and {{paymentBlock}},
+ * which only the payment reminder and the registration confirmation fill.
+ */
+export function isUnlistedCustomTemplateToken(key: string): boolean {
+  return key.endsWith("Text") || key === "paymentBlock";
+}
+
+/**
  * Every token key a template's senders can fill, for the save-time check that
  * warns an organiser before a send is refused.
  *

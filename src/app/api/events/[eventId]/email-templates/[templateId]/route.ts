@@ -11,7 +11,7 @@ import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
 import { normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
-import { templateAllowedTokenKeys } from "@/lib/email-template-registry";
+import { CUSTOM_TEMPLATE_VARIABLE_GROUPS, templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildCertCoverTemplatePreview } from "@/lib/certificates/bundle";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -101,6 +101,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // *Text mirrors. Display list and check list are deliberately different
       // (see templateAllowedTokenKeys).
       allowedTokens: templateAllowedTokenKeys(template.slug),
+      // A custom template has no variables of its own, so the flat list above
+      // is only the event block; the editor shows these audience groups
+      // instead (Sep 25, 2026).
+      ...(isCustomTemplateSlug(template.slug) && { variableGroups: CUSTOM_TEMPLATE_VARIABLE_GROUPS }),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching email template" });

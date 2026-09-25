@@ -215,6 +215,10 @@ export default function EmailTemplateEditorPage() {
 
   const template = data.template;
   const variables = data.variables || [];
+  // A custom template gets the tokens grouped by audience (the flat list is
+  // only the event block for it); a built-in keeps its own flat list.
+  const variableGroups: { label: string; hint: string; variables: { key: string; description: string }[] }[] =
+    data.variableGroups ?? [{ label: "", hint: "", variables }];
 
   // Tokens the organiser has typed that this template's senders cannot fill.
   // Computed from what is on screen, not from what was saved, so it appears as
@@ -451,8 +455,16 @@ export default function EmailTemplateEditorPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {variables.map((v: { key: string; description: string }) => (
+              <div className="space-y-4">
+                {variableGroups.map((g) => (
+                  <div key={g.label || "all"} className="space-y-2">
+                    {g.label && (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-foreground">{g.label}</p>
+                        <p className="text-xs text-muted-foreground">{g.hint}</p>
+                      </div>
+                    )}
+                    {g.variables.map((v) => (
                   <button
                     key={v.key}
                     onClick={() => insertVariable(v.key)}
@@ -468,8 +480,10 @@ export default function EmailTemplateEditorPage() {
                       {v.description}
                     </p>
                   </button>
+                    ))}
+                  </div>
                 ))}
-                {variables.length === 0 && (
+                {variables.length === 0 && !data.variableGroups && (
                   <p className="text-sm text-muted-foreground">
                     No predefined variables for this template.
                   </p>

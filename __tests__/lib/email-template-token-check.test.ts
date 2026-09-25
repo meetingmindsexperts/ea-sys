@@ -22,6 +22,8 @@ import { join } from "node:path";
 import {
   BULK_BASE_VARIABLES,
   BULK_SPEAKER_VARIABLES,
+  CUSTOM_TEMPLATE_VARIABLE_GROUPS,
+  isUnlistedCustomTemplateToken,
   BULK_CONDITIONAL_VARIABLES,
   EMAIL_TEMPLATE_SPECS,
   templateAllowedTokenKeys,
@@ -160,5 +162,24 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
       expect(src).toContain(`vars.${k} =`);
       expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
+  });
+});
+
+describe("the custom template editor's grouped Variables panel (Sep 25, 2026)", () => {
+  const listed = CUSTOM_TEMPLATE_VARIABLE_GROUPS.flatMap((g) => g.variables.map((v) => v.key));
+  const allowed = templateAllowedTokenKeys("faculty-welcome");
+
+  it("lists nothing the token check would refuse", () => {
+    expect(listed.filter((k) => !allowed.includes(k))).toEqual([]);
+  });
+
+  it("leaves out nothing the token check accepts, apart from the text mirrors and the payment block", () => {
+    expect(allowed.filter((k) => !listed.includes(k) && !isUnlistedCustomTemplateToken(k))).toEqual([]);
+  });
+
+  it("lists each token once, and shows the speaker tokens a copy of the speaker invitation carries", () => {
+    expect(new Set(listed).size).toBe(listed.length);
+    const speaker = CUSTOM_TEMPLATE_VARIABLE_GROUPS.find((g) => g.label === "Sent to speakers")!.variables.map((v) => v.key);
+    for (const k of ["speakerName", "presentationDetails", "moderatorDetails", "agreementBlock", "honorarium"]) expect(speaker).toContain(k);
   });
 });
