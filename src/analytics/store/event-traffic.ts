@@ -68,14 +68,18 @@ export async function getEventTraffic(opts: {
         orderBy: { createdAt: "asc" },
         take: MAX_HITS + 1,
       }),
-      // The real denominator's counterpart. Faculty are excluded for the same
-      // reason every other delegate-facing count excludes them: a speaker's
-      // companion registration is not somebody who converted from the public
-      // page, and including them would flatter the rate.
+      // The funnel's last step: registrations made through the PUBLIC FORM in
+      // the SAME WINDOW as the hits (Sep 25, 2026). Counting every
+      // registration the event ever had (CSV imports, admin adds, rows from
+      // before tracking) against one window's visitors pushed conversion past
+      // 100% on imported events. A later cancellation still counts: the
+      // person did convert. Faculty cannot arrive this way; the filter stays
+      // as a guard so a companion row is never counted as a conversion.
       db.registration.count({
         where: {
           eventId: opts.eventId,
-          status: { not: "CANCELLED" },
+          createdSource: "PUBLIC_REGISTER",
+          createdAt: { gte: opts.from, lte: opts.to },
           ...EXCLUDE_FACULTY_WHERE,
         },
       }),

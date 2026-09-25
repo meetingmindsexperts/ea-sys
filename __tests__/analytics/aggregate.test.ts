@@ -192,6 +192,20 @@ describe("registration funnel", () => {
     expect(f[2].conversionRate).toBeCloseTo(1 / 3);
   });
 
+  it("starts from ANY public page, so a visitor sent straight to the register page still enters at step one", () => {
+    // Production: 93% of views land on a register page from the conference's
+    // own website. With the home page as step one, step two exceeded it.
+    const direct = [
+      hit({ visitorHash: "w1", routePattern: "/e/:slug/register/:category", path: "/e/x/register/delegate" }),
+      hit({ visitorHash: "w2", routePattern: "/e/:slug/register/:category", path: "/e/x/register/delegate" }),
+      hit({ visitorHash: "w3", routePattern: "/e/:slug/agenda", path: "/e/x/agenda" }),
+    ];
+    const f = buildRegistrationFunnel(direct, 1);
+    expect(f.map((s) => s.count)).toEqual([3, 2, 1]);
+    expect(f[1].count).toBeLessThanOrEqual(f[0].count);
+    expect(f.map((s) => s.label)).toEqual(["Visited the event's pages", "Opened a registration form", "Registered online"]);
+  });
+
   it("survives an event with no traffic recorded yet", () => {
     // The ordinary state for weeks after deploy. Must be zeros, not NaN.
     const f = buildRegistrationFunnel([], 0);

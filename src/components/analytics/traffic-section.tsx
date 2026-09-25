@@ -183,6 +183,11 @@ export function TrafficSection({ eventId }: { eventId: string }) {
                     </div>
                   ))}
                 </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  &ldquo;Registered online&rdquo; counts registrations made through the public form
+                  in this period. Imported, admin-added and speaker registrations are not counted,
+                  because those people did not come through these pages.
+                </p>
               </div>
             )}
 

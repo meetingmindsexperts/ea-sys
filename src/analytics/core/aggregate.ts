@@ -205,33 +205,47 @@ export function summariseTraffic(
  * person refreshing the register page five times is one person considering it,
  * not five, and counting hits would flatter every rate.
  *
- * Built from route patterns rather than explicit conversion events, which means
- * it works from ordinary pageviews with no extra instrumentation. The final
- * step comes from the Registration table, so it is the real number and not an
- * inference: a conversion event could be lost to a closed tab, and under-
- * reporting the one figure that is independently knowable would be a bad trade.
+ * The steps (revised Sep 25, 2026, from what production traffic showed):
+ *
+ * 1. "Visited": anyone who viewed ANY of the event's measured public pages.
+ *    It used to be the event home page only, but 93% of real views land
+ *    straight on a register page, sent there by the conference's own website;
+ *    the home page had 15 views in five weeks, so step one was smaller than
+ *    step two. Every register-page visitor is also a visitor, so step two can
+ *    no longer exceed step one.
+ * 2. "Opened a registration form": visitors on a register page.
+ * 3. "Registered online": the CALLER's count, which must be registrations made
+ *    through the public form WITHIN THE SAME WINDOW as the hits. It used to be
+ *    every registration the event ever had (CSV imports, admin adds, rows from
+ *    before tracking began), set against visitors from one window, which is
+ *    how conversion ran past 100% on imported events. It comes from the
+ *    Registration table, not a conversion beacon, because a beacon can be lost
+ *    to a closed tab and this number is independently knowable. It can still
+ *    exceed step two when a visit was not measured (tracking blocked, or a
+ *    page outside the allow-list), and buildFunnel reports that as measured.
  */
 export function buildRegistrationFunnel(
   hits: readonly AnalyticsHit[],
-  registrationCount: number,
+  onlineRegistrationsInWindow: number,
 ): FunnelStep[] {
-  const visitorsFor = (patterns: string[]) => {
+  const visitorsFor = (match: (routePattern: string) => boolean) => {
     const set = new Set<string>();
     for (const hit of hits) {
       if (hit.name !== PAGEVIEW) continue;
-      if (patterns.includes(hit.routePattern)) set.add(hit.visitorHash);
+      if (match(hit.routePattern)) set.add(hit.visitorHash);
     }
     return set.size;
   };
+  const REGISTER_PAGES = ["/e/:slug/register", "/e/:slug/register/:category"];
 
   const steps: FunnelInput[] = [
-    { name: "landed", label: "Event page", count: visitorsFor(["/e/:slug", "/e/:slug/agenda"]) },
+    { name: "visited", label: "Visited the event's pages", count: visitorsFor(() => true) },
     {
       name: "register_viewed",
-      label: "Register page",
-      count: visitorsFor(["/e/:slug/register", "/e/:slug/register/:category"]),
+      label: "Opened a registration form",
+      count: visitorsFor((p) => REGISTER_PAGES.includes(p)),
     },
-    { name: "registered", label: "Registered", count: Math.max(0, registrationCount) },
+    { name: "registered", label: "Registered online", count: Math.max(0, onlineRegistrationsInWindow) },
   ];
 
   return buildFunnel(steps);
