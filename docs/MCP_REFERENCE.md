@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** September 22, 2026. **114 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
+**Last updated:** September 25, 2026. **115 tools** across 17 sections, and that number is now pinned by [`__tests__/lib/mcp-tool-inventory.test.ts`](../__tests__/lib/mcp-tool-inventory.test.ts), which registers the real server against a stub and fails CI when this file disagrees with it. It said 71 in this line and 70 in the section title below while the server registered 113, because nothing checked. The same file also pins **What MCP cannot do** below, so a domain listed there as having no tools fails CI the day it gets one.
 
 ### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
 
@@ -26,6 +26,8 @@ EA-SYS exposes event management capabilities via the [Model Context Protocol (MC
 **September 22, 2026, later still: every successful core-tool result carries `dashboardUrl`.** The link to what the call touched (the row's own page when the result names it, else the surface: `/events/{id}/communications/templates/{templateId}` for a template, `/events/{id}/speakers/{speakerId}` for a speaker, `/events/{eventId}` for a created event), an absolute URL when `NEXT_PUBLIC_APP_URL` is set. Output only, no schema change, no version bump; a client that ignores unknown result fields is unaffected. The CRM and Budget tools run through their own registrars and carry no link yet.
 
 **September 22, 2026, the red-team round: `search_event` finds a full name, and `send_bulk_email` says who it reaches.** The search matched the whole query against each field separately, so "Ahmed Mansour" matched neither the first-name column nor the surname column and a full name found nobody (the agent then told the person the speaker did not exist). Every word must now match one of the name, email or organisation fields, honorifics such as Dr ignored; a one-word query behaves as before. The bulk-email description now states that it reaches only the event's registrations or speakers and cannot email one person or an outside address, after the agent raised a card for every registrant when asked to email one external address. Package 0.4.42 → 0.4.43: connected clients reconnect to see the wording. Graded by golden tasks T2 and X1 (docs/AGENT_GOLDEN_TASKS.md).
+
+**September 25, 2026: `duplicate_email_template`.** Copies an email template on the event, built-in or custom, by slug. The copy is a new custom template with the same subject and bodies, named `<name> (copy)` with slug `<slug>-copy` (numbered when taken) unless a `name` is passed, and it starts DISABLED (not offered for sending until someone switches it on). Its tokens carry over and are reported, never refused, since they were copied rather than invented. Same function as the dashboard's new Duplicate button (`duplicateEmailTemplate` in `src/lib/email-template-create.ts`). `list_email_templates`' description now points at it: on September 24 a "duplicate the speaker invitation" request dead-ended because no tool returned a template's body. Also: `{{honorarium}}`, `{{honorariumAmount}}` and `{{honorariumCurrency}}` are now accepted in a custom template (filled on a send to speakers since September 3; the token check did not know). Package 0.4.43 → 0.4.44: connected clients reconnect to see the tool.
 
 **September 22, 2026, later: `create_email_template`.** A new custom email template on an event (its own name and slug, typically written from a draft the person gives the agent); the built-in templates stay edits through `update_email_template`, whose description now names the tokens a replaced body must keep and which refuses to rewrite a built-in template into token-free text (`TEMPLATE_TOKENS_DROPPED`). Same create function as the dashboard's New template (`src/lib/email-template-create.ts`), so the slug rule and the taken-slug answer cannot drift. Both tools refuse a token no sender fills (`UNKNOWN_TOKENS`): the agent uses existing tokens and never invents one. Package 0.4.41 → 0.4.42: connected clients reconnect to see it. Graded by golden task W8.
 
@@ -122,7 +124,7 @@ Two authentication methods are supported on `/api/mcp`, checked in order:
 
 Both return the same `{ organizationId }` context, so downstream tools don't care which method authenticated the request. Tools are automatically scoped to the authenticated org.
 
-## Tools (114 total)
+## Tools (115 total)
 
 ### Organization-level (6)
 
@@ -261,12 +263,13 @@ WEBINAR-type events only.
 | `send_invoice` | Email the PDF to the attendee; flips DRAFT → SENT |
 | `update_invoice_status` | DRAFT/SENT/PAID/OVERDUE/CANCELLED/REFUNDED. **REFUNDED is DB-only — does NOT call Stripe** |
 
-### Email templates + communications (6)
+### Email templates + communications (7)
 
 | Tool | Description |
 |---|---|
 | `list_email_templates` | Pre-built + event-level overrides |
 | `create_email_template` | A NEW custom template on the event with its own name and slug (a faculty welcome, joining instructions), typically from a draft. Requires `name`, `subject`, `htmlContent`; `slug` derived from the name when omitted; refuses a built-in slug (`SYSTEM_SLUG`, use `update_email_template`) and a taken one (`SLUG_TAKEN`). Refuses a token no sender fills (`UNKNOWN_TOKENS`, with `allowedTokens` to choose from): the agent uses existing tokens and never invents one (owner rule, September 22, 2026). Sent from Communications (bulk, any audience) or a speaker's Send Email menu; `send_bulk_email` does not take a saved template. |
+| `duplicate_email_template` | Copy a template (built-in or custom) by `slug` into a new custom template: same subject and bodies, `<name> (copy)` / `<slug>-copy` (numbered when taken) unless `name` is given. Starts DISABLED; switch it on in its editor. Tokens carry over and are reported, not refused. Codes `SOURCE_NOT_FOUND`, `NO_FREE_SLUG`, `INVALID_NAME`. Write tool, no approval card. |
 | `update_email_template` | Edit subject/htmlContent/textContent per event, by slug: a built-in one (creates the event's own copy from the default if missing) or a custom one. The description now names the tokens a replaced body must keep (`{{speakerName}}`, `{{presentationDetails}}`, `{{agreementBlock}}` on the speaker invitation; `{{paymentBlock}}` on the registration confirmation), and since September 22, 2026 an invented token is refused (`UNKNOWN_TOKENS`, with `allowedTokens`) and a built-in template's new body that carries NONE of the tokens its sender fills is refused (`TEMPLATE_TOKENS_DROPPED`): that is a different email, made with `create_email_template`, not an edit of this one. |
 | `reset_email_template` | Delete event-level override — system default used on next send |
 | `send_bulk_email` | Send to a filtered audience (registrations or speakers). Routes through the same pipeline as the dashboard, so branding, the viability precheck and the invalid-filter guard all apply. 10/hr per event. |

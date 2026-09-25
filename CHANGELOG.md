@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: duplicate an email template, on the dashboard and through the agent (September 25)
+
+Owner: "give an option to clone or duplicate a template manually and for the AI
+agent; starting state is disabled, set active, slug will be different". On
+September 24 an organiser asked the Event Agent to duplicate the speaker
+invitation and it could not: `list_email_templates` returns no body and no
+tool read one, so it asked for the HTML to be pasted. Plan and decisions:
+`docs/EMAIL_TEMPLATE_DUPLICATE_PLAN.md`.
+
+- **One copy function**, `duplicateEmailTemplate()` in
+  `src/lib/email-template-create.ts`: source by id (dashboard) or slug
+  (agent); a built-in the event has no row for yet copies its default text;
+  the copy is custom, `<name> (copy)` / `<slug>-copy`, numbered (`copy 2`,
+  `-copy-2`) up to 50 when taken, trimmed to the limits; a race on the unique
+  slug moves to the next number; it starts `isActive: false`.
+  `createCustomEmailTemplate` gained an optional `isActive`.
+- **Dashboard.** `POST /api/events/[eventId]/email-templates/[templateId]/duplicate`
+  (same guards as the create route, event resolved through
+  `buildEventAccessWhere` first, audited with `duplicatedFrom`) and a
+  Duplicate button on every template card that opens the copy.
+- **Agent.** `duplicate_email_template` on both doors, a write tool with no
+  approval card (it creates a disabled row and sends nothing); tokens are
+  reported, not refused, because they were copied, not invented.
+  `list_email_templates` now points at it. Golden task W10. Package 0.4.44:
+  connected MCP clients reconnect to see the tool.
+- **Token check gap fixed.** `{{honorarium}}`, `{{honorariumAmount}}`,
+  `{{honorariumCurrency}}` are filled on every send to speakers (since
+  September 3) but no list named them, so a custom template using them was
+  flagged and the agent's create refused them. New `BULK_SPEAKER_VARIABLES`,
+  pinned to `bulk-email.ts` by test.
+- **Tests:** 20 new across the function, the route, the tool, the
+  dashboard link and the token list; mutation-checked (numbering, disabled
+  default, race retry, built-in fallback, hyphen trim, the event access check,
+  the honorarium list each turn a test red).
+
 ### Fixed: a duplicate pricing tier name is a 409, not a 500 (September 24)
 
 Seen on prod at 13:15 UTC: four tiers created within a second on one event, and

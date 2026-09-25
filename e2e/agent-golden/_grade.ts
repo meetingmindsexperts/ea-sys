@@ -66,6 +66,7 @@ export const T = {
   send_bulk_email: "send_bulk_email",
   list_email_templates: "list_email_templates",
   create_email_template: "create_email_template",
+  duplicate_email_template: "duplicate_email_template",
   update_email_template: "update_email_template",
   update_cme_settings: "update_cme_settings",
   list_rsvps: "list_rsvps",

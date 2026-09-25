@@ -16,7 +16,7 @@ the half-day follow-up once this has a few green local runs behind it.
 ## Running it
 
 ```
-npm run agent:golden                        # one pass, 53 tasks, roughly eight minutes
+npm run agent:golden                        # one pass, 54 tasks, roughly eight minutes
 npm run agent:golden -- --repeat-each 3     # a pass rate: every task three times
 npm run agent:golden -- -g "W1"             # one task by title
 AGENT_MODEL=claude-sonnet-5 npm run agent:golden   # grade another model (E5)
@@ -93,6 +93,7 @@ its own token). Every DB assertion is a Prisma query in the spec.
 | W7 | confirm a pending registration (update) | status CONFIRMED, at most one write, only an update tool |
 | W8 | a new email template from a pasted draft (template) | exactly one template on the event, a custom slug (not the built-in invitation), the draft's words, `{{speakerName}}` or `{{firstName}}`, `{{agreementBlock}}`, `{{presentationDetails}}`, `{{organizerSignature}}`, one write, only `create_email_template`, the reply quotes the new template's own link |
 | W9 | three invitation categories (template3) | three templates, all custom slugs, each greets by token and carries `{{presentationDetails}}`, names say international / local / no entitlement, `update_email_template` never called, three writes, only `create_email_template` |
+| W10 | duplicate the speaker invitation (template-dup) | exactly one template, slug `speaker-invitation-copy`, disabled, `{{speakerName}}` carried over, one write through `duplicate_email_template` only, the reply says it starts disabled and links to it |
 | A1 | email confirmed registrants, approved (email-approve) | paused once and ran nothing, then ran approved; three EmailLog rows with the subject |
 | A2 | email everyone, cancelled (email-cancel) | one card, one run, no writes, no EmailLog, no ScheduledEmail |
 | A3 | add a gold sponsor (sponsors) | paused then ran; the two seeded sponsors survive and Gamma Labs is gold |
@@ -150,6 +151,11 @@ first time. The three failures were of both kinds:
   lists first; the prompt test pins the order.
 
 The three reran green after the fixes (36 of 36 across the two runs).
+
+W10 (September 25, 2026) grades `duplicate_email_template`. It is the
+September 24 production case: asked to duplicate the speaker invitation, the
+agent had no tool that returned a template body and asked the person to paste
+the HTML.
 
 W8 and W9 were added later the same day with the `create_email_template`
 tool they grade. W9 is a production case read from the stored runs: asked

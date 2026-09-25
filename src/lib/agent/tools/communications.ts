@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
-import { createCustomEmailTemplate, slugifyTemplateName } from "@/lib/email-template-create";
+import { createCustomEmailTemplate, duplicateEmailTemplate, slugifyTemplateName } from "@/lib/email-template-create";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { EMAIL_TEMPLATE_REGISTRY, isSystemTemplateSlug, templateAllowedTokenKeys } from "@/lib/email-template-registry";
 import { findUnresolvedTokens, normalizeTemplateTokens, unknownTemplateTokens } from "@/lib/template-tokens";
@@ -470,6 +470,52 @@ const createEmailTemplate: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ─── Duplicate (September 25, 2026) ───────────────────────────────────────────
+// "Create a duplicate of the speaker invitation" dead-ended on prod: nothing
+// returned a template's body. The copy is the dashboard's Duplicate button
+// (email-template-create.ts): a custom template with its own slug, starting
+// DISABLED, text kept as is. Its tokens are reported, not refused: they were
+// copied, not invented, so the owner's no-new-tokens rule does not apply.
+const duplicateEmailTemplateTool: ToolExecutor = async (input, ctx) => {
+  try {
+    const slug = String(input.slug ?? "").trim();
+    if (!slug) return { error: "slug is required: the template to copy (list_email_templates shows them)", code: "MISSING_FIELDS" };
+    const name = input.name != null ? String(input.name).trim().slice(0, 200) || undefined : undefined;
+
+    const result = await duplicateEmailTemplate({ eventId: ctx.eventId, sourceSlug: slug, name });
+    if (!result.ok) return { error: result.message, code: result.code };
+    const { template, source, unknownTokens } = result;
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "EmailTemplate",
+        entityId: template.id,
+        changes: { source: ctx.source, slug: template.slug, name: template.name, duplicatedFrom: { id: source.id, slug: source.slug } },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:duplicate_email_template audit-log-failed"));
+
+    const summary = { id: template.id, slug: template.slug, name: template.name, subject: template.subject, isActive: template.isActive };
+    return {
+      success: true,
+      template: summary,
+      duplicatedFrom: source.slug,
+      ...(unknownTokens.length > 0 && { unknownTokens }),
+      message:
+        `Copied "${source.name}" as "${template.name}" (slug ${template.slug}). It starts DISABLED, so it is not offered for sending yet: ` +
+        "switch it on in its editor on the Email Templates page when it is ready. Edit its text with update_email_template and that slug." +
+        (unknownTokens.length > 0
+          ? ` Tokens a custom template's senders do not fill: ${unknownTokens.map((t) => `{{${t}}}`).join(", ")}; they would stop a send until replaced.`
+          : ""),
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:duplicate_email_template failed");
+    return { error: err instanceof Error ? err.message : "Failed to duplicate email template" };
+  }
+};
+
 const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
   try {
     const slug = String(input.slug ?? "").trim();
@@ -513,6 +559,7 @@ export const COMMUNICATION_EXECUTORS: Record<string, ToolExecutor> = {
   send_bulk_email: sendBulkEmail,
   list_email_templates: listEmailTemplates,
   create_email_template: createEmailTemplate,
+  duplicate_email_template: duplicateEmailTemplateTool,
   update_email_template: updateEmailTemplate,
   reset_email_template: resetEmailTemplate,
   list_scheduled_emails: listScheduledEmails,

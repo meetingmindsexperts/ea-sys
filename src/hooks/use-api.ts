@@ -1230,6 +1230,21 @@ export function useCreateEmailTemplate(eventId: string) {
   });
 }
 
+/** Copy a template as a new custom one that starts disabled (Sep 25, 2026); returns the new row. */
+export function useDuplicateEmailTemplate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      fetchApi<{ id: string; name: string; slug: string; unfillableTokens?: string[] }>(
+        `/api/events/${eventId}/email-templates/${templateId}/duplicate`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
+    },
+  });
+}
+
 export function useDeleteEmailTemplate(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

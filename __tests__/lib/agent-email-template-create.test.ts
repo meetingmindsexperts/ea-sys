@@ -191,3 +191,46 @@ describe("update_email_template refuses to repurpose a built-in template", () =>
     expect(await update({ slug: "joining-instructions", htmlContent: "<p>Room 4, 9am.</p>" })).toMatchObject({ success: true });
   });
 });
+
+describe("duplicate_email_template (September 25, 2026)", () => {
+  const dup = (input: Record<string, unknown>) => COMMUNICATION_EXECUTORS.duplicate_email_template(input, ctx) as Promise<Record<string, unknown>>;
+
+  it("is a write tool on both doors for an admin, with no approval card, and list_email_templates points to it", () => {
+    for (const source of ["agent", "mcp"] as const) {
+      const tools = collectToolsForActor({
+        organizationId: "org",
+        actor: { userId: "u1", role: "ADMIN", fromApiKey: source === "mcp" },
+        source,
+      });
+      expect(tools.map((t) => t.name), source).toContain("duplicate_email_template");
+      expect(tools.find((t) => t.name === "list_email_templates")?.description).toContain("duplicate_email_template");
+    }
+    expect(isWriteTool("duplicate_email_template")).toBe(true);
+    expect(requiresApproval("duplicate_email_template")).toBe(false);
+  });
+
+  it("copies the built-in speaker invitation as a disabled custom template, audits it, and says it starts disabled", async () => {
+    const res = await dup({ slug: "speaker-invitation" });
+    expect(res).toMatchObject({ success: true, duplicatedFrom: "speaker-invitation", template: { slug: "speaker-invitation-copy", isActive: false } });
+    expect(String(res.message)).toMatch(/DISABLED/);
+    expect(res.unknownTokens).toBeUndefined();
+    expect(mockDb.emailTemplate.create.mock.calls[0][0].data.isActive).toBe(false);
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: "CREATE", entityType: "EmailTemplate", changes: expect.objectContaining({ source: "agent", duplicatedFrom: { id: null, slug: "speaker-invitation" } }) }),
+    }));
+  });
+
+  it("does not refuse a copied token no custom sender fills: it reports it, because the agent did not invent it", async () => {
+    mockDb.emailTemplate.findUnique.mockImplementation(async ({ where }: { where: { eventId_slug: { slug: string } } }) =>
+      where.eventId_slug.slug === "old" ? { id: "t0", slug: "old", name: "Old", subject: "s", htmlContent: "<p>{{madeUpToken}}</p>", textContent: null } : null);
+    const res = await dup({ slug: "old" });
+    expect(res).toMatchObject({ success: true, unknownTokens: ["madeUpToken"] });
+    expect(String(res.message)).toContain("{{madeUpToken}}");
+  });
+
+  it("needs a slug and answers an unknown one with SOURCE_NOT_FOUND", async () => {
+    expect(await dup({})).toMatchObject({ code: "MISSING_FIELDS" });
+    expect(await dup({ slug: "no-such-template" })).toMatchObject({ code: "SOURCE_NOT_FOUND" });
+    expect(mockDb.emailTemplate.create).not.toHaveBeenCalled();
+  });
+});

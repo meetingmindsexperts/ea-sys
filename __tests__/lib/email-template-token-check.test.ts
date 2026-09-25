@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import {
   BULK_BASE_VARIABLES,
+  BULK_SPEAKER_VARIABLES,
   BULK_CONDITIONAL_VARIABLES,
   EMAIL_TEMPLATE_SPECS,
   templateAllowedTokenKeys,
@@ -151,6 +152,13 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
   it("the conditional RSVP tokens are still assigned in the bulk sender", () => {
     for (const k of BULK_CONDITIONAL_VARIABLES) {
       expect(src).toContain(`vars.${k} =`);
+    }
+  });
+
+  it("the speaker-only tokens are still assigned in the bulk sender, and a custom template may use them", () => {
+    for (const k of BULK_SPEAKER_VARIABLES) {
+      expect(src).toContain(`vars.${k} =`);
+      expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
   });
 });

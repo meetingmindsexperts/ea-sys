@@ -305,7 +305,7 @@ export function registerAllMcpTools(
       status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]).optional(),
       limit: z.number().optional(),
     }},
-    { name: "list_email_templates", description: "List email templates.", params: {} },
+    { name: "list_email_templates", description: "List email templates: id, name, slug, subject and whether each is active. Metadata only, no body. To copy one (\"duplicate the speaker invitation\"), call duplicate_email_template with its slug; do not ask the person to paste the HTML.", params: {} },
     { name: "get_event_stats", description: "Get event statistics dashboard.", params: {} },
     { name: "list_rsvps", description: "List the event's RSVPs (a gala dinner, parallel workshops, a site visit — an event can run several, each with its own guest list). Each RSVP carries its items, per-item headcounts (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses. Optional campaignId (narrow to one RSVP), status (PENDING/RESPONDED) + limit.", params: {
       campaignId: z.string().optional(),
@@ -702,6 +702,10 @@ export function registerAllMcpTools(
       subject: z.string().optional(),
       htmlContent: z.string().optional(),
       textContent: z.string().optional(),
+      name: z.string().optional(),
+    }},
+    { name: "duplicate_email_template", description: "Copy an email template on this event, built-in or custom, by its slug (e.g. 'speaker-invitation'). The copy is a new custom template with the same subject and body, named '<name> (copy)' with slug '<slug>-copy' (numbered when taken) unless you pass a name. It starts DISABLED: it is not offered for sending until someone switches it on in its editor on the Email Templates page, so tell the person that. Its tokens carry over; speaker tokens fill when it is sent to speakers. To change the copy's text afterwards, call update_email_template with the new slug.", params: {
+      slug: z.string(),
       name: z.string().optional(),
     }},
     { name: "reset_email_template", description: "Remove the event-specific override for an email template. Subsequent sends will use the system default.", params: {

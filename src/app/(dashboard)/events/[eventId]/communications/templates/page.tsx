@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,10 +28,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Loader2, Mail, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Mail, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { useEmailTemplates, useCreateEmailTemplate, useDeleteEmailTemplate } from "@/hooks/use-api";
+import { useEmailTemplates, useCreateEmailTemplate, useDeleteEmailTemplate, useDuplicateEmailTemplate } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { templateDescription } from "@/lib/email-template-registry";
 import { cn } from "@/lib/utils";
@@ -73,12 +73,16 @@ function TemplateCard({
   eventId,
   onDelete,
   deleting,
+  onDuplicate,
+  duplicating,
 }: {
   template: TemplateRow;
   isCustom: boolean;
   eventId: string;
   onDelete: (id: string, name: string) => void;
   deleting: boolean;
+  onDuplicate: (id: string) => void;
+  duplicating: boolean;
 }) {
   const href = `/events/${eventId}/communications/templates/${template.id}`;
   return (
@@ -125,6 +129,17 @@ function TemplateCard({
         >
           <Pencil className="h-3 w-3" /> Edit
         </Link>
+        <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          disabled={duplicating}
+          onClick={() => onDuplicate(template.id)}
+          aria-label={`Duplicate ${template.name}`}
+        >
+          {duplicating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />} Duplicate
+        </Button>
         {isCustom && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -157,6 +172,7 @@ function TemplateCard({
             </AlertDialogContent>
           </AlertDialog>
         )}
+        </div>
       </div>
     </Card>
   );
@@ -168,6 +184,8 @@ export default function EmailTemplatesPage() {
   const { data, isLoading } = useEmailTemplates(eventId);
   const createMutation = useCreateEmailTemplate(eventId);
   const deleteMutation = useDeleteEmailTemplate(eventId);
+  const duplicateMutation = useDuplicateEmailTemplate(eventId);
+  const router = useRouter();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -175,6 +193,7 @@ export default function EmailTemplatesPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
 
@@ -221,6 +240,21 @@ export default function EmailTemplatesPage() {
       toast.error(error instanceof Error ? error.message : "Failed to delete template");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // The copy starts disabled, so it cannot be sent by accident; open it so the
+  // organiser can edit it and switch it on.
+  const handleDuplicate = async (id: string) => {
+    setDuplicatingId(id);
+    try {
+      const copy = await duplicateMutation.mutateAsync(id);
+      toast.success(`Copied as “${copy.name}”. It starts disabled; switch it on when it is ready.`);
+      router.push(`/events/${eventId}/communications/templates/${copy.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to duplicate template");
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -435,6 +469,8 @@ export default function EmailTemplatesPage() {
                 eventId={eventId}
                 onDelete={handleDelete}
                 deleting={deletingId === template.id}
+                onDuplicate={handleDuplicate}
+                duplicating={duplicatingId === template.id}
               />
             ))}
           </div>
@@ -457,6 +493,8 @@ export default function EmailTemplatesPage() {
                 eventId={eventId}
                 onDelete={handleDelete}
                 deleting={deletingId === template.id}
+                onDuplicate={handleDuplicate}
+                duplicating={duplicatingId === template.id}
               />
             ))}
           </div>

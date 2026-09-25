@@ -160,6 +160,30 @@ test("W8 create a custom email template from a draft", async ({ golden }) => {
 // built-in templates (the travel-grant reminder and the presenter agreement
 // among them) with token-free text. Three creates, no update, the built-ins
 // untouched.
+// The September 24, 2026 production case: asked to duplicate the speaker
+// invitation, the agent had no tool that returned a template's body and asked
+// the person to paste the HTML. One duplicate, a disabled custom copy that
+// keeps the invitation's tokens, and the person is told it starts disabled.
+test("W10 duplicating the speaker invitation makes one disabled custom copy", async ({ golden }) => {
+  const r = await golden.ask({
+    eventId: EV.TEMPLATE_DUP.id,
+    message: "Can you create a duplicate template of the speaker invitation?",
+  });
+  const templates = await golden.db.emailTemplate.findMany({
+    where: { eventId: EV.TEMPLATE_DUP.id },
+    select: { slug: true, name: true, htmlContent: true, isActive: true },
+  });
+  expect(templates, "exactly one template on the event: the copy").toHaveLength(1);
+  const t = templates[0];
+  expect(t.slug).toBe("speaker-invitation-copy");
+  expect(t.isActive, "the copy starts disabled").toBe(false);
+  expect(t.htmlContent, "the invitation's tokens carried over").toContain("{{speakerName}}");
+  expect(ranWrites(r.steps)).toHaveLength(1);
+  expect(onlyWrites(r.steps, [T.duplicate_email_template])).toEqual([]);
+  expect(r.reply, `says the copy starts disabled: ${r.reply}`).toMatch(/disabled|not active|switch it on|turn it on|activate/i);
+  expect(r.reply, `quotes the template's link: ${r.reply}`).toContain(`/events/${EV.TEMPLATE_DUP.id}/communications/templates/`);
+});
+
 test("W9 three invitation categories become three custom templates, no built-in overwritten", async ({ golden }) => {
   const r = await golden.ask({
     eventId: EV.TEMPLATE3.id,

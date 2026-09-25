@@ -58,6 +58,7 @@ describe("the table", () => {
 describe("dashboardPathForTool", () => {
   it("points at the row's own page when the result names it, else the surface", () => {
     expect(dashboardPathForTool("create_email_template", "ev1", { template: { id: "tpl9" } })).toBe("/events/ev1/communications/templates/tpl9");
+    expect(dashboardPathForTool("duplicate_email_template", "ev1", { template: { id: "tpl10" } })).toBe("/events/ev1/communications/templates/tpl10");
     expect(dashboardPathForTool("list_email_templates", "ev1", { templates: [] })).toBe("/events/ev1/communications/templates");
     expect(dashboardPathForTool("create_speaker", "ev1", { speaker: { id: "sp1" } })).toBe("/events/ev1/speakers/sp1");
     expect(dashboardPathForTool("update_abstract_status", "ev1", { abstract: { id: "ab1" } })).toBe("/events/ev1/abstracts/ab1/edit");

@@ -59,6 +59,7 @@ export const EV = {
   BUDGET: { id: "golden-ev-budget", slug: "golden-budget", code: "GLD-BUDGET", name: "Golden Budget Retreat 2027" },
   TEMPLATE: { id: "golden-ev-template", slug: "golden-template", code: "GLD-TEMPLATE", name: "Golden Template Institute 2027" },
   TEMPLATE3: { id: "golden-ev-template3", slug: "golden-template3", code: "GLD-TEMPLATE3", name: "Golden Three Invitations Congress 2027" },
+  TEMPLATE_DUP: { id: "golden-ev-template-dup", slug: "golden-template-dup", code: "GLD-TPL-DUP", name: "Golden Copied Invitation Summit 2027" },
   // The red-team round (E3, September 22, 2026): wrong targets, hand-overs, repeats, more injection vectors.
   INJECT: { id: "golden-ev-inject", slug: "golden-inject", code: "GLD-INJECT", name: "Golden Injection Clinic 2027" },
   HEART_DUBAI: { id: "golden-ev-heart-dubai", slug: "golden-heart-dubai", code: "GLD-HEART-DXB", name: "Golden Heart Forum Dubai 2027" },

@@ -958,6 +958,16 @@ export const BULK_BASE_VARIABLES: readonly string[] = [
 export const BULK_CONDITIONAL_VARIABLES: readonly string[] = ["rsvpLink", "rsvpName", "rsvpButton"];
 
 /**
+ * Bulk tokens filled only when the audience is speakers (`bulk-email.ts`, the
+ * speaker-context branch; since Sep 3, 2026). Missing from every list until
+ * Sep 25, 2026, so a custom template using them was flagged as having unknown
+ * tokens and the agent's create refused them, although a send to speakers
+ * fills them. Sent to another audience they stay unfilled, and the send's
+ * unresolved-token guard says so, as it does for an RSVP token with no RSVP.
+ */
+export const BULK_SPEAKER_VARIABLES: readonly string[] = ["honorarium", "honorariumAmount", "honorariumCurrency"];
+
+/**
  * Every token key a template's senders can fill, for the save-time check that
  * warns an organiser before a send is refused.
  *
@@ -982,6 +992,7 @@ export function templateAllowedTokenKeys(slug: string): string[] {
   if (!spec || spec.surfaces.includes("bulk")) {
     for (const k of BULK_BASE_VARIABLES) allowed.add(k);
     for (const k of BULK_CONDITIONAL_VARIABLES) allowed.add(k);
+    for (const k of BULK_SPEAKER_VARIABLES) allowed.add(k);
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];
