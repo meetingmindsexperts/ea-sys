@@ -35,8 +35,10 @@ export const DEFAULT_TIER_NAMES = [
 ];
 
 /**
- * Delegate tier ordering for the public register redirect. A tier outside this
- * list sorts last rather than being excluded, so a custom tier still works.
+ * The delegate tier ladder. Since Sep 25, 2026 it is only the DEFAULT for where
+ * the main /register link lands; the organiser's own list in Settings →
+ * Registration replaces it (src/lib/main-register-tiers.ts). A tier outside
+ * the list is no longer a fall-through candidate.
  */
 export const DELEGATE_TIER_PRIORITY = ["early-bird", "standard", "onsite"];
 

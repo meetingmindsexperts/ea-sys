@@ -52,6 +52,7 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PromoCodesPanel } from "@/components/promo-codes/promo-codes-panel";
+import { MainRegisterTiersField } from "@/components/events/main-register-tiers-field";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -648,10 +649,15 @@ export default function TicketsPage() {
           </li>
           <li className="flex gap-2.5">
             <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">4</span>
-            <span>The main registration link (<code className="text-xs bg-white px-1.5 py-0.5 rounded border">/e/slug/register</code>) auto-redirects to the active tier (Early Bird → Standard → Onsite). <strong>Presenter</strong> tiers are separate: they never appear on the delegate link, and abstract submitters are placed on whichever one is on sale when they sign up.</span>
+            <span>The main registration link (<code className="text-xs bg-white px-1.5 py-0.5 rounded border">/e/slug/register</code>) goes to the first <strong>ticked</strong> rate on sale, in tier order. Choose the ticked rates under <strong>Main registration link</strong> below (Early Bird, Standard and Onsite until you change it); an unticked rate still works through its own link. <strong>Presenter</strong> tiers are separate: they never appear on the delegate link, and abstract submitters are placed on whichever one is on sale when they sign up.</span>
           </li>
         </ul>
       </div>
+
+      {/* Which rates the /register link may land on (src/lib/main-register-tiers.ts). */}
+      {event && (
+        <MainRegisterTiersField eventId={eventId} ticketTypes={ticketTypes} settings={event.settings} />
+      )}
         </TabsContent>
 
         <TabsContent value="promos" className="mt-6">

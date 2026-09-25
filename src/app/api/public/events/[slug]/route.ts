@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
+import { readMainRegisterTiers } from "@/lib/main-register-tiers";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -280,6 +281,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the organizer explicitly enabled it AND the tier/type has a real seat
       // limit (quantity < 999999 sentinel).
       showRemainingTickets: settings.showRemainingTickets === true,
+      // Which tier names the main /register link may land on, in order
+      // (Settings → Registration; src/lib/main-register-tiers.ts).
+      mainRegisterTiers: readMainRegisterTiers(event.settings),
       // NOTE: the supporting-document policy is PER TICKET TYPE (see the
       // ticketTypes select above), not event-wide. The old event-level
       // `residentLetter` switch was retired on 2026-08-13 and its value

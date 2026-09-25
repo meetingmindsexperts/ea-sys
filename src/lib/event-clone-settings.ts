@@ -32,6 +32,7 @@ const CLONEABLE_SETTINGS_KEYS: readonly string[] = [
   "waitlistEnabled",
   "registrationOpen",
   "showRemainingTickets",
+  "mainRegisterTiers",
   "maxAttendees",
   "groupRegistration",
   "presenterRegistration",

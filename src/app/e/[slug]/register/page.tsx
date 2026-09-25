@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { sanitizeHtml } from "@/lib/sanitize";
-import { DELEGATE_TIER_PRIORITY, isPresenterTierName } from "@/lib/presenter-tiers";
+import { pickMainRegisterTier, readMainRegisterTiers } from "@/lib/main-register-tiers";
 import { useSession } from "next-auth/react";
 import {
   Calendar,
@@ -35,6 +35,8 @@ interface PricingTier {
   available: number;
   soldOut: boolean;
   canPurchase: boolean;
+  /** The tier's position on the Registration Types page; orders the main link. */
+  sortOrder?: number | null;
 }
 
 interface TicketType {
@@ -66,6 +68,8 @@ interface Event {
   bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
+  /** Tier-name slugs the main link may land on, in order (Settings → Registration). */
+  mainRegisterTiers?: string[];
   eventType?: string | null;
   /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
   eventFull?: boolean;
@@ -155,21 +159,15 @@ export default function RegisterOverviewPage() {
     // where virtual attendance (uncapped) is still open, so we redirect to the
     // tier page which shows the in-person-full notice.
     const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
-    // First active DELEGATE tier by priority. Presenter tiers are excluded:
-    // abstract submitters reach theirs through the abstract signup, and a
-    // delegate must never be auto-landed on a presenter rate. Was an exact
-    // match on "presenter"; now a family test, so `Presenter Early Bird` and
-    // `Presenter Standard` are excluded too.
+    // In tier order, the first tier on sale whose name the organiser ticked
+    // (Registration Types page). Only ticked names are candidates, so a
+    // Complimentary or Workshop tier is reached by its own link, never by
+    // falling through here. Presenter tiers can never be ticked.
+    // readMainRegisterTiers re-cleans the list and supplies the default when
+    // an older API response has no field.
     const activeTier = !registrationOpen || eventFullBlocks
       ? undefined
-      : event.ticketTypes
-          ?.flatMap((tt: TicketType) => (tt.pricingTiers || []).filter((t: PricingTier) => t.canPurchase))
-          .filter((t: PricingTier) => !isPresenterTierName(t.name))
-          .sort((a: PricingTier, b: PricingTier) => {
-            const ai = DELEGATE_TIER_PRIORITY.indexOf(toSlug(a.name));
-            const bi = DELEGATE_TIER_PRIORITY.indexOf(toSlug(b.name));
-            return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-          })[0];
+      : pickMainRegisterTier(event.ticketTypes, readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }));
 
     if (activeTier) {
       router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}`);

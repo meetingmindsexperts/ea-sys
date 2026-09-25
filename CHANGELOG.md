@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: organisers choose where the main registration link lands (September 25)
+
+`/e/<slug>/register` redirected to the first tier on sale by a fixed ladder
+(Early Bird, Standard, Onsite), but any OTHER tier name sorted last and was
+still picked. On prod, ibc2026 (DRAFT) has every delegate tier off and an active
+Complimentary and Inclusive tier, so the day it was published the public would
+have landed on a free rate, which the register API accepts. Now the
+**Registration Types** page has a collapsible **Main registration link**
+section at the bottom (plain-language explanation, example, and the note that an
+unticked rate is unlisted, not locked; use a promo code to protect a discount),
+one tick per tier name (`Event.settings.mainRegisterTiers`, no migration; each tick saves
+at once). The link lands on the first TICKED tier on sale, in the tiers' own
+order (`sortOrder`), or shows Registration Closed. Unset = Early Bird, Standard,
+Onsite ticked, so unconfigured events keep today's landing minus the
+fall-through. Unticked tiers keep their direct link (owner decision: link-only,
+like a private rate). Presenter tiers can never be ticked. Cloned
+with the event. `src/lib/main-register-tiers.ts`.
+
 ### Added: the presenter agreement in any email, `{{presenterAgreementAttachment}}` and `{{presenterAgreementLink}}` (September 25)
 
 Owner: "whichever email has {{presenterAgreementAttachment}} has to send that".
