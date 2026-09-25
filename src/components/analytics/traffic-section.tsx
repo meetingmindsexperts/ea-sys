@@ -18,8 +18,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Loader2, TrendingDown, Globe, AlertTriangle } from "lucide-react";
+import { Loader2, Globe, AlertTriangle } from "lucide-react";
+import { DailyBars, FunnelBars, Kpi, PrivacyNote, RangePicker, TopList, duration, measuredFromText, pct } from "./traffic-parts";
 
 interface FunnelStep {
   name: string;
@@ -46,22 +46,10 @@ interface TrafficResponse {
     devices: { label: string; visitors: number }[];
   };
   funnel: FunnelStep[];
+  measuredFrom: string | null;
   hitsRead: number;
   truncated: boolean;
   timeZone: string;
-}
-
-const RANGES = [7, 30, 90, 365] as const;
-
-function pct(v: number): string {
-  return `${Math.round(v * 100)}%`;
-}
-
-function duration(ms: number | null): string {
-  if (ms === null) return "—";
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 export function TrafficSection({ eventId }: { eventId: string }) {
@@ -78,8 +66,6 @@ export function TrafficSection({ eventId }: { eventId: string }) {
   });
 
   const s = data?.summary;
-  const peak = s ? Math.max(1, ...s.daily.map((d) => d.pageviews)) : 1;
-  const funnelTop = data?.funnel?.[0]?.count ?? 0;
 
   return (
     <Card>
@@ -92,19 +78,7 @@ export function TrafficSection({ eventId }: { eventId: string }) {
             People who visited this event&apos;s public pages, whether or not they registered.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {RANGES.map((r) => (
-            <Button
-              key={r}
-              size="sm"
-              variant={days === r ? "default" : "outline"}
-              className="h-7 px-2 text-xs"
-              onClick={() => setDays(r)}
-            >
-              {r === 365 ? "1y" : `${r}d`}
-            </Button>
-          ))}
-        </div>
+        <RangePicker days={days} onChange={setDays} />
       </CardHeader>
 
       <CardContent className="space-y-5">
@@ -152,71 +126,19 @@ export function TrafficSection({ eventId }: { eventId: string }) {
             </div>
 
             {/* The funnel. The reason the feature exists. */}
-            {data.funnel.length > 0 && funnelTop > 0 && (
-              <div>
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-700">
-                  <TrendingDown className="h-3.5 w-3.5" /> Registration funnel
-                </p>
-                <div className="space-y-2">
-                  {data.funnel.map((step, i) => (
-                    <div key={step.name}>
-                      <div className="flex items-baseline justify-between text-sm">
-                        <span className="text-slate-700">{step.label}</span>
-                        <span className="tabular-nums font-medium text-slate-900">
-                          {step.count.toLocaleString()}
-                          <span className="ml-2 text-xs font-normal text-slate-500">
-                            {pct(step.conversionRate)}
-                          </span>
-                        </span>
-                      </div>
-                      <div className="mt-1 h-3 overflow-hidden rounded bg-slate-100">
-                        <div
-                          className="h-full rounded bg-primary/70"
-                          style={{ width: `${Math.min(100, (step.count / funnelTop) * 100)}%` }}
-                        />
-                      </div>
-                      {i > 0 && step.dropOff > 0 && (
-                        <p className="mt-0.5 text-[11px] text-slate-500">
-                          {step.dropOff.toLocaleString()} left here ({pct(step.dropOffRate)})
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  &ldquo;Registered online&rdquo; counts registrations made through the public form
-                  in this period. Imported, admin-added and speaker registrations are not counted,
-                  because those people did not come through these pages.
-                </p>
-              </div>
-            )}
+            <FunnelBars
+              steps={data.funnel}
+              note={
+                <>
+                  &ldquo;Registered online&rdquo; counts registrations made through the public form in this
+                  period. Imported, admin-added and speaker registrations are not counted, because those
+                  people did not come through these pages. {measuredFromText(data.measuredFrom, data.range.from)}
+                </>
+              }
+            />
 
             {/* Daily shape */}
-            <div>
-              <div className="flex h-20 items-end gap-[2px]">
-                {s.daily.map((d) => (
-                  <div
-                    key={d.date}
-                    className="flex h-full flex-1 flex-col justify-end"
-                    title={`${d.date} — ${d.pageviews} views, ${d.visitors} visitors`}
-                  >
-                    {d.pageviews === 0 ? (
-                      <div className="h-[2px] w-full rounded-sm bg-slate-100" />
-                    ) : (
-                      <div
-                        className="w-full rounded-t-sm bg-primary/60"
-                        style={{ height: `${Math.max(3, (d.pageviews / peak) * 100)}%` }}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-1 flex justify-between font-mono text-[10px] text-slate-500">
-                <span>{s.daily[0]?.date}</span>
-                <span>views per day · peak {peak.toLocaleString()}</span>
-                <span>today</span>
-              </div>
-            </div>
+            <DailyBars daily={s.daily} />
 
             <div className="grid gap-4 sm:grid-cols-3">
               <TopList
@@ -237,81 +159,10 @@ export function TrafficSection({ eventId }: { eventId: string }) {
               />
             </div>
 
-            <p className="border-t pt-3 text-[11px] leading-relaxed text-slate-500">
-              Visitors are counted without cookies and cannot be identified or followed between
-              days. Bots and link previews are excluded, so these numbers are lower, and more
-              honest, than raw server hits. Days are grouped in the event&apos;s own timezone
-              ({data.timeZone}).
-              {data.truncated &&
-                ` Only the first ${data.hitsRead.toLocaleString()} hits in this range were counted.`}
-            </p>
+            <PrivacyNote timeZone={data.timeZone} truncated={data.truncated} hitsRead={data.hitsRead} />
           </>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: "warn";
-}) {
-  return (
-    <div className="rounded-md border bg-slate-50/60 p-3">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className={`text-xl font-semibold tabular-nums ${tone === "warn" ? "text-amber-600" : "text-slate-900"}`}>
-        {value}
-      </p>
-      {hint && <p className="text-[10px] text-slate-500">{hint}</p>}
-    </div>
-  );
-}
-
-function TopList({
-  title,
-  rows,
-  empty,
-  icon,
-}: {
-  title: string;
-  rows: { label: string; n: number }[];
-  empty: string;
-  icon?: React.ReactNode;
-}) {
-  const max = Math.max(1, ...rows.map((r) => r.n));
-  return (
-    <div>
-      <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-700">
-        {icon}
-        {title}
-      </p>
-      {rows.length === 0 ? (
-        <p className="text-xs text-slate-400">{empty}</p>
-      ) : (
-        <ul className="space-y-1">
-          {rows.slice(0, 6).map((r) => (
-            <li key={r.label} className="relative text-xs">
-              <div
-                className="absolute inset-y-0 left-0 rounded-sm bg-primary/10"
-                style={{ width: `${(r.n / max) * 100}%` }}
-              />
-              <div className="relative flex justify-between gap-2 px-1.5 py-0.5">
-                <span className="truncate font-mono" title={r.label}>
-                  {r.label}
-                </span>
-                <span className="shrink-0 tabular-nums text-slate-500">{r.n.toLocaleString()}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }

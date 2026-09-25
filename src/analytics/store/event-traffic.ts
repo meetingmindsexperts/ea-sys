@@ -14,11 +14,14 @@ import { summariseTraffic, buildRegistrationFunnel } from "@/analytics/core/aggr
 import type { TrafficSummary } from "@/analytics/core/aggregate";
 import type { FunnelStep } from "@/analytics/core/funnel";
 import type { AnalyticsHit } from "@/analytics/core/types";
+import { measuredFrom, registrationsFrom } from "./measured-from";
 
 export interface EventTraffic {
   summary: TrafficSummary;
   funnel: FunnelStep[];
   /** Hits considered. Surfaced so a truncated window is never silent. */
+  /** When visit measurement began (ISO), or null if nothing was ever measured; registrations count from here. */
+  measuredFrom: string | null;
   hitsRead: number;
   truncated: boolean;
   timeZone: string;
@@ -44,6 +47,8 @@ export async function getEventTraffic(opts: {
   const timeZone = opts.timeZone || "UTC";
 
   return runWithTenant(opts.organizationId, async () => {
+    const start = await measuredFrom(opts.organizationId);
+    const regFrom = registrationsFrom(opts.from, start);
     const [rows, registrationCount] = await Promise.all([
       db.analyticsEvent.findMany({
         where: {
@@ -75,14 +80,17 @@ export async function getEventTraffic(opts: {
       // 100% on imported events. A later cancellation still counts: the
       // person did convert. Faculty cannot arrive this way; the filter stays
       // as a guard so a companion row is never counted as a conversion.
-      db.registration.count({
-        where: {
-          eventId: opts.eventId,
-          createdSource: "PUBLIC_REGISTER",
-          createdAt: { gte: opts.from, lte: opts.to },
-          ...EXCLUDE_FACULTY_WHERE,
-        },
-      }),
+      // ...and from when measurement began, not before it (measured-from.ts).
+      regFrom
+        ? db.registration.count({
+            where: {
+              eventId: opts.eventId,
+              createdSource: "PUBLIC_REGISTER",
+              createdAt: { gte: regFrom, lte: opts.to },
+              ...EXCLUDE_FACULTY_WHERE,
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
     const truncated = rows.length > MAX_HITS;
@@ -111,6 +119,7 @@ export async function getEventTraffic(opts: {
     return {
       summary: summariseTraffic(hits, { from: opts.from, to: opts.to, timeZone }),
       funnel: buildRegistrationFunnel(hits, registrationCount),
+      measuredFrom: start ? start.toISOString() : null,
       hitsRead: used.length,
       truncated,
       timeZone,

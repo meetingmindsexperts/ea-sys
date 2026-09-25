@@ -398,7 +398,7 @@ joined to `Registration`.
 | Deferred | Why |
 |---|---|
 | **Country / geo** | Doing it without a third party needs a self-hosted MaxMind GeoLite2 database: a free account, a ~6MB file, and a refresh job. Using `ipapi.co` (already in §6 for login geo) would mean an outbound call per pageview and sending visitor IPs to a US third party, which defeats the point. Worth doing, not worth blocking v1. |
-| **Org-level cross-event dashboard** | The per-event view answers the actual question. Add once there is data. |
+| ~~**Org-level cross-event dashboard**~~ BUILT Sep 25, 2026 | The per-event view answers the actual question. Add once there is data. **Built at `/analytics` (`src/analytics/store/org-traffic.ts`, `summariseBySite`) after five weeks and 12 events of data. The same day the funnel was corrected: step one is any public page (93% of views land straight on a register page), and "Registered online" is public-form registrations within the window and from the first recorded hit (`measured-from.ts`), which fixed conversion above 100%.** |
 | **Daily rollup table** | Unnecessary at this volume. Raw rows are simpler and let us answer a question we have not thought of yet. |
 | **Publishing the open-source package** | §7.4. Designed for, not committed to. |
 | **Ad-platform pixels** | Separate decision with its own consent question. |

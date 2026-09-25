@@ -24,6 +24,44 @@ fall-through. Unticked tiers keep their direct link (owner decision: link-only,
 like a private rate). Presenter tiers can never be ticked. Cloned
 with the event. `src/lib/main-register-tiers.ts`.
 
+### Added: app-wide Analytics page; fixed: the traffic funnel counted the wrong registrations (September 25)
+
+Owner: "see if you can improve analytics ... it is unstructured", then "app
+analytics, not event analytics", then "Visitor traffic, app-wide". A review of
+the first-party visitor tracking against production (3,072 hits since Aug 20
+across 12 events) found the collection sound and the one figure it exists for,
+the registration funnel, wrong.
+
+- **Funnel fixes (per-event card and the new page).**
+  - The last step counted every registration the event ever had (CSV imports,
+    admin adds, rows from before tracking) against one window's visitors; it
+    now counts public-form registrations made in the window.
+  - ...and only from the organisation's first recorded hit
+    (`src/analytics/store/measured-from.ts`): a 90-day window otherwise reached
+    back into weeks of sign-ups with no measurement, which showed 600% on the
+    local prod copy. Each view says from when it counts.
+  - Step one was the event home page, which production barely uses (93% of
+    views land straight on a register page, sent by the conference website);
+    it is now any public page, so step two can no longer exceed it.
+- **`/analytics`** (sidebar, under Events): visitors, page views, opened a
+  form, registered online; the funnel; traffic over time; a by-event table
+  (visitors, opened form, registered online, conversion, top source, daily
+  trend, linking to the event); websites sending visitors, pages, devices.
+  `GET /api/analytics/traffic?days=` reads only the events
+  `buildEventAccessWhere` allows (onsite staff see their assigned events,
+  CRM/HR users an empty page), in the time zone most of them use; rate-limited
+  like the per-event read. Middleware redirects the confined roles and
+  reviewers/submitters. Visitors are counted per event (the visitor hash
+  includes the event, by design), and the page says so.
+- **Shared drawing parts** (`src/components/analytics/traffic-parts.tsx`) for
+  the per-event card and the page, so the two cannot drift.
+- No new data collected, no migration.
+- **Verified** on the standalone build against the local prod copy (via a
+  temporary local ADMIN, deleted afterwards). **Tests:** 16 new; mutation
+  checks on event scoping (a case with onsite staff was added when the first
+  mutant survived), the public-form filter, the measurement-start clamp and
+  hiding silent events.
+
 ### Changed: `schema.prisma` split into nine area files (September 25)
 
 Owner: "should we work on breaking down the schema.prisma", then "keep HR,

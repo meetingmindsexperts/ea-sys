@@ -80,6 +80,10 @@ const CRM_IN_SIDEBAR = true;
 const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean; agentOnly?: boolean; hrOnly?: boolean; procurementOnly?: boolean; external?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
+  // App-wide public-site traffic (Sep 25, 2026). No flag: the data is scoped
+  // by buildEventAccessWhere on the server, and the confined roles never get
+  // this list (they have their own sidebars).
+  { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
   // CRM (docs/CRM_MODULE_PLAN.md). One of the three permitted core-side touch
   // points for the module (§7.0) — hence the @/crm import below, which the

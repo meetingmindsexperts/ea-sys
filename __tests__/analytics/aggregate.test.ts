@@ -8,7 +8,7 @@
  * back the next day). Both produce a bigger, nicer number that is wrong.
  */
 import { describe, it, expect } from "vitest";
-import { summariseTraffic, buildRegistrationFunnel } from "@/analytics/core/aggregate";
+import { summariseTraffic, summariseBySite, buildRegistrationFunnel } from "@/analytics/core/aggregate";
 import type { AnalyticsHit } from "@/analytics/core/types";
 
 const FROM = new Date("2026-08-18T00:00:00Z");
@@ -211,5 +211,36 @@ describe("registration funnel", () => {
     const f = buildRegistrationFunnel([], 0);
     expect(f.every((s) => Number.isFinite(s.conversionRate))).toBe(true);
     expect(f.map((s) => s.count)).toEqual([0, 0, 0]);
+  });
+});
+
+describe("summariseBySite (the app-wide view, Sep 25, 2026)", () => {
+  const hits = [
+    hit({ siteId: "evA", visitorHash: "a1", routePattern: "/e/:slug/register/:category", referrerHost: "site-a.com" }),
+    hit({ siteId: "evA", visitorHash: "a1", routePattern: "/e/:slug/register/:category", referrerHost: "site-a.com" }),
+    hit({ siteId: "evA", visitorHash: "a2", routePattern: "/e/:slug/agenda", referrerHost: null }),
+    hit({ siteId: "evA", visitorHash: "a3", routePattern: "/e/:slug", referrerHost: "other.com" }),
+    hit({ siteId: "evA", visitorHash: "a4", routePattern: "/e/:slug", referrerHost: "site-a.com", occurredAt: new Date("2026-08-18T10:00:00Z") }),
+    hit({ siteId: "evB", visitorHash: "b1", routePattern: "/e/:slug/register" }),
+    hit({ siteId: "evB", visitorHash: "b1", name: "page_engagement", durationMs: 500 }),
+  ];
+
+  it("counts distinct visitors and register-form visitors per site, ignoring engagement hits", () => {
+    const rows = summariseBySite(hits, { from: FROM, to: TO });
+    const a = rows.find((r) => r.siteId === "evA")!;
+    const b = rows.find((r) => r.siteId === "evB")!;
+    expect(a).toMatchObject({ pageviews: 5, visitors: 4, registerVisitors: 1, topSource: "site-a.com" });
+    expect(b).toMatchObject({ pageviews: 1, visitors: 1, registerVisitors: 1, topSource: null });
+  });
+
+  it("gives each site a daily series over the whole range, oldest first, and sorts busiest first", () => {
+    const rows = summariseBySite(hits, { from: FROM, to: TO });
+    expect(rows.map((r) => r.siteId)).toEqual(["evA", "evB"]);
+    expect(rows[0].daily).toEqual([1, 0, 4]);
+    expect(rows[1].daily).toEqual([0, 0, 1]);
+  });
+
+  it("returns nothing for no hits", () => {
+    expect(summariseBySite([], { from: FROM, to: TO })).toEqual([]);
   });
 });

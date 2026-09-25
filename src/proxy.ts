@@ -272,7 +272,8 @@ export default auth((req) => {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/logs") ||
     pathname.startsWith("/agent") ||
-    pathname.startsWith("/profile")
+    pathname.startsWith("/profile") ||
+    pathname.startsWith("/analytics")
   ) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/events";
@@ -336,6 +337,9 @@ export const config = {
     // confinement branches actually run on it (review H-1: it was outside
     // the matcher, so NO role branch ever executed there).
     "/invoices/:path*",
+    // App-wide Analytics (Sep 25, 2026): in the matcher so the confined roles
+    // are redirected from it like every other org page.
+    "/analytics/:path*",
     "/my-registration/:path*",
     "/api/:path*",
   ],

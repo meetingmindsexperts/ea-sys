@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb } = vi.hoisted(() => ({
-  mockDb: { analyticsEvent: { findMany: vi.fn() }, registration: { count: vi.fn() } },
+  mockDb: { analyticsEvent: { findMany: vi.fn(), findFirst: vi.fn() }, registration: { count: vi.fn() } },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_org: string, fn: () => unknown) => fn() }));
@@ -20,6 +20,8 @@ const to = new Date("2026-09-25T23:59:59Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Measurement began well before these windows unless a test says otherwise.
+  mockDb.analyticsEvent.findFirst.mockResolvedValue({ createdAt: new Date("2026-08-20T00:00:00Z") });
   mockDb.analyticsEvent.findMany.mockResolvedValue([
     { name: "pageview", path: "/e/x/register/d", routePattern: "/e/:slug/register/:category", visitorHash: "a", sessionHash: "s1", referrerHost: "example.org", deviceType: "desktop", durationMs: null, scrollDepth: null, createdAt: new Date("2026-09-10T10:00:00Z") },
     { name: "pageview", path: "/e/x/agenda", routePattern: "/e/:slug/agenda", visitorHash: "b", sessionHash: "s2", referrerHost: null, deviceType: "mobile", durationMs: null, scrollDepth: null, createdAt: new Date("2026-09-11T10:00:00Z") },
@@ -39,5 +41,21 @@ describe("getEventTraffic", () => {
   it("reads hits for the same window", async () => {
     await getEventTraffic({ eventId: "ev1", organizationId: "org1", from, to });
     expect(mockDb.analyticsEvent.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", createdAt: { gte: from, lte: to } });
+  });
+
+  it("counts registrations only from when measurement began, not from before it (the 600% case)", async () => {
+    const early = new Date("2026-06-27T00:00:00Z");
+    mockDb.analyticsEvent.findFirst.mockResolvedValue({ createdAt: new Date("2026-08-20T00:00:00Z") });
+    const t = await getEventTraffic({ eventId: "ev1", organizationId: "org1", from: early, to });
+    expect(mockDb.registration.count.mock.calls[0][0].where.createdAt).toEqual({ gte: new Date("2026-08-20T00:00:00Z"), lte: to });
+    expect(t.measuredFrom).toBe("2026-08-20T00:00:00.000Z");
+  });
+
+  it("counts no online registrations at all when nothing was ever measured", async () => {
+    mockDb.analyticsEvent.findFirst.mockResolvedValue(null);
+    const t = await getEventTraffic({ eventId: "ev1", organizationId: "org1", from, to });
+    expect(mockDb.registration.count).not.toHaveBeenCalled();
+    expect(t.funnel[2].count).toBe(0);
+    expect(t.measuredFrom).toBeNull();
   });
 });

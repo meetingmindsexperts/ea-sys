@@ -198,6 +198,68 @@ export function summariseTraffic(
   };
 }
 
+export interface SiteRow {
+  siteId: string;
+  pageviews: number;
+  /** Distinct visitors to this site over the range. */
+  visitors: number;
+  /** Distinct visitors who opened a registration form. */
+  registerVisitors: number;
+  /** The referrer host that sent the most visitors, or null if all were direct. */
+  topSource: string | null;
+  /** Pageviews per day across the range, oldest first, for a small trend. */
+  daily: number[];
+}
+
+/**
+ * One row per site (per event in EA-SYS) for the app-wide view (Sep 25,
+ * 2026). The visitor hash includes the site, so a person who looked at two
+ * events is two visitors here, by design; the page says so.
+ */
+export function summariseBySite(
+  hits: readonly AnalyticsHit[],
+  opts: { from: Date; to: Date; timeZone?: string },
+): SiteRow[] {
+  const timeZone = opts.timeZone || "UTC";
+  const days = dateRange(opts.from, opts.to, timeZone);
+  const dayIndex = new Map(days.map((d, i) => [d, i]));
+  const REGISTER_PAGES = new Set(["/e/:slug/register", "/e/:slug/register/:category"]);
+
+  const sites = new Map<
+    string,
+    { pageviews: number; visitors: Set<string>; register: Set<string>; sources: Map<string, Set<string>>; daily: number[] }
+  >();
+  for (const hit of hits) {
+    if (hit.name !== PAGEVIEW) continue;
+    let site = sites.get(hit.siteId);
+    if (!site) {
+      site = { pageviews: 0, visitors: new Set(), register: new Set(), sources: new Map(), daily: days.map(() => 0) };
+      sites.set(hit.siteId, site);
+    }
+    site.pageviews++;
+    site.visitors.add(hit.visitorHash);
+    if (REGISTER_PAGES.has(hit.routePattern)) site.register.add(hit.visitorHash);
+    if (hit.referrerHost) {
+      const set = site.sources.get(hit.referrerHost) ?? new Set<string>();
+      set.add(hit.visitorHash);
+      site.sources.set(hit.referrerHost, set);
+    }
+    const i = dayIndex.get(dayKey(hit.occurredAt, timeZone));
+    if (i !== undefined) site.daily[i]++;
+  }
+
+  return [...sites.entries()]
+    .map(([siteId, s]) => ({
+      siteId,
+      pageviews: s.pageviews,
+      visitors: s.visitors.size,
+      registerVisitors: s.register.size,
+      topSource: topBy(s.sources, 1)[0]?.label ?? null,
+      daily: s.daily,
+    }))
+    .sort((a, b) => b.visitors - a.visitors || a.siteId.localeCompare(b.siteId));
+}
+
 /**
  * The registration funnel, counted in DISTINCT VISITORS rather than pageviews.
  *
