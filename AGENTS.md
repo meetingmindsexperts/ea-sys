@@ -113,6 +113,19 @@ represent, so every push dies on a name collision (CLAUDE.md has the detail). Lo
 snapshots first and **fails closed** if it cannot, so it is undoable via `npm run db:restore`; that
 seatbelt exists because a list of forbidden commands only covers the footguns someone already met.
 
+**Where a new model goes** (the schema is a folder since Sep 25, 2026). `prisma/schema.prisma` holds
+only the generator and the datasource; never add a model there, and never move it or add a `.prisma`
+file anywhere else under `prisma/` (Prisma merges every one it finds, and a moved `schema.prisma` loses
+`prisma/migrations`). Put the model in the area file it belongs to, in `prisma/models/`:
+`core` (organisations, users, events, auth, API keys, custom roles) · `registrations` (types, tiers,
+registrations, invoices, promo codes, sponsors, accommodation) · `program` (speakers, abstracts,
+proposals, sessions, reimbursements, travel grants, Zoom and webinars) · `communications` (templates,
+scheduled sends, email log, notifications, contacts, media) · `engagement` (certificates, surveys,
+RSVP) · `operations` (audit and system logs, public docs, agent runs, worker jobs, DR archive) · `crm`
+· `hr` · `procurement`. A relation that crosses files: run `npx prisma format` from the CLI afterwards,
+because the editor extension fills only one side. Anything that reads the schema TEXT uses
+`prisma/schema-text.ts`. `prisma-schema-layout.test.ts` fails if any of this drifts.
+
 ### 5. Verify before you push
 ```bash
 npx tsc --noEmit && npm run lint && npm run test && npm run build

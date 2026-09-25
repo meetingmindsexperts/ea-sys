@@ -7,6 +7,34 @@
 
 ---
 
+## Prisma 7 upgrade: the schema-folder traps (recorded Sep 25, 2026)
+
+Not scheduled. Written down now because the schema became a folder on Sep 25, 2026
+(`prisma/schema.prisma` + `prisma/models/*.prisma`) and Prisma 7 changes how that folder is found.
+Research sources: GitHub issues #28669, #28673, #27900, #27855, #27974; Prisma's v7 upgrade guide.
+
+- **The trap.** Prisma 7 stops reading `package.json#prisma`, where we point it at the folder. Upgrade
+  and leave it there, and Prisma reads `schema.prisma` alone: **zero models**. A `migrate diff` would
+  then propose dropping every table. Reported for 7.0.0 in #28669 and #28673.
+- **The fix, in order:**
+  1. Create `prisma.config.ts` with `schema: "prisma"` (the FOLDER, never the file) and
+     `migrations: { path: "prisma/migrations" }`.
+  2. Add `import "dotenv/config"` at its top. With a config file Prisma stops loading `.env` (already
+     true on 6.x, #27900), and every local script relies on it.
+  3. Remove the `prisma` key from `package.json`.
+  4. Re-prove: `prisma-schema-layout.test.ts` green (it pins the `package.json` key today, so update it
+     to read the config instead), the schema-to-schema `migrate diff` empty, and the CI replay green
+     before anything reaches prod.
+- **Also in 7, independent of the split:**
+  - the generator becomes `prisma-client` with a required `output`;
+  - a driver adapter is required (`@prisma/adapter-pg`);
+  - the datasource URL moves into the config;
+  - Node 20.19 or later.
+  It is a real project, not a version bump.
+- **Prisma 8** (release candidate as of Sep 2026) brings multiple files back only through glob inputs,
+  with a `// use prisma-8` line required in every file (PR #30379, merged Sep 24, 2026, with a codemod).
+  Wait for it to settle.
+
 ## Email templates, tokens and senders: the streamlining phases the owner deferred (Sep 18, 2026)
 
 The adversarial review in [CODE_REVIEW_EMAIL_TEMPLATES.html](CODE_REVIEW_EMAIL_TEMPLATES.html)

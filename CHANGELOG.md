@@ -51,6 +51,16 @@ lines and 267 KB (139 models, 79 enums).
   `prisma/schema-text.ts`. CLAUDE.md and four code comments point to the new
   files. The Dockerfiles, `deploy.sh` and Vercel needed no change: each copies
   `package.json` before `prisma generate` and relies on default discovery.
+- **Precautions, after two research agents** (known Prisma issues; whether to
+  split at all; both recommended keeping it). `prisma-schema-layout.test.ts`
+  fails if the generated client's models or enums differ from the files (the
+  silent drop-out that hit several Prisma releases), if a stray `.prisma`
+  file appears under `prisma/`, if `schema.prisma` gains a model or loses the
+  generator/datasource, if `prisma/migrations` moves, or if `package.json`
+  stops pointing at the folder. Mutation-checked, including a client
+  generated from `schema.prisma` alone. AGENTS.md says which file a new model
+  goes in and to run `npx prisma format` after a cross-file relation.
+  docs/ROADMAP.md records the Prisma 7 zero-models trap and the fix order.
 
 ### Added: a "Public link" switch on each HTML doc (September 25)
 
