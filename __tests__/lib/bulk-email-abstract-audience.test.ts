@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, sendEmail, resolveTravelGrantBlock } = vi.hoisted(() => ({
+const { mockDb, sendEmail, resolveTravelGrantBlock, presenterMint, presenterPdf } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     abstract: { findMany: vi.fn() },
@@ -21,6 +21,8 @@ const { mockDb, sendEmail, resolveTravelGrantBlock } = vi.hoisted(() => ({
   // The ONE resolver both the automatic confirmation and the bulk resend use;
   // its own rules (home / unknown / declined) are pinned in travel-grant-block.test.ts.
   resolveTravelGrantBlock: vi.fn().mockResolvedValue({ html: "", text: "" }),
+  presenterMint: vi.fn(),
+  presenterPdf: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -57,6 +59,11 @@ vi.mock("@/lib/email-barcode", () => ({ buildEntryBarcode: vi.fn(), templateUses
 vi.mock("@/lib/payment-reminder", () => ({ buildPaymentReminderVars: vi.fn() }));
 vi.mock("@/lib/email-attachments", () => ({ resolveStoredAttachments: vi.fn().mockResolvedValue({ ok: true, attachments: [] }) }));
 vi.mock("@/lib/travel-grant/server", () => ({ resolveTravelGrantBlock }));
+vi.mock("@/lib/presenter-agreement", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/presenter-agreement")>()),
+  mintPresenterAgreementLink: presenterMint,
+  generatePresenterAgreementPdf: presenterPdf,
+}));
 
 import { executeBulkEmail } from "@/lib/bulk-email";
 import { renderAndWrap } from "@/lib/email";
@@ -209,5 +216,21 @@ describe("abstract-reminder and custom", () => {
     const r = await executeBulkEmail({ ...BASE, emailType: "custom", customSubject: "Hi", customMessage: "There" });
     expect(r.successCount).toBe(1);
     expect(mockDb.abstract.findMany.mock.calls[0][0].where).not.toHaveProperty("status");
+  });
+});
+
+describe("the presenter agreement tokens on a send to abstract authors (Sep 25, 2026)", () => {
+  it("attaches the AUTHOR's presenter PDF and fills their accept link, keyed on the speaker, not the abstract", async () => {
+    const { getDefaultTemplate } = await import("@/lib/email");
+    vi.mocked(getDefaultTemplate).mockReturnValue({ slug: "abstract-confirmation", name: "n", subject: "S", htmlContent: "<p>{{presenterAgreementLink}}</p>{{presenterAgreementAttachment}}", textContent: "x" } as never);
+    presenterMint.mockResolvedValue("https://x/e/hemnet/presenter-agreement?token=t1");
+    presenterPdf.mockResolvedValue({ filename: "presenter-agreement-hemnet-doe.pdf", buffer: Buffer.from("p") });
+    mockDb.abstract.findMany.mockResolvedValue([abstractRow({})]);
+    await executeBulkEmail({ ...BASE, emailType: "abstract-confirmation" });
+    expect(presenterMint).toHaveBeenCalledWith("spk-1", "hemnet", { rotate: false });
+    expect(mockDb.abstract.findMany.mock.calls[0][0].select.speaker.select).toMatchObject({ presenterAgreementAcceptedAt: true });
+    expect(presenterPdf).toHaveBeenCalledWith({ eventId: "evt-1", speakerId: "spk-1" });
+    expect(sentVars().presenterAgreementLink).toBe("https://x/e/hemnet/presenter-agreement?token=t1");
+    expect((sendEmail.mock.calls[0][0].attachments as { name: string }[]).map((a) => a.name)).toContain("presenter-agreement-hemnet-doe.pdf");
   });
 });

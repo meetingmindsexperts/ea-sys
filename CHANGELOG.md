@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: the presenter agreement in any email, `{{presenterAgreementAttachment}}` and `{{presenterAgreementLink}}` (September 25)
+
+Owner: "whichever email has {{presenterAgreementAttachment}} has to send that".
+Owner decisions: sends to speakers and to abstract authors; an author who has
+already accepted gets neither; PDF plus an accept link.
+
+- **One helper**, `resolvePresenterAgreementForSend()` in
+  `src/lib/presenter-agreement-send.ts`, called by the bulk pipeline (speakers
+  and abstracts audiences, keyed on the author's Speaker id) and a speaker's
+  single Send Email. Nothing is minted or generated unless the text (template
+  or typed subject/message) uses a token.
+- **Link** minted additively (`rotate: false`): a bulk send never cancels a
+  link the author already holds. The abstract card's own send still rotates.
+  The mint is now ONE function, `mintPresenterAgreementLink()`, used by both
+  (the card route carried it inline).
+- **PDF** best-effort: a generation failure is logged and the email goes
+  without it; a failed link mint fails that recipient rather than sending a
+  dead link.
+- **Tokens** accepted in custom templates (`BULK_PRESENTER_VARIABLES`) and
+  listed in the Variables panel under "Presenter agreement".
+- **Tests:** 13 new across the helper, the mint, both bulk audiences and the
+  single send; mutation-checked (the accepted skip, additive minting, the
+  abstract-author key, both attachments, the rotate switch, the selected
+  column each turn a test red).
+
 ### Added: duplicate an email template, on the dashboard and through the agent (September 25)
 
 Owner: "give an option to clone or duplicate a template manually and for the AI

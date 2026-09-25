@@ -20,6 +20,8 @@ const {
   mockGetEventTemplate,
   mockMintAgreementLink,
   mockGenAgreementPdf,
+  mockMintPresenter,
+  mockPresenterPdf,
 } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -31,6 +33,8 @@ const {
   mockGetEventTemplate: vi.fn(),
   mockMintAgreementLink: vi.fn(),
   mockGenAgreementPdf: vi.fn(),
+  mockMintPresenter: vi.fn(),
+  mockPresenterPdf: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -65,6 +69,13 @@ vi.mock("@/lib/speaker-agreement", async (importOriginal) => {
     mintSpeakerAgreementLink: (...args: unknown[]) => mockMintAgreementLink(...args),
   };
 });
+// The presenter tokens run through the REAL shared helper; only the mint and
+// the PDF are faked (Sep 25, 2026).
+vi.mock("@/lib/presenter-agreement", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/presenter-agreement")>()),
+  mintPresenterAgreementLink: (...args: unknown[]) => mockMintPresenter(...args),
+  generatePresenterAgreementPdf: (...args: unknown[]) => mockPresenterPdf(...args),
+}));
 vi.mock("@/lib/email-barcode", () => ({
   buildEntryBarcode: vi.fn(),
   templateUsesEntryBarcode: vi.fn().mockReturnValue(false),
@@ -140,6 +151,8 @@ beforeEach(() => {
   mockSendEmail.mockResolvedValue({ success: true });
   mockMintAgreementLink.mockResolvedValue("https://x.com/e/osh/speaker-agreement?token=tok1");
   mockGenAgreementPdf.mockResolvedValue({ filename: "agreement.pdf", buffer: Buffer.from("pdf") });
+  mockMintPresenter.mockResolvedValue("https://x.com/e/osh/presenter-agreement?token=ptok");
+  mockPresenterPdf.mockResolvedValue({ filename: "presenter-agreement-osh-b.pdf", buffer: Buffer.from("ppdf") });
 });
 
 function varsHandedToRenderer(): Record<string, unknown> {
@@ -265,5 +278,43 @@ describe("executeBulkEmail — attach-when-possible agreement document (owner de
     const res = await executeBulkEmail(BASE_INPUT);
     expect(res.successCount).toBe(1);
     expect(mockGenAgreementPdf).not.toHaveBeenCalled();
+  });
+});
+
+describe("executeBulkEmail — the presenter agreement tokens on a send to speakers (Sep 25, 2026)", () => {
+  const TPL_PRESENTER = {
+    subject: "{{eventName}}",
+    htmlContent: "<p>Hi {{speakerName}}</p><a href=\"{{presenterAgreementLink}}\">Accept</a>{{presenterAgreementAttachment}}",
+    textContent: "{{presenterAgreementLink}}",
+  };
+
+  it("attaches the presenter PDF and fills an additive accept link for the speaker", async () => {
+    mockGetDefaultTemplate.mockReturnValue(TPL_PRESENTER);
+    await executeBulkEmail(BASE_INPUT);
+    expect(mockMintPresenter).toHaveBeenCalledWith("spk-1", "osh", { rotate: false });
+    expect(mockPresenterPdf).toHaveBeenCalledWith({ eventId: "evt-1", speakerId: "spk-1" });
+    const vars = varsHandedToRenderer();
+    expect(vars.presenterAgreementLink).toBe("https://x.com/e/osh/presenter-agreement?token=ptok");
+    expect(vars.presenterAgreementAttachment).toBe("");
+    const attachments = mockSendEmail.mock.calls[0][0].attachments as { name: string }[];
+    expect(attachments.map((a) => a.name)).toContain("presenter-agreement-osh-b.pdf");
+  });
+
+  it("gives a speaker who already accepted the presenter agreement neither, and still sends", async () => {
+    mockGetDefaultTemplate.mockReturnValue(TPL_PRESENTER);
+    mockDb.speaker.findMany.mockResolvedValue([{ ...speaker("spk-1"), presenterAgreementAcceptedAt: new Date("2026-09-01") }]);
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(mockMintPresenter).not.toHaveBeenCalled();
+    expect(mockPresenterPdf).not.toHaveBeenCalled();
+    expect(varsHandedToRenderer().presenterAgreementLink).toBe("");
+    // The mock returns whatever it is given, so pin that the real query asks for the column.
+    expect(mockDb.speaker.findMany.mock.calls[0][0].select).toMatchObject({ presenterAgreementAcceptedAt: true });
+  });
+
+  it("touches nothing presenter-related when the template does not use the tokens", async () => {
+    await executeBulkEmail(BASE_INPUT);
+    expect(mockMintPresenter).not.toHaveBeenCalled();
+    expect(mockPresenterPdf).not.toHaveBeenCalled();
   });
 });

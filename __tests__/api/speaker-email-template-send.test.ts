@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, sendEmailSpy, getEventTemplateSpy, getDefaultTemplateSpy } = vi.hoisted(
+const { mockDb, mockAuth, sendEmailSpy, getEventTemplateSpy, getDefaultTemplateSpy, presenterSpy } = vi.hoisted(
   () => ({
     mockDb: {
     // The {{rsvpLink}} resolver reads invites (Sep 11, 2026); empty by default.
@@ -23,6 +23,7 @@ const { mockDb, mockAuth, sendEmailSpy, getEventTemplateSpy, getDefaultTemplateS
     sendEmailSpy: vi.fn(),
     getEventTemplateSpy: vi.fn(),
     getDefaultTemplateSpy: vi.fn(),
+    presenterSpy: vi.fn(),
   }),
 );
 
@@ -87,6 +88,7 @@ vi.mock("@/lib/email-attachments", () => ({
   resolveStoredAttachments: vi.fn().mockResolvedValue({ ok: true, attachments: [] }),
 }));
 vi.mock("@/lib/email-attachment-limits", () => ({ MAX_MANUAL_ATTACHMENTS: 3 }));
+vi.mock("@/lib/presenter-agreement-send", () => ({ resolvePresenterAgreementForSend: presenterSpy }));
 
 import { POST } from "@/app/api/events/[eventId]/speakers/[speakerId]/email/route";
 import { renderAndWrap } from "@/lib/email";
@@ -132,6 +134,7 @@ beforeEach(() => {
     emailSignature: null,
   });
   sendEmailSpy.mockResolvedValue({ success: true, messageId: "m1" });
+  presenterSpy.mockResolvedValue({ vars: { presenterAgreementAttachment: "", presenterAgreementLink: "" }, attachment: null });
   getEventTemplateSpy.mockResolvedValue(null);
   getDefaultTemplateSpy.mockReturnValue({ subject: "Def", htmlContent: "<p>d</p>", textContent: "d" });
 });
@@ -215,5 +218,31 @@ describe("speaker single-send: saved template with {{rsvpLink}}", () => {
     expect(body.error).toContain('"Dinner"');
     expect(body.error).toContain('"Workshop"');
     expect(sendEmailSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("speaker single-send — the presenter agreement tokens (Sep 25, 2026)", () => {
+  it("hands the template and typed text to the shared helper with the speaker's acceptance, and attaches what it returns", async () => {
+    const accepted = null;
+    mockDb.speaker.findFirst.mockResolvedValueOnce({
+      id: "sp1", email: "spk@x.com", firstName: "Jane", lastName: "Doe", title: "DR", additionalEmail: null,
+      agreementAcceptedAt: null, presenterAgreementAcceptedAt: accepted, sessions: [],
+    });
+    getEventTemplateSpy.mockResolvedValue({
+      subject: "Saved", htmlContent: "<p>{{presenterAgreementLink}}</p>{{presenterAgreementAttachment}}", textContent: "t", branding: { eventName: "Ev" },
+    });
+    presenterSpy.mockResolvedValueOnce({
+      vars: { presenterAgreementAttachment: "", presenterAgreementLink: "https://x/e/ev-slug/presenter-agreement?token=p" },
+      attachment: { name: "presenter-agreement-ev-slug-doe.pdf", content: "cA==", contentType: "application/pdf" },
+    });
+    const res = await POST(makeReq({ type: "template", templateSlug: "presenter-chaser" }), routeParams);
+    expect(res.status).toBe(200);
+    expect(presenterSpy).toHaveBeenCalledWith(expect.objectContaining({
+      eventId: "ev1", eventSlug: "ev-slug", speakerId: "sp1", acceptedAt: accepted,
+      texts: expect.arrayContaining(["<p>{{presenterAgreementLink}}</p>{{presenterAgreementAttachment}}"]),
+    }));
+    const vars = vi.mocked(renderAndWrap).mock.calls[0][1] as Record<string, unknown>;
+    expect(vars.presenterAgreementLink).toBe("https://x/e/ev-slug/presenter-agreement?token=p");
+    expect((sendEmailSpy.mock.calls[0][0].attachments as { name: string }[]).map((a) => a.name)).toContain("presenter-agreement-ev-slug-doe.pdf");
   });
 });

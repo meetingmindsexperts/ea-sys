@@ -26,6 +26,7 @@ import {
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
+import { resolvePresenterAgreementForSend } from "@/lib/presenter-agreement-send";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
@@ -321,6 +322,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // unknown tokens literal).
     vars.agreementAttachment = "";
 
+    // {{presenterAgreementAttachment}} / {{presenterAgreementLink}}: the
+    // presenter (abstract-author) agreement in any email (Sep 25, 2026). The
+    // same helper the bulk pipeline calls; nothing happens unless the text
+    // uses a token, and an author who already accepted gets neither.
+    const presenter = await resolvePresenterAgreementForSend({
+      eventId,
+      eventSlug: event.slug,
+      speakerId: speaker.id,
+      acceptedAt: speaker.presenterAgreementAcceptedAt,
+      texts: [tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage],
+    });
+    Object.assign(vars, presenter.vars);
+
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
 
     // message + personalMessage are pre-rendered FINAL HTML via
@@ -352,6 +366,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // generated document on top.
     const attachments: { name: string; content: string; contentType?: string }[] = [
       ...manualAttachments.attachments,
+      ...(presenter.attachment ? [presenter.attachment] : []),
     ];
 
     // Personalized agreement attachment. Precedence: explicit .docx upload

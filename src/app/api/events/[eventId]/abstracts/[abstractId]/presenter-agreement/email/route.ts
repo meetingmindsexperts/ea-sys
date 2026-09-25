@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -16,12 +15,12 @@ import {
 } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
+import { getClientIp, checkRateLimit } from "@/lib/security";
 import {
   buildPresenterAgreementContext,
   generatePresenterAgreementPdf,
   PRESENTER_AGREEMENT_PDF_MIME,
-  PRESENTER_AGREEMENT_IDENTIFIER_PREFIX,
+  mintPresenterAgreementLink,
 } from "@/lib/presenter-agreement";
 
 const sendSchema = z.object({
@@ -153,21 +152,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // token. Rotates any prior token for the same author.
     let agreementLink = "";
     try {
-      const identifier = `${PRESENTER_AGREEMENT_IDENTIFIER_PREFIX}${speakerId}`;
-      const rawToken = crypto.randomBytes(32).toString("hex");
-      const hashedToken = hashVerificationToken(rawToken);
-      await db.$transaction([
-        db.verificationToken.deleteMany({ where: { identifier } }),
-        db.verificationToken.create({
-          data: {
-            identifier,
-            token: hashedToken,
-            expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-          },
-        }),
-      ]);
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-      agreementLink = `${appUrl}/e/${event.slug}/presenter-agreement?token=${rawToken}`;
+      // Rotates: a deliberate re-send from the card replaces earlier links.
+      agreementLink = await mintPresenterAgreementLink(speakerId, event.slug, { rotate: true });
     } catch (tokenErr) {
       apiLogger.error({
         err: tokenErr,

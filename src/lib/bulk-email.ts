@@ -48,6 +48,7 @@ import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 import { MAX_MANUAL_ATTACHMENTS, type StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
+import { resolvePresenterAgreementForSend } from "@/lib/presenter-agreement-send";
 import {
   buildAbstractConfirmationVars,
   buildAbstractDecisionVars,
@@ -771,6 +772,8 @@ interface ResolvedRecipient {
    * speakers get an "already accepted" note instead of a Review & Agree CTA).
    */
   agreementAcceptedAt?: Date | null;
+  /** The author's presenter-agreement acceptance: speakers and abstract authors only (Sep 25, 2026). */
+  presenterAgreementAcceptedAt?: Date | null;
 }
 
 /** The subset of a bulk-email request needed to validate its config viability. */
@@ -1260,6 +1263,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // Drives {{agreementBlock}} — signed speakers get an "already
         // accepted" note instead of a fresh Review & Agree CTA.
         agreementAcceptedAt: true,
+        // Drives the presenter tokens: an author who accepted gets neither.
+        presenterAgreementAcceptedAt: true,
       },
     });
     recipients = speakers.map((s) => ({
@@ -1270,6 +1275,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       lastName: s.lastName,
       title: s.title,
       agreementAcceptedAt: s.agreementAcceptedAt,
+      presenterAgreementAcceptedAt: s.presenterAgreementAcceptedAt,
     }));
   } else if (recipientType === "abstracts") {
     // Validated by assertValidBulkEmailFilters (via the precheck) — the old
@@ -1290,7 +1296,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         theme: { select: { name: true } },
         submissions: { select: { reviewNotes: true, overallScore: true } },
         speaker: {
-          select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true, country: true },
+          select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true, country: true, presenterAgreementAcceptedAt: true },
         },
       },
     });
@@ -1311,6 +1317,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         lastName: a.speaker.lastName,
         title: a.speaker.title,
         logEntityId: a.speaker.id,
+        presenterAgreementAcceptedAt: a.speaker.presenterAgreementAcceptedAt,
         ...(perAbstract
           ? {
               abstract: {
@@ -1877,6 +1884,26 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.agreementBlockText = block.text;
     }
 
+    // {{presenterAgreementAttachment}} / {{presenterAgreementLink}} (Sep 25,
+    // 2026): the presenter agreement in any send to speakers or abstract
+    // authors. The same helper a speaker's single Send Email calls; nothing
+    // is minted or generated unless the text uses a token. Other audiences
+    // leave the tokens unset, so the unresolved-token guard names them.
+    let presenterAttachment: BulkEmailAttachment | undefined;
+    const presenterAuthorId =
+      recipientType === "speakers" ? recipient.id : recipientType === "abstracts" ? recipient.logEntityId : undefined;
+    if (presenterAuthorId) {
+      const presenter = await resolvePresenterAgreementForSend({
+        eventId,
+        eventSlug: event.slug || event.id,
+        speakerId: presenterAuthorId,
+        acceptedAt: recipient.presenterAgreementAcceptedAt,
+        texts: [tpl.subject, tpl.htmlContent, tpl.textContent, customSubject, customMessage],
+      });
+      Object.assign(vars, presenter.vars);
+      presenterAttachment = presenter.attachment ?? undefined;
+    }
+
     if (emailType === "custom") {
       // Pre-flight already verified subject + message are present (see
       // hoisted check above the recipient resolve), so this is just
@@ -2095,6 +2122,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     return {
       ...renderAndWrap(tplForSend, vars, branding, rawHtmlKeys),
       barcodeAttachment,
+      presenterAttachment,
     };
   };
 
@@ -2196,6 +2224,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           let recipientAttachments: BulkEmailAttachment[] | undefined = attachmentBytes;
           // Inline entry-barcode image (cid:reg-barcode) when the template's
           // {{entryBarcode}} token resolved for this recipient.
+          if (emailContent.presenterAttachment) {
+            recipientAttachments = [...(recipientAttachments ?? []), emailContent.presenterAttachment];
+          }
           if (emailContent.barcodeAttachment) {
             recipientAttachments = [
               ...(recipientAttachments ?? []),

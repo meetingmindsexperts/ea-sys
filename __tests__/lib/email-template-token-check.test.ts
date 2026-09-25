@@ -22,6 +22,7 @@ import { join } from "node:path";
 import {
   BULK_BASE_VARIABLES,
   BULK_SPEAKER_VARIABLES,
+  BULK_PRESENTER_VARIABLES,
   CUSTOM_TEMPLATE_VARIABLE_GROUPS,
   isUnlistedCustomTemplateToken,
   BULK_CONDITIONAL_VARIABLES,
@@ -154,6 +155,15 @@ describe("BULK_BASE_VARIABLES stays in step with the real sender", () => {
   it("the conditional RSVP tokens are still assigned in the bulk sender", () => {
     for (const k of BULK_CONDITIONAL_VARIABLES) {
       expect(src).toContain(`vars.${k} =`);
+    }
+  });
+
+  it("the presenter tokens are filled by the bulk sender through the shared helper, and a custom template may use them", () => {
+    expect(src).toContain("resolvePresenterAgreementForSend(");
+    const helper = readFileSync(join(process.cwd(), "src/lib/presenter-agreement-send.ts"), "utf8");
+    for (const k of BULK_PRESENTER_VARIABLES) {
+      expect(helper).toContain(`${k}: ""`);
+      expect(templateAllowedTokenKeys("faculty-welcome")).toContain(k);
     }
   });
 

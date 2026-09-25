@@ -12,7 +12,9 @@
  * The PDF attachment reuses the shared `renderAgreementHtmlToPdf` renderer so
  * the online acceptance page and the emailed PDF read identical text.
  */
+import { randomBytes } from "crypto";
 import { normalizeTemplateTokens } from "@/lib/template-tokens";
+import { hashVerificationToken } from "@/lib/security";
 import { db } from "@/lib/db";
 import { renderAgreementHtmlToPdf, loadAgreementPdfImage } from "@/lib/speaker-agreement";
 import { DEFAULT_PRESENTER_AGREEMENT_HTML } from "@/lib/default-terms";
@@ -24,6 +26,57 @@ export const PRESENTER_AGREEMENT_PDF_MIME = "application/pdf";
 
 /** Token identifier prefix for the one-time acceptance link. */
 export const PRESENTER_AGREEMENT_IDENTIFIER_PREFIX = "presenter-agreement:";
+
+// ── Presenter agreement in any email (September 25, 2026, owner request) ──────
+//
+// "Whichever email has {{presenterAgreementAttachment}} has to send that": two
+// tokens, usable in any template sent to speakers or abstract authors.
+// {{presenterAgreementAttachment}} is an INVISIBLE marker (renders as "")
+// that attaches the author's personalised presenter agreement PDF;
+// {{presenterAgreementLink}} is their accept link. An author who has already
+// accepted gets neither (the link renders empty). The Presenter Agreement card
+// on an abstract still sends its own email as before.
+
+const PRESENTER_ATTACHMENT_TOKEN_RE = /\{\{presenterAgreementAttachment\}\}/;
+const PRESENTER_LINK_TOKEN_RE = /\{\{presenterAgreementLink\}\}/;
+
+/** True when any template part carries the invisible attach-the-PDF marker. */
+export function templateUsesPresenterAgreementAttachment(...parts: Array<string | null | undefined>): boolean {
+  return parts.some((p) => !!p && PRESENTER_ATTACHMENT_TOKEN_RE.test(p));
+}
+
+/** True when any template part places the accept link; the mint is gated on it, so no other send creates a token. */
+export function templateUsesPresenterAgreementLink(...parts: Array<string | null | undefined>): boolean {
+  return parts.some((p) => !!p && PRESENTER_LINK_TOKEN_RE.test(p));
+}
+
+/**
+ * Mint the author's presenter-agreement accept link (fresh 30-day token, one
+ * use). ONE implementation for the abstract card's send and the bulk
+ * pipeline. `rotate: true` (the card, a deliberate re-send) replaces the
+ * author's earlier tokens; `rotate: false` (a bulk send carrying the token)
+ * adds one and clears only expired ones, so a bulk send never kills a link
+ * the author already holds. The accept page looks a token up by its own hash,
+ * so several live tokens for one author all work.
+ */
+export async function mintPresenterAgreementLink(
+  speakerId: string,
+  eventSlug: string,
+  opts?: { rotate?: boolean },
+): Promise<string> {
+  const identifier = `${PRESENTER_AGREEMENT_IDENTIFIER_PREFIX}${speakerId}`;
+  const rawToken = randomBytes(32).toString("hex");
+  const hashedToken = hashVerificationToken(rawToken);
+  const rotate = opts?.rotate ?? true;
+  await db.$transaction([
+    db.verificationToken.deleteMany({ where: rotate ? { identifier } : { identifier, expires: { lt: new Date() } } }),
+    db.verificationToken.create({
+      data: { identifier, token: hashedToken, expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+    }),
+  ]);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  return `${appUrl}/e/${eventSlug}/presenter-agreement?token=${rawToken}`;
+}
 
 export interface PresenterAgreementContext {
   title: string;
@@ -265,3 +318,4 @@ export async function generatePresenterAgreementPdf(opts: {
   const filename = `presenter-agreement-${slugify(event.slug)}-${slugify(resolved.context.lastName || "presenter")}.pdf`;
   return { buffer, filename };
 }
+

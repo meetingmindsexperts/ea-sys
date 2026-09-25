@@ -968,6 +968,14 @@ export const BULK_CONDITIONAL_VARIABLES: readonly string[] = ["rsvpLink", "rsvpN
 export const BULK_SPEAKER_VARIABLES: readonly string[] = ["honorarium", "honorariumAmount", "honorariumCurrency"];
 
 /**
+ * The presenter (abstract-author) agreement in any email (Sep 25, 2026):
+ * filled on sends to speakers and to abstract authors, by
+ * `resolvePresenterAgreementForSend` (presenter-agreement.ts). Another
+ * audience leaves them unset and the send's unresolved-token guard says so.
+ */
+export const BULK_PRESENTER_VARIABLES: readonly string[] = ["presenterAgreementAttachment", "presenterAgreementLink"];
+
+/**
  * What a CUSTOM template's editor lists, grouped by who the email goes to
  * (Sep 25, 2026). The panel used to show only the four event tokens, so an
  * organiser reading it concluded that a copy of the speaker invitation could
@@ -1016,6 +1024,14 @@ export const CUSTOM_TEMPLATE_VARIABLE_GROUPS: ReadonlyArray<{ label: string; hin
       { key: "honorarium", description: "Agreed fee, e.g. USD 1,500.00 (0.00 when none)" },
       { key: "honorariumAmount", description: "The fee amount alone" },
       { key: "honorariumCurrency", description: "The fee currency alone" },
+    ],
+  },
+  {
+    label: "Presenter agreement",
+    hint: "Sent to speakers or abstract authors; empty for anyone who has already accepted it.",
+    variables: [
+      { key: "presenterAgreementAttachment", description: "Invisible: attaches their personalised presenter agreement PDF" },
+      { key: "presenterAgreementLink", description: "Their link to review and accept the presenter agreement" },
     ],
   },
   {
@@ -1073,6 +1089,7 @@ export function templateAllowedTokenKeys(slug: string): string[] {
     for (const k of BULK_BASE_VARIABLES) allowed.add(k);
     for (const k of BULK_CONDITIONAL_VARIABLES) allowed.add(k);
     for (const k of BULK_SPEAKER_VARIABLES) allowed.add(k);
+    for (const k of BULK_PRESENTER_VARIABLES) allowed.add(k);
   }
   for (const k of [...allowed]) allowed.add(`${k}Text`);
   return [...allowed];
