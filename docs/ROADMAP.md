@@ -7,6 +7,24 @@
 
 ---
 
+## Procurement pilot + e2e + load baseline (Sep 28, 2026): parked, code kept
+
+Parked by the owner on Sep 28 until the multi-level approval chain is settled, because
+the spec and the pilot both encode today's single-step routing. The code is on the local
+branch `wip/procurement-pilot` (commit `7c16b040`, not pushed): the golden-path spec
+`e2e/procurement.spec.ts` with its seed (`prisma/seed-e2e-procurement.ts`), the page
+load script `loadtest/k6/page-baseline.js` + `loadtest/baseline-run.sh`, and the team
+checklist `docs/PROCUREMENT_PILOT_4GHH.html` (also published as a private artifact).
+
+To resume: rebase the branch on main, update the spec's routing steps to the new chain,
+re-run it against the standalone with email blocked, then commit. Pilot event chosen:
+4GHH2026 (Nov 28). Still needed from the owner: the mid approver's name, and a "go"
+after 22:00 Dubai for the load run (10 users, the register and agenda pages; the app's
+per-IP limits make `read-burst.js` measure the limiter from one machine). Found while
+building, not fixed: about 20 of the other e2e specs already fail on main (certificates
+403s, stale selectors, screenshot networkidle timeouts), budget form labels are not tied
+to their inputs, and the new-request form briefly renders twice after a hard load.
+
 ## Data privacy (GDPR) backlog (reviewed Sep 28, 2026): recorded, not started
 
 A code review against GDPR and CCPA, read-only, every claim checked in the source.
