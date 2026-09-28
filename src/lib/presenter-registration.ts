@@ -129,7 +129,8 @@ export async function createAndLinkPayableRegistration(
   const created = await createRegistration({
     eventId,
     organizationId,
-    userId: input.actorUserId ?? "",
+    // Null on the public door: no staff member acted. "" failed the audit FK.
+    userId: input.actorUserId ?? null,
     ticketTypeId: input.ticketTypeId,
     pricingTierId: input.pricingTierId,
     attendee: {

@@ -24,6 +24,31 @@ fall-through. Unticked tiers keep their direct link (owner decision: link-only,
 like a private rate). Presenter tiers can never be ticked. Cloned
 with the event. `src/lib/main-register-tiers.ts`.
 
+### Fixed: a public presenter sign-up lost its audit row (September 28)
+
+Prod, Sep 26 20:08 UTC: `registration-service:audit-log-failed`, foreign key
+`AuditLog_userId_fkey`. The public presenter sign-up has no staff actor, and
+`createAndLinkPayableRegistration` passed `userId: input.actorUserId ?? ""`
+(since Aug 11, 96f3a1c2); `""` is not a user, so the fire-and-forget audit
+insert failed. Only that one audit line was lost: the registration, its
+confirmation and the quote were all fine, since the audit write runs last and
+cannot block. It surfaced only now because that path runs only when an event
+offers presenter rates; every earlier presenter sign-up took the free
+speaker-companion path (119 on prod), and this was the first public sign-up
+through a presenter rate ever (1 `PUBLIC_SUBMITTER` row). Organiser grants use
+the same function with a real actor and were never affected.
+
+- `CreateRegistrationInput.userId` is now `string | null`; null means no staff
+  member acted, as on every other public write (392 null-actor audit rows on
+  prod already, 278 of them public registrations). Inside the service the
+  actor feeds only the audit row and one log line, so a free (0) and a paid
+  presenter rate behave identically.
+- The audit row now records `createdSource` when the caller names one, and
+  the Activity timeline shows **"Presenter sign-up"** for such a row instead
+  of "System".
+- Tests: 5 new (the actor on both doors, the null-actor audit row, the
+  recorded entry path, the timeline label); mutation-checked.
+
 ### Added: app-wide Analytics page; fixed: the traffic funnel counted the wrong registrations (September 25)
 
 Owner: "see if you can improve analytics ... it is unstructured", then "app

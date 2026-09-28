@@ -408,6 +408,20 @@ describe("createRegistration — happy path", () => {
     });
   });
 
+  it("writes the audit row with no user for a public door, and records the entry path (Sep 28, 2026)", async () => {
+    // The presenter sign-up has no staff actor. It used to pass "" as the
+    // user, which failed the audit row's foreign key and lost the row.
+    await createRegistration({ ...BASE_INPUT, userId: null, createdSource: "PUBLIC_SUBMITTER" });
+    const data = mockDb.auditLog.create.mock.calls[0][0].data;
+    expect(data.userId).toBeNull();
+    expect(data.changes.createdSource).toBe("PUBLIC_SUBMITTER");
+  });
+
+  it("leaves createdSource out of the audit row when the caller did not name one", async () => {
+    await createRegistration({ ...BASE_INPUT });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.createdSource).toBeUndefined();
+  });
+
   it("writes audit log with source=mcp and no ip for MCP caller", async () => {
     await createRegistration({ ...BASE_INPUT, source: "mcp" });
     const auditCall = mockDb.auditLog.create.mock.calls[0][0];

@@ -211,7 +211,15 @@ export type RegistrationAttendeeRole =
 export interface CreateRegistrationInput {
   eventId: string;
   organizationId: string;
-  userId: string;
+  /**
+   * The staff member acting, written to the audit row. NULL when nobody is:
+   * a public door such as the presenter sign-up (Sep 28, 2026). It used to be
+   * `string`, so that door passed "", which is not a user; the audit insert
+   * then failed its foreign key and the row was lost (prod, Sep 26 20:08 UTC,
+   * the first public presenter sign-up with a paid rate). AuditLog.userId is
+   * nullable, and null is how every other public write records "no actor".
+   */
+  userId: string | null;
 
   /**
    * Optional — when present, validates against the event, enforces sales
@@ -1017,6 +1025,10 @@ export async function createRegistration(
           status: finalStatus,
           ...(sponsorId ? { sponsorId } : {}),
           ...(requestIp ? { ip: requestIp } : {}),
+          // The entry path when a caller named it (e.g. PUBLIC_SUBMITTER), so
+          // the Activity timeline can say "Presenter sign-up" for a row with
+          // no staff actor instead of "System" (Sep 28, 2026).
+          ...(input.createdSource ? { createdSource: input.createdSource } : {}),
         },
       },
     })

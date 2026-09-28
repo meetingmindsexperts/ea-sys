@@ -389,7 +389,9 @@ export function auditActorLabel(log: AuditLogLike): string {
   if (log.user) {
     return `${log.user.firstName} ${log.user.lastName}`.trim() || log.user.email;
   }
-  const source = (log.changes as Record<string, unknown>)?.source;
-  if (source === "public_registration") return "Public Registration";
+  const changes = log.changes as Record<string, unknown> | null;
+  if (changes?.source === "public_registration") return "Public Registration";
+  // The public abstract/presenter door: no staff member acted (Sep 28, 2026).
+  if (changes?.createdSource === "PUBLIC_SUBMITTER") return "Presenter sign-up";
   return "System";
 }
