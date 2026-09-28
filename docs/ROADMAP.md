@@ -2,8 +2,104 @@
 
 **Project:** EA-SYS (Event Administration System)
 **Owner:** MeetingMinds Group
-**Last Updated:** September 18, 2026
+**Last Updated:** September 28, 2026
 **Platform URL:** events.meetingmindsgroup.com
+
+---
+
+## Data privacy (GDPR) backlog (reviewed Sep 28, 2026): recorded, not started
+
+A code review against GDPR and CCPA, read-only, every claim checked in the source.
+It is a technical gap review, not legal advice. **CCPA** most likely does not apply
+(MM Group would need about $26.6M revenue, 100,000 California residents, or half its
+revenue from selling data). **GDPR** likely does: it follows EU attendees and speakers
+wherever the company sits. UAE PDPL overlaps with most of the list.
+Companion to [SECURITY_AND_PRIVACY_POSTURE.md](SECURITY_AND_PRIVACY_POSTURE.md), which
+covers the security side and already declares the DPO, breach-procedure and
+data-subject-request gaps.
+
+**Owner rulings from the review, do not re-raise:**
+- **EA-SYS sends only transactional email.** Confirmations, reminders, invitations and
+  surveys go to people connected to that event, so no marketing opt-in or unsubscribe
+  is required. The review's "no unsubscribe / no suppression list" finding is closed
+  on that basis.
+- **Access to logs, the audit trail and backups is limited to the super admin and the
+  developer.** That is a security control (Art. 32) and is recorded as one. It does not
+  close the items below, which are about holding data, not about who reads it.
+
+**The items, in suggested order:**
+
+1. **Privacy policy, linked on every public form** (Art. 13). Only the reimbursement
+   form links to one (`https://www.meetingmindsgroup.com/privacy-policy`); register,
+   group register, abstract and proposal signup, complete-registration, RSVP, survey and
+   the speaker forms say nothing, and the app has no `/privacy` page. The policy should
+   name what is collected, why, the vendors, where data goes (India, Singapore, US, the
+   EU contact copy) and how long it is kept. Also reword the default terms
+   (`src/lib/default-terms.ts`), whose "you consent to … communication" reads as
+   marketing consent we do not need. Documents first, then one footer link per form.
+   *Open check for the owner:* the EU contact copy's table has `mailchimp_*` columns. If
+   anyone sends Mailchimp newsletters from it, that IS marketing and needs opt-in and
+   unsubscribe there, even though EA-SYS never sends it.
+2. **Processor agreements and transfer clauses** (Art. 28, Chapter V). No code. A DPA
+   with each vendor that receives personal data (Supabase, AWS, Stripe, Zoom, Anthropic,
+   Sentry, and OpenAI if the help chat is ever switched to it), and standard contractual
+   clauses for the transfers out of the EU (India has no adequacy decision). Decide
+   whether an EU representative (Art. 27) is needed.
+3. **An "erase this person" tool** (Art. 17). Today a deletion request cannot be fully
+   honoured:
+   - no route deletes a REGISTRANT or SUBMITTER account (the users DELETE is
+     org-scoped and these accounts are org-less);
+   - deleting a contact never reaches the EU contact copy, which only ever adds
+     (`src/lib/contacts-central-sync.ts`, `docs/CONTACTS_CENTRAL_SYNC.md`);
+   - the audit trail keeps a full snapshot of every deleted registration or speaker,
+     name, email, bio and IP, forever (no prune job; the code says so at
+     `src/lib/audit-data-transfer.ts`);
+   - `EmailLog` rows keep recipient and subject forever (only the body is nulled at 180
+     days);
+   - the hourly Singapore copy of uploaded files runs `aws s3 sync` without `--delete`
+     and has no lifecycle rule, so a deleted file (a future passport scan) stays there;
+   - the monthly log archive files never expire.
+   The tool should delete or anonymise in one place: the account, the contact (and the
+   EU copy row), email-log recipient and subject, and the personal fields inside audit
+   snapshots (keep the action, drop the person). Plus an expiry rule on the DR uploads
+   prefix and the log archive.
+4. **Retention periods** (storage limitation). Nothing expires for registrations,
+   attendees, contacts, speakers, surveys, Zoom attendance, RSVPs, certificates,
+   reimbursements or uploaded documents, and nothing happens when an event ends. The
+   default faculty agreement promises details are kept "up to three (3) years", which
+   nothing enforces. Owner decision needed on the periods; the prune-job pattern already
+   exists (`worker/jobs/*-prune`).
+5. **Dietary requirements** (special category: can reveal religion or health). Collected
+   on registration and RSVP with no purpose text. Add "optional, used only for catering"
+   beside the field and clear it once the event is over.
+
+**Smaller, same review:**
+- **Personal data in logs.** Pino redaction covers passwords and tokens only. Attendee
+  emails are logged at warn on the public register, submitter, abstract-start and
+  complete-registration routes; the event PUT logs the whole request `body` on a
+  validation failure. Warn lines reach `SystemLog` and the never-expiring archive, error
+  context reaches Sentry and the alert email. nginx's default access log records token
+  links (survey, agreements, password reset). Fix: redact `email`, `phone`, `body`, `ip`
+  in the logger, and set an access-log format without query strings.
+- **AI agent.** Tool results (attendee emails, phones, dietary notes) go to Anthropic in
+  full; covered by item 2's DPA. The browser keeps the whole agent chat, results
+  included, in localStorage: clear it on sign-out, since desk computers are shared.
+- **check-email** (`src/app/api/public/events/[slug]/check-email`) reveals whether an
+  address is registered for the event and whether it has an account anywhere.
+- **Terms acceptance** is stamped once per user with no version or text copy, so what
+  was agreed cannot be shown later.
+- **ipapi.co** receives staff sign-in IPs (US); disclose it or set
+  `LOGIN_GEO_ENABLED=false`.
+- **Posture doc correction:** §6 says the app uses Google Fonts. The app self-hosts its
+  fonts (`src/app/fonts.ts`); only the staff user guide still loads them from Google.
+- **Access requests** (Art. 15): no per-person export. Answerable by hand within the
+  month today; a tool would come with item 3.
+
+**Already in good shape (for the policy text):** only the sign-in cookie and cookieless
+analytics, so no cookie banner is needed; Sentry in the EU with no default PII and
+masked replays; no public endpoint returns an email; encryption at rest and in transit;
+role-based access; logs, sign-in history and agent runs already expire; card data never
+touches our servers.
 
 ---
 
