@@ -22,7 +22,10 @@ describe("worker-watchdog.sh state machine", () => {
     try {
       out = execFileSync("bash", [script], {
         encoding: "utf8",
-        timeout: 60_000,
+        // The suite runs in about a second. The ceiling is only headroom for
+        // a stalled machine: at 60s a slow Mac killed the suite mid-run and the
+        // gate reported a truncated output as a failure (Sep 28, 2026).
+        timeout: 180_000,
         // Inherit nothing that could make the script talk to real infra;
         // the suite already forces SEND_ALERTS=0 and a fake docker.
         env: { ...process.env, SEND_ALERTS: "0" },

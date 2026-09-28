@@ -16,14 +16,24 @@ ROOT="$(mktemp -d)"
 FAKE="$ROOT/fakedocker"
 PASS=0; FAIL=0
 
-mkfake() { # $1 = health output, $2 = inspect exit code, $3 = restart exit code
-  cat > "$FAKE" <<EOF
+# The fake docker is written ONCE and reads its behaviour from data files, so a
+# case changes a text file, never the executable (Sep 28, 2026). Rewriting the
+# executable before each case made macOS scan a freshly written script on its
+# next exec, which now and then stalled for many seconds; the watchdog's own
+# `timeout 10` then (correctly) read docker as unresponsive and took the wrong
+# branch, and the suite failed at random on a Mac while always passing in CI.
+cat > "$FAKE" <<EOF
 #!/usr/bin/env bash
-if [ "\$1" = "inspect" ]; then echo "$1"; exit $2; fi
-if [ "\$1" = "restart" ]; then echo "restarted" >> "$ROOT/restarts-called"; exit $3; fi
+if [ "\$1" = "inspect" ]; then cat "$ROOT/fake-health"; exit "\$(cat "$ROOT/fake-inspect-rc")"; fi
+if [ "\$1" = "restart" ]; then echo "restarted" >> "$ROOT/restarts-called"; exit "\$(cat "$ROOT/fake-restart-rc")"; fi
 exit 0
 EOF
-  chmod +x "$FAKE"
+chmod +x "$FAKE"
+
+mkfake() { # $1 = health output, $2 = inspect exit code, $3 = restart exit code
+  printf '%s\n' "$1" > "$ROOT/fake-health"
+  printf '%s' "$2" > "$ROOT/fake-inspect-rc"
+  printf '%s' "$3" > "$ROOT/fake-restart-rc"
 }
 
 run() { APP_DIR="$ROOT/app" STATE_DIR="$ROOT/state" DISABLE_FILE="$ROOT/app/.watchdog-disabled" \
