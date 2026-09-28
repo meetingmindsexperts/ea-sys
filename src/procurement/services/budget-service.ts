@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
-import { createApprovalRequest, decideApprovalRequest, cancelPendingApprovals, type Db } from "@/lib/approvals/approvals-service";
+import { createApprovalRequest, decideApprovalRequest, cancelPendingApprovals, subjectsApprovedBy, type Db } from "@/lib/approvals/approvals-service";
 import type { ProcurementUserLike } from "@/lib/procurement-visibility";
 import { CONTINGENCY_CATEGORY_CODE } from "../lib/budget-categories-seed";
 import { cloneLineForNewVersion, missingForSubmission, reallocationAuthority } from "../lib/budget-rules";
@@ -36,7 +36,7 @@ import {
 } from "../lib/money";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { ensureBudgetCategories } from "./budget-category-service";
-import { lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
+import { eventBudgetIds, lockEventCommitted, syncBudgetCommitted } from "./committed-figures";
 import { cloneRevenueLines, readRevenueActuals } from "./budget-revenue-service";
 
 export type BudgetErrorCode =
@@ -62,6 +62,7 @@ export type BudgetErrorCode =
   | "INVALID_FILTER"
   | "LINE_HAS_COMMITMENTS"
   | "VARIANCE_NOTES_REQUIRED"
+  | "SIGNER_APPROVED_PURCHASES"
   | "UNKNOWN";
 
 export type BudgetResult<T> =
@@ -1062,7 +1063,23 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   }
 }
 
-export function signOffBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string }) {
+/**
+ * Sign-off is finance's check on a closed budget. Whoever approved any of the
+ * event's purchases (the settle holder standing in for the final approver,
+ * Sep 28, 2026) does not sign off their own approvals: the super admin, who
+ * never approves, signs it off instead. The route admits the super admin for
+ * exactly this.
+ */
+export async function signOffBudget(input: { organizationId: string; actorUserId: string; actorRole?: string | null; source: Source; budgetId: string }) {
+  if (input.actorRole !== "SUPER_ADMIN") {
+    const versionIds = await eventBudgetIds(db, input.organizationId, input.budgetId);
+    const requests = await db.spendRequest.findMany({ where: { organizationId: input.organizationId, budgetId: { in: versionIds } }, select: { id: true, requestNo: true } });
+    const mine = await subjectsApprovedBy(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", subjectIds: requests.map((r) => r.id), userId: input.actorUserId });
+    if (mine.length > 0) {
+      const numbers = requests.filter((r) => mine.includes(r.id)).map((r) => r.requestNo);
+      return fail("SIGNER_APPROVED_PURCHASES", `You approved ${numbers.length === 1 ? "one of this event's purchases" : `${numbers.length} of this event's purchases`} (${numbers.slice(0, 5).join(", ")}${numbers.length > 5 ? ", ..." : ""}), so the super admin signs this budget off instead.`, { budgetId: input.budgetId, userId: input.actorUserId }, { requestNos: numbers });
+    }
+  }
   return transition({ ...input, from: ["CLOSED"], to: "CLOSED", action: "SIGN_OFF", data: { signedOffAt: new Date(), signedOffByUserId: input.actorUserId } });
 }
 export async function reopenBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string; reason: string }): Promise<BudgetResult<BudgetView>> {

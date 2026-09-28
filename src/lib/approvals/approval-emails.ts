@@ -14,7 +14,7 @@
  */
 import { escapeHtml } from "@/lib/html";
 
-export type ApprovalEmailKind = "assigned" | "escalated" | "reminder" | "delegated" | "stuck" | "decided";
+export type ApprovalEmailKind = "assigned" | "escalated" | "reminder" | "delegated" | "stuck" | "stalled" | "decided";
 
 export interface ApprovalEmailInput {
   kind: ApprovalEmailKind;
@@ -33,6 +33,8 @@ export interface ApprovalEmailInput {
   decision?: "APPROVED" | "REJECTED";
   deciderName?: string | null;
   note?: string | null;
+  /** A level of a named approval chain (Sep 28, 2026): "Level 2 of 3", with who approved before. */
+  chainLine?: string | null;
   /** Absolute URL, or null when the app URL is not configured. */
   link: string | null;
 }
@@ -91,7 +93,16 @@ export function buildApprovalEmail(input: ApprovalEmailInput): { subject: string
       // nobody else holds the authority, so the request cannot move.
       subject = `Nobody can approve: ${label}`;
       lead = `This ${word} from ${requester} is waiting on ${previous}, who can no longer decide it, and nobody else holds an approval grant that covers it, so it cannot move. It has waited ${waited}.`;
-      footer = "Give someone an approval grant that covers it in Settings, Users, procurement grants. The request moves to them on the next check. Until then this email repeats every day.";
+      footer = input.chainLine
+        ? "A level of the approval chain is never skipped. Give that person back their approval access in Settings, Users, or have the requester withdraw it and submit again once the chain in Settings, Roles is updated. Until then this email repeats every day."
+        : "Give someone an approval grant that covers it in Settings, Users, procurement grants. The request moves to them on the next check. Until then this email repeats every day.";
+      break;
+    case "stalled":
+      // To the super admins: a chain level is never skipped automatically, so
+      // a request sitting on one person needs a human to move it.
+      subject = `Approval stalled: ${label}`;
+      lead = `This ${word} from ${requester} has waited ${waited} on ${previous}. The approval chain never skips a level by itself, so it stays with them until they decide.`;
+      footer = "Ask them to decide it, or change who holds that level in Settings, Roles, approval chain; requests already waiting keep the chain they started with. This email repeats every day while it waits.";
       break;
     case "decided": {
       const approved = input.decision === "APPROVED";
@@ -104,13 +115,18 @@ export function buildApprovalEmail(input: ApprovalEmailInput): { subject: string
     }
   }
 
-  const exceptionLine = input.exception ? "Over-budget exception: only the final approver decides it." : null;
+  const exceptionLine = input.exception
+    ? input.chainLine
+      ? "Over-budget exception: it goes through every level and ends with the final approver."
+      : "Over-budget exception: only the final approver decides it."
+    : null;
+  const chainLine = input.kind !== "decided" && input.chainLine?.trim() ? input.chainLine.trim() : null;
   const note = input.kind === "decided" && input.note?.trim() ? input.note.trim() : null;
 
   const html = [
     `<p>${escapeHtml(hi)}</p>`,
     `<p>${escapeHtml(lead)}</p>`,
-    `<p style="padding:12px 16px;border-left:3px solid #00aade;background:#f6fbfd;"><strong>${escapeHtml(label)}</strong><br/>${escapeHtml(input.amountLine)}${exceptionLine ? `<br/>${escapeHtml(exceptionLine)}` : ""}</p>`,
+    `<p style="padding:12px 16px;border-left:3px solid #00aade;background:#f6fbfd;"><strong>${escapeHtml(label)}</strong><br/>${escapeHtml(input.amountLine)}${chainLine ? `<br/>${escapeHtml(chainLine)}` : ""}${exceptionLine ? `<br/>${escapeHtml(exceptionLine)}` : ""}</p>`,
     note ? `<p><span style="color:#666;">Note:</span> ${escapeHtml(note)}</p>` : "",
     footer ? `<p>${escapeHtml(footer)}</p>` : "",
     input.link ? `<p><a href="${escapeHtml(input.link)}">${escapeHtml(cta)}</a></p>` : "",
@@ -118,7 +134,7 @@ export function buildApprovalEmail(input: ApprovalEmailInput): { subject: string
     .filter(Boolean)
     .join("\n");
 
-  const text = [hi, "", lead, "", label, input.amountLine, exceptionLine ?? "", note ? `Note: ${note}` : "", footer ?? "", input.link ? `${cta}: ${input.link}` : ""]
+  const text = [hi, "", lead, "", label, input.amountLine, chainLine ?? "", exceptionLine ?? "", note ? `Note: ${note}` : "", footer ?? "", input.link ? `${cta}: ${input.link}` : ""]
     .filter((l, i, all) => l !== "" || (i > 0 && all[i - 1] !== ""))
     .join("\n")
     .trim();

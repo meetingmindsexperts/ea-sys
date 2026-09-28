@@ -109,7 +109,8 @@ export default function CloseOutPage() {
   const { data: b, isLoading, isError, error } = useBudget(budgetId);
   const canAuthor = canAuthorBudgets(session?.user);
   const canAdmin = canAdminProcurement(session?.user);
-  const canSettle = canSettleProcurement(session?.user);
+  // The super admin signs off too: for a budget whose purchases the settle holder approved as a stand-in (Sep 28, 2026).
+  const canSettle = canSettleProcurement(session?.user) || session?.user?.role === "SUPER_ADMIN";
 
   if (isLoading) return <LoadingState label="Loading budget…" />;
   if (isError || !b) return <ErrorState title="Couldn't load this budget" message={(error as Error)?.message ?? "It may have been discarded."} backHref="/procurement" backLabel="Back to budgets" />;

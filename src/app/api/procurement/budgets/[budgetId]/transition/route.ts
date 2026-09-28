@@ -1,7 +1,7 @@
 /**
  * POST { action } for the lifecycle moves that carry no payload of their own:
  *   freeze (author)  unfreeze (admin)  close (author, with variance notes)
- *   sign-off (settle grant)  reopen (admin, with a reason)
+ *   sign-off (settle grant, or the super admin)  reopen (admin, with a reason)
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -15,7 +15,7 @@ const NEED: Record<"freeze" | "unfreeze" | "close" | "sign-off" | "reopen", Proc
   freeze: "author",
   unfreeze: "admin",
   close: "author",
-  "sign-off": "settle",
+  "sign-off": "sign-off",
   reopen: "admin",
 };
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bud
       parsed.data.action === "freeze" ? await freezeBudget(base)
       : parsed.data.action === "unfreeze" ? await unfreezeBudget({ ...base, reason: parsed.data.reason ?? "" })
       : parsed.data.action === "close" ? await closeBudget({ ...base, varianceNotes: parsed.data.varianceNotes, reportingToAedRate: parsed.data.reportingToAedRate })
-      : parsed.data.action === "sign-off" ? await signOffBudget(base)
+      : parsed.data.action === "sign-off" ? await signOffBudget({ ...base, actorRole: g.user.role })
       : await reopenBudget({ ...base, reason: parsed.data.reason ?? "" });
     if (!result.ok) return rejected("procurement/budgets/[budgetId]/transition", g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
     return NextResponse.json({ budget: result.budget });

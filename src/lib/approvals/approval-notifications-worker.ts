@@ -40,7 +40,8 @@ import { sendEmail } from "@/lib/email";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import { approvalCeilingAed, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { DEFAULT_STEP_DUE_HOURS, requiresFinalApprover } from "./approvals-service";
-import { NOTIFY_WINDOW_DAYS, hoursBetween, pickDelegate, pickNextTier, planStepAction, type ApproverHolder } from "./escalation-rules";
+import { NOTIFY_WINDOW_DAYS, hoursBetween, pickDelegate, pickNextTier, planStepAction, type ApproverHolder, type StepAction } from "./escalation-rules";
+import { readChainSnapshot, standInAt, type ChainSnapshot } from "./approval-chain";
 import { buildApprovalEmail, subjectWordFor, type ApprovalEmailInput, type ApprovalEmailKind } from "./approval-emails";
 
 /** Never read an unbounded queue in one tick; a backlog drains over several. */
@@ -168,6 +169,8 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     personIds.add(s.assigneeUserId);
     personIds.add(s.request.requesterUserId);
     if (s.delegateUserId) personIds.add(s.delegateUserId);
+    const c = readChainSnapshot(s.request.payload);
+    if (c?.standInUserId) personIds.add(c.standInUserId);
   }
   for (const h of holders) personIds.add(h.id);
   for (const r of decided) {
@@ -238,7 +241,14 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
   const handleStep = async (step: PendingStepRow) => {
     const r = step.request;
     const ref = `step:${step.id}`;
-    const base = baseFor(r, r.requesterUserId, approvalsLink);
+    const chain = readChainSnapshot(r.payload);
+    // A chained request opens one step per level, in order, and a level is
+    // never escalated, so the step's sequence is its level.
+    const levelIndex = step.sequence - 1;
+    const base = {
+      ...baseFor(r, r.requesterUserId, approvalsLink),
+      chainLine: chain ? `Level ${levelIndex + 1} of ${chain.levels.length}${levelIndex > 0 ? "; the earlier levels have approved it" : ""}.` : null,
+    };
     const waited = hoursBetween(step.createdAt, now);
 
     // 1. The assignment email, once. A step the worker only now sees past its
@@ -260,6 +270,10 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
 
     // 2. Everything else runs off the plan.
     const amountAed = Number(String(r.amountAed));
+    if (chain) {
+      await handleChainStep(step, chain, levelIndex, base, waited, ref);
+      return;
+    }
     const requireFinal = requiresFinalApprover(r.payload);
     const assignee = holders.find((h) => h.id === step.assigneeUserId);
     const assigneeCeiling = assignee?.ceilingAed ?? 0;
@@ -367,6 +381,78 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
         }
         for (const adminId of admins) await deliver("stuck", adminId, { ...base, previousApproverName: nameOf(step.assigneeUserId), hoursWaiting: waited }, ref);
         break;
+      }
+    }
+  };
+
+  /**
+   * A level of a named chain: authority comes from the chain, not the
+   * ceilings, the named delegate is the only one added at 48 hours, the
+   * final level's stand-in counts as able to decide, and nothing is ever
+   * escalated. From 96 hours the admins hear about it daily.
+   */
+  const handleChainStep = async (step: PendingStepRow, chain: ChainSnapshot, levelIndex: number, base: Omit<ApprovalEmailInput, "kind" | "recipientFirstName">, waited: number, ref: string) => {
+    const r = step.request;
+    const isFinal = levelIndex === chain.levels.length - 1;
+    const standIn = standInAt(chain, levelIndex);
+    const active = (id: string | null | undefined) => !!id && !!people.get(id) && !people.get(id)!.deactivatedAt;
+    const holdsLevel = (id: string | null | undefined) => {
+      if (!id || id === r.requesterUserId) return false;
+      if (id === standIn) return active(id);
+      const h = holders.find((x) => x.id === id);
+      return !!h && (isFinal ? h.ceilingAed === Number.POSITIVE_INFINITY : h.ceilingAed > 0);
+    };
+    const assigneeCanDecide = holdsLevel(step.assigneeUserId);
+    const delegateCanDecide = holdsLevel(step.delegateUserId);
+    // A delegate from inside the chain would approve this level and then be
+    // refused at their own (nobody approves one request twice), leaving that
+    // level undecidable; so the named delegate is used only when they are
+    // not in the chain at all.
+    const inChain = (id: string) => chain.levels.includes(id) || id === chain.standInUserId;
+    const configured = holders.find((h) => h.id === step.assigneeUserId)?.delegateUserId ?? null;
+    const delegate = configured && !inChain(configured) && holdsLevel(configured) ? { userId: configured, via: "configured" as const } : null;
+    const action: StepAction = planStepAction(step, { now, assigneeCanDecide, delegateCanDecide, assigneeIsFinal: isFinal, nextTierUserId: null, delegate, chain: true });
+    const claimReminder = async () =>
+      (await db.approvalStep.updateMany({ where: { id: step.id, organizationId: orgId, status: "PENDING", remindedAt: step.remindedAt }, data: { remindedAt: now } })).count === 1;
+    const remindHolders = async () => {
+      const recipients = [...new Set([assigneeCanDecide ? step.assigneeUserId : null, delegateCanDecide ? step.delegateUserId : null].filter((v): v is string => !!v))];
+      for (const recipientId of recipients) await deliver("reminder", recipientId, { ...base, hoursWaiting: waited }, ref);
+    };
+    switch (action.kind) {
+      case "none":
+      case "escalate":
+        return;
+      case "remind":
+        if (!(await claimReminder())) return void result.skipped++;
+        result.reminded++;
+        await remindHolders();
+        return;
+      case "delegate": {
+        const claim = await db.approvalStep.updateMany({
+          where: { id: step.id, organizationId: orgId, status: "PENDING", delegateUserId: null },
+          data: { delegateUserId: action.toUserId, ...(step.remindedAt === null ? { remindedAt: now } : {}) },
+        });
+        if (claim.count === 0) return void result.skipped++;
+        result.delegated++;
+        await audit(orgId, "APPROVAL_DELEGATED", r.id, { source: "worker", subjectType: r.subjectType, subjectId: r.subjectId, stepId: step.id, fromUserId: step.assigneeUserId, toUserId: action.toUserId, via: action.via, afterHours: Math.floor(waited), level: levelIndex + 1 });
+        await deliver("delegated", action.toUserId, { ...base, previousApproverName: nameOf(step.assigneeUserId), hoursWaiting: waited }, ref);
+        return;
+      }
+      case "stuck":
+      case "stalled": {
+        if (!(await claimReminder())) return void result.skipped++;
+        result.stuck++;
+        apiLogger.warn({ msg: action.kind === "stuck" ? "approvals-notify:no-one-can-decide" : "approvals-notify:chain-level-stalled", organizationId: orgId, requestId: r.id, stepId: step.id, assigneeUserId: step.assigneeUserId, level: levelIndex + 1, hoursWaiting: Math.floor(waited) });
+        const admins = await grantAdmins();
+        if (admins.length === 0) {
+          result.failed++;
+          apiLogger.error({ msg: "approvals-notify:stuck-no-admin", organizationId: orgId, requestId: r.id, stepId: step.id });
+          return;
+        }
+        for (const adminId of admins) await deliver(action.kind, adminId, { ...base, previousApproverName: nameOf(step.assigneeUserId), hoursWaiting: waited }, ref);
+        // A stalled level is still theirs to decide, so they hear about it too.
+        if (action.kind === "stalled") await remindHolders();
+        return;
       }
     }
   };

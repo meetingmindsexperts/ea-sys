@@ -311,6 +311,7 @@ export const PROCUREMENT_AUDIT_ENTITY_TYPES = [
   "BudgetProduct",
   "BudgetCategory",
   "BudgetTemplate",
+  "ApprovalWorkflowDefinition",
 ] as const;
 
 export type ProcurementAuditEntityType = (typeof PROCUREMENT_AUDIT_ENTITY_TYPES)[number];

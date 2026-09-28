@@ -22,7 +22,7 @@ import { apiLogger } from "@/lib/logger";
 import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { sendEmail } from "@/lib/email";
 import type { Prisma } from "@prisma/client";
-import type { Db } from "@/lib/approvals/approvals-service";
+import { subjectsApprovedBy, type Db } from "@/lib/approvals/approvals-service";
 import { nextDocumentNumber } from "../lib/document-numbers";
 import { money, storedString, type MoneyInput } from "../lib/money";
 import { budgetAcceptsRequests, toReporting } from "../lib/spend-request-rules";
@@ -547,6 +547,11 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
   if (!receiptNeedsSecondPerson(c.spendRequest?.amountAed)) return fail("INVALID_STATUS", "This order is below the second-person floor; its receipt needs no confirmation.", ctx);
   if (!(actor.canSettle || actor.canApprove)) return fail("NOT_ALLOWED", "The second person is the settle holder or an approver.", ctx);
   if (input.actor.id === c.receivedByUserId) return fail("NOT_ALLOWED", "The person who marked the order received cannot confirm it; a second person must.", ctx);
+  // Nobody signs off a purchase they approved (Sep 28, 2026), which is what
+  // lets the settle holder stand in for the final approver at all.
+  if (c.spendRequestId && (await subjectsApprovedBy(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", subjectIds: [c.spendRequestId], userId: input.actor.id })).length > 0) {
+    return fail("NOT_ALLOWED", "You approved this purchase, so someone else confirms its delivery.", ctx, { reason: "APPROVED_THIS_PURCHASE" });
+  }
   try {
     await tenantTransaction(async (tx) => {
       const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "RECEIVED", receiptConfirmedAt: null, version: input.expectedVersion }, data: { receiptConfirmedAt: new Date(), receiptConfirmedByUserId: input.actor.id, version: { increment: 1 } } });

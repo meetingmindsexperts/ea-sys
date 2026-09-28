@@ -1,4 +1,11 @@
-/** POST a decision on any pending request, dispatched by its subject type: a budget, a reallocation or a spend request. */
+/**
+ * POST a decision on any pending request, dispatched by its subject type: a budget, a reallocation or a spend request.
+ *
+ * The guard asks only for procurement access, not an approval grant: the
+ * final approver's stand-in in a spend-request chain may hold no grant at
+ * all (Sep 28, 2026). Who may decide is judged in the approvals primitive,
+ * from the user ROW at decision time, for every subject type.
+ */
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -10,7 +17,7 @@ import { decideBudget, decideReallocation } from "@/procurement/services/budget-
 import { decideSpendRequest } from "@/procurement/services/spend-request-service";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
-  const [g, { requestId }] = await Promise.all([procurementGuard({ route: "procurement/approvals/[requestId]/decide", need: "approve", amountAed: 0, write: true }), params]);
+  const [g, { requestId }] = await Promise.all([procurementGuard({ route: "procurement/approvals/[requestId]/decide", need: "view", write: true }), params]);
   if (!g.ok) return g.response;
   const parsed = decideSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: "procurement/approvals/[requestId]/decide", userId: g.user.id, requestId });

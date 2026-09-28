@@ -378,12 +378,16 @@ function PreviewPanel({ p }: { p: NonNullable<ReturnType<typeof useBudgetCheckPr
       {p.check.exception && (
         <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{p.check.status === "FROZEN" ? "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification." : "This goes over the line: it is never allowed through quietly, it is routed to the final approver as an exception, and it needs your justification."}</span>
+          <span>{p.route.ok && p.route.chainNames ? "This goes over the line: it is marked as an over-budget exception for every approver in the chain, and it needs your justification." : p.check.status === "FROZEN" ? "The budget is frozen and this goes over the line: it is routed to the final approver as an exception and needs your justification." : "This goes over the line: it is never allowed through quietly, it is routed to the final approver as an exception, and it needs your justification."}</span>
         </div>
       )}
       <div className="rounded-md bg-muted/50 p-2 text-xs">
         {p.route.ok ? (
-          <span>{`Goes to ${p.route.approverName ?? "the assigned approver"}${p.amountAed ? ` (AED ${money2(p.amountAed)} for the ceiling)` : ""}.`}</span>
+          p.route.chainNames && p.route.chainNames.length > 1 ? (
+            <span>{`Approved in order by ${p.route.chainNames.join(", then ")}. The order is issued after the last approval.`}</span>
+          ) : (
+            <span>{`Goes to ${p.route.approverName ?? "the assigned approver"}${p.amountAed && !p.route.chainNames ? ` (AED ${money2(p.amountAed)} for the ceiling)` : ""}.`}</span>
+          )
         ) : p.route.code === "RATE_REQUIRED" ? (
           <span>{`${cur} floats against AED: the rate is asked for when you submit, and decides who approves.`}</span>
         ) : (

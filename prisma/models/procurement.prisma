@@ -356,6 +356,10 @@ model ApprovalWorkflowDefinition {
   /// [{ "upToAed": "1000000" | null, "approverUserId": "..." }, ...] ascending;
   /// null upToAed = unlimited, must be last.
   bands          Json
+  /// The spend-request approval chain (Sep 28, 2026), SPEND_REQUEST rows only:
+  /// { "levels": [userId, ...] (2 to 4, last = final approver), "standInUserId": userId | null }.
+  /// Null = no chain, the bands / ceiling routing applies. See src/lib/approvals/approval-chain.ts.
+  chain          Json?
   isActive       Boolean             @default(true)
   version        Int                 @default(0)
   createdAt      DateTime            @default(now())

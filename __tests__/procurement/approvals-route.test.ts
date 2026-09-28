@@ -60,7 +60,7 @@ describe("GET /api/procurement/approvals", () => {
   it("scope=decided lists what the caller approved or rejected, and an unknown scope is the inbox", async () => {
     const res = await GET(new NextRequest("http://localhost/api/procurement/approvals?scope=decided"));
     expect((await res.json()).scope).toBe("decided");
-    expect(mockDb.approvalRequest.findMany.mock.calls[0][0].where).toEqual({ organizationId: ORG, status: { in: ["APPROVED", "REJECTED"] }, steps: { some: { decidedByUserId: "approver" } } });
+    expect(mockDb.approvalRequest.findMany.mock.calls[0][0].where).toEqual({ organizationId: ORG, status: { in: ["APPROVED", "REJECTED", "PENDING"] }, steps: { some: { decidedByUserId: "approver" } } });
     await GET(new NextRequest("http://localhost/api/procurement/approvals?scope=bogus"));
     expect(mockDb.approvalRequest.findMany.mock.calls[1][0].where.status).toBe("PENDING");
   });

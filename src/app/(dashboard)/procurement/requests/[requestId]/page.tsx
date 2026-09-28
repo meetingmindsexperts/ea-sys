@@ -519,7 +519,7 @@ function ApprovalTrail({ r }: { r: SpendRequestDetailRow }) {
           // Escalation leaves a skipped step behind, so the step that matters is
           // the last one that was not skipped; the first names who it started with.
           const step = [...a.steps].reverse().find((s) => s.status !== "SKIPPED") ?? a.steps[a.steps.length - 1];
-          const escalatedFrom = a.steps.length > 1 ? a.steps[0].assigneeName : null;
+          const escalatedFrom = !a.chain && a.steps.length > 1 ? a.steps[0].assigneeName : null;
           return (
             <li key={a.id} className="rounded-md bg-muted/40 p-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -528,15 +528,47 @@ function ApprovalTrail({ r }: { r: SpendRequestDetailRow }) {
                 <span className="text-xs text-muted-foreground tabular-nums">{`AED ${money2(a.amountAed)} for the ceiling`}</span>
               </div>
               {amend && <div className="text-xs text-muted-foreground">{`${r.currency} ${money2(amend.previousAmount)} to ${money2(amend.nextAmount)}${amend.reason ? ` · ${amend.reason}` : ""}`}</div>}
+              {a.chain ? (
+                <ChainTrail createdAt={a.createdAt} chain={a.chain} steps={a.steps} />
+              ) : (
               <div className="text-xs text-muted-foreground">
                 {`${fmtWhen(a.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${escalatedFrom && escalatedFrom !== step?.assigneeName ? ` (escalated from ${escalatedFrom})` : ""}${step?.delegateName && !step.decidedByName ? ` · ${step.delegateName} can decide it too` : ""}${step?.decidedByName ? ` · decided by ${step.decidedByName}` : ""}${step?.decidedAt ? ` ${fmtWhen(step.decidedAt)}` : ""}`}
               </div>
-              {step?.note && <div className="mt-1 text-xs"><span className="text-muted-foreground">Note: </span>{step.note}</div>}
+              )}
+              {!a.chain && step?.note && <div className="mt-1 text-xs"><span className="text-muted-foreground">Note: </span>{step.note}</div>}
             </li>
           );
         })}
       </ul>
     </section>
+  );
+}
+
+type TrailApproval = SpendRequestDetailRow["approvals"][number];
+
+/** A chained submission, one row per level: who it was with, and what they decided. */
+function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: NonNullable<TrailApproval["chain"]>; steps: TrailApproval["steps"] }) {
+  return (
+    <ol className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+      <li>{`Submitted ${fmtWhen(createdAt)}`}</li>
+      {chain.levels.map((level, i) => {
+        const s = steps[i];
+        const who = level.name ?? "someone no longer on the team";
+        const isLast = i === chain.levels.length - 1;
+        const standIn = isLast && chain.standInName ? ` (or ${chain.standInName}, standing in)` : "";
+        let state = "not reached yet";
+        if (s?.status === "PENDING") state = `waiting${standIn}`;
+        else if (s?.status === "APPROVED") state = `approved by ${s.decidedByName ?? who}${s.decidedByUserId && s.decidedByUserId !== s.assigneeUserId ? `, standing in for ${who}` : ""}${s.decidedAt ? ` ${fmtWhen(s.decidedAt)}` : ""}`;
+        else if (s?.status === "REJECTED") state = `rejected by ${s.decidedByName ?? who}${s.decidedAt ? ` ${fmtWhen(s.decidedAt)}` : ""}`;
+        else if (s?.status === "SKIPPED") state = "closed without a decision";
+        return (
+          <li key={level.userId + i}>
+            {`Level ${i + 1}, ${who}: ${state}`}
+            {s?.note && <span className="text-foreground">{` · ${s.note}`}</span>}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -553,7 +585,7 @@ function SubmitDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () =>
   async function go() {
     try {
       const saved = await submit.mutateAsync({ expectedVersion: r.version, reportingToAedRate: floats ? rate : null });
-      toast.success(saved.budgetCheckStatus === "WITHIN_BUDGET" ? "Submitted and routed for approval." : "Submitted as an over-budget exception to the final approver.");
+      toast.success(saved.budgetCheckStatus === "WITHIN_BUDGET" ? "Submitted and routed for approval." : "Submitted as an over-budget exception.");
       onClose();
     } catch (err) {
       toast.error((err as Error).message);

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
 import { PermissionSetsCard } from "@/components/settings/permission-sets-card";
+import { ApprovalChainCard } from "@/components/settings/approval-chain-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -1293,6 +1294,7 @@ export default function SettingsPage() {
         {isSuperAdmin && procurementEnabled && (
           <TabsContent value="roles">
             <PermissionSetsCard />
+            <ApprovalChainCard />
           </TabsContent>
         )}
 

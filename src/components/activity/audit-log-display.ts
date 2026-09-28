@@ -33,6 +33,7 @@ import {
   Package,
   FolderTree,
   LayoutTemplate,
+  ListOrdered,
   ShieldCheck,
   type LucideIcon,
   TrendingUp,
@@ -90,6 +91,7 @@ export const PROCUREMENT_AUDIT_ENTITY_LABELS: Record<ProcurementAuditEntityType,
   BudgetProduct: "Product",
   BudgetCategory: "Category",
   BudgetTemplate: "Template",
+  ApprovalWorkflowDefinition: "Approval chain",
 };
 
 const PROCUREMENT_ENTITY_ICONS: Record<ProcurementAuditEntityType, LucideIcon> = {
@@ -103,6 +105,7 @@ const PROCUREMENT_ENTITY_ICONS: Record<ProcurementAuditEntityType, LucideIcon> =
   BudgetProduct: Package,
   BudgetCategory: FolderTree,
   BudgetTemplate: LayoutTemplate,
+  ApprovalWorkflowDefinition: ListOrdered,
 };
 
 const ENTITY_ICONS: Record<string, LucideIcon> = {

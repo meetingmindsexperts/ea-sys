@@ -22,6 +22,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 import { cancelPendingApprovals, createApprovalRequest, decideApprovalRequest, resolveApprover, type Db } from "@/lib/approvals/approvals-service";
+import { readChainSnapshot } from "@/lib/approvals/approval-chain";
 import type { ProcurementUserLike } from "@/lib/procurement-visibility";
 import { nextDocumentNumber } from "../lib/document-numbers";
 import { afterOrderIssued, COMMITMENT_SELECT, convertRequestsAwaitingSupplier, issueOrderInTx, toCommitmentView, type AutoSendOutcome, type CommitmentView } from "./commitment-service";
@@ -274,6 +275,8 @@ export type SpendRequestDetail = SpendRequestView & {
     createdAt: Date;
     decidedAt: Date | null;
     steps: { assigneeUserId: string; assigneeName: string | null; delegateUserId: string | null; delegateName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: Date | null; note: string | null; dueAt: Date }[];
+    /** The approval chain this submission walked (Sep 28, 2026); null for the ceiling routing. */
+    chain: { levels: { userId: string; name: string | null }[]; standInName: string | null } | null;
   }[];
 };
 
@@ -291,7 +294,8 @@ export async function getSpendRequest(organizationId: string, requestId: string)
       take: 20,
     }),
   ]);
-  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""]))]);
+  const chains = new Map(approvals.map((a) => [a.id, readChainSnapshot(a.payload)]));
+  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""])), ...[...chains.values()].flatMap((c) => (c ? [...c.levels, c.standInUserId ?? ""] : []))]);
   return {
     ok: true,
     request: {
@@ -309,6 +313,10 @@ export async function getSpendRequest(organizationId: string, requestId: string)
         createdAt: a.createdAt,
         decidedAt: a.decidedAt,
         steps: a.steps.map((s) => ({ ...s, assigneeName: names.get(s.assigneeUserId) ?? null, delegateName: s.delegateUserId ? (names.get(s.delegateUserId) ?? null) : null, decidedByName: s.decidedByUserId ? (names.get(s.decidedByUserId) ?? null) : null })),
+        chain: (() => {
+          const c = chains.get(a.id);
+          return c ? { levels: c.levels.map((id) => ({ userId: id, name: names.get(id) ?? null })), standInName: c.standInUserId ? (names.get(c.standInUserId) ?? null) : null } : null;
+        })(),
       })),
     },
   };
@@ -335,7 +343,8 @@ export type BudgetCheckPreview = {
   check: { status: BudgetCheckOutcome["status"]; exception: boolean; reasonRequired: boolean; amountReporting: string; remainingBefore: string; remainingAfter: string };
   /** Null when the reporting currency floats and no rate was given: the ceiling cannot be judged yet. */
   amountAed: string | null;
-  route: { ok: true; approverUserId: string; approverName: string | null; exception: boolean } | { ok: false; code: "NO_APPROVER" | "RATE_REQUIRED"; message: string };
+  /** `chainNames`: the approval chain in order (Sep 28, 2026), null when the ceiling routing applies. */
+  route: { ok: true; approverUserId: string; approverName: string | null; exception: boolean; chainNames: string[] | null } | { ok: false; code: "NO_APPROVER" | "RATE_REQUIRED"; message: string };
   /** Requests already raised on this line and still open; informational, never counted in the stored figures. */
   openRequests: { id: string; requestNo: string; title: string; status: string; amountReporting: string | null }[];
 };
@@ -380,8 +389,8 @@ export async function previewBudgetCheck(input: PreviewBudgetCheckInput): Promis
     const r = await resolveApprover(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", amountAed: Number(aedAmount.toString()), requesterUserId: input.actorUserId, requireFinalApprover: check.exception });
     if (!r.ok) route = { ok: false, code: "NO_APPROVER", message: r.message };
     else {
-      const names = await userNames(db, input.organizationId, [r.approverUserId]);
-      route = { ok: true, approverUserId: r.approverUserId, approverName: names.get(r.approverUserId) ?? null, exception: check.exception };
+      const names = await userNames(db, input.organizationId, [r.approverUserId, ...(r.chain?.levels ?? [])]);
+      route = { ok: true, approverUserId: r.approverUserId, approverName: names.get(r.approverUserId) ?? null, exception: check.exception, chainNames: r.chain ? r.chain.levels.map((id) => names.get(id) ?? "someone no longer on the team") : null };
     }
   }
   return {
@@ -710,6 +719,19 @@ export async function decideSpendRequest(input: { organizationId: string; decide
     const outcome = await tenantTransaction(async (tx) => {
       const d = await decideApprovalRequest(tx, { organizationId: input.organizationId, requestId: approval.id, decider: input.decider, decision: input.decision, note: input.note, source: input.source });
       if (!d.ok) return d;
+      // A chained request approved below its last level stays pending: the
+      // next level decides, and only the last approval lands the request and
+      // issues the order. Recorded on the request's own activity as well.
+      if (d.request.status === "PENDING") {
+        await audit(tx, {
+          userId: input.decider.id,
+          organizationId: input.organizationId,
+          action: "APPROVE_LEVEL",
+          entityId: r.id,
+          changes: { source: input.source, requestNo: r.requestNo, budgetId: r.budgetId, note: input.note?.trim() || null, kind: payload.kind, level: d.request.steps.filter((s) => s.status === "APPROVED").length },
+        });
+        return d;
+      }
       // The budget may have moved on since the submit (a new version approved
       // archives this one; a close): an approval must not land on a version
       // that no longer takes requests, the reallocation decision's rule.

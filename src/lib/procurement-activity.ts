@@ -298,6 +298,14 @@ function describeBudgetRevenueLine(row: ProcurementActivityRow): { title: string
   }
 }
 
+/** "standing in for Medhat" when the final approver's stand-in decided (Sep 28, 2026). */
+function standingIn(c: Record<string, unknown>, ctx: DescribeContext): string | null {
+  if (c.asStandIn !== true) return null;
+  const forId = str(c.standingInFor);
+  const name = forId ? ctx.userNames[forId] ?? null : null;
+  return name ? `standing in for ${name}` : "as the final approver's stand-in";
+}
+
 function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeContext): { title: string; detail: string | null } {
   const c = row.changes ?? {};
   const aed = amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null;
@@ -310,8 +318,14 @@ function describeApprovalRequest(row: ProcurementActivityRow, ctx: DescribeConte
       const final = c.requireFinalApprover === true ? "final approver only" : null;
       return { title: who ? `Routed to ${who} for approval` : "Routed for approval", detail: parts(aed, final, replaced) };
     }
+    case "APPROVAL_LEVEL_APPROVED": {
+      // A level of the spend-request chain (Sep 28, 2026); the request stays pending for the next level.
+      const next = str(c.nextAssigneeUserId);
+      const nextName = next ? ctx.userNames[next] ?? null : null;
+      return { title: `Approved at level ${num(c.level) ?? "?"} of ${num(c.levels) ?? "?"}`, detail: parts(standingIn(c, ctx), nextName ? `now with ${nextName}` : null, note) };
+    }
     case "APPROVAL_GRANTED":
-      return { title: "Approval granted", detail: parts(aed, note) };
+      return { title: num(c.levels) !== null ? `Approval granted at the last level (${num(c.levels)} of ${num(c.levels)})` : "Approval granted", detail: parts(aed, standingIn(c, ctx), note) };
     case "APPROVAL_REJECTED":
       return { title: "Approval refused", detail: parts(aed, note) };
     case "APPROVAL_CANCELLED":
@@ -368,6 +382,8 @@ function describeSpendRequest(row: ProcurementActivityRow): { title: string; det
         title: "Request submitted",
         detail: parts(amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null, check, c.exception === true ? "to the final approver" : null),
       };
+    case "APPROVE_LEVEL":
+      return { title: `Approved at level ${num(c.level) ?? "?"}, waiting on the next level`, detail: note };
     case "APPROVE":
       return c.landing === "AWAITING_SUPPLIER"
         ? { title: "Request approved, waiting on its supplier", detail: note }
@@ -544,6 +560,10 @@ export function describeProcurementActivity(row: ProcurementActivityRow, ctx: De
       return describeBudgetCategory(row);
     case "BudgetTemplate":
       return describeBudgetTemplate(row);
+    case "ApprovalWorkflowDefinition":
+      return row.action === "APPROVAL_CHAIN_UPDATED"
+        ? { title: Array.isArray(row.changes?.levels) && (row.changes?.levels as unknown[]).length > 0 ? "Spend request approval chain saved" : "Spend request approval chain turned off", detail: str(row.changes?.summary) }
+        : { title: humanize(row.action), detail: null };
     default:
       return { title: humanize(row.action), detail: null };
   }

@@ -108,7 +108,9 @@ export type StepAction =
   | { kind: "remind"; repeat: boolean }
   | { kind: "delegate"; toUserId: string; via: "configured" | "next-tier" }
   | { kind: "escalate"; toUserId: string; reason: "no-decision" | "assignee-lost-authority" }
-  | { kind: "stuck" };
+  | { kind: "stuck" }
+  /** A chained step past ESCALATE_AFTER_HOURS: nothing moves by itself, so the admins are told, daily, and the assignee reminded with it. */
+  | { kind: "stalled" };
 
 export interface StepSnapshot {
   createdAt: Date;
@@ -129,10 +131,22 @@ export function planStepAction(
     assigneeIsFinal: boolean;
     nextTierUserId: string | null;
     delegate: { userId: string; via: "configured" | "next-tier" } | null;
+    /**
+     * The step is a level of a named chain (Sep 28, 2026). A level is never
+     * skipped for a next tier: the chain says who decides. The named
+     * delegate may still be added at 48 hours, and from 96 hours the admins
+     * are told daily so a person can reassign it.
+     */
+    chain?: boolean;
   },
 ): StepAction {
   const now = ctx.now.getTime();
   const age = now - step.createdAt.getTime();
+  // A chain level whose holder can no longer decide takes the named delegate
+  // at once rather than at 48 hours, and is stuck only when there is none.
+  if (ctx.chain && !ctx.assigneeCanDecide && !ctx.delegateCanDecide && step.delegateUserId === null && ctx.delegate) {
+    return { kind: "delegate", toUserId: ctx.delegate.userId, via: ctx.delegate.via };
+  }
   if (!ctx.assigneeCanDecide && ctx.nextTierUserId) {
     return { kind: "escalate", toUserId: ctx.nextTierUserId, reason: "assignee-lost-authority" };
   }
@@ -140,6 +154,17 @@ export function planStepAction(
     // Nobody holding this step can decide it and nobody sits above: say so to
     // the people who can grant the authority, now and then daily.
     if (step.remindedAt === null || now - step.remindedAt.getTime() >= REPEAT_REMINDER_HOURS * HOUR_MS) return { kind: "stuck" };
+    return { kind: "none" };
+  }
+  if (ctx.chain) {
+    if (age >= DELEGATE_AFTER_HOURS * HOUR_MS && step.delegateUserId === null && ctx.delegate) {
+      return { kind: "delegate", toUserId: ctx.delegate.userId, via: ctx.delegate.via };
+    }
+    if (now < step.dueAt.getTime()) return { kind: "none" };
+    const sinceReminder = step.remindedAt === null ? Number.POSITIVE_INFINITY : now - step.remindedAt.getTime();
+    if (age >= ESCALATE_AFTER_HOURS * HOUR_MS && sinceReminder >= REPEAT_REMINDER_HOURS * HOUR_MS) return { kind: "stalled" };
+    if (step.remindedAt === null) return { kind: "remind", repeat: false };
+    if (sinceReminder >= REPEAT_REMINDER_HOURS * HOUR_MS) return { kind: "remind", repeat: true };
     return { kind: "none" };
   }
   const canMove = !ctx.assigneeIsFinal && ctx.nextTierUserId !== null;

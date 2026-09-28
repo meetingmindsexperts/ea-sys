@@ -20,6 +20,7 @@ const mockDb = vi.hoisted(() => ({
   organization: { findUnique: vi.fn() },
   user: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
   auditLog: { create: vi.fn().mockResolvedValue({}) },
+  approvalStep: { findMany: vi.fn().mockResolvedValue([]) },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -283,6 +284,13 @@ describe("confirmReceipt (the second person from AED 50,000)", () => {
     mockDb.commitment.findFirst.mockResolvedValueOnce(received());
     expect((await confirm(approver)).ok).toBe(true);
     expect(audits().at(-1)).toMatchObject({ entityType: "Commitment", action: "CONFIRM_RECEIPT", changes: { receivedByUserId: "req", amountAed: "60000.0000" } });
+  });
+  it("nobody confirms the delivery of a purchase they approved, the stand-in included (Sep 28, 2026)", async () => {
+    mockDb.commitment.findFirst.mockResolvedValueOnce(received());
+    mockDb.approvalStep.findMany.mockResolvedValueOnce([{ request: { subjectId: commitment().spendRequestId } }]);
+    expect(await confirm(settle)).toMatchObject({ ok: false, code: "NOT_ALLOWED", meta: { reason: "APPROVED_THIS_PURCHASE" } });
+    expect(mockDb.approvalStep.findMany.mock.calls[0][0].where).toMatchObject({ status: "APPROVED", decidedByUserId: "muthu", request: { subjectType: "SPEND_REQUEST" } });
+    expect(mockDb.commitment.updateMany).not.toHaveBeenCalled();
   });
   it("an already confirmed receipt is not confirmed twice", async () => {
     mockDb.commitment.findFirst.mockResolvedValueOnce(received({ receiptConfirmedAt: new Date(), receiptConfirmedByUserId: "lina" }));

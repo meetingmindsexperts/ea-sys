@@ -97,7 +97,11 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   const decidedStep = [...r.steps].reverse().find((s) => s.status === "APPROVED" || s.status === "REJECTED");
   const openStep = r.steps.find((s) => s.status === "PENDING");
   const step = decidedStep ?? openStep ?? r.steps[r.steps.length - 1];
-  const escalatedFrom = r.steps.length > 1 ? r.steps[0].assigneeName : null;
+  // A chained request has one step per level, so more than one step is not an escalation there.
+  const chain = r.chain;
+  const escalatedFrom = !chain && r.steps.length > 1 ? r.steps[0].assigneeName : null;
+  const approvedLevels = chain ? r.steps.filter((s) => s.status === "APPROVED") : [];
+  const nextLevelName = chain && chain.currentLevel < chain.levels.length ? chain.levels[chain.currentLevel]?.name : null;
   const asDelegate = !!openStep && !!meId && openStep.delegateUserId === meId && openStep.assigneeUserId !== meId;
 
   async function go(decision: "APPROVED" | "REJECTED") {
@@ -108,6 +112,10 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
       const out = await decide.mutateAsync({ requestId: r.id, decision, note: note.trim() || null });
       if (out.autoSend?.requested && !out.autoSend.sent) {
         toast.warning("Approved and the purchase order is issued, but the email to the supplier did not go. Use Send on the order.");
+        return;
+      }
+      if (decision === "APPROVED" && chain && chain.currentLevel < chain.levels.length) {
+        toast.success(`Approved at level ${chain.currentLevel}. It now goes to ${nextLevelName ?? "the next level"}.`);
         return;
       }
       toast.success(
@@ -129,6 +137,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{subject}</Badge>
             {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
+            {chain && r.status === "PENDING" && <Badge variant="secondary">{`Level ${chain.currentLevel} of ${chain.levels.length}`}</Badge>}
             {asDelegate && <Badge variant="secondary" className="bg-primary/10 text-primary">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
             {sr ? (
               <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
@@ -163,6 +172,16 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="text-xs text-muted-foreground">
             {`Raised by ${r.requesterName ?? "someone no longer on the team"} · ${fmtWhen(r.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${escalatedFrom && escalatedFrom !== step?.assigneeName ? ` (escalated from ${escalatedFrom})` : ""}${openStep?.delegateName && openStep.delegateUserId !== meId ? ` · ${openStep.delegateName} can decide it too` : ""}${r.decidedAt ? ` · decided ${fmtWhen(r.decidedAt)}` : ""}`}
           </div>
+          {chain && (
+            <div className="text-xs text-muted-foreground">
+              {`Chain: ${chain.levels.map((l, i) => `${i + 1}. ${l.name ?? "someone no longer on the team"}`).join(" → ")}${chain.standInName ? ` (${chain.standInName} can stand in at the last level)` : ""}`}
+            </div>
+          )}
+          {approvedLevels.map((s, i) => (
+            <div key={s.id} className="text-xs text-muted-foreground">
+              {`Level ${i + 1} approved by ${s.decidedByName ?? "someone no longer on the team"}${s.decidedByUserId && s.decidedByUserId !== s.assigneeUserId ? `, standing in for ${s.assigneeName ?? "the approver"}` : ""}${s.decidedAt ? ` · ${fmtWhen(s.decidedAt)}` : ""}${s.note ? `: ${s.note}` : ""}`}
+            </div>
+          ))}
           {!decidable && step?.note && <div className="text-sm"><span className="text-muted-foreground">Decision note: </span>{step.note}</div>}
         </div>
         {decidable && (

@@ -29,7 +29,7 @@ import {
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 
-export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "approve" | "propose" | "decide-supplier" | "integration" | "supplier-transfer";
+export type ProcurementNeed = "view" | "author" | "admin" | "request" | "settle" | "sign-off" | "approve" | "propose" | "decide-supplier" | "integration" | "supplier-transfer";
 
 export type ProcurementSession =
   | { user?: (ProcurementUserLike & { id?: string; organizationId?: string | null }) | null }
@@ -58,6 +58,11 @@ function allowed(user: ProcurementUserLike | null | undefined, need: Procurement
       return canRequestProcurement(user);
     case "settle":
       return canSettleProcurement(user);
+    case "sign-off":
+      // The settle holder signs off a closed budget; the super admin may too,
+      // for the budget whose purchases the settle holder approved as the
+      // final approver's stand-in (Sep 28, 2026), which they may not sign off.
+      return canSettleProcurement(user) || user?.role === "SUPER_ADMIN";
     case "propose":
       // A supplier is proposed by a requester or created by the settle holder (spec §4.3).
       return holdsKey(user, "procurement.suppliers.propose") || canRequestProcurement(user) || canSettleProcurement(user);

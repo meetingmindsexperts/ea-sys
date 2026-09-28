@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a named approval chain for spend requests, with a stand-in (September 28)
+
+Owner: "first approval goes to the 1st level approver, then the 2nd level, and the
+final approver Medhat", and "when Medhat is busy, Muthu approves". **Settings, Roles**
+gains a **Spend request approval chain** card (super admin only): 2 to 4 people in
+order from dropdowns, the last the unlimited final approver, plus an optional
+**stand-in** for the last level. Every spend request walks the whole chain in order,
+whatever the amount; over budget still ends with the final approver. The purchase
+order is issued only after the last approval. A requester skips their own level; a
+request keeps the chain it was submitted with (`payload.approvalChain`); an amount
+rise restarts it. Budgets and reallocations keep the ceiling routing. No chain saved
+= today's routing, so nothing changes until one is set.
+
+- The stand-in may hold finance sign-off (which otherwise never decides). The
+  separation is kept per purchase instead: **nobody confirms the delivery of, or signs
+  off the budget of, a purchase they approved** (`subjectsApprovedBy`). The super admin
+  may now sign off a closed budget, for the one the settle holder cannot.
+- Reminders: a chain level is never skipped. Reminder at 24 h, the named delegate
+  (never a chain member) at 48 h, and from 96 h a daily "Approval stalled" email to
+  the super admins. A level whose person left or lost the access refuses new
+  submissions with their name, and takes their delegate at once for requests waiting.
+- The decide route now asks only for procurement access; who may decide is judged in
+  the approvals primitive from the user row, for every subject type.
+- Inbox cards show "Level N of M", the chain and earlier approvals; the request page's
+  trail lists every level. Activity describes level approvals and chain edits.
+- Migration `20260928120000_add_approval_chain` (one nullable JSONB column on
+  `ApprovalWorkflowDefinition`). Rules in `src/lib/approvals/approval-chain.ts`.
+- Open from the review (owner to pick): receipt confirmation fallback when every
+  eligible person approved (M1), the stand-in's access re-checked at decision (M2),
+  the inbox card's "assigned to" after level 1 (M3), the chain GET returning the staff
+  list to every Budgets viewer (M4), stale "ceiling" wording, no email to the stand-in.
+
 ### Changed: organisers choose where the main registration link lands (September 25)
 
 `/e/<slug>/register` redirected to the first tier on sale by a fixed ladder

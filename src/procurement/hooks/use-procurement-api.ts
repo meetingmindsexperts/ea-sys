@@ -106,8 +106,19 @@ export interface ApprovalStepRow {
   dueAt: string | null;
   status: string;
   decidedByUserId: string | null;
+  decidedByName?: string | null;
   decidedAt: string | null;
   note: string | null;
+}
+
+/** The approval chain a spend request walks (Sep 28, 2026); null for the ceiling routing. */
+export interface ApprovalChainView {
+  levels: { userId: string; name: string | null }[];
+  /** May decide the last level at any time beside the final approver. */
+  standInUserId: string | null;
+  standInName: string | null;
+  /** 1-based; the open level while pending, the last one reached once decided. */
+  currentLevel: number;
 }
 
 export interface ApprovalRequestRow {
@@ -144,6 +155,7 @@ export interface ApprovalRequestRow {
     remainingAfter: string | null;
   } | null;
   steps: ApprovalStepRow[];
+  chain: ApprovalChainView | null;
 }
 
 export interface SupplierContact {
@@ -391,6 +403,7 @@ export interface SpendRequestDetailRow extends SpendRequestRow {
     createdAt: string;
     decidedAt: string | null;
     steps: { assigneeUserId: string; assigneeName: string | null; delegateUserId: string | null; delegateName: string | null; status: string; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null; dueAt: string }[];
+    chain: { levels: { userId: string; name: string | null }[]; standInName: string | null } | null;
   }[];
 }
 
@@ -401,7 +414,7 @@ export interface BudgetCheckPreviewRow {
   rateSource: "same" | "peg" | "caller";
   check: { status: Exclude<BudgetCheckStatusValue, "NOT_CHECKED">; exception: boolean; reasonRequired: boolean; amountReporting: string; remainingBefore: string; remainingAfter: string };
   amountAed: string | null;
-  route: { ok: true; approverUserId: string; approverName: string | null; exception: boolean } | { ok: false; code: "NO_APPROVER" | "RATE_REQUIRED"; message: string };
+  route: { ok: true; approverUserId: string; approverName: string | null; exception: boolean; chainNames: string[] | null } | { ok: false; code: "NO_APPROVER" | "RATE_REQUIRED"; message: string };
   openRequests: { id: string; requestNo: string; title: string; status: SpendRequestStatusValue; amountReporting: string | null }[];
 }
 

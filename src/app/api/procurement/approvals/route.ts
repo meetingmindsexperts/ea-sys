@@ -10,6 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requiresFinalApprover } from "@/lib/approvals/approvals-service";
+import { readChainSnapshot } from "@/lib/approvals/approval-chain";
 import { guardedRead, procurementGuard } from "@/procurement/lib/route-helpers";
 import { readApprovalPayload } from "@/procurement/services/spend-request-service";
 
@@ -32,7 +33,8 @@ export async function GET(req: NextRequest) {
         ...(scope === "mine"
           ? { requesterUserId: g.user.id }
           : scope === "decided"
-            ? { status: { in: ["APPROVED", "REJECTED"] }, steps: { some: { decidedByUserId: g.user.id } } }
+            ? // PENDING too: a chain level the caller approved, still waiting on the next level.
+              { status: { in: ["APPROVED", "REJECTED", "PENDING"] }, steps: { some: { decidedByUserId: g.user.id } } }
             : { status: "PENDING", steps: { some: { status: "PENDING", OR: [{ assigneeUserId: g.user.id }, { delegateUserId: g.user.id }] } } }),
       },
       select: {
@@ -55,7 +57,8 @@ export async function GET(req: NextRequest) {
     const budgets = budgetIds.length
       ? await db.eventBudget.findMany({ where: { id: { in: budgetIds }, organizationId: g.orgId }, select: { id: true, eventCode: true, versionNo: true, status: true, reportingCurrency: true, event: { select: { name: true } } } })
       : [];
-    const userIds = [...new Set(requests.flatMap((r) => [r.requesterUserId, ...r.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? ""])]).filter(Boolean))];
+    const chains = new Map(requests.map((r) => [r.id, readChainSnapshot(r.payload)]));
+    const userIds = [...new Set(requests.flatMap((r) => [r.requesterUserId, ...r.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""]), ...(chains.get(r.id)?.levels ?? []), chains.get(r.id)?.standInUserId ?? ""]).filter(Boolean))];
     const users = userIds.length ? await db.user.findMany({ where: { id: { in: userIds }, organizationId: g.orgId }, select: { id: true, firstName: true, lastName: true } }) : [];
     const byBudget = new Map(budgets.map((b) => [b.id, b]));
     const byUser = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
@@ -103,7 +106,18 @@ export async function GET(req: NextRequest) {
           move: move
             ? { ...move, fromDescription: lineDescription.get(`${r.subjectId}:${move.fromLineKey}`) ?? null, toDescription: lineDescription.get(`${r.subjectId}:${move.toLineKey}`) ?? null }
             : null,
-          steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null, delegateName: s.delegateUserId ? (byUser.get(s.delegateUserId) ?? null) : null })),
+          steps: r.steps.map((s) => ({ ...s, assigneeName: byUser.get(s.assigneeUserId) ?? null, delegateName: s.delegateUserId ? (byUser.get(s.delegateUserId) ?? null) : null, decidedByName: s.decidedByUserId ? (byUser.get(s.decidedByUserId) ?? null) : null })),
+          // The chain this request walks (null for the ceiling routing): who, in order, and which level is open.
+          chain: (() => {
+            const c = chains.get(r.id);
+            if (!c) return null;
+            return {
+              levels: c.levels.map((id) => ({ userId: id, name: byUser.get(id) ?? null })),
+              standInUserId: c.standInUserId,
+              standInName: c.standInUserId ? (byUser.get(c.standInUserId) ?? null) : null,
+              currentLevel: Math.min(r.steps.filter((s) => s.status === "APPROVED").length + 1, c.levels.length),
+            };
+          })(),
         };
       }),
     });

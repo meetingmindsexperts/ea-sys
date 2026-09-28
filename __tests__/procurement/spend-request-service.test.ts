@@ -32,7 +32,7 @@ const mockDb = vi.hoisted(() => ({
   user: { findMany: vi.fn(), findFirst: vi.fn() },
   approvalWorkflowDefinition: { findFirst: vi.fn().mockResolvedValue(null) },
   approvalRequest: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-  approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+  approvalStep: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), create: vi.fn().mockResolvedValue({ id: "st2" }) },
   auditLog: { create: vi.fn().mockResolvedValue({}) },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb) }));
@@ -420,5 +420,28 @@ describe("setQuoteFile", () => {
     await setQuoteFile({ ...base, requestId: "sr1", quoteId: "q1", fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
     expect(mockDb.spendRequestQuote.updateMany).not.toHaveBeenCalled();
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("decideSpendRequest on a chained request (Sep 28, 2026)", () => {
+  const lina = { id: "lina", role: "ADMIN", procurementApproveCeilingAed: 1_000_000 };
+  const chained = {
+    id: "ar1", organizationId: ORG, subjectType: "SPEND_REQUEST", subjectId: "sr1", status: "PENDING", amountAed: "5000", requesterUserId: "req",
+    payload: { kind: "SUBMISSION", budgetCheck: "WITHIN_BUDGET", approvalChain: { levels: ["lina", "medhat"], standInUserId: null } },
+    steps: [{ id: "st1", sequence: 1, status: "PENDING", assigneeUserId: "lina", delegateUserId: null, decidedByUserId: null }],
+  };
+  it("an approval below the last level leaves the request pending: no status change, no order, a level entry on its trail", async () => {
+    mockDb.approvalRequest.findFirst.mockResolvedValue(chained);
+    mockDb.approvalRequest.update.mockResolvedValueOnce({ ...chained, steps: [{ ...chained.steps[0], status: "APPROVED", decidedByUserId: "lina" }, { id: "st2", sequence: 2, status: "PENDING", assigneeUserId: "medhat" }] });
+    mockDb.spendRequest.findFirst.mockResolvedValue(request({ status: "PENDING_APPROVAL" }));
+    mockDb.supplier.findFirst.mockResolvedValue({ approvalStatus: "APPROVED", isActive: true });
+    const r = await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
+    expect(r.ok).toBe(true);
+    expect(mockDb.approvalStep.create.mock.calls[0][0].data).toMatchObject({ sequence: 2, assigneeUserId: "medhat" });
+    expect(mockDb.spendRequest.updateMany).not.toHaveBeenCalled();
+    expect(orderSvc.issueOrderInTx).not.toHaveBeenCalled();
+    const actions = mockDb.auditLog.create.mock.calls.map((c) => c[0].data.action);
+    expect(actions).toContain("APPROVE_LEVEL");
+    expect(actions).not.toContain("APPROVE");
   });
 });

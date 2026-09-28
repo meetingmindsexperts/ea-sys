@@ -339,3 +339,48 @@ describe("failures", () => {
     expect(mockDb.approvalStep.updateMany.mock.calls.some((c) => c[0].where.id === "step-9")).toBe(true);
   });
 });
+
+describe("a level of a named approval chain (Sep 28, 2026)", () => {
+  const chain = (levels: string[], standInUserId: string | null = null) => ({ kind: "SUBMISSION", approvalChain: { levels, standInUserId } });
+  const withMuthu = [...PEOPLE, { id: "muthu", firstName: "Muthu", lastName: "R", email: "muthu@x.test", deactivatedAt: null }];
+
+  it("the assignment email says which level it is", async () => {
+    setup({ steps: [stepRow({ notifiedAt: null, sequence: 2, assignee: "lina", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["sara", "lina", "medhat"]) })], holders: [HOLDER.lina, HOLDER.sara, HOLDER.medhat] });
+    await runApprovalNotificationsTick(NOW);
+    expect(sentTo()).toEqual(["lina@x.test"]);
+    expect(sent().textContent).toContain("Level 2 of 3; the earlier levels have approved it.");
+  });
+
+  it("a level waiting 96 hours is never skipped: the admins are told it stalled and the assignee is reminded", async () => {
+    setup({ steps: [stepRow({ ageHours: 97, remindedAt: ago(73), sequence: 1, assignee: "lina", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "medhat"]) })], holders: [HOLDER.lina, HOLDER.medhat] });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(mockDb.approvalStep.create).not.toHaveBeenCalled();
+    expect(r.escalated).toBe(0);
+    expect(sentTo()).toEqual(["dev@x.test", "lina@x.test"]);
+    expect(sent(0).subject).toMatch(/^Approval stalled: /);
+    expect(sent(1).subject).toMatch(/^Reminder, waiting on your approval: /);
+  });
+
+  it("never makes a later member of the chain the 48-hour delegate (review H1)", async () => {
+    // Lina's named delegate is Medhat, who holds level 3 of this chain: he is not added to level 1.
+    setup({
+      steps: [stepRow({ ageHours: 49, remindedAt: ago(25), sequence: 1, assignee: "lina", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "sara", "medhat"]) })],
+      holders: [{ ...HOLDER.lina, procurementDelegateUserId: "medhat" }, HOLDER.sara, HOLDER.medhat],
+    });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(r.delegated).toBe(0);
+    expect(mockDb.approvalStep.updateMany.mock.calls.some((c) => (c[0] as { data: Record<string, unknown> }).data.delegateUserId)).toBe(false);
+  });
+
+  it("the stand-in on the last level counts as able to decide although they hold no approval grant", async () => {
+    // Medhat lost his grant; Muthu, the stand-in, can still decide, so nothing is stuck and only they are reminded.
+    setup({
+      steps: [stepRow({ ageHours: 30, sequence: 2, assignee: "medhat", delegateUserId: "muthu", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "medhat"], "muthu") })],
+      holders: [HOLDER.lina],
+      people: withMuthu,
+    });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(r.stuck).toBe(0);
+    expect(sentTo()).toEqual(["muthu@x.test"]);
+  });
+});
