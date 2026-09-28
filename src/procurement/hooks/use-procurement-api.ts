@@ -87,6 +87,8 @@ export interface BudgetRow {
   frozenAt: string | null;
   closedAt: string | null;
   signedOffAt: string | null;
+  /** The signer also approved some of the event's purchases (allowed, shown). */
+  signOffOverlap?: { signerName: string | null; requestNos: string[] } | null;
   closeOutSummary: unknown;
   notes: string | null;
   /** The optimistic-lock counter every header write must echo. */
@@ -395,6 +397,7 @@ export interface SpendRequestDetailRow extends SpendRequestRow {
   order: CommitmentRow | null;
   /** Cancelled orders the request held before, newest first. */
   previousOrders: CommitmentRow[];
+  receiptConfirmedByApprover: { name: string | null } | null;
   approvals: {
     id: string;
     status: string;

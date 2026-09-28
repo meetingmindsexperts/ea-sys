@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a budget approver with a backup; the chain review items closed (September 28)
+
+Owner: "when it comes to budget Lina has the final say", with Medhat as backup, and
+"I am not part of any approval" (the super admin is the developer and system admin).
+
+- **Budget approver.** Settings, Roles gains a second card: one person approves every
+  event budget, its new versions and any move between its lines that needs approval,
+  whatever the amount, with an optional backup who may decide at any time. It is the
+  same chain machinery with one level (`ApprovalWorkflowDefinition` row of subject type
+  `BUDGET`; `CHAIN_RULES` in `approval-chain.ts`); the approver needs approval access
+  but not an unlimited grant. No new migration.
+- **Sign-off and delivery overlaps are allowed and shown** (owner's pick): the settle
+  holder may sign off a budget, and an approver may confirm a delivery, of purchases
+  they approved; the trail records it (`signerApprovedPurchases`,
+  `confirmerApprovedThisPurchase`) and the close-out and the order say so. The
+  previous block and its super-admin sign-off fallback are removed: the super admin
+  never signs off.
+- **Review items closed:** the stand-in's right is re-checked live at each decision
+  and in the reminder job, and a stand-in must have Budgets access (M2); the inbox card
+  names the level it is waiting on (M3); the chain API, which carries the staff list,
+  is super-admin only both ways (M4); the stand-in is emailed when the last level opens;
+  "stalled" has its own tick counter; a withdraw racing a level approval can no longer
+  leave an open step; only approvals that went through count as "approved this
+  purchase"; wording that assumed ceiling routing now reads right under a chain.
+- Grey panels and org-colour tints on the approval settings, inbox cards and trail.
+- User guide chapter 22 gains "Approval chains"; the roles doc lists the chain rows.
+
 ### Added: a named approval chain for spend requests, with a stand-in (September 28)
 
 Owner: "first approval goes to the 1st level approver, then the 2nd level, and the

@@ -25,8 +25,8 @@ describe("spend requests", () => {
     expect(d("SpendRequest", "CREATE", { requestNo: "PR-2026-0001", amount: "5000.0000", currency: "aed" })).toEqual({ title: "Request drafted", detail: "AED 5,000.00" });
     expect(d("SpendRequest", "UPDATE", { fields: ["title", "neededBy", "sourcingMethod"] })).toEqual({ title: "Request edited", detail: "title, needed by, sourcing" });
     expect(d("SpendRequest", "SUBMIT", { amountAed: "5000.0000", budgetCheck: "WITHIN_BUDGET", exception: false })).toEqual({ title: "Request submitted", detail: "AED 5,000.00, within budget" });
-    expect(d("SpendRequest", "SUBMIT", { amountAed: "40000.0000", budgetCheck: "OVER_BUDGET", exception: true })).toEqual({ title: "Request submitted", detail: "AED 40,000.00, over budget, to the final approver" });
-    expect(d("SpendRequest", "SUBMIT", { amountAed: "1.0000", budgetCheck: "FROZEN", exception: true }).detail).toBe("AED 1.00, budget frozen, to the final approver");
+    expect(d("SpendRequest", "SUBMIT", { amountAed: "40000.0000", budgetCheck: "OVER_BUDGET", exception: true })).toEqual({ title: "Request submitted", detail: "AED 40,000.00, over budget, ends with the final approver" });
+    expect(d("SpendRequest", "SUBMIT", { amountAed: "1.0000", budgetCheck: "FROZEN", exception: true }).detail).toBe("AED 1.00, budget frozen, ends with the final approver");
   });
   it("the decision says where the request landed", () => {
     expect(d("SpendRequest", "APPROVE", { landing: "APPROVED", note: "Go" })).toEqual({ title: "Request approved", detail: "note: Go" });

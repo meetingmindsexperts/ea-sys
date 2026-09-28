@@ -143,10 +143,9 @@ describe("procurement routes: deciding and the lifecycle moves", () => {
     authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
     expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "sign-off" }), params)).status).toBe(200);
     expect(svc.signOffBudget).toHaveBeenCalledTimes(1);
-    // The super admin signs off too (Sep 28, 2026), for the budget whose purchases the settle holder approved as a stand-in.
+    // The super admin never signs off (owner, Sep 28 2026: developer and admin, not part of any approval).
     authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
-    expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "sign-off" }), params)).status).toBe(200);
-    expect(svc.signOffBudget).toHaveBeenLastCalledWith(expect.objectContaining({ actorUserId: "u1", actorRole: "SUPER_ADMIN" }));
+    expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "sign-off" }), params)).status).toBe(403);
     authMock.mockResolvedValue(user({ role: "ADMIN" }));
     expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "reopen", reason: "audit" }), params)).status).toBe(200);
     expect(svc.reopenBudget).toHaveBeenCalledWith(expect.objectContaining({ reason: "audit" }));

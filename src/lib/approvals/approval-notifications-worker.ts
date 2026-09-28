@@ -39,9 +39,9 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import { approvalCeilingAed, procurementGrantsFromRow } from "@/lib/procurement-visibility";
-import { DEFAULT_STEP_DUE_HOURS, requiresFinalApprover } from "./approvals-service";
+import { DEFAULT_STEP_DUE_HOURS, loadApprovalChain, requiresFinalApprover } from "./approvals-service";
 import { NOTIFY_WINDOW_DAYS, hoursBetween, pickDelegate, pickNextTier, planStepAction, type ApproverHolder, type StepAction } from "./escalation-rules";
-import { readChainSnapshot, standInAt, type ChainSnapshot } from "./approval-chain";
+import { chainKindFor, readChainSnapshot, standInAt, type ChainKind, type ChainSnapshot } from "./approval-chain";
 import { buildApprovalEmail, subjectWordFor, type ApprovalEmailInput, type ApprovalEmailKind } from "./approval-emails";
 
 /** Never read an unbounded queue in one tick; a backlog drains over several. */
@@ -54,6 +54,8 @@ export interface ApprovalTickResult {
   escalated: number;
   /** Requests nobody can decide, reported to the admins. */
   stuck: number;
+  /** Chain levels waiting past 96 hours, reported to the admins (a level is never skipped). */
+  stalled: number;
   decided: number;
   skipped: number;
   failed: number;
@@ -114,7 +116,7 @@ interface Person {
 }
 
 export async function runApprovalNotificationsTick(now: Date = new Date()): Promise<ApprovalTickResult> {
-  const result: ApprovalTickResult = { assigned: 0, reminded: 0, delegated: 0, escalated: 0, stuck: 0, decided: 0, skipped: 0, failed: 0 };
+  const result: ApprovalTickResult = { assigned: 0, reminded: 0, delegated: 0, escalated: 0, stuck: 0, stalled: 0, decided: 0, skipped: 0, failed: 0 };
   // Approvals have one consumer today, the Budget & Procurement module; with it
   // off on a deployment there is nothing to notify and nothing to scan.
   if (!isProcurementModuleEnabled()) {
@@ -140,7 +142,7 @@ export async function runApprovalNotificationsTick(now: Date = new Date()): Prom
     }
   }
 
-  const acted = result.assigned + result.reminded + result.delegated + result.escalated + result.stuck + result.decided;
+  const acted = result.assigned + result.reminded + result.delegated + result.escalated + result.stuck + result.stalled + result.decided;
   if (acted > 0 || result.failed > 0) apiLogger.info({ msg: "approvals-notify:tick", ...result });
   else apiLogger.debug({ msg: "approvals-notify:tick-idle", pendingSteps: steps.length });
   return result;
@@ -199,6 +201,15 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     return adminIds;
   };
 
+  // Each kind's configured stand-in, read once per tick: the stand-in's right to act is live, not snapshotted.
+  const standInByKind = new Map<ChainKind, string | null>();
+  const liveStandIn = async (subjectType: string): Promise<string | null> => {
+    const kind = chainKindFor(subjectType);
+    if (!kind) return null;
+    if (!standInByKind.has(kind)) standInByKind.set(kind, (await loadApprovalChain(db, orgId, kind))?.standInUserId ?? null);
+    return standInByKind.get(kind) ?? null;
+  };
+
   const labels = await subjectLabels(orgId, [...steps.map((s) => s.request), ...decided]);
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   const approvalsLink = appUrl ? `${appUrl}/procurement/approvals` : null;
@@ -247,7 +258,8 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     const levelIndex = step.sequence - 1;
     const base = {
       ...baseFor(r, r.requesterUserId, approvalsLink),
-      chainLine: chain ? `Level ${levelIndex + 1} of ${chain.levels.length}${levelIndex > 0 ? "; the earlier levels have approved it" : ""}.` : null,
+      // A one-person chain (budgets) has no levels worth naming.
+      chainLine: chain && chain.levels.length > 1 ? `Level ${levelIndex + 1} of ${chain.levels.length}${levelIndex > 0 ? "; the earlier levels have approved it" : ""}.` : null,
     };
     const waited = hoursBetween(step.createdAt, now);
 
@@ -265,6 +277,11 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
       }
       result.assigned++;
       await deliver("assigned", step.assigneeUserId, base, ref);
+      // The last level's stand-in hears about it at the same moment, so "when
+      // the approver is busy" does not wait for the 24-hour reminder.
+      if (chain && step.delegateUserId && step.delegateUserId === standInAt(chain, levelIndex) && (await liveStandIn(r.subjectType)) === step.delegateUserId) {
+        await deliver("assigned", step.delegateUserId, { ...base, chainLine: `${base.chainLine ? `${base.chainLine} ` : ""}You can decide it in ${nameOf(step.assigneeUserId) ?? "the approver"}'s place, as their stand-in.` }, `${ref}:stand-in`);
+      }
       return;
     }
 
@@ -396,11 +413,13 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
     const isFinal = levelIndex === chain.levels.length - 1;
     const standIn = standInAt(chain, levelIndex);
     const active = (id: string | null | undefined) => !!id && !!people.get(id) && !people.get(id)!.deactivatedAt;
+    const liveStandInId = await liveStandIn(r.subjectType);
     const holdsLevel = (id: string | null | undefined) => {
       if (!id || id === r.requesterUserId) return false;
-      if (id === standIn) return active(id);
+      // The stand-in counts only while they are still the configured one (read live, as the decision does).
+      if (id === standIn) return active(id) && liveStandInId === id;
       const h = holders.find((x) => x.id === id);
-      return !!h && (isFinal ? h.ceilingAed === Number.POSITIVE_INFINITY : h.ceilingAed > 0);
+      return !!h && (isFinal && chain.finalUnlimited ? h.ceilingAed === Number.POSITIVE_INFINITY : h.ceilingAed > 0);
     };
     const assigneeCanDecide = holdsLevel(step.assigneeUserId);
     const delegateCanDecide = holdsLevel(step.delegateUserId);
@@ -441,7 +460,8 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
       case "stuck":
       case "stalled": {
         if (!(await claimReminder())) return void result.skipped++;
-        result.stuck++;
+        if (action.kind === "stuck") result.stuck++;
+        else result.stalled++;
         apiLogger.warn({ msg: action.kind === "stuck" ? "approvals-notify:no-one-can-decide" : "approvals-notify:chain-level-stalled", organizationId: orgId, requestId: r.id, stepId: step.id, assigneeUserId: step.assigneeUserId, level: levelIndex + 1, hoursWaiting: Math.floor(waited) });
         const admins = await grantAdmins();
         if (admins.length === 0) {

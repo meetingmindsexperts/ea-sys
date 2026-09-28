@@ -297,7 +297,7 @@ function OrderSection({ r, order: o, me, isAdmin, canRequest, canSettle, canAppr
         <Field k="Sent to supplier" v={o.sentToSupplierAt ? fmtWhen(o.sentToSupplierAt) : sendFailed ? "Tried and failed" : hasEmail ? "Not yet" : "Not yet; the supplier has no contact email"} />
         {o.receivedAt && <Field k="Received" v={fmtWhen(o.receivedAt)} />}
         {o.fulfillmentStatus === "PARTIALLY_RECEIVED" && <Field k="Received" v="Partly" />}
-        {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}` : "Awaiting confirmation (AED 50,000 or more)"} />}
+        {o.receiptNeedsSecondPerson && o.fulfillmentStatus === "RECEIVED" && <Field k="Second person" v={o.receiptConfirmedAt ? `Confirmed ${fmtWhen(o.receiptConfirmedAt)}${r.receiptConfirmedByApprover ? ` by ${r.receiptConfirmedByApprover.name ?? "someone"}, who also approved this purchase` : ""}` : "Awaiting confirmation (AED 50,000 or more)"} />}
         {o.status === "CANCELLED" && <Field k="Cancelled" v={`${o.cancelledAt ? fmtWhen(o.cancelledAt) : ""}${o.cancelReason ? ` · ${o.cancelReason}` : ""}`} />}
       </dl>
       {o.lines.length > 0 && (
@@ -525,7 +525,7 @@ function ApprovalTrail({ r }: { r: SpendRequestDetailRow }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{kind === "AMENDMENT" ? "Amount change" : "Submission"}</span>
                 <Badge variant="secondary">{a.status.toLowerCase()}</Badge>
-                <span className="text-xs text-muted-foreground tabular-nums">{`AED ${money2(a.amountAed)} for the ceiling`}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{a.chain ? `AED ${money2(a.amountAed)}` : `AED ${money2(a.amountAed)} for the ceiling`}</span>
               </div>
               {amend && <div className="text-xs text-muted-foreground">{`${r.currency} ${money2(amend.previousAmount)} to ${money2(amend.nextAmount)}${amend.reason ? ` · ${amend.reason}` : ""}`}</div>}
               {a.chain ? (
@@ -549,8 +549,8 @@ type TrailApproval = SpendRequestDetailRow["approvals"][number];
 /** A chained submission, one row per level: who it was with, and what they decided. */
 function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: NonNullable<TrailApproval["chain"]>; steps: TrailApproval["steps"] }) {
   return (
-    <ol className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-      <li>{`Submitted ${fmtWhen(createdAt)}`}</li>
+    <ol className="mt-2 space-y-1 text-xs">
+      <li className="text-muted-foreground">{`Submitted ${fmtWhen(createdAt)}`}</li>
       {chain.levels.map((level, i) => {
         const s = steps[i];
         const who = level.name ?? "someone no longer on the team";
@@ -562,7 +562,10 @@ function ChainTrail({ createdAt, chain, steps }: { createdAt: string; chain: Non
         else if (s?.status === "REJECTED") state = `rejected by ${s.decidedByName ?? who}${s.decidedAt ? ` ${fmtWhen(s.decidedAt)}` : ""}`;
         else if (s?.status === "SKIPPED") state = "closed without a decision";
         return (
-          <li key={level.userId + i}>
+          <li
+            key={level.userId + i}
+            className={`rounded-md px-2 py-1 ${s?.status === "APPROVED" ? "bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100" : s?.status === "REJECTED" ? "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100" : s?.status === "PENDING" ? "bg-primary/10 text-foreground" : "bg-muted/60 text-muted-foreground"}`}
+          >
             {`Level ${i + 1}, ${who}: ${state}`}
             {s?.note && <span className="text-foreground">{` · ${s.note}`}</span>}
           </li>
@@ -596,7 +599,7 @@ function SubmitDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () =>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Submit for approval</DialogTitle>
-          <DialogDescription>{`The budget check runs now against what "${r.line?.description ?? "the line"}" has left, and the request goes to whoever the AED amount requires. Over the line it goes to the final approver as an exception.`}</DialogDescription>
+          <DialogDescription>{`The budget check runs now against what "${r.line?.description ?? "the line"}" has left, and the request goes to its approvers: the approval chain in order when one is set, otherwise whoever the AED amount requires. Over the line it is an over-budget exception that always ends with the final approver.`}</DialogDescription>
         </DialogHeader>
         {floats && (
           <div className="space-y-1">
@@ -712,7 +715,7 @@ function AmendDialog({ r, onClose }: { r: SpendRequestDetailRow; onClose: () => 
           <Label htmlFor="am-reason">Reason</Label>
           <Textarea id="am-reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
-        {rising && <p className="flex items-start gap-1 text-xs text-muted-foreground"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /> The budget check runs again on the new total; over the line it goes to the final approver as an exception.</p>}
+        {rising && <p className="flex items-start gap-1 text-xs text-muted-foreground"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /> The budget check runs again on the new total and the change goes back through approval; over the line it is an exception that always ends with the final approver.</p>}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={amend.isPending}>Keep it</Button>
           <Button onClick={() => void go()} disabled={amend.isPending || !(Number(amount) > 0) || !reason.trim() || (floats && rising && !(Number(rate) > 0))}>{amend.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {rising ? "Route the change" : "Apply"}</Button>

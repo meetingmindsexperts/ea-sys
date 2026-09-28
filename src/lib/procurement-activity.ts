@@ -380,7 +380,7 @@ function describeSpendRequest(row: ProcurementActivityRow): { title: string; det
     case "SUBMIT":
       return {
         title: "Request submitted",
-        detail: parts(amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null, check, c.exception === true ? "to the final approver" : null),
+        detail: parts(amount(c.amountAed) ? `AED ${amount(c.amountAed)}` : null, check, c.exception === true ? "ends with the final approver" : null),
       };
     case "APPROVE_LEVEL":
       return { title: `Approved at level ${num(c.level) ?? "?"}, waiting on the next level`, detail: note };
@@ -562,7 +562,10 @@ export function describeProcurementActivity(row: ProcurementActivityRow, ctx: De
       return describeBudgetTemplate(row);
     case "ApprovalWorkflowDefinition":
       return row.action === "APPROVAL_CHAIN_UPDATED"
-        ? { title: Array.isArray(row.changes?.levels) && (row.changes?.levels as unknown[]).length > 0 ? "Spend request approval chain saved" : "Spend request approval chain turned off", detail: str(row.changes?.summary) }
+        ? {
+            title: `${row.changes?.kind === "BUDGET" ? "Budget approver" : "Spend request approval chain"} ${Array.isArray(row.changes?.levels) && (row.changes?.levels as unknown[]).length > 0 ? "saved" : "turned off"}`,
+            detail: str(row.changes?.summary),
+          }
         : { title: humanize(row.action), detail: null };
     default:
       return { title: humanize(row.action), detail: null };

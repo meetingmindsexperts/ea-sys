@@ -25,8 +25,8 @@
  */
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { apiLogger } from "@/lib/logger";
-import { approvalCeilingAed, canApproveProcurement, canSettleProcurement, procurementGrantsFromRow, type ProcurementUserLike } from "@/lib/procurement-visibility";
-import { APPROVAL_CHAIN_KEY, judgeChainDecider, readChainSnapshot, snapshotForRequester, standInAt, type ApprovalChainConfig, type ChainSnapshot } from "./approval-chain";
+import { approvalCeilingAed, canApproveProcurement, canSettleProcurement, canViewProcurement, procurementGrantsFromRow, type ProcurementUserLike } from "@/lib/procurement-visibility";
+import { APPROVAL_CHAIN_KEY, CHAIN_RULES, chainKindFor, judgeChainDecider, readChainSnapshot, snapshotForRequester, standInAt, type ApprovalChainConfig, type ChainKind, type ChainSnapshot } from "./approval-chain";
 
 export type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -66,10 +66,10 @@ function ceilingOf(row: ApproverRow): number {
   return approvalCeilingAed(procurementGrantsFromRow(row)) ?? Number.NaN;
 }
 
-/** The organisation's saved spend-request chain, or null when none is set (the ceiling routing applies). */
-export async function loadApprovalChain(db: Db, organizationId: string): Promise<ApprovalChainConfig | null> {
+/** The organisation's saved chain of this kind, or null when none is set (the ceiling routing applies). */
+export async function loadApprovalChain(db: Db, organizationId: string, kind: ChainKind = "SPEND_REQUEST"): Promise<ApprovalChainConfig | null> {
   const def = await db.approvalWorkflowDefinition.findFirst({
-    where: { organizationId, subjectType: "SPEND_REQUEST", isActive: true, chain: { not: Prisma.AnyNull } },
+    where: { organizationId, subjectType: kind, isActive: true, chain: { not: Prisma.AnyNull } },
     orderBy: { updatedAt: "desc" },
     select: { chain: true },
   });
@@ -89,6 +89,7 @@ async function liveChainConfig(
   db: Db,
   organizationId: string,
   config: ApprovalChainConfig,
+  kind: ChainKind,
 ): Promise<{ ok: true; config: ApprovalChainConfig } | { ok: false; code: "NO_APPROVER"; message: string }> {
   const ids = [...config.levels, ...(config.standInUserId ? [config.standInUserId] : [])];
   const rows = await db.user.findMany({
@@ -100,7 +101,7 @@ async function liveChainConfig(
     const row = byId.get(id);
     const ceiling = row ? approvalCeilingAed(procurementGrantsFromRow(row)) : null;
     const isFinal = i === config.levels.length - 1;
-    const usable = !!row && !row.procurementSettle && ceiling !== null && (!isFinal || ceiling === Number.POSITIVE_INFINITY);
+    const usable = !!row && !row.procurementSettle && ceiling !== null && (!isFinal || !CHAIN_RULES[kind].finalUnlimited || ceiling === Number.POSITIVE_INFINITY);
     if (usable) continue;
     const who = row ? `${row.firstName} ${row.lastName}`.trim() : "Someone who has left";
     apiLogger.warn({ msg: "approvals:chain-level-unusable", organizationId, level: i + 1, userId: id, found: !!row });
@@ -127,12 +128,13 @@ export async function resolveApprover(
   db: Db,
   input: { organizationId: string; subjectType: ApprovalSubject; amountAed: number; requesterUserId: string; requireFinalApprover?: boolean },
 ): Promise<{ ok: true; approverUserId: string; chain?: ChainSnapshot } | { ok: false; code: "NO_APPROVER"; message: string }> {
-  if (input.subjectType === "SPEND_REQUEST") {
-    const config = await loadApprovalChain(db, input.organizationId);
+  const kind = chainKindFor(input.subjectType);
+  if (kind) {
+    const config = await loadApprovalChain(db, input.organizationId, kind);
     if (config) {
-      const live = await liveChainConfig(db, input.organizationId, config);
+      const live = await liveChainConfig(db, input.organizationId, config, kind);
       if (!live.ok) return live;
-      const chain = snapshotForRequester(live.config, input.requesterUserId);
+      const chain = snapshotForRequester(live.config, input.requesterUserId, kind);
       if (chain) return { ok: true, approverUserId: chain.levels[0], chain };
       apiLogger.warn({ msg: "approvals:chain-no-approver", organizationId: input.organizationId, requesterUserId: input.requesterUserId });
       return { ok: false, code: "NO_APPROVER", message: "The approval chain has nobody but you at its final level, and no stand-in. Ask the super admin to adjust the chain in Settings, Roles." };
@@ -225,7 +227,7 @@ function withFinalFlag(payload: Prisma.InputJsonValue | null | undefined, flag: 
 function withChain(payload: Prisma.InputJsonValue | undefined, chain: ChainSnapshot | undefined): Prisma.InputJsonValue | undefined {
   if (!chain) return payload;
   const base = typeof payload === "object" && payload !== null && !Array.isArray(payload) ? (payload as Prisma.InputJsonObject) : {};
-  return { ...base, [APPROVAL_CHAIN_KEY]: { levels: chain.levels, standInUserId: chain.standInUserId } };
+  return { ...base, [APPROVAL_CHAIN_KEY]: { levels: chain.levels, standInUserId: chain.standInUserId, finalUnlimited: chain.finalUnlimited } };
 }
 
 /**
@@ -411,6 +413,9 @@ async function decideChainLevel(db: Db, input: DecideApprovalInput, request: Req
   const earlier = request.steps.filter((s) => s.status === "APPROVED" && s.decidedByUserId);
   const levelIndex = earlier.length;
   if (levelIndex >= chain.levels.length) return fail("ALREADY_DECIDED", "Every level of this request is already decided.", input);
+  // The stand-in's right to act is read LIVE: removing them must bite at once.
+  const kind = chainKindFor(request.subjectType);
+  const live = kind ? await loadApprovalChain(db, input.organizationId, kind) : null;
   const judged = judgeChainDecider({
     snapshot: chain,
     levelIndex,
@@ -419,6 +424,8 @@ async function decideChainLevel(db: Db, input: DecideApprovalInput, request: Req
     deciderCeilingAed: approvalCeilingAed(decider),
     deciderSettles: canSettleProcurement(decider),
     earlierApproverIds: earlier.map((s) => s.decidedByUserId as string),
+    liveStandInUserId: live?.standInUserId ?? null,
+    deciderHasProcurementAccess: canViewProcurement(decider),
   });
   if (!judged.ok) return fail(judged.code, judged.message, input);
   const now = new Date();
@@ -491,7 +498,8 @@ export async function subjectsApprovedBy(
       organizationId: input.organizationId,
       status: "APPROVED",
       decidedByUserId: input.userId,
-      request: { organizationId: input.organizationId, subjectType: input.subjectType, subjectId: { in: input.subjectIds } },
+      // Only approvals that went through: a level approved on a request later rejected or replaced approved nothing.
+      request: { organizationId: input.organizationId, subjectType: input.subjectType, subjectId: { in: input.subjectIds }, status: "APPROVED" },
     },
     select: { request: { select: { subjectId: true } } },
   });

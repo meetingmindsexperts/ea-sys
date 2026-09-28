@@ -547,17 +547,17 @@ export async function confirmReceipt(input: { organizationId: string; actor: Ord
   if (!receiptNeedsSecondPerson(c.spendRequest?.amountAed)) return fail("INVALID_STATUS", "This order is below the second-person floor; its receipt needs no confirmation.", ctx);
   if (!(actor.canSettle || actor.canApprove)) return fail("NOT_ALLOWED", "The second person is the settle holder or an approver.", ctx);
   if (input.actor.id === c.receivedByUserId) return fail("NOT_ALLOWED", "The person who marked the order received cannot confirm it; a second person must.", ctx);
-  // Nobody signs off a purchase they approved (Sep 28, 2026), which is what
-  // lets the settle holder stand in for the final approver at all.
-  if (c.spendRequestId && (await subjectsApprovedBy(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", subjectIds: [c.spendRequestId], userId: input.actor.id })).length > 0) {
-    return fail("NOT_ALLOWED", "You approved this purchase, so someone else confirms its delivery.", ctx, { reason: "APPROVED_THIS_PURCHASE" });
-  }
+  // Someone who approved this purchase may still confirm its delivery (owner,
+  // Sep 28 2026: the stand-in is often the only one left), but it is recorded
+  // on the trail and shown on the order rather than passing unseen.
+  const approvedIt = !!c.spendRequestId && (await subjectsApprovedBy(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", subjectIds: [c.spendRequestId], userId: input.actor.id })).length > 0;
   try {
     await tenantTransaction(async (tx) => {
       const res = await tx.commitment.updateMany({ where: { id: c.id, organizationId: input.organizationId, status: "APPROVED", fulfillmentStatus: "RECEIVED", receiptConfirmedAt: null, version: input.expectedVersion }, data: { receiptConfirmedAt: new Date(), receiptConfirmedByUserId: input.actor.id, version: { increment: 1 } } });
       if (res.count === 0) throw new Error("STALE");
-      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CONFIRM_RECEIPT", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, receivedByUserId: c.receivedByUserId, amountAed: s4(c.spendRequest?.amountAed) } });
+      await audit(tx, { userId: input.actor.id, organizationId: input.organizationId, action: "CONFIRM_RECEIPT", entityType: "Commitment", entityId: c.id, changes: { source: input.source, commitmentNo: c.commitmentNo, receivedByUserId: c.receivedByUserId, amountAed: s4(c.spendRequest?.amountAed), ...(approvedIt ? { confirmerApprovedThisPurchase: true } : {}) } });
     });
+    if (approvedIt) apiLogger.info({ msg: "procurement/commitments:receipt-confirmed-by-approver", ...ctx });
     return getCommitment(input.organizationId, c.id);
   } catch (err) {
     if ((err as Error).message === "STALE") return fail("STALE_WRITE", "The order changed while you were acting on it. Reload.", ctx);

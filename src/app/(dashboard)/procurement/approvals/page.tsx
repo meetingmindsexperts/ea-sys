@@ -50,7 +50,7 @@ export default function ApprovalsPage() {
           Approvals
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {`${waiting.length} waiting on you · ${raised.length} raised by you. A decision is taken here, never from an email; your ceiling is checked against the AED amount when you decide.`}
+          {`${waiting.length} waiting on you · ${raised.length} raised by you. A decision is taken here, never from an email; your authority is checked again at the moment you decide.`}
         </p>
       </div>
 
@@ -96,9 +96,11 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
   // deciding one once decided and the open one while pending, never simply the first.
   const decidedStep = [...r.steps].reverse().find((s) => s.status === "APPROVED" || s.status === "REJECTED");
   const openStep = r.steps.find((s) => s.status === "PENDING");
-  const step = decidedStep ?? openStep ?? r.steps[r.steps.length - 1];
+  // A chained request has one step per level: while it waits, the open level is the one that matters.
+  const step = (r.chain && r.status === "PENDING" ? openStep ?? decidedStep : decidedStep ?? openStep) ?? r.steps[r.steps.length - 1];
   // A chained request has one step per level, so more than one step is not an escalation there.
   const chain = r.chain;
+  const multiLevel = !!chain && chain.levels.length > 1;
   const escalatedFrom = !chain && r.steps.length > 1 ? r.steps[0].assigneeName : null;
   const approvedLevels = chain ? r.steps.filter((s) => s.status === "APPROVED") : [];
   const nextLevelName = chain && chain.currentLevel < chain.levels.length ? chain.levels[chain.currentLevel]?.name : null;
@@ -137,7 +139,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{subject}</Badge>
             {sr?.exception && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Over budget</Badge>}
-            {chain && r.status === "PENDING" && <Badge variant="secondary">{`Level ${chain.currentLevel} of ${chain.levels.length}`}</Badge>}
+            {multiLevel && r.status === "PENDING" && <Badge variant="secondary">{`Level ${chain.currentLevel} of ${chain.levels.length}`}</Badge>}
             {asDelegate && <Badge variant="secondary" className="bg-primary/10 text-primary">{`Standing in for ${openStep?.assigneeName ?? "the approver"}`}</Badge>}
             {sr ? (
               <Link href={`/procurement/requests/${sr.id}`} className="font-medium hover:underline">{`${sr.requestNo} · ${sr.title}`}</Link>
@@ -153,7 +155,7 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           </div>
           <div className="text-sm">
             <span className="font-semibold tabular-nums">{`${cur} ${money2(r.amount ?? r.amountAed)}`}</span>
-            {cur !== "AED" && <span className="text-muted-foreground tabular-nums">{` (AED ${money2(r.amountAed)} for the ceiling)`}</span>}
+            {cur !== "AED" && <span className="text-muted-foreground tabular-nums">{` (AED ${money2(r.amountAed)})`}</span>}
             {r.subjectType === "BUDGET" && <span className="text-muted-foreground"> planned, ex-VAT</span>}
           </div>
           {r.move && (
@@ -172,20 +174,20 @@ function RequestCard({ r, decidable }: { r: ApprovalRequestRow; decidable?: bool
           <div className="text-xs text-muted-foreground">
             {`Raised by ${r.requesterName ?? "someone no longer on the team"} · ${fmtWhen(r.createdAt)}${step?.assigneeName ? ` · assigned to ${step.assigneeName}` : ""}${escalatedFrom && escalatedFrom !== step?.assigneeName ? ` (escalated from ${escalatedFrom})` : ""}${openStep?.delegateName && openStep.delegateUserId !== meId ? ` · ${openStep.delegateName} can decide it too` : ""}${r.decidedAt ? ` · decided ${fmtWhen(r.decidedAt)}` : ""}`}
           </div>
-          {chain && (
-            <div className="text-xs text-muted-foreground">
+          {multiLevel && (
+            <div className="mt-1 rounded-md bg-primary/5 px-2 py-1 text-xs text-muted-foreground">
               {`Chain: ${chain.levels.map((l, i) => `${i + 1}. ${l.name ?? "someone no longer on the team"}`).join(" → ")}${chain.standInName ? ` (${chain.standInName} can stand in at the last level)` : ""}`}
             </div>
           )}
-          {approvedLevels.map((s, i) => (
-            <div key={s.id} className="text-xs text-muted-foreground">
+          {multiLevel && approvedLevels.map((s, i) => (
+            <div key={s.id} className="text-xs text-emerald-700 dark:text-emerald-300">
               {`Level ${i + 1} approved by ${s.decidedByName ?? "someone no longer on the team"}${s.decidedByUserId && s.decidedByUserId !== s.assigneeUserId ? `, standing in for ${s.assigneeName ?? "the approver"}` : ""}${s.decidedAt ? ` · ${fmtWhen(s.decidedAt)}` : ""}${s.note ? `: ${s.note}` : ""}`}
             </div>
           ))}
           {!decidable && step?.note && <div className="text-sm"><span className="text-muted-foreground">Decision note: </span>{step.note}</div>}
         </div>
         {decidable && (
-          <div className="w-full space-y-2 sm:w-72">
+          <div className="w-full space-y-2 rounded-lg border bg-muted/40 p-3 sm:w-72">
             <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the requester; required to reject" />
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" className="text-destructive" onClick={() => void go("REJECTED")} disabled={decide.isPending}>

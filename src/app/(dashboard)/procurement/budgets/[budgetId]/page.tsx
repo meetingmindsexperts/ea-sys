@@ -63,8 +63,7 @@ export default function BudgetEditorPage() {
 
   const canAuthor = canAuthorBudgets(session?.user);
   const canAdmin = canAdminProcurement(session?.user);
-  // Sign-off only: the super admin signs off a budget whose purchases the settle holder approved as a stand-in (Sep 28, 2026).
-  const canSettle = canSettleProcurement(session?.user) || session?.user?.role === "SUPER_ADMIN";
+  const canSettle = canSettleProcurement(session?.user);
   const canRequest = canRequestProcurement(session?.user);
   const canDecide = approvalCeilingAed(session?.user) !== null;
 

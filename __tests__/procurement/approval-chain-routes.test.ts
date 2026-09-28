@@ -44,8 +44,11 @@ afterEach(() => {
 });
 
 describe("/api/procurement/approval-chain", () => {
-  it("anyone with procurement access reads it", async () => {
+  it("only the super admin reads it: it carries the staff list with each person's approval tier (review M4)", async () => {
     authMock.mockResolvedValue(user({ role: "ADMIN", procurementSettle: true }));
+    expect((await chainGet()).status).toBe(403);
+    expect(chainSvc.getApprovalChain).not.toHaveBeenCalled();
+    authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
     expect((await chainGet()).status).toBe(200);
   });
   it("only the super admin saves it; an admin, even the final approver, is refused before the service", async () => {
@@ -54,7 +57,9 @@ describe("/api/procurement/approval-chain", () => {
     expect(chainSvc.saveApprovalChain).not.toHaveBeenCalled();
     authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
     expect((await chainPut(put({ levels: ["a", "b"], standInUserId: "c" }))).status).toBe(200);
-    expect(chainSvc.saveApprovalChain).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG, actorUserId: "u1", config: { levels: ["a", "b"], standInUserId: "c" } }));
+    expect(chainSvc.saveApprovalChain).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG, actorUserId: "u1", kind: "SPEND_REQUEST", config: { levels: ["a", "b"], standInUserId: "c" } }));
+    await chainPut(put({ kind: "BUDGET", levels: ["a"], standInUserId: "b" }));
+    expect(chainSvc.saveApprovalChain).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "BUDGET", config: { levels: ["a"], standInUserId: "b" } }));
   });
   it("turning it off drops the stand-in, and a refused chain maps to 422", async () => {
     authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));

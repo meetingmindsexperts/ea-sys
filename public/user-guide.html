@@ -3162,9 +3162,11 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <h3>Submitting, and the Approvals inbox</h3>
       <p><b>Submit for approval</b> checks the draft is complete (every category has a line or is marked not
       applicable, contingency and attendance are set) and lists anything missing. Once submitted, the
-      right person finds it under <b>Budgets &rsaquo; Approvals</b>, in <b>Waiting on me</b>. Who that is
-      depends on the amount: each approver has a <b>ceiling in AED</b>, and the request goes to the
-      lowest ceiling that covers the total. A person can never approve something they raised themselves.</p>
+      right person finds it under <b>Budgets &rsaquo; Approvals</b>, in <b>Waiting on me</b>. When a
+      <b>budget approver</b> is set (see <i>Approval chains</i> below), every budget goes to that person,
+      whatever the amount. Otherwise it depends on the amount: each approver has a <b>ceiling in AED</b>, and
+      the request goes to the lowest ceiling that covers the total. A person can never approve something they
+      raised themselves.</p>
       <p>The approver clicks <b>Approve</b> or <b>Reject</b>, with a note the author will see. The note is optional when approving and <b>required when rejecting</b>: a refusal is the one decision whose reason is recorded nowhere else, and the person who raised it has to act on it.
       Approving makes the budget <b>Active</b>; rejecting sends it back to <b>Draft</b> with the note. The
       author can also <b>Withdraw</b> a submitted budget. Everyone sees their own requests, and what was
@@ -3230,6 +3232,33 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </ul>
       <p>When a request is decided, the person who raised it gets an email saying who approved or rejected it, with the note. Every hand-over is written to the activity log (&ldquo;Passed to Medhat as well&rdquo;, &ldquo;Escalated to Medhat&rdquo;). A budget&rsquo;s hand-overs show on the budget page, a spend request&rsquo;s on the request page&rsquo;s approval trail, and both on the <b>Budget</b> tab of the org-wide <b>Activity</b> page.</p>
       <p><b>Setting a delegate.</b> In <b>Settings &rsaquo; Users</b>, a super admin opens the procurement grants of an approver who has a ceiling and chooses who <b>stands in after 48 hours</b>. The delegate must be able to approve themselves, and a request above the delegate&rsquo;s own ceiling goes to the next approver up instead. Leave it on <i>The next tier</i> to use the approver above. The final approver has no delegate.</p>
+      <h3>Approval chains</h3>
+      <p>A super admin can name exactly who approves, under <b>Settings &rsaquo; Roles</b>. There are two
+      settings, and each can be switched off again, which brings back the approval limits.</p>
+      <ul>
+        <li><b>Spend request approval chain.</b> Two to four people in order: level 1, level 2, optionally
+        level 3, and last the <b>final approver</b>, who must hold unlimited approval. Every spend request is
+        approved by each of them in turn, whatever the amount, and an over-budget request still ends with the
+        final approver. The purchase order is issued only after the last approval. The Approvals page shows
+        <i>Level 2 of 3</i> and who approved before; the request page lists every level. A <b>stand-in</b> can be
+        named for the last level: they can approve any request waiting on the final approver at any time (the
+        card says <i>Standing in for</i>), and they are emailed when a request reaches that level.</li>
+        <li><b>Budget approver.</b> One person approves every event budget, its new versions and any move between
+        its lines that needs approval, whatever the amount. A <b>backup</b> can decide in their place at any time.
+        A budget the approver wrote themselves goes to the backup.</li>
+      </ul>
+      <p>Only people who already have approval access can be picked (give them an approval limit in
+      <b>Settings &rsaquo; Users</b> first); the super admin and anyone with finance sign-off cannot be an
+      approver, though finance sign-off can be a stand-in. Someone who raises a request skips their own level.
+      A request keeps the chain it was submitted with, so changing the chain affects new submissions only;
+      removing a stand-in or backup takes effect at once. A level is <b>never skipped</b> by itself: the
+      approver is reminded after 24 hours and then daily, their named delegate can act after 48 hours, and from
+      96 hours the super admins are emailed every day that it has <i>stalled</i>. If someone in the chain leaves
+      or loses their approval access, new requests are refused with their name until the chain is updated.</p>
+      <p><b>Approving and then signing off.</b> The person who approved a purchase may still confirm its delivery
+      or sign off its budget (often the stand-in is the only one left to do it). It is allowed, and it is shown:
+      the order reads <i>confirmed by Muthu, who also approved this purchase</i>, and the close-out names the
+      requests the signer approved.</p>
       <h3>The activity log</h3>
 <p>At the bottom of every budget page sits <strong>Activity</strong>: who did what and when, in plain words, newest first. It records the budget being created, each line added, edited or removed, the submission and who it was routed to, the approval or rejection with its note, every move between lines and whether it stayed within the owner's ten percent or was approved, a freeze and its unfreeze with the reason, the close-out with the actual total and the attendance, the sign-off, a reopening with its reason, and a withdrawal or discard. Nothing in it is typed by hand: the system writes each entry at the moment the action happens, so when two people remember an approval differently, this is the record to read. The card shows the latest two hundred entries. The same entries, for every budget, request, order, supplier and catalogue change in the organisation, are on the <strong>Budget</strong> tab of the org-wide <strong>Activity</strong> page (admins and super admins), where each row also names the budget or request it concerns; the <strong>Changes</strong> tab there no longer shows them among the event edits.</p>
 <h3>Suppliers</h3>

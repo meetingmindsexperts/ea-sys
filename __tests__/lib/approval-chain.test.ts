@@ -16,23 +16,28 @@ const CHAIN = { levels: ["vivek", "lina", "medhat"], standInUserId: "muthu" };
 
 describe("snapshotForRequester", () => {
   it("keeps the whole chain for an outside requester, stand-in included", () => {
-    expect(snapshotForRequester(CHAIN, "richard")).toEqual({ levels: ["vivek", "lina", "medhat"], standInUserId: "muthu" });
+    expect(snapshotForRequester(CHAIN, "richard")).toEqual({ levels: ["vivek", "lina", "medhat"], standInUserId: "muthu", finalUnlimited: true });
   });
   it("drops the requester's own level", () => {
-    expect(snapshotForRequester(CHAIN, "vivek")).toEqual({ levels: ["lina", "medhat"], standInUserId: "muthu" });
+    expect(snapshotForRequester(CHAIN, "vivek")).toEqual({ levels: ["lina", "medhat"], standInUserId: "muthu", finalUnlimited: true });
   });
   it("hands the final level to the stand-in when the final approver raised it, and fails closed without one", () => {
-    expect(snapshotForRequester(CHAIN, "medhat")).toEqual({ levels: ["vivek", "lina", "muthu"], standInUserId: "muthu" });
+    expect(snapshotForRequester(CHAIN, "medhat")).toEqual({ levels: ["vivek", "lina", "muthu"], standInUserId: "muthu", finalUnlimited: true });
     expect(snapshotForRequester({ ...CHAIN, standInUserId: null }, "medhat")).toBeNull();
   });
   it("never lets the stand-in stand in on their own request", () => {
-    expect(snapshotForRequester(CHAIN, "muthu")).toEqual({ levels: ["vivek", "lina", "medhat"], standInUserId: null });
+    expect(snapshotForRequester(CHAIN, "muthu")).toEqual({ levels: ["vivek", "lina", "medhat"], standInUserId: null, finalUnlimited: true });
+  });
+  it("a budget chain is one approver who needs no unlimited grant, with a backup (owner: Lina, Medhat as backup)", () => {
+    expect(snapshotForRequester({ levels: ["lina"], standInUserId: "medhat" }, "richard", "BUDGET")).toEqual({ levels: ["lina"], standInUserId: "medhat", finalUnlimited: false });
+    // Lina's own budget goes to her backup.
+    expect(snapshotForRequester({ levels: ["lina"], standInUserId: "medhat" }, "lina", "BUDGET")).toEqual({ levels: ["medhat"], standInUserId: "medhat", finalUnlimited: false });
   });
 });
 
 describe("judgeChainDecider", () => {
-  const snapshot = { levels: ["vivek", "lina", "medhat"], standInUserId: "muthu" };
-  const base = { snapshot, earlierApproverIds: [] as string[], deciderSettles: false };
+  const snapshot = { levels: ["vivek", "lina", "medhat"], standInUserId: "muthu", finalUnlimited: true };
+  const base = { snapshot, earlierApproverIds: [] as string[], deciderSettles: false, liveStandInUserId: "muthu" as string | null, deciderHasProcurementAccess: true };
   it("a level is decided by its person, with any approval access, whatever the amount", () => {
     expect(judgeChainDecider({ ...base, levelIndex: 0, step: { assigneeUserId: "vivek", delegateUserId: null }, deciderId: "vivek", deciderCeilingAed: 1 })).toEqual({ ok: true, asStandIn: false });
     expect(judgeChainDecider({ ...base, levelIndex: 0, step: { assigneeUserId: "vivek", delegateUserId: null }, deciderId: "lina", deciderCeilingAed: 1_000_000 })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
@@ -48,11 +53,22 @@ describe("judgeChainDecider", () => {
     expect(judgeChainDecider({ ...base, levelIndex: 1, step: { assigneeUserId: "lina", delegateUserId: null }, deciderId: "lina", deciderCeilingAed: 5, deciderSettles: true })).toMatchObject({ ok: false, code: "SETTLE_CANNOT_DECIDE" });
   });
   it("a delegate at the last level still needs unlimited approval", () => {
-    const snap = { levels: ["vivek", "medhat"], standInUserId: null };
-    expect(judgeChainDecider({ snapshot: snap, earlierApproverIds: [], deciderSettles: false, levelIndex: 1, step: { assigneeUserId: "medhat", delegateUserId: "lina" }, deciderId: "lina", deciderCeilingAed: 1_000_000 })).toMatchObject({ ok: false, code: "INSUFFICIENT_AUTHORITY" });
+    const snap = { levels: ["vivek", "medhat"], standInUserId: null, finalUnlimited: true };
+    expect(judgeChainDecider({ snapshot: snap, earlierApproverIds: [], deciderSettles: false, liveStandInUserId: null, deciderHasProcurementAccess: true, levelIndex: 1, step: { assigneeUserId: "medhat", delegateUserId: "lina" }, deciderId: "lina", deciderCeilingAed: 1_000_000 })).toMatchObject({ ok: false, code: "INSUFFICIENT_AUTHORITY" });
   });
   it("a delegate who holds another level of the chain is refused in someone else's place (review H1)", () => {
     expect(judgeChainDecider({ ...base, levelIndex: 0, step: { assigneeUserId: "vivek", delegateUserId: "medhat" }, deciderId: "medhat", deciderCeilingAed: Number.POSITIVE_INFINITY })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
+  });
+  it("a stand-in who was removed, or lost Budgets access, is refused at once despite the snapshot (review M2)", () => {
+    const step = { assigneeUserId: "medhat", delegateUserId: "muthu" };
+    expect(judgeChainDecider({ ...base, liveStandInUserId: null, levelIndex: 2, step, deciderId: "muthu", deciderCeilingAed: null, deciderSettles: true })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
+    expect(judgeChainDecider({ ...base, liveStandInUserId: "someone-else", levelIndex: 2, step, deciderId: "muthu", deciderCeilingAed: null, deciderSettles: true })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
+    expect(judgeChainDecider({ ...base, deciderHasProcurementAccess: false, levelIndex: 2, step, deciderId: "muthu", deciderCeilingAed: null, deciderSettles: true })).toMatchObject({ ok: false, code: "NOT_ASSIGNEE" });
+  });
+  it("the budget approver decides whatever the amount on a limited grant; a spend request's final level would not", () => {
+    const budget = { levels: ["lina"], standInUserId: "medhat", finalUnlimited: false };
+    expect(judgeChainDecider({ ...base, snapshot: budget, liveStandInUserId: "medhat", levelIndex: 0, step: { assigneeUserId: "lina", delegateUserId: "medhat" }, deciderId: "lina", deciderCeilingAed: 5_000 })).toEqual({ ok: true, asStandIn: false });
+    expect(judgeChainDecider({ ...base, snapshot: budget, liveStandInUserId: "medhat", levelIndex: 0, step: { assigneeUserId: "lina", delegateUserId: "medhat" }, deciderId: "medhat", deciderCeilingAed: Number.POSITIVE_INFINITY })).toEqual({ ok: true, asStandIn: true });
   });
   it("nobody approves the same request at two levels", () => {
     expect(judgeChainDecider({ ...base, earlierApproverIds: ["vivek"], levelIndex: 1, step: { assigneeUserId: "lina", delegateUserId: "vivek" }, deciderId: "vivek", deciderCeilingAed: 1_000_000 })).toMatchObject({ ok: false, code: "ALREADY_APPROVED_EARLIER" });
@@ -61,12 +77,13 @@ describe("judgeChainDecider", () => {
 
 describe("validateChainConfig", () => {
   const people: ChainPerson[] = [
-    { id: "vivek", name: "Vivek", role: "ADMIN", active: true, ceilingAed: 20_000, settles: false },
-    { id: "lina", name: "Lina", role: "ADMIN", active: true, ceilingAed: 1_000_000, settles: false },
-    { id: "medhat", name: "Medhat", role: "ADMIN", active: true, ceilingAed: Number.POSITIVE_INFINITY, settles: false },
-    { id: "muthu", name: "Muthu", role: "ADMIN", active: true, ceilingAed: null, settles: true },
-    { id: "richard", name: "Richard", role: "ORGANIZER", active: true, ceilingAed: null, settles: false },
-    { id: "krishna", name: "Krishna", role: "SUPER_ADMIN", active: true, ceilingAed: Number.POSITIVE_INFINITY, settles: false },
+    { id: "vivek", name: "Vivek", role: "ADMIN", active: true, ceilingAed: 20_000, settles: false, hasProcurementAccess: true },
+    { id: "lina", name: "Lina", role: "ADMIN", active: true, ceilingAed: 1_000_000, settles: false, hasProcurementAccess: true },
+    { id: "medhat", name: "Medhat", role: "ADMIN", active: true, ceilingAed: Number.POSITIVE_INFINITY, settles: false, hasProcurementAccess: true },
+    { id: "muthu", name: "Muthu", role: "ADMIN", active: true, ceilingAed: null, settles: true, hasProcurementAccess: true },
+    { id: "richard", name: "Richard", role: "ORGANIZER", active: true, ceilingAed: null, settles: false, hasProcurementAccess: true },
+    { id: "krishna", name: "Krishna", role: "SUPER_ADMIN", active: true, ceilingAed: Number.POSITIVE_INFINITY, settles: false, hasProcurementAccess: true },
+    { id: "hr", name: "Hana", role: "HR_USER", active: true, ceilingAed: null, settles: false, hasProcurementAccess: false },
   ];
   const v = (levels: string[], standInUserId: string | null = null) => validateChainConfig({ levels, standInUserId }, people);
   it("accepts two to four approvers ending with the unlimited approver, with the settle holder as stand-in", () => {
@@ -83,6 +100,14 @@ describe("validateChainConfig", () => {
     expect(v(["muthu", "medhat"])).toMatchObject({ code: "LEVEL_HOLDS_SETTLE" });
     expect(v(["vivek", "lina"])).toMatchObject({ code: "FINAL_NOT_UNLIMITED" });
     expect(v(["vivek", "medhat"], "vivek")).toMatchObject({ code: "STAND_IN_IS_LEVEL" });
+    expect(v(["vivek", "medhat"], "hr")).toMatchObject({ code: "STAND_IN_NO_ACCESS" });
+  });
+  it("a budget approver is one person with any approval access; the backup needs Budgets access", () => {
+    const b = (levels: string[], standInUserId: string | null = null) => validateChainConfig({ levels, standInUserId }, people, "BUDGET");
+    expect(b(["vivek"], "medhat")).toEqual({ ok: true });
+    expect(b([])).toMatchObject({ code: "TOO_FEW_LEVELS" });
+    expect(b(["vivek", "medhat"])).toMatchObject({ code: "TOO_MANY_LEVELS" });
+    expect(b(["muthu"])).toMatchObject({ code: "LEVEL_HOLDS_SETTLE" });
   });
 });
 
@@ -158,7 +183,7 @@ describe("a chained spend request", () => {
     const r = await submit(db, { requireFinalApprover: true });
     expect(r.ok).toBe(true);
     const created = raw.approvalRequest.create.mock.calls[0][0].data as { payload: unknown; steps: { create: unknown } };
-    expect(created.payload).toEqual({ kind: "SUBMISSION", requireFinalApprover: true, approvalChain: { levels: ["vivek", "lina", "medhat"], standInUserId: "muthu" } });
+    expect(created.payload).toEqual({ kind: "SUBMISSION", requireFinalApprover: true, approvalChain: { levels: ["vivek", "lina", "medhat"], standInUserId: "muthu", finalUnlimited: true } });
     expect(created.steps.create).toMatchObject({ assigneeUserId: "vivek", delegateUserId: null });
   });
 

@@ -174,7 +174,7 @@ export function SubmitDialog({ b, categories, open, onOpenChange }: DialogProps 
         <DialogHeader>
           <DialogTitle>Submit for approval</DialogTitle>
           <DialogDescription>
-            {`${b.reportingCurrency} ${money2(b.plannedExpenseTotal)} planned (ex-VAT) plus ${money2(b.contingencyAmount)} contingency. The approver is chosen on the AED amount; the plan is locked while it is under review.`}
+            {`${b.reportingCurrency} ${money2(b.plannedExpenseTotal)} planned (ex-VAT) plus ${money2(b.contingencyAmount)} contingency. It goes to the budget approver when one is set, otherwise to whoever the AED amount requires; the plan is locked while it is under review.`}
           </DialogDescription>
         </DialogHeader>
         {missing.length > 0 ? (
@@ -188,7 +188,7 @@ export function SubmitDialog({ b, categories, open, onOpenChange }: DialogProps 
         ) : (
           <p className="text-sm text-muted-foreground">Every category has a line or is marked not applicable, contingency and attendance are set.</p>
         )}
-        <RateField currency={b.reportingCurrency} value={rate} onChange={setRate} why="The approver is chosen on the AED amount." />
+        <RateField currency={b.reportingCurrency} value={rate} onChange={setRate} why="It is recorded with the approval, and decides the approver when no budget approver is set." />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submit.isPending}>Cancel</Button>
           <Button onClick={() => void go()} disabled={submit.isPending || missing.length > 0}>
@@ -322,7 +322,7 @@ export function ReallocateDialog({ b, open, onOpenChange }: DialogProps) {
             <Label htmlFor="move-reason">Reason</Label>
             <Textarea id="move-reason" rows={2} value={f.reason} onChange={(e) => setF((s) => ({ ...s, reason: e.target.value }))} placeholder="Why the plan moves" />
           </div>
-          {needsRate && <RateField currency={b.reportingCurrency} value={f.rate} onChange={(v) => setF((s) => ({ ...s, rate: v }))} why="The approver is chosen on the AED amount." />}
+          {needsRate && <RateField currency={b.reportingCurrency} value={f.rate} onChange={(v) => setF((s) => ({ ...s, rate: v }))} why="It is recorded with the approval, and decides the approver when no budget approver is set." />}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={move.isPending}>Cancel</Button>

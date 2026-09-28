@@ -10,6 +10,7 @@ const { mockDb, mockSend, mockEnabled, mockLogger } = vi.hoisted(() => ({
   mockDb: {
     approvalStep: { findMany: vi.fn(), updateMany: vi.fn(), create: vi.fn(), findFirst: vi.fn() },
     approvalRequest: { findMany: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn() },
+    approvalWorkflowDefinition: { findFirst: vi.fn() },
     user: { findMany: vi.fn() },
     eventBudget: { findMany: vi.fn() },
     spendRequest: { findMany: vi.fn() },
@@ -85,6 +86,7 @@ beforeEach(() => {
   mockDb.approvalRequest.findFirst.mockResolvedValue({ id: "req-1" });
   mockDb.approvalStep.create.mockResolvedValue({ id: "step-2" });
   mockDb.auditLog.create.mockResolvedValue({});
+  mockDb.approvalWorkflowDefinition.findFirst.mockResolvedValue(null);
   mockDb.eventBudget.findMany.mockResolvedValue([{ id: "bud-1", eventCode: "HM2026", versionNo: 2, event: { name: "Hematology Summit" } }]);
   mockDb.spendRequest.findMany.mockResolvedValue([{ id: "sr1", requestNo: "PR-2026-0004", title: "LED wall" }]);
   setup();
@@ -356,9 +358,34 @@ describe("a level of a named approval chain (Sep 28, 2026)", () => {
     const r = await runApprovalNotificationsTick(NOW);
     expect(mockDb.approvalStep.create).not.toHaveBeenCalled();
     expect(r.escalated).toBe(0);
+    expect(r.stalled).toBe(1);
+    expect(r.stuck).toBe(0);
     expect(sentTo()).toEqual(["dev@x.test", "lina@x.test"]);
     expect(sent(0).subject).toMatch(/^Approval stalled: /);
     expect(sent(1).subject).toMatch(/^Reminder, waiting on your approval: /);
+  });
+
+  it("a stand-in removed from the settings no longer counts, so the admins hear it is stuck (review M2)", async () => {
+    setup({
+      steps: [stepRow({ ageHours: 30, sequence: 2, assignee: "medhat", delegateUserId: "muthu", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "medhat"], "muthu") })],
+      holders: [HOLDER.lina],
+      people: withMuthu,
+    });
+    const r = await runApprovalNotificationsTick(NOW);
+    expect(r.stuck).toBe(1);
+    expect(sentTo()).toEqual(["dev@x.test"]);
+  });
+
+  it("the stand-in is emailed with the approver when the last level opens", async () => {
+    mockDb.approvalWorkflowDefinition.findFirst.mockResolvedValue({ chain: { levels: ["lina", "medhat"], standInUserId: "muthu" } });
+    setup({
+      steps: [stepRow({ notifiedAt: null, sequence: 2, assignee: "medhat", delegateUserId: "muthu", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "medhat"], "muthu") })],
+      holders: [HOLDER.lina, HOLDER.medhat],
+      people: withMuthu,
+    });
+    await runApprovalNotificationsTick(NOW);
+    expect(sentTo()).toEqual(["medhat@x.test", "muthu@x.test"]);
+    expect(sent(1).textContent).toContain("You can decide it in Medhat F's place, as their stand-in.");
   });
 
   it("never makes a later member of the chain the 48-hour delegate (review H1)", async () => {
@@ -373,7 +400,8 @@ describe("a level of a named approval chain (Sep 28, 2026)", () => {
   });
 
   it("the stand-in on the last level counts as able to decide although they hold no approval grant", async () => {
-    // Medhat lost his grant; Muthu, the stand-in, can still decide, so nothing is stuck and only they are reminded.
+    // Medhat lost his grant; Muthu, still the configured stand-in, can decide, so nothing is stuck and only he is reminded.
+    mockDb.approvalWorkflowDefinition.findFirst.mockResolvedValue({ chain: { levels: ["lina", "medhat"], standInUserId: "muthu" } });
     setup({
       steps: [stepRow({ ageHours: 30, sequence: 2, assignee: "medhat", delegateUserId: "muthu", subjectType: "SPEND_REQUEST", subjectId: "sr1", payload: chain(["lina", "medhat"], "muthu") })],
       holders: [HOLDER.lina],

@@ -21,7 +21,7 @@
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
-import { cancelPendingApprovals, createApprovalRequest, decideApprovalRequest, resolveApprover, type Db } from "@/lib/approvals/approvals-service";
+import { cancelPendingApprovals, createApprovalRequest, decideApprovalRequest, resolveApprover, subjectsApprovedBy, type Db } from "@/lib/approvals/approvals-service";
 import { readChainSnapshot } from "@/lib/approvals/approval-chain";
 import type { ProcurementUserLike } from "@/lib/procurement-visibility";
 import { nextDocumentNumber } from "../lib/document-numbers";
@@ -267,6 +267,8 @@ export type SpendRequestDetail = SpendRequestView & {
   order: CommitmentView | null;
   /** Orders this request held before and that were cancelled, newest first; a cancel sends the request back to approved and a re-issue takes a new number. */
   previousOrders: CommitmentView[];
+  /** The order's delivery was confirmed by someone who also approved this purchase (allowed, shown; Sep 28 2026). */
+  receiptConfirmedByApprover: { name: string | null } | null;
   approvals: {
     id: string;
     status: string;
@@ -295,7 +297,9 @@ export async function getSpendRequest(organizationId: string, requestId: string)
     }),
   ]);
   const chains = new Map(approvals.map((a) => [a.id, readChainSnapshot(a.payload)]));
-  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""])), ...[...chains.values()].flatMap((c) => (c ? [...c.levels, c.standInUserId ?? ""] : []))]);
+  const confirmerId = order?.receiptConfirmedByUserId ?? null;
+  const confirmerApproved = confirmerId ? (await subjectsApprovedBy(db, { organizationId, subjectType: "SPEND_REQUEST", subjectIds: [r.id], userId: confirmerId })).length > 0 : false;
+  const names = await userNames(db, organizationId, [r.requesterUserId, r.decidedByUserId ?? "", confirmerId ?? "", ...approvals.flatMap((a) => a.steps.flatMap((s) => [s.assigneeUserId, s.delegateUserId ?? "", s.decidedByUserId ?? ""])), ...[...chains.values()].flatMap((c) => (c ? [...c.levels, c.standInUserId ?? ""] : []))]);
   return {
     ok: true,
     request: {
@@ -305,6 +309,7 @@ export async function getSpendRequest(organizationId: string, requestId: string)
       line: line ? toLineView(line) : null,
       order: order ? toCommitmentView(order) : null,
       previousOrders: previousOrders.map(toCommitmentView),
+      receiptConfirmedByApprover: confirmerApproved && confirmerId ? { name: names.get(confirmerId) ?? null } : null,
       approvals: approvals.map((a) => ({
         id: a.id,
         status: a.status,
@@ -624,8 +629,8 @@ export async function submitSpendRequest(input: { organizationId: string; actor:
     return fail(
       "REASON_REQUIRED",
       check.status === "FROZEN"
-        ? "This request is over the line's remaining on a frozen budget: give the justification before it goes to the final approver (spec §8.5)."
-        : "This request is over what the line has left: give the justification before it goes to the final approver.",
+        ? "This request is over the line's remaining on a frozen budget: give the justification before it goes for approval; it always ends with the final approver (spec §8.5)."
+        : "This request is over what the line has left: give the justification before it goes for approval; it always ends with the final approver.",
       ctx,
       { budgetCheck: check.status },
     );
@@ -723,6 +728,11 @@ export async function decideSpendRequest(input: { organizationId: string; decide
       // next level decides, and only the last approval lands the request and
       // issues the order. Recorded on the request's own activity as well.
       if (d.request.status === "PENDING") {
+        // The request row is claimed too, so a withdraw racing this level
+        // either lands first (and this rolls back) or waits for it: never a
+        // cancelled request left holding an open step.
+        const held = await tx.spendRequest.updateMany({ where: { id: r.id, organizationId: input.organizationId, status: "PENDING_APPROVAL" }, data: { version: { increment: 1 } } });
+        if (held.count === 0) throw new Error("STALE");
         await audit(tx, {
           userId: input.decider.id,
           organizationId: input.organizationId,

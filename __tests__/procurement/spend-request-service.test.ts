@@ -438,7 +438,9 @@ describe("decideSpendRequest on a chained request (Sep 28, 2026)", () => {
     const r = await decideSpendRequest({ organizationId: ORG, decider: lina, source: "ui", approvalRequestId: "ar1", decision: "APPROVED" });
     expect(r.ok).toBe(true);
     expect(mockDb.approvalStep.create.mock.calls[0][0].data).toMatchObject({ sequence: 2, assigneeUserId: "medhat" });
-    expect(mockDb.spendRequest.updateMany).not.toHaveBeenCalled();
+    // The row is claimed against a racing withdraw (review L1), with no status change.
+    expect(mockDb.spendRequest.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockDb.spendRequest.updateMany.mock.calls[0][0]).toEqual({ where: { id: "sr1", organizationId: ORG, status: "PENDING_APPROVAL" }, data: { version: { increment: 1 } } });
     expect(orderSvc.issueOrderInTx).not.toHaveBeenCalled();
     const actions = mockDb.auditLog.create.mock.calls.map((c) => c[0].data.action);
     expect(actions).toContain("APPROVE_LEVEL");

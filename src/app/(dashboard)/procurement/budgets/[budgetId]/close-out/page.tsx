@@ -109,8 +109,7 @@ export default function CloseOutPage() {
   const { data: b, isLoading, isError, error } = useBudget(budgetId);
   const canAuthor = canAuthorBudgets(session?.user);
   const canAdmin = canAdminProcurement(session?.user);
-  // The super admin signs off too: for a budget whose purchases the settle holder approved as a stand-in (Sep 28, 2026).
-  const canSettle = canSettleProcurement(session?.user) || session?.user?.role === "SUPER_ADMIN";
+  const canSettle = canSettleProcurement(session?.user);
 
   if (isLoading) return <LoadingState label="Loading budget…" />;
   if (isError || !b) return <ErrorState title="Couldn't load this budget" message={(error as Error)?.message ?? "It may have been discarded."} backHref="/procurement" backLabel="Back to budgets" />;
@@ -368,7 +367,13 @@ function ClosedView({ b, canSettle, canAdmin }: { b: BudgetRow; canSettle: boole
 
       <div className="grid gap-3 text-sm sm:grid-cols-3">
         <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Closed</span><div>{fmtWhen(b.closedAt)}</div></div>
-        <div className="rounded-lg border bg-card p-3"><span className="text-muted-foreground">Signed off</span><div>{b.signedOffAt ? fmtWhen(b.signedOffAt) : "awaiting the settle grant"}</div></div>
+        <div className="rounded-lg border bg-card p-3">
+          <span className="text-muted-foreground">Signed off</span>
+          <div>{b.signedOffAt ? fmtWhen(b.signedOffAt) : "awaiting the settle grant"}</div>
+          {b.signOffOverlap && (
+            <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">{`Signed off by ${b.signOffOverlap.signerName ?? "someone"}, who also approved ${b.signOffOverlap.requestNos.join(", ")}.`}</div>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
           {canSettle && !b.signedOffAt && <Button size="sm" onClick={() => setSignOpen(true)}><Check className="h-4 w-4" /> Sign off</Button>}
           {canAdmin && <Button size="sm" variant="outline" onClick={() => setReopenOpen(true)}><RotateCcw className="h-4 w-4" /> Reopen</Button>}

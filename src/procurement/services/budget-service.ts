@@ -62,7 +62,6 @@ export type BudgetErrorCode =
   | "INVALID_FILTER"
   | "LINE_HAS_COMMITMENTS"
   | "VARIANCE_NOTES_REQUIRED"
-  | "SIGNER_APPROVED_PURCHASES"
   | "UNKNOWN";
 
 export type BudgetResult<T> =
@@ -134,7 +133,10 @@ export function toBudgetView(b: BudgetRow, lines?: LineRow[]) {
     lines: lines ? lines.filter((l) => !l.deletedAt).map(toLineView) : undefined,
   };
 }
-export type BudgetView = ReturnType<typeof toBudgetView>;
+export type BudgetView = ReturnType<typeof toBudgetView> & {
+  /** Set when the person who signed off also approved some of the event's purchases (allowed, shown; Sep 28 2026). */
+  signOffOverlap?: { signerName: string | null; requestNos: string[] } | null;
+};
 
 function fail(code: BudgetErrorCode, message: string, ctx: Record<string, unknown> = {}, meta?: Record<string, unknown>): BudgetResult<never> {
   apiLogger.warn({ msg: "procurement/budget:rejected", code, ...ctx });
@@ -215,7 +217,15 @@ export async function getBudget(organizationId: string, budgetId: string): Promi
   const b = await loadBudget(db, organizationId, budgetId);
   if (!b) return fail("BUDGET_NOT_FOUND", "The budget was not found.", { budgetId });
   const lines = await loadLines(db, budgetId);
-  return { ok: true, budget: toBudgetView(b, lines) };
+  const view: BudgetView = toBudgetView(b, lines);
+  if (b.signedOffByUserId) {
+    const requestNos = await purchasesApprovedBy(organizationId, budgetId, b.signedOffByUserId);
+    if (requestNos.length > 0) {
+      const signer = await db.user.findFirst({ where: { id: b.signedOffByUserId, organizationId }, select: { firstName: true, lastName: true } });
+      view.signOffOverlap = { signerName: signer ? `${signer.firstName} ${signer.lastName}`.trim() : null, requestNos };
+    }
+  }
+  return { ok: true, budget: view };
 }
 
 // ── create ───────────────────────────────────────────────────────────────────
@@ -1063,24 +1073,24 @@ export async function closeBudget(input: CloseBudgetInput): Promise<BudgetResult
   }
 }
 
+/** The request numbers of this event's purchases that this person approved (any version of its budget). */
+export async function purchasesApprovedBy(organizationId: string, budgetId: string, userId: string): Promise<string[]> {
+  const versionIds = await eventBudgetIds(db, organizationId, budgetId);
+  const requests = await db.spendRequest.findMany({ where: { organizationId, budgetId: { in: versionIds } }, select: { id: true, requestNo: true } });
+  const mine = await subjectsApprovedBy(db, { organizationId, subjectType: "SPEND_REQUEST", subjectIds: requests.map((r) => r.id), userId });
+  return requests.filter((r) => mine.includes(r.id)).map((r) => r.requestNo);
+}
+
 /**
- * Sign-off is finance's check on a closed budget. Whoever approved any of the
- * event's purchases (the settle holder standing in for the final approver,
- * Sep 28, 2026) does not sign off their own approvals: the super admin, who
- * never approves, signs it off instead. The route admits the super admin for
- * exactly this.
+ * Sign-off is finance's check on a closed budget. The settle holder may sign
+ * off a budget whose purchases they approved as the final approver's
+ * stand-in (owner, Sep 28 2026): the overlap is recorded on the trail and
+ * shown on the close-out, never blocked.
  */
-export async function signOffBudget(input: { organizationId: string; actorUserId: string; actorRole?: string | null; source: Source; budgetId: string }) {
-  if (input.actorRole !== "SUPER_ADMIN") {
-    const versionIds = await eventBudgetIds(db, input.organizationId, input.budgetId);
-    const requests = await db.spendRequest.findMany({ where: { organizationId: input.organizationId, budgetId: { in: versionIds } }, select: { id: true, requestNo: true } });
-    const mine = await subjectsApprovedBy(db, { organizationId: input.organizationId, subjectType: "SPEND_REQUEST", subjectIds: requests.map((r) => r.id), userId: input.actorUserId });
-    if (mine.length > 0) {
-      const numbers = requests.filter((r) => mine.includes(r.id)).map((r) => r.requestNo);
-      return fail("SIGNER_APPROVED_PURCHASES", `You approved ${numbers.length === 1 ? "one of this event's purchases" : `${numbers.length} of this event's purchases`} (${numbers.slice(0, 5).join(", ")}${numbers.length > 5 ? ", ..." : ""}), so the super admin signs this budget off instead.`, { budgetId: input.budgetId, userId: input.actorUserId }, { requestNos: numbers });
-    }
-  }
-  return transition({ ...input, from: ["CLOSED"], to: "CLOSED", action: "SIGN_OFF", data: { signedOffAt: new Date(), signedOffByUserId: input.actorUserId } });
+export async function signOffBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string }) {
+  const approved = await purchasesApprovedBy(input.organizationId, input.budgetId, input.actorUserId);
+  if (approved.length > 0) apiLogger.info({ msg: "procurement/budget:signed-off-by-approver", budgetId: input.budgetId, userId: input.actorUserId, requestNos: approved });
+  return transition({ ...input, from: ["CLOSED"], to: "CLOSED", action: "SIGN_OFF", data: { signedOffAt: new Date(), signedOffByUserId: input.actorUserId }, ...(approved.length > 0 ? { changes: { signerApprovedPurchases: approved } } : {}) });
 }
 export async function reopenBudget(input: { organizationId: string; actorUserId: string; source: Source; budgetId: string; reason: string }): Promise<BudgetResult<BudgetView>> {
   // Reopening undoes a close-out and a sign-off; the trail must say why.
