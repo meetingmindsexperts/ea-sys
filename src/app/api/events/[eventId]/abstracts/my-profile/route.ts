@@ -7,6 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
+import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -276,6 +277,16 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         customSpecialty: speaker.customSpecialty,
         bio: speaker.bio,
         photo: speaker.photo,
+      });
+
+      // Keep the same-event registration's personal details in step.
+      await syncSpeakerDetailsToRegistrations({
+        eventId,
+        speakerId: existing.id,
+        email: existing.email,
+        sourceRegistrationId: existing.sourceRegistration?.id ?? null,
+        delta: computeDetailsDelta(existing, speaker),
+        actorUserId: session.user.id,
       });
 
       apiLogger.info({ msg: "my-profile:updated", userId: session.user.id, eventId, fields: touched });

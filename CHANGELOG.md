@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a speaker's and a registration's personal details stay in step (September 29)
+
+Editing a person's personal details on their speaker record now updates their
+registration for the same event, and the other way round. The fields: title, role,
+first and last name, additional email, organisation, job title, phone, photo,
+city, state, zip, country, bio, specialty. Only the fields an edit CHANGED are
+copied, so records that already disagreed stay as they are until someone edits
+that field (owner: future edits only, nothing existing changed). Matched by the
+speaker's registration link or the same email, inside one event. Email keeps its
+own change flow and tags already synced. A legacy personal-details row shared by
+registrations at several events (78 on prod, Feb to Mar 2026) is skipped and
+logged, so an edit never rewrites another event's registration. Hooked into the
+dashboard speaker and registration edits (so MCP and the API too), the
+submitter's own profile, and the speaker form's bio and photo. Deliberately NOT
+the registrant portal (review): it has no name lock, and an unverified public
+registration can claim someone's unlinked registration, so it must not reach a
+speaker's public profile or CC address. Best-effort after the save: a sync failure logs
+`person-details-sync:*` and never fails the edit. Helper:
+`src/lib/person-details-sync.ts`. The two copies are the interim step; storing
+the details once is planned in `docs/PERSON_RECORD_PLAN.md`.
+
 ### Added: shared views of registrations for staff (September 29)
 
 The registrations counterpart of the abstracts share page. **Shared views** on the

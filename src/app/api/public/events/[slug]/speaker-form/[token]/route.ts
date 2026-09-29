@@ -23,6 +23,7 @@ import {
   PROFILE_DOC_LABELS,
 } from "@/lib/speaker-profile/constants";
 import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
+import { syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
@@ -168,6 +169,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 409 },
         );
       }
+
+      // Keep the same-event registration's bio in step.
+      await syncSpeakerDetailsToRegistrations({
+        eventId: row.eventId,
+        speakerId: row.speaker.id,
+        email: row.speaker.email,
+        sourceRegistrationId: row.speaker.sourceRegistrationId,
+        delta: bio && bio !== row.speaker.bio?.trim() ? { bio } : {},
+      });
 
       // Audit with IP (the agreement-acceptance shape) — the speaker is the
       // actor, no User row behind them.

@@ -40,6 +40,7 @@ import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
+import { computeDetailsDelta, syncRegistrationDetailsToSpeakers } from "@/lib/person-details-sync";
 import { getSponsors } from "@/lib/sponsors";
 // Leaf constants module (no agent machinery) — the admin-settable
 // paymentStatus policy (review H12) shared with the MCP boundary.
@@ -1611,6 +1612,16 @@ export async function updateRegistration(
     // ── Post-commit best-effort fan-out (after the tx held — nothing leaks
     //    into the Speaker facet / Contact store on a rejected write) ──────────
     if (attendee) {
+      // Copy the personal details this edit changed onto the person's speaker
+      // record in the same event (best-effort; the helper logs, never throws).
+      await syncRegistrationDetailsToSpeakers({
+        eventId,
+        registrationId,
+        email: existing.attendee.email,
+        delta: computeDetailsDelta(existing.attendee, registration.attendee),
+        actorUserId: actorUserId ?? null,
+      });
+
       if (attendee.tags !== undefined) {
         await syncRegistrationTagsToSpeakers(eventId, [
           {

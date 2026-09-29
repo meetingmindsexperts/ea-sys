@@ -55,6 +55,8 @@ export async function loadProfileFormForSlug(req: Request, slug: string, token: 
       speaker: {
         select: {
           id: true,
+          // For the personal-details sync onto the same-event registration.
+          sourceRegistrationId: true,
           title: true,
           firstName: true,
           lastName: true,

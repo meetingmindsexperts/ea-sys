@@ -30,6 +30,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
 import { runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
+import { computeDetailsDelta, syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { cancelRegistration } from "./payment-service";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -694,6 +695,17 @@ export async function updateSpeaker(
     const speaker = await db.speaker.findUniqueOrThrow({
       where: { id: speakerId },
       include: { _count: { select: { sessions: true, abstracts: true } } },
+    });
+
+    // Copy the personal details this edit changed onto the person's
+    // registration in the same event (best-effort; the helper logs, never throws).
+    await syncSpeakerDetailsToRegistrations({
+      eventId,
+      speakerId,
+      email: existing.email,
+      sourceRegistrationId: existing.sourceRegistrationId,
+      delta: computeDetailsDelta(existing, speaker),
+      actorUserId,
     });
 
     // FULL contact sync — this is the H4 fix. Read straight off the freshly

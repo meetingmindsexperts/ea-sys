@@ -14,6 +14,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { uploadPhoto } from "@/lib/storage";
 import { PROFILE_PHOTO_MAX_SIZE } from "@/lib/speaker-profile/constants";
+import { syncSpeakerDetailsToRegistrations } from "@/lib/person-details-sync";
 import { loadProfileFormForSlug, resolveProfileFormEventOrg } from "@/lib/speaker-profile/server";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
@@ -93,6 +94,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const url = await uploadPhoto(buffer, file.name, detected);
       await db.speaker.update({ where: { id: row.speaker.id }, data: { photo: url } });
+      await syncSpeakerDetailsToRegistrations({
+        eventId: row.eventId,
+        speakerId: row.speaker.id,
+        email: row.speaker.email,
+        sourceRegistrationId: row.speaker.sourceRegistrationId,
+        delta: url !== row.speaker.photo ? { photo: url } : {},
+      });
 
       apiLogger.info({ slug, formId: row.id, size: file.size }, "speaker-form-photo:uploaded");
       return NextResponse.json({ photo: url }, { status: 201 });
