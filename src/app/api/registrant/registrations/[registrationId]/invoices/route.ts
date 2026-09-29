@@ -62,6 +62,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!registration) {
+      // An owner-scoped caller asking for a row it does not own lands here too.
+      apiLogger.warn({
+        msg: "registrant/invoices:not-found-or-no-access",
+        registrationId,
+        userId: session.user.id,
+        role: session.user.role,
+        ownerScoped,
+      });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 

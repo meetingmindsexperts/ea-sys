@@ -65,6 +65,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!registration) {
+      // An owner-scoped caller asking for a row it does not own lands here too.
+      apiLogger.warn({
+        msg: "registrant/invoice-pdf:not-found-or-no-access",
+        registrationId,
+        invoiceId,
+        userId: session.user.id,
+        role: session.user.role,
+        ownerScoped,
+      });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
@@ -73,6 +82,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true, invoiceNumber: true },
     });
     if (!invoice) {
+      apiLogger.warn({
+        msg: "registrant/invoice-pdf:invoice-not-found",
+        registrationId,
+        invoiceId,
+        userId: session.user.id,
+      });
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 

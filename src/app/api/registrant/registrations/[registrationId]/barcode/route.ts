@@ -91,6 +91,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // qrCode only — DTCM barcodes are never exposed on the public portal.
     if (!registration.qrCode) {
+      apiLogger.warn({ userId: authedUser.id, registrationId, ownerScoped }, "registrant-barcode:no-qrcode");
       return NextResponse.json({ error: "No barcode for this registration" }, { status: 404 });
     }
 
