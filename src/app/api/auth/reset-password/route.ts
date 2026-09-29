@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { maskEmail } from "@/lib/mask-email";
 
 const resetPasswordSchema = z
   .object({
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     });
 
     if (!verificationToken) {
+      apiLogger.warn({ msg: "auth/reset-password:invalid-token", email: maskEmail(email), ip: getClientIp(req) });
       return NextResponse.json(
         { error: "Invalid or expired reset link" },
         { status: 400 }
@@ -70,6 +72,7 @@ export async function POST(req: Request) {
     }
 
     if (verificationToken.expires < new Date()) {
+      apiLogger.warn({ msg: "auth/reset-password:expired-token", email: maskEmail(email), ip: getClientIp(req) });
       await db.verificationToken.delete({
         where: {
           identifier_token: {
@@ -96,6 +99,7 @@ export async function POST(req: Request) {
     );
 
     if (!user) {
+      apiLogger.warn({ msg: "auth/reset-password:no-account", email: maskEmail(email), ip: getClientIp(req) });
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
@@ -141,6 +145,7 @@ export async function POST(req: Request) {
       });
     });
 
+    apiLogger.info({ msg: "auth/reset-password:done", userId: user.id, ip: getClientIp(req) });
     return NextResponse.json({
       success: true,
       message: "Password reset successful. You can now sign in.",
@@ -176,6 +181,7 @@ export async function GET(req: Request) {
     const email = searchParams.get("email");
 
     if (!token || !email) {
+      apiLogger.warn({ msg: "auth/reset-password:check-missing-params", ip: clientIp });
       return NextResponse.json(
         { valid: false, error: "Missing token or email" },
         { status: 400 }
@@ -193,6 +199,7 @@ export async function GET(req: Request) {
     });
 
     if (!verificationToken) {
+      apiLogger.warn({ msg: "auth/reset-password:check-invalid-token", email: maskEmail(normalizedEmail), ip: clientIp });
       return NextResponse.json(
         { valid: false, error: "Invalid reset link" },
         { status: 400 }
@@ -200,6 +207,7 @@ export async function GET(req: Request) {
     }
 
     if (verificationToken.expires < new Date()) {
+      apiLogger.warn({ msg: "auth/reset-password:check-expired-token", email: maskEmail(normalizedEmail), ip: clientIp });
       return NextResponse.json(
         { valid: false, error: "Reset link has expired" },
         { status: 400 }

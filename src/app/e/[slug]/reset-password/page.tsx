@@ -23,6 +23,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { parseSubmitterReturn, signInPathAfterReset } from "@/lib/submitter-return";
 import { EventBannerBand } from "@/components/public/event-banner";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -81,6 +82,10 @@ function EventResetPasswordInner() {
   const slug = params.slug as string;
   const token = searchParams.get("token") ?? "";
   const email = searchParams.get("email") ?? "";
+  // Set when the reset started on the abstract / proposal signup page: finish
+  // there, where signing in sets the person up as a presenter.
+  const from = parseSubmitterReturn(searchParams.get("from"));
+  const signInPath = signInPathAfterReset(slug, from);
 
   const [event, setEvent] = useState<EventBranding | null>(null);
   const [eventError, setEventError] = useState<string | null>(null);
@@ -167,8 +172,9 @@ function EventResetPasswordInner() {
       }
       toast.success("Password reset successful. Please sign in.");
       // Event-scoped redirect — this is the critical behavioral
-      // change vs the generic page.
-      router.push(`/e/${slug}/login`);
+      // change vs the generic page. Back to the signup page when the reset
+      // started there (Sep 29, 2026).
+      router.push(signInPath);
     } catch (err) {
       console.error("event-reset-password:network-failed", err);
       toast.error("Something went wrong. Please try again.");
@@ -192,7 +198,7 @@ function EventResetPasswordInner() {
           <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-slate-900 mb-2">{eventError || "Event not found"}</h2>
           <p className="text-slate-500 text-sm">
-            <Link href={`/e/${slug}/login`} className="text-primary hover:underline">Back to sign in</Link>
+            <Link href={signInPath} className="text-primary hover:underline">Back to sign in</Link>
           </p>
         </div>
       </div>
@@ -298,7 +304,7 @@ function EventResetPasswordInner() {
           <div className="bg-slate-50 border-t border-slate-100 px-8 py-6 mt-2">
             <p className="text-sm text-slate-500 text-center">
               Remember your password?{" "}
-              <Link href={`/e/${slug}/login`} className="text-primary hover:underline font-medium">
+              <Link href={signInPath} className="text-primary hover:underline font-medium">
                 Back to sign in
               </Link>
             </p>

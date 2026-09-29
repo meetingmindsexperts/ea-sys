@@ -149,6 +149,27 @@ describe("POST /api/auth/forgot-password — event-scoped reset link", () => {
     expect(emailBody).toMatch(/\/e\/hff2026\/reset-password\?token=/);
   });
 
+  // Sep 29, 2026: a reset started on the abstract / proposal signup returns
+  // there. The value is an allow-list of two words because it ends in a redirect.
+  it("carries returnTo onto the event reset link as &from=", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce({ slug: "hff2026" });
+    const res = await POST(makeReq({ email: "user@example.com", eventSlug: "hff2026", returnTo: "abstract" }));
+    expect(res.status).toBe(200);
+    expect(capturedEmails[0]?.htmlContent ?? "").toMatch(/\/e\/hff2026\/reset-password\?token=[^"]*&from=abstract/);
+  });
+
+  it("drops returnTo when the event does not verify (generic link, no from)", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(null);
+    await POST(makeReq({ email: "user@example.com", eventSlug: "doesnt-exist", returnTo: "abstract" }));
+    expect(capturedEmails[0]?.htmlContent ?? "").not.toMatch(/from=/);
+  });
+
+  it("refuses a returnTo outside the allow-list (no open redirect via the email link)", async () => {
+    const res = await POST(makeReq({ email: "user@example.com", eventSlug: "hff2026", returnTo: "https://evil.example" }));
+    expect(res.status).toBe(400);
+    expect(capturedEmails).toHaveLength(0);
+  });
+
   it("falls back to /reset-password when eventSlug doesn't match any DB event (no 400)", async () => {
     // This is the defensive case — a malicious or buggy client posts
     // a regex-valid but DB-nonexistent slug. The user still gets a

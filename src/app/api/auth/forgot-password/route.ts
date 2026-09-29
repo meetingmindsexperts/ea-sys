@@ -7,6 +7,8 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { emailTemplates, sendEmail } from "@/lib/email";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { SUBMITTER_RETURN_VALUES } from "@/lib/submitter-return";
+import { maskEmail } from "@/lib/mask-email";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Please provide a valid email address").max(255),
@@ -23,6 +25,12 @@ const forgotPasswordSchema = z.object({
     .string()
     .regex(/^[a-z0-9][a-z0-9-]{0,63}$/i, "Invalid event slug")
     .optional(),
+  /**
+   * Which signup page the reset started on (Sep 29, 2026), so the reset page
+   * returns the person there. An allow-list of two words, never a path: it
+   * ends up in a redirect. Only used together with a verified event slug.
+   */
+  returnTo: z.enum(SUBMITTER_RETURN_VALUES).optional(),
 });
 
 function getPasswordResetIdentifier(email: string) {
@@ -148,6 +156,14 @@ export async function POST(req: Request) {
 
     // Always return success to prevent account enumeration
     if (!user) {
+      // Logged (who asked, from where), but the response stays identical.
+      apiLogger.info({
+        msg: "auth/forgot-password:no-account",
+        email: maskEmail(email),
+        eventSlug: eventSlug ?? null,
+        returnTo: validated.data.returnTo ?? null,
+        ip: clientIp,
+      });
       return NextResponse.json({
         success: true,
         message: "If an account exists, a password reset link has been sent.",
@@ -194,7 +210,8 @@ export async function POST(req: Request) {
     const resetPath = verifiedEventSlug
       ? `/e/${encodeURIComponent(verifiedEventSlug)}/reset-password`
       : `/reset-password`;
-    const resetLink = `${appUrl}${resetPath}?token=${token}&email=${encodeURIComponent(email)}`;
+    const returnTo = verifiedEventSlug ? validated.data.returnTo : undefined;
+    const resetLink = `${appUrl}${resetPath}?token=${token}&email=${encodeURIComponent(email)}${returnTo ? `&from=${returnTo}` : ""}`;
 
     const emailTemplate = emailTemplates.passwordReset({
       recipientName: `${user.firstName} ${user.lastName}`,
@@ -224,7 +241,16 @@ export async function POST(req: Request) {
         apiLogger.warn({
           msg: "Failed to send password reset email",
           email,
+          userId: user.id,
           error: emailResult.error,
+        });
+      } else {
+        apiLogger.info({
+          msg: "auth/forgot-password:sent",
+          userId: user.id,
+          eventSlug: verifiedEventSlug ?? null,
+          returnTo: returnTo ?? null,
+          ip: clientIp,
         });
       }
     } catch (sendError) {

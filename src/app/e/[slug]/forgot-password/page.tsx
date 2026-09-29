@@ -25,8 +25,9 @@
  * path, so the entire flow stays event-bound from request to reset.
  */
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { parseSubmitterReturn, signInPathAfterReset } from "@/lib/submitter-return";
 import { EventBannerBand } from "@/components/public/event-banner";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -72,8 +73,10 @@ const forgotPasswordSchema = z.object({
 
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 
-export default function EventForgotPasswordPage() {
+function EventForgotPasswordInner() {
   const params = useParams();
+  // Set when the reset started on the abstract / proposal signup page.
+  const from = parseSubmitterReturn(useSearchParams().get("from"));
   const slug = params.slug as string;
 
   const [event, setEvent] = useState<EventBranding | null>(null);
@@ -122,7 +125,7 @@ export default function EventForgotPasswordPage() {
         // generic /reset-password. Backend-compatible: omitting the
         // field keeps the original generic-link behavior for the
         // /(auth)/forgot-password call path.
-        body: JSON.stringify({ ...data, eventSlug: slug }),
+        body: JSON.stringify({ ...data, eventSlug: slug, ...(from ? { returnTo: from } : {}) }),
       });
       if (!res.ok) {
         // The API uses non-enumerating responses (always 200 on
@@ -259,7 +262,7 @@ export default function EventForgotPasswordPage() {
           <div className="bg-slate-50 border-t border-slate-100 px-8 py-6 mt-2">
             <p className="text-sm text-slate-500 text-center">
               Remember your password?{" "}
-              <Link href={`/e/${slug}/login`} className="text-primary hover:underline font-medium">
+              <Link href={signInPathAfterReset(slug, from)} className="text-primary hover:underline font-medium">
                 Back to sign in
               </Link>
             </p>
@@ -267,5 +270,21 @@ export default function EventForgotPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function EventForgotPasswordPage() {
+  // Suspense wrapper because useSearchParams (the `from` return target)
+  // requires it under Next 16's strict Suspense rules, as on reset-password.
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <EventForgotPasswordInner />
+    </Suspense>
   );
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: "Forgot password?" on the abstract and session-proposal sign-in (September 29)
+
+The existing-account step of the abstract / proposal signup had no way to reset
+a password, and the event reset flow always ended on the event login, which does
+not set a person up as a presenter. The sign-in step now links to the event's
+forgot-password page with `from=abstract|proposal`; the value rides the emailed
+link (`returnTo` on `/api/auth/forgot-password`) and the reset page returns the
+person to that signup. An allow-list of two words (`src/lib/submitter-return.ts`),
+never a path, so it cannot redirect elsewhere. Both routes now log every outcome:
+sent, send failed, no account (masked email), invalid/expired link, and done.
+
 ### Fixed: presenters with an existing account get the same details page, with their rate (September 29)
 
 On an event that charges presenters, someone signing in with an existing

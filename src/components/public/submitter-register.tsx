@@ -751,6 +751,14 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                             <>Sign in &amp; continue <ChevronRight className="ml-1 h-5 w-5" /></>
                           )}
                         </Button>
+                        <p className="text-center text-sm">
+                          <a
+                            href={`/e/${slug}/forgot-password?from=${variant}`}
+                            className="text-primary hover:underline font-medium"
+                          >
+                            Forgot password?
+                          </a>
+                        </p>
                         <p className="text-center text-sm text-slate-400">
                           Not you?{" "}
                           <button
