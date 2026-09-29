@@ -11,3 +11,12 @@ CREATE POLICY submissionsharelink_tenant_isolation ON "SubmissionShareLink"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- RegistrationShareLink (Sep 29, 2026; docs/REGISTRATION_SHARE_PLAN.md): the
+-- named registration views. Same flat policy, same lane discipline.
+ALTER TABLE "RegistrationShareLink" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS registrationsharelink_tenant_isolation ON "RegistrationShareLink";
+CREATE POLICY registrationsharelink_tenant_isolation ON "RegistrationShareLink"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

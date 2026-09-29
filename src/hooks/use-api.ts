@@ -77,6 +77,7 @@ export const queryKeys = {
   sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
   sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
   submissionShares: (eventId: string) => ["events", eventId, "submission-shares"] as const,
+  registrationViews: (eventId: string) => ["events", eventId, "registration-shares"] as const,
   submitterContext: (eventId: string) => ["events", eventId, "submitter-context"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
@@ -1753,6 +1754,73 @@ export function useRegenerateSubmissionShare(eventId: string) {
         body: JSON.stringify({ kind, action: "regenerate" }),
       }),
     onSuccess: (r) => queryClient.setQueryData(queryKeys.submissionShares(eventId), r.links),
+  });
+}
+
+// ── Shared registration views (docs/REGISTRATION_SHARE_PLAN.md) ──────────
+
+export interface RegistrationViewData {
+  id: string;
+  label: string;
+  enabled: boolean;
+  expiresAt: string | null;
+  expired: boolean;
+  statuses: string[];
+  fields: string[];
+  ticketTypeIds: string[];
+  sponsorIds: string[];
+  promoCodeIds: string[];
+  includeFaculty: boolean;
+  path: string;
+  updatedAt: string;
+  updatedByName: string | null;
+}
+
+export interface RegistrationViewsResponse {
+  views: RegistrationViewData[];
+  options: {
+    ticketTypes: { id: string; name: string }[];
+    sponsors: { id: string; name: string }[];
+    promoCodes: { id: string; code: string }[];
+  };
+}
+
+export type RegistrationViewBody = Omit<RegistrationViewData, "id" | "expired" | "path" | "updatedAt" | "updatedByName">;
+
+export function useRegistrationViews(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.registrationViews(eventId),
+    queryFn: () => fetchApi<RegistrationViewsResponse>(`/api/events/${eventId}/registration-shares`),
+    enabled: !!eventId && enabled,
+    staleTime: 0,
+  });
+}
+
+/** Create / update / regenerate / delete: each answers with the fresh list, which replaces the cache. */
+export function useRegistrationViewMutation(eventId: string) {
+  const queryClient = useQueryClient();
+  const base = `/api/events/${eventId}/registration-shares`;
+  const json = { "Content-Type": "application/json" };
+  return useMutation({
+    mutationFn: (
+      op:
+        | { action: "create"; body: RegistrationViewBody }
+        | { action: "update"; id: string; body: RegistrationViewBody }
+        | { action: "regenerate"; id: string }
+        | { action: "delete"; id: string },
+    ) => {
+      switch (op.action) {
+        case "create":
+          return fetchApi<RegistrationViewsResponse & { id: string }>(base, { method: "POST", headers: json, body: JSON.stringify(op.body) });
+        case "update":
+          return fetchApi<RegistrationViewsResponse>(`${base}/${op.id}`, { method: "PUT", headers: json, body: JSON.stringify(op.body) });
+        case "regenerate":
+          return fetchApi<RegistrationViewsResponse>(`${base}/${op.id}/regenerate`, { method: "POST" });
+        case "delete":
+          return fetchApi<RegistrationViewsResponse>(`${base}/${op.id}`, { method: "DELETE" });
+      }
+    },
+    onSuccess: (r) => queryClient.setQueryData(queryKeys.registrationViews(eventId), { views: r.views, options: r.options }),
   });
 }
 

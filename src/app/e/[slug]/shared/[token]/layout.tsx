@@ -12,7 +12,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const base = await buildEventMetadata({ slug, section: "Submissions" });
+  const base = await buildEventMetadata({ slug, section: "Shared view" });
   return {
     ...base,
     robots: { index: false, follow: false },

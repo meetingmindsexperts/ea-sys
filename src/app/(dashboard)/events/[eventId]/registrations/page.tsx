@@ -51,6 +51,7 @@ import {
   ArrowRightLeft,
   Mail,
   ListChecks,
+  Eye,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -92,6 +93,7 @@ import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
 import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { canWrite } from "@/lib/can-write";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
 /**
@@ -100,6 +102,7 @@ import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payme
  */
 const SPONSOR_FILTER_ALL = "__all__";
 import { BadgeDialog } from "./badge-dialog";
+import { SharedViewsDialog } from "@/components/registrations/shared-views-dialog";
 import { resolvePastedIds } from "./resolve-pasted-ids";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -239,6 +242,7 @@ export default function RegistrationsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
   // "Select by IDs" — paste a list (registration #, full ID, or email) copied
   // from a CSV and have it populate the selection, so the existing bulk
   // Email / Tag / Change-Type actions run on exactly those rows (mirrors the
@@ -498,6 +502,17 @@ export default function RegistrationsPage() {
               <Share2 className="mr-2 h-4 w-4" />
               Share Link
             </Button>
+          )}
+          {/* Shared views: named read-only lists for staff (docs/REGISTRATION_SHARE_PLAN.md).
+              The server gate is denyReviewer's write roles, so the button follows canWrite. */}
+          {canWrite(roleName) && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setViewsOpen(true)}>
+                <Eye className="mr-2 h-4 w-4" />
+                Shared views
+              </Button>
+              <SharedViewsDialog eventId={eventId} open={viewsOpen} onOpenChange={setViewsOpen} />
+            </>
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

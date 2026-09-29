@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: shared views of registrations for staff (September 29)
+
+The registrations counterpart of the abstracts share page. **Shared views** on the
+Registrations page makes up to 10 named, read-only links per event, each with its
+own statuses, filters (registration type, sponsor, promo code, faculty in or out),
+fields and optional expiry, from three presets (names and numbers; companies and
+promo codes; contact list). Number and name always show, with totals by type and
+status. The owner's "safe set" holds by absence: amounts, payment status, billing,
+documents, barcodes, dietary, notes and custom fields are not in the catalogue;
+email and phone are off by default and ask to confirm (warning log + audit). A
+filter id from another event is refused, never ignored, so a view cannot silently
+widen. New table `RegistrationShareLink` (additive migration `20260929160000`, RLS
+policy in `prisma/rls/submissionshare.sql`); the public route and page at
+`/e/<slug>/shared/<token>` now serve both kinds. Also: the shared-view event lookup
+and token minting moved into `src/lib/share-link-access.ts` and
+`src/lib/share-token.ts`, used by both. Plan: `docs/REGISTRATION_SHARE_PLAN.md`.
+
 ### Added: a sponsor's registration link, where the sponsor pays (September 29, 2026)
 
 Sponsors send one link to their exhibitors, physicians, nurses. A promo code

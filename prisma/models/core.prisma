@@ -526,6 +526,7 @@ model Event {
   sessionProposals      SessionProposal[]
   sessionProposalThemes SessionProposalTheme[]
   submissionShareLinks  SubmissionShareLink[]
+  registrationShareLinks RegistrationShareLink[]
 
   importLogs                   ImportLog[]
   emailTemplates               EmailTemplate[]

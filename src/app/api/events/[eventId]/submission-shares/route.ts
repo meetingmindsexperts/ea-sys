@@ -13,18 +13,16 @@
  * and switching a contact field ON is logged at warn so there is a trail of
  * who published contact details.
  */
-import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { SubmissionShareLink } from "@prisma/client";
-import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveShareEvent, userNames } from "@/lib/share-link-access";
+import { newShareToken } from "@/lib/share-token";
 import {
   SHARE_KINDS,
   contactFieldKeys,
@@ -51,10 +49,6 @@ const postSchema = z.object({
   kind: kindSchema,
   action: z.literal("regenerate"),
 });
-
-function newToken(): string {
-  return randomBytes(32).toString("base64url");
-}
 
 type LinkView = {
   kind: ShareKind;
@@ -83,33 +77,9 @@ function toView(kind: ShareKind, slug: string, link: SubmissionShareLink | undef
   };
 }
 
-/**
- * After the handler's own auth + denyReviewer (kept literal in each handler so
- * the refusal log names the verb): the org guard and the access-scoped event.
- */
-async function resolveEvent(session: Session, route: string, eventId: string) {
-  const org = requireOrgId(session, { route, eventId });
-  if ("error" in org) return { error: org.error } as const;
-  const event = await db.event.findFirst({
-    where: buildEventAccessWhere(session.user, eventId),
-    select: { id: true, slug: true, organizationId: true },
-  });
-  if (!event) {
-    apiLogger.warn({ msg: "submission-shares:event-not-found", eventId, userId: session.user.id, route });
-    return { error: NextResponse.json({ error: "Event not found" }, { status: 404 }) } as const;
-  }
-  return { event } as const;
-}
-
 async function listViews(eventId: string, slug: string): Promise<LinkView[]> {
   const links = await db.submissionShareLink.findMany({ where: { eventId } });
-  const users = links.length
-    ? await db.user.findMany({
-        where: { id: { in: [...new Set(links.map((l) => l.updatedById))] } },
-        select: { id: true, firstName: true, lastName: true },
-      })
-    : [];
-  const names = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+  const names = await userNames(links.map((l) => l.updatedById));
   return SHARE_KINDS.map((k) => toView(k, slug, links.find((l) => l.kind === k), names));
 }
 
@@ -120,7 +90,7 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:GET", eventId });
     if (denied) return denied;
-    const r = await resolveEvent(session, "events/[eventId]/submission-shares:GET", eventId);
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:GET", eventId);
     if (r.error) return r.error;
     return await runWithTenant(r.event.organizationId, async () => {
       const links = await listViews(r.event.id, r.event.slug);
@@ -139,7 +109,7 @@ export async function PUT(req: Request, { params }: RouteParams): Promise<NextRe
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:PUT", eventId });
     if (denied) return denied;
-    const r = await resolveEvent(session, "events/[eventId]/submission-shares:PUT", eventId);
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:PUT", eventId);
     if (r.error) return r.error;
 
     const parsed = putSchema.safeParse(body);
@@ -167,7 +137,7 @@ export async function PUT(req: Request, { params }: RouteParams): Promise<NextRe
               eventId: r.event.id,
               organizationId: r.event.organizationId,
               kind,
-              token: newToken(),
+              token: newShareToken(),
               enabled,
               statuses: checked.statuses,
               fields: checked.fields,
@@ -219,7 +189,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:POST", eventId });
     if (denied) return denied;
-    const r = await resolveEvent(session, "events/[eventId]/submission-shares:POST", eventId);
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:POST", eventId);
     if (r.error) return r.error;
 
     const parsed = postSchema.safeParse(body);
@@ -236,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
         apiLogger.warn({ msg: "submission-shares:regenerate-no-link", eventId, kind, userId });
         return NextResponse.json({ error: "There is no link to regenerate yet. Save one first.", code: "NO_LINK" }, { status: 404 });
       }
-      await db.submissionShareLink.update({ where: { id: existing.id }, data: { token: newToken(), updatedById: userId } });
+      await db.submissionShareLink.update({ where: { id: existing.id }, data: { token: newShareToken(), updatedById: userId } });
       await db.auditLog.create({
         data: {
           eventId: r.event.id,

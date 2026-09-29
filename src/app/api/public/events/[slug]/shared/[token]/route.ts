@@ -29,9 +29,48 @@ import {
   type ShareKind,
   type SharedItem,
 } from "@/lib/submission-share";
-import type { AbstractStatus, SessionProposalStatus } from "@prisma/client";
+import type { AbstractStatus, Prisma, RegistrationStatus, SessionProposalStatus } from "@prisma/client";
+import { isPlausibleShareToken } from "@/lib/share-token";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
+import {
+  REGISTRATION_ROW_CAP,
+  attendeeSelect,
+  effectiveRegistrationFields,
+  effectiveRegistrationStatuses,
+  isViewExpired,
+  projectRegistration,
+  promoCodeUseWhere,
+  sponsorAttributionWhere,
+  summarise,
+} from "@/lib/registration-share";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
+
+const EVENT_SELECT = {
+  id: true,
+  organizationId: true,
+  name: true,
+  startDate: true,
+  endDate: true,
+  timezone: true,
+  bannerImage: true,
+  bannerImageMobile: true,
+  organization: { select: { name: true } },
+} as const;
+
+type SharedEvent = Prisma.EventGetPayload<{ select: typeof EVENT_SELECT }>;
+
+function branding(event: SharedEvent) {
+  return {
+    name: event.name,
+    startDate: event.startDate,
+    endDate: event.endDate,
+    timezone: event.timezone,
+    bannerImage: event.bannerImage,
+    bannerImageMobile: event.bannerImageMobile,
+    organizationName: event.organization.name,
+  };
+}
 
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 
@@ -54,7 +93,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         { status: 429, headers: { ...HEADERS, "Retry-After": String(limit.retryAfterSeconds) } },
       );
     }
-    if (token.length < 20 || token.length > 100) {
+    if (!isPlausibleShareToken(token)) {
       apiLogger.warn({ msg: "public-shared:malformed-token", slug });
       return gone();
     }
@@ -62,20 +101,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Event carries no RLS policy, so this lookup runs before any lane; any
     // status, because sharing is an explicit organiser act and abstracts are
     // often reviewed before an event is published.
-    const event = await db.event.findFirst({
-      where: await publicEventWhere(req, slug),
-      select: {
-        id: true,
-        organizationId: true,
-        name: true,
-        startDate: true,
-        endDate: true,
-        timezone: true,
-        bannerImage: true,
-        bannerImageMobile: true,
-        organization: { select: { name: true, logo: true } },
-      },
-    });
+    const event = await db.event.findFirst({ where: await publicEventWhere(req, slug), select: EVENT_SELECT });
     if (!event) {
       apiLogger.warn({ msg: "public-shared:event-not-found", slug });
       return gone();
@@ -86,7 +112,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: { token },
         select: { id: true, eventId: true, organizationId: true, kind: true, enabled: true, statuses: true, fields: true },
       });
-      if (!link || link.eventId !== event.id) {
+      // Not an abstracts/proposals link: it may be a registration view.
+      if (!link) return await registrationView(req, slug, token, event);
+      if (link.eventId !== event.id) {
         apiLogger.warn({ msg: "public-shared:invalid-token", slug, eventId: event.id });
         return gone();
       }
@@ -106,16 +134,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
       return NextResponse.json(
         {
-          event: {
-            name: event.name,
-            startDate: event.startDate,
-            endDate: event.endDate,
-            timezone: event.timezone,
-            bannerImage: event.bannerImage,
-            bannerImageMobile: event.bannerImageMobile,
-            organizationName: event.organization.name,
-            organizationLogo: event.organization.logo,
-          },
+          event: branding(event),
           kind,
           fields: [...on],
           items: items.slice(0, SHARE_ROW_CAP),
@@ -174,4 +193,76 @@ async function loadItems(kind: ShareKind, eventId: string, statuses: string[], o
     take: SHARE_ROW_CAP + 1,
   });
   return rows.map((r) => projectProposal(r, on));
+}
+
+/**
+ * A registration view (docs/REGISTRATION_SHARE_PLAN.md). Same order of checks
+ * as above (same event, same tenant, enabled) plus the expiry, then the
+ * view's row filters. Runs inside the caller's tenant lane.
+ */
+async function registrationView(req: Request, slug: string, token: string, event: SharedEvent): Promise<NextResponse> {
+  const view = await db.registrationShareLink.findUnique({ where: { token } });
+  if (!view || view.eventId !== event.id) {
+    apiLogger.warn({ msg: "public-shared:invalid-token", slug, eventId: event.id });
+    return gone();
+  }
+  if (!(await eventMatchesRequestTenant(req, event.organizationId))) {
+    apiLogger.warn({ msg: "public-shared:tenant-mismatch", slug, viewId: view.id });
+    return gone();
+  }
+  if (!view.enabled) {
+    apiLogger.warn({ msg: "public-shared:view-disabled", slug, viewId: view.id });
+    return gone();
+  }
+  if (isViewExpired(view.expiresAt)) {
+    apiLogger.warn({ msg: "public-shared:view-expired", slug, viewId: view.id });
+    return gone();
+  }
+
+  const on = effectiveRegistrationFields(view.fields);
+  const statuses = effectiveRegistrationStatuses(view.statuses);
+  // Filters combine: a registration must match every filter that is set.
+  const where: Prisma.RegistrationWhereInput = {
+    eventId: event.id,
+    status: { in: statuses as RegistrationStatus[] },
+    AND: [
+      ...(view.includeFaculty ? [] : [EXCLUDE_FACULTY_WHERE]),
+      ...(view.ticketTypeIds.length ? [{ ticketTypeId: { in: view.ticketTypeIds } }] : []),
+      ...(view.sponsorIds.length ? [sponsorAttributionWhere(view.sponsorIds)] : []),
+      ...(view.promoCodeIds.length ? [promoCodeUseWhere(view.promoCodeIds)] : []),
+    ],
+  };
+  const rows = statuses.length
+    ? await db.registration.findMany({
+        where,
+        select: {
+          serialId: true,
+          status: true,
+          attendanceMode: true,
+          checkedInAt: true,
+          createdAt: true,
+          ticketType: { select: { name: true, isFaculty: true } },
+          promoCode: { select: { code: true, sponsor: { select: { name: true } } } },
+          sponsor: { select: { name: true } },
+          group: { select: { promoCode: { select: { code: true, sponsor: { select: { name: true } } } } } },
+          attendee: { select: attendeeSelect(on) },
+        },
+        orderBy: [{ serialId: "asc" }, { createdAt: "asc" }],
+        take: REGISTRATION_ROW_CAP + 1,
+      })
+    : [];
+  const shown = rows.slice(0, REGISTRATION_ROW_CAP);
+  return NextResponse.json(
+    {
+      event: branding(event),
+      kind: "REGISTRATIONS",
+      label: view.label,
+      fields: [...on],
+      summary: summarise(shown),
+      items: shown.map((r) => projectRegistration(r, on)),
+      truncated: rows.length > REGISTRATION_ROW_CAP,
+      generatedAt: new Date().toISOString(),
+    },
+    { headers: HEADERS },
+  );
 }

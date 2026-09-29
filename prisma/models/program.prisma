@@ -1055,6 +1055,39 @@ model SubmissionShareLink {
   @@index([organizationId])
 }
 
+/// Named, read-only views of an event's registrations for internal staff
+/// (Sep 29, 2026; docs/REGISTRATION_SHARE_PLAN.md). Several per event, each
+/// with its own label, fields, row filters and optional expiry. A separate
+/// table from SubmissionShareLink on purpose: that one allows one link per
+/// kind, and changing its unique index or enum while the old slot serves is a
+/// blue/green hazard. Both share the public URL /e/<slug>/shared/<token>.
+/// Lives here beside its sibling rather than in registrations.prisma.
+model RegistrationShareLink {
+  id             String    @id @default(cuid())
+  eventId        String
+  // Tenant key, stamped from the Event at create; flat RLS policy.
+  organizationId String?
+  label          String
+  token          String    @unique
+  enabled        Boolean   @default(true)
+  expiresAt      DateTime?
+  statuses       String[]
+  fields         String[]
+  ticketTypeIds  String[]
+  sponsorIds     String[]
+  promoCodeIds   String[]
+  includeFaculty Boolean   @default(false)
+  createdById    String
+  updatedById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, label])
+  @@index([organizationId])
+}
+
 enum SubmissionShareKind {
   ABSTRACTS
   SESSION_PROPOSALS
