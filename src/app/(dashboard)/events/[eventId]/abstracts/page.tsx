@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { downloadExport } from "@/lib/export-download";
+import { SubmissionShareDialog } from "@/components/submissions/share-dialog";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +54,7 @@ import {
   RefreshCw,
   Mail,
   Download,
+  Share2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
@@ -151,6 +153,7 @@ export default function AbstractsPage() {
   // React Query hooks - data is cached and shared across navigations
   const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId);
   const [exporting, setExporting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   // Fetch-then-save rather than a bare download link: a 403 or a lapsed session
   // would otherwise save an error JSON as "abstracts.csv" (the quote.json
@@ -458,6 +461,18 @@ export default function AbstractsPage() {
                 Email authors
               </Link>
             </Button>
+          )}
+          {/* Share: a live read-only page behind a secret link, with the
+              organiser choosing what shows (docs/SUBMISSION_SHARE_PLAN.md).
+              Same write boundary as the server's denyReviewer. */}
+          {canManage && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
+              </Button>
+              <SubmissionShareDialog eventId={eventId} kind="ABSTRACTS" open={shareOpen} onOpenChange={setShareOpen} />
+            </>
           )}
           {/* Export is staff-only (Sep 9, 2026): the server refuses every other
               role, so the button is shown only where it will work. */}

@@ -76,6 +76,7 @@ export const queryKeys = {
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
   sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
   sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
+  submissionShares: (eventId: string) => ["events", eventId, "submission-shares"] as const,
   submitterContext: (eventId: string) => ["events", eventId, "submitter-context"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
@@ -1705,6 +1706,54 @@ export function useDeleteSessionProposal(eventId: string) {
 
 export function useSessionProposalThemes(eventId: string) {
   return useEventListQuery<any[]>(eventId, queryKeys.sessionProposalThemes(eventId), "session-proposal-themes");
+}
+
+// ── Shared submission views (docs/SUBMISSION_SHARE_PLAN.md) ──────────────
+
+export interface SubmissionShareLinkView {
+  kind: "ABSTRACTS" | "SESSION_PROPOSALS";
+  exists: boolean;
+  enabled: boolean;
+  statuses: string[];
+  fields: string[];
+  path: string | null;
+  updatedAt: string | null;
+  updatedByName: string | null;
+}
+
+export function useSubmissionShares(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.submissionShares(eventId),
+    queryFn: () => fetchApi<{ links: SubmissionShareLinkView[] }>(`/api/events/${eventId}/submission-shares`).then((r) => r.links),
+    enabled: !!eventId && enabled,
+    staleTime: 0,
+  });
+}
+
+export function useSaveSubmissionShare(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { kind: SubmissionShareLinkView["kind"]; enabled: boolean; statuses: string[]; fields: string[] }) =>
+      fetchApi<{ links: SubmissionShareLinkView[] }>(`/api/events/${eventId}/submission-shares`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (r) => queryClient.setQueryData(queryKeys.submissionShares(eventId), r.links),
+  });
+}
+
+export function useRegenerateSubmissionShare(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (kind: SubmissionShareLinkView["kind"]) =>
+      fetchApi<{ links: SubmissionShareLinkView[] }>(`/api/events/${eventId}/submission-shares`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, action: "regenerate" }),
+      }),
+    onSuccess: (r) => queryClient.setQueryData(queryKeys.submissionShares(eventId), r.links),
+  });
 }
 
 export function useCreateSessionProposalTheme(eventId: string) {

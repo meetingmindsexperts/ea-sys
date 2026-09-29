@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a live, shareable page of abstracts or session proposals (September 29)
+
+Organisers wanted to show a committee the submissions without sending a CSV that
+carries every author's email and goes stale on the next submission. A **Share**
+button on the Abstracts and Session Proposals pages now makes a read-only page at
+`/e/<slug>/shared/<token>` behind a secret link (256-bit token), one per event per
+kind. The organiser picks the statuses shown (never DRAFT or WITHDRAWN) and the
+fields; contact details are off by default and switching one on asks first and
+logs a warning. Hidden fields are never selected or returned, reviews and scores
+are not in the catalogue at all, the response is `no-store` + `noindex`, and the
+page refreshes every 60 s. Switching the link off or regenerating it kills the old
+link at once. New table `SubmissionShareLink` (additive migration
+`20260929120000`, RLS policy in `prisma/rls/submissionshare.sql`), kept out of
+`Event.settings` because public routes select that blob whole. Rules live in one
+pure module, `src/lib/submission-share.ts`. Plan and review:
+`docs/SUBMISSION_SHARE_PLAN.md`.
+
 ### Added: "Forgot password?" on the abstract and session-proposal sign-in (September 29)
 
 The existing-account step of the abstract / proposal signup had no way to reset

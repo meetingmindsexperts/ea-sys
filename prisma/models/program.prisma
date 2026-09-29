@@ -1025,3 +1025,37 @@ model DtcmCode {
   @@index([organizationId])
 }
 
+
+/// A read-only, publicly shareable page of an event's abstracts or session
+/// proposals (Sep 29, 2026; docs/SUBMISSION_SHARE_PLAN.md). The organiser picks
+/// which statuses and which fields appear; contact details are off unless
+/// switched on. One link per event per kind; regenerating replaces `token`, so
+/// the old link dies at once. Kept OUT of Event.settings on purpose: public
+/// routes select that blob whole, and a token there is one careless return
+/// away from being published. The token is stored readable (not hashed) so the
+/// organiser can copy the link again; it grants view access only.
+model SubmissionShareLink {
+  id             String              @id @default(cuid())
+  eventId        String
+  // Tenant key, stamped from the Event at create; flat RLS policy.
+  organizationId String?
+  kind           SubmissionShareKind
+  token          String              @unique
+  enabled        Boolean             @default(true)
+  statuses       String[]
+  fields         String[]
+  createdById    String
+  updatedById    String
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, kind])
+  @@index([organizationId])
+}
+
+enum SubmissionShareKind {
+  ABSTRACTS
+  SESSION_PROPOSALS
+}
