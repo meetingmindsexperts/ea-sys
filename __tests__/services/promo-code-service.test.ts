@@ -300,6 +300,27 @@ describe("createPromoCode (shared REST + MCP create path — audit-drift finding
     expect(mockDb.promoCode.create).not.toHaveBeenCalled();
   });
 
+  // Sep 29, 2026: the sponsor pays for everyone registering with the code.
+  it("sponsorCoversFee: stored for a sponsor's code at 100% off", async () => {
+    await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott", discountValue: 100, maxUses: 20, sponsorCoversFee: true });
+    expect(mockDb.promoCode.create.mock.calls[0][0].data).toMatchObject({ sponsorId: "spn_abbott", sponsorCoversFee: true });
+  });
+
+  it("sponsorCoversFee: refused without a sponsor, or below 100% off, and nothing is written", async () => {
+    const noSponsor = await createPromoCode({ ...CREATE_BASE, discountValue: 100, sponsorCoversFee: true });
+    expect(noSponsor).toMatchObject({ ok: false, code: "INVALID_SPONSOR_COVER" });
+    const partial = await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott", discountValue: 50, maxUses: 20, sponsorCoversFee: true });
+    expect(partial).toMatchObject({ ok: false, code: "INVALID_SPONSOR_COVER" });
+    const uncapped = await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott", discountValue: 100, sponsorCoversFee: true });
+    expect(uncapped).toMatchObject({ ok: false, code: "INVALID_SPONSOR_COVER" });
+    expect(mockDb.promoCode.create).not.toHaveBeenCalled();
+  });
+
+  it("sponsorCoversFee defaults to false (existing behaviour for every other code)", async () => {
+    await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott" });
+    expect(mockDb.promoCode.create.mock.calls[0][0].data.sponsorCoversFee).toBe(false);
+  });
+
   it("stores a valid sponsorId", async () => {
     await createPromoCode({ ...CREATE_BASE, sponsorId: "spn_abbott" });
     expect(sponsorExistsSpy).toHaveBeenCalledWith("evt-1", "spn_abbott");

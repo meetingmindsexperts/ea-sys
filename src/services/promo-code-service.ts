@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
+import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -368,6 +369,7 @@ export type CreatePromoCodeErrorCode =
   | "INVALID_TICKET_TYPES"
   | "DUPLICATE_CODE"
   | "SPONSOR_NOT_FOUND"
+  | "INVALID_SPONSOR_COVER"
   | "UNKNOWN";
 
 export interface CreatePromoCodeInput {
@@ -399,6 +401,8 @@ export interface CreatePromoCodeInput {
    * attribution instead of being written as "" and rejected by the FK.
    */
   sponsorId?: string | null;
+  /** The sponsor pays for every registration made with this code (INCLUSIVE). */
+  sponsorCoversFee?: boolean;
 }
 
 const PROMO_CREATE_INCLUDE = {
@@ -441,6 +445,17 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
     }
 
     const sponsorId = input.sponsorId?.trim() || null;
+    const sponsorCoversFee = input.sponsorCoversFee === true;
+    const coverError = sponsorCoverError({
+      sponsorCoversFee,
+      sponsorId,
+      discountType: input.discountType,
+      discountValue: input.discountValue,
+      maxUses: input.maxUses,
+    });
+    if (coverError) {
+      return { ok: false, code: "INVALID_SPONSOR_COVER", message: coverError };
+    }
     if (sponsorId && !(await sponsorExistsOnEvent(input.eventId, sponsorId))) {
       return {
         ok: false,
@@ -476,6 +491,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
         organizationId: input.organizationId,
         code,
         sponsorId,
+        sponsorCoversFee,
         description: input.description ?? null,
         discountType: input.discountType,
         discountValue: input.discountValue,

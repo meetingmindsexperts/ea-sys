@@ -568,12 +568,24 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Promo code validation and redemption (inside transaction for atomicity)
       let discountAmount = 0;
-      let promoCodeRecord: { id: string; code: string; discountType: string; discountValue: unknown } | null = null;
+      let promoCodeRecord: {
+        id: string;
+        code: string;
+        discountType: string;
+        discountValue: unknown;
+        sponsorId: string | null;
+        sponsorCoversFee: boolean;
+        sponsor: { name: string } | null;
+      } | null = null;
 
       if (promoCode) {
         const promo = await tx.promoCode.findUnique({
           where: { eventId_code: { eventId: event.id, code: promoCode.toUpperCase().trim() } },
-          include: { ticketTypes: { select: { ticketTypeId: true } } },
+          include: {
+            ticketTypes: { select: { ticketTypeId: true } },
+            // Named in the confirmation email when the sponsor covers the fee.
+            sponsor: { select: { name: true } },
+          },
         });
 
         if (!promo || !promo.isActive) throw new Error("INVALID_PROMO_CODE");
@@ -635,6 +647,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const finalPrice = Math.max(0, originalPrice - discountAmount);
 
+      // A sponsor's code with "Sponsor covers the fee" (Sep 29, 2026): the
+      // sponsor pays, so the registration is INCLUSIVE and attributed to them,
+      // which is what the sponsor filter and export report. Only when nothing
+      // is left to pay; the code's rule already requires 100% off.
+      const sponsorCovered =
+        promoCodeRecord?.sponsorCoversFee === true && !!promoCodeRecord.sponsorId && finalPrice === 0;
+
       // Create registration. Virtual ⇒ no entry barcode (nothing to scan).
       const generatedBarcode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, event.id, event.organizationId);
@@ -654,7 +673,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           // signal — there was no payment. COMPLIMENTARY is the correct
           // "no money due" status, consistent with the service layer's
           // free-ticket default and the CSV import path.
-          paymentStatus: finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID",
+          paymentStatus: sponsorCovered ? "INCLUSIVE" : finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID",
+          ...(sponsorCovered && promoCodeRecord?.sponsorId ? { sponsorId: promoCodeRecord.sponsorId } : {}),
           qrCode: generatedBarcode,
           promoCodeId: promoCodeRecord?.id || null,
           discountAmount: discountAmount > 0 ? discountAmount : null,
@@ -697,7 +717,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       }
 
-      return { registration, discountAmount, originalPrice, finalPrice, appliedPromoCode: promoCodeRecord?.code ?? null };
+      return {
+        registration,
+        discountAmount,
+        originalPrice,
+        finalPrice,
+        appliedPromoCode: promoCodeRecord?.code ?? null,
+        coveredBySponsorName: sponsorCovered ? (promoCodeRecord?.sponsor?.name ?? null) : null,
+      };
     });
 
     const {
@@ -706,7 +733,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       finalPrice: registrationFinalPrice,
       originalPrice: registrationOriginalPrice,
       appliedPromoCode,
+      coveredBySponsorName,
     } = result;
+
+    apiLogger.info({
+      msg: "public/register:created",
+      eventId: event.id,
+      registrationId: registration.id,
+      paymentStatus: registration.paymentStatus,
+      promoCode: appliedPromoCode,
+      // Set when a sponsor's "covers the fee" code made this INCLUSIVE.
+      sponsorId: registration.sponsorId ?? null,
+    });
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(event.id, {
@@ -836,6 +874,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           ticketCurrency: finalCurrency,
           discountAmount: appliedDiscount,
           promoCode: appliedPromoCode,
+          // The sponsor pays: "covered by" note, no Payment Pending, no quote.
+          coveredBySponsorName,
           billingFirstName: registration.billingFirstName,
           billingLastName: registration.billingLastName,
           billingEmail: registration.billingEmail,

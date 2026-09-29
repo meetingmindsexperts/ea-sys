@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { createPromoCode as createPromoCodeService } from "@/services/promo-code-service";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import type { ToolExecutor } from "./_shared";
+import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 
 const DISCOUNT_TYPES = new Set(["PERCENTAGE", "FIXED_AMOUNT"]);
 
@@ -114,7 +115,10 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.promoCode.findFirst({
       where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true, discountType: true, discountValue: true },
+      select: {
+        id: true, eventId: true, discountType: true, discountValue: true,
+        sponsorId: true, sponsorCoversFee: true, maxUses: true,
+      },
     });
     if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };
 
@@ -172,6 +176,25 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
     if (input.isActive != null) updates.isActive = Boolean(input.isActive);
     if (sponsorId !== undefined) {
       updates.sponsor = sponsorId ? { connect: { id: sponsorId } } : { disconnect: true };
+    }
+
+    // "Sponsor covers the fee" (review MED 2, Sep 29, 2026): this tool cannot
+    // set the switch, but it can remove the sponsor, lower the discount or
+    // lift the cap underneath it. The same rule as the dashboard, on the code
+    // as it will be after this edit.
+    const coverError = sponsorCoverError({
+      sponsorCoversFee: existing.sponsorCoversFee,
+      sponsorId: sponsorId !== undefined ? sponsorId : existing.sponsorId,
+      discountType: effectiveType,
+      discountValue: effectiveValue,
+      maxUses: updates.maxUses !== undefined ? (updates.maxUses as number | null) : existing.maxUses,
+    });
+    if (coverError) {
+      apiLogger.warn({ msg: "agent:update_promo_code:invalid-sponsor-cover", promoCodeId, detail: coverError });
+      return {
+        error: `${coverError} Turn off "Sponsor covers the fee" on the Promo Codes page first.`,
+        code: "INVALID_SPONSOR_COVER",
+      };
     }
 
     if (Object.keys(updates).length === 0) {

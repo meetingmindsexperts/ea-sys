@@ -2299,6 +2299,13 @@ export interface RegistrationConfirmationParams {
    */
   coveredByGroupPayerName?: string | null;
   /**
+   * A sponsor pays (INCLUSIVE via a "Sponsor covers the fee" code, Sep 29,
+   * 2026). Same treatment as a group payer: a "covered by" note instead of the
+   * amber Payment Pending box, and no quote PDF. Without it the email itemised
+   * the full price at 0.00 with a Pay Now link to everyone a sponsor invited.
+   */
+  coveredBySponsorName?: string | null;
+  /**
    * Show the amount and attach the quote, but do NOT invite immediate payment
    * (plan D3). Distinct from `coveredByGroupPayerName`, which means somebody
    * else is paying: here the registrant DOES owe it, just not yet.
@@ -2367,6 +2374,8 @@ export function registrationPaymentLink(p: {
 export interface RegistrationPaymentBlockInput {
   /** Set when a company payer covers this registration: renders the green note, never an amount. */
   coveredByGroupPayerName?: string | null;
+  /** Set when a sponsor covers it (INCLUSIVE): the same green note, sponsor wording. */
+  coveredBySponsorName?: string | null;
   ticketPrice?: number | string | null;
   ticketCurrency?: string | null;
   discountAmount?: number | string | null;
@@ -2402,6 +2411,17 @@ export function buildRegistrationPaymentBlock(p: RegistrationPaymentBlockInput):
       <p style="margin: 0; font-size: 14px; color: #047857;">Your registration fee is part of a group registration paid by ${escapeHtml(payer)} — no payment is required from you.</p>
     </div>`,
       text: `Registration covered by ${payer}\nYour registration fee is part of a group registration paid by ${payer} — no payment is required from you.`,
+    };
+  }
+
+  if (p.coveredBySponsorName) {
+    const sponsor = p.coveredBySponsorName;
+    return {
+      html: `<div style="background: #ecfdf5; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #10b981; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #065f46;">Registration covered by ${escapeHtml(sponsor)}</p>
+      <p style="margin: 0; font-size: 14px; color: #047857;">Your registration fee is covered by ${escapeHtml(sponsor)} — no payment is required from you.</p>
+    </div>`,
+      text: `Registration covered by ${sponsor}\nYour registration fee is covered by ${sponsor} — no payment is required from you.`,
     };
   }
 
@@ -2520,6 +2540,7 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   // refer to it.
   const { html: paymentBlock, text: paymentBlockText } = buildRegistrationPaymentBlock({
     coveredByGroupPayerName: params.coveredByGroupPayerName,
+    coveredBySponsorName: params.coveredBySponsorName,
     ticketPrice: params.ticketPrice,
     ticketCurrency: params.ticketCurrency,
     discountAmount: params.discountAmount,
@@ -2637,7 +2658,7 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   // Attachments: inline barcode (if rendered) + quote PDF for paid tickets.
   const attachments: NonNullable<SendEmailParams["attachments"]> = [];
   if (barcodeAttachment) attachments.push(barcodeAttachment);
-  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName && !params.coveredByGroupPayerName) {
+  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName && !params.coveredByGroupPayerName && !params.coveredBySponsorName) {
     try {
       const { generateQuotePDF } = await import("@/lib/quote-pdf");
       const pdfBuffer = await generateQuotePDF({

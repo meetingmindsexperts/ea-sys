@@ -17,6 +17,7 @@ const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
   INVALID_TICKET_TYPES: 400,
   DUPLICATE_CODE: 409,
   SPONSOR_NOT_FOUND: 400,
+  INVALID_SPONSOR_COVER: 400,
   UNKNOWN: 500,
 };
 
@@ -41,6 +42,8 @@ const createPromoCodeSchema = z
     // event's sponsor list; "" clears it, matching how the detail sheet's
     // Select reports "no selection".
     sponsorId: z.string().max(100).nullable().optional(),
+    /** The sponsor pays for every registration made with this code (INCLUSIVE). */
+    sponsorCoversFee: z.boolean().optional(),
   })
   .refine(
     (d) => d.discountType !== "PERCENTAGE" || d.discountValue <= 100,
@@ -155,6 +158,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       isActive: data.isActive,
       ticketTypeIds,
       sponsorId: data.sponsorId?.trim() ? data.sponsorId.trim() : null,
+      sponsorCoversFee: data.sponsorCoversFee === true,
     });
 
     if (!result.ok) {

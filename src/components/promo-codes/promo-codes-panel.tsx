@@ -31,7 +31,9 @@ import {
   Copy,
   Percent,
   DollarSign,
+  Link2,
 } from "lucide-react";
+import { promoRegistrationLink, sponsorCoverError } from "@/lib/promo-sponsor-cover";
 import { toast } from "sonner";
 import {
   usePromoCodes,
@@ -40,6 +42,7 @@ import {
   useDeletePromoCode,
   useTickets,
   useSponsors,
+  useEvent,
 } from "@/hooks/use-api";
 
 interface PromoCode {
@@ -59,6 +62,8 @@ interface PromoCode {
   // Redacted away for a non-finance role by the list route, hence optional:
   // the field can be absent rather than merely null.
   sponsorId?: string | null;
+  /** The sponsor pays for everyone registering with this code (INCLUSIVE). */
+  sponsorCoversFee?: boolean;
   ticketTypes: { ticketType: { id: string; name: string } }[];
   _count: { redemptions: number };
 }
@@ -77,6 +82,8 @@ const emptyForm: {
   ticketTypeIds: string[];
   /** "" means no sponsor. The server normalises it to NULL. */
   sponsorId: string;
+  /** The sponsor pays: registrations become INCLUSIVE under the sponsor. */
+  sponsorCoversFee: boolean;
 } = {
   code: "",
   description: "",
@@ -90,6 +97,7 @@ const emptyForm: {
   isActive: true,
   ticketTypeIds: [],
   sponsorId: "",
+  sponsorCoversFee: false,
 };
 
 /**
@@ -107,6 +115,16 @@ export function PromoCodesPanel({ eventId }: Props) {
   const { data: promoCodes = [], isLoading } = usePromoCodes(eventId);
   const { data: ticketTypes = [] } = useTickets(eventId);
   const { data: sponsorData } = useSponsors(eventId);
+  const { data: event } = useEvent(eventId);
+  const eventSlug = (event as { slug?: string } | undefined)?.slug;
+
+  // The regular registration link with this code applied (Sep 29, 2026): what
+  // a sponsor shares with their exhibitors, physicians, nurses...
+  const copyRegistrationLink = (code: string) => {
+    if (!eventSlug) return;
+    navigator.clipboard.writeText(promoRegistrationLink(window.location.origin, eventSlug, code));
+    toast.success("Registration link copied");
+  };
   const sponsors = sponsorData?.sponsors ?? [];
   // The picker only exists when there is something to pick. That also decides
   // whether the payload carries `sponsorId` at all: sending "" from a form that
@@ -149,6 +167,8 @@ export function PromoCodesPanel({ eventId }: Props) {
       isActive: promo.isActive,
       ticketTypeIds: promo.ticketTypes.map((t) => t.ticketType.id),
       sponsorId: promo.sponsorId ?? "",
+      // Inert without a sponsor (deleted sponsor): open with the switch off.
+      sponsorCoversFee: promo.sponsorCoversFee === true && !!promo.sponsorId,
     });
     setDialogOpen(true);
   };
@@ -157,6 +177,14 @@ export function PromoCodesPanel({ eventId }: Props) {
     if (!form.code.trim()) { toast.error("Code is required"); return; }
     if (!form.discountValue || Number(form.discountValue) <= 0) { toast.error("Discount value must be greater than 0"); return; }
     if (form.discountType === "PERCENTAGE" && Number(form.discountValue) > 100) { toast.error("Percentage cannot exceed 100%"); return; }
+    const coverError = sponsorCoverError({
+      sponsorCoversFee: form.sponsorCoversFee,
+      sponsorId: form.sponsorId,
+      discountType: form.discountType,
+      discountValue: Number(form.discountValue),
+      maxUses: form.maxUses ? Number(form.maxUses) : null,
+    });
+    if (coverError) { toast.error(coverError); return; }
 
     setSaving(true);
     try {
@@ -172,7 +200,7 @@ export function PromoCodesPanel({ eventId }: Props) {
         validUntil: fromLocalDateTimeInput(form.validUntil),
         isActive: form.isActive,
         ticketTypeIds: form.ticketTypeIds.length > 0 ? form.ticketTypeIds : undefined,
-        ...(canAttribute ? { sponsorId: form.sponsorId || null } : {}),
+        ...(canAttribute ? { sponsorId: form.sponsorId || null, sponsorCoversFee: form.sponsorCoversFee } : {}),
       };
 
       if (editingId) {
@@ -258,6 +286,11 @@ export function PromoCodesPanel({ eventId }: Props) {
                       {promo.discountType === "PERCENTAGE" ? <Percent className="h-3 w-3" /> : <DollarSign className="h-3 w-3" />}
                       {promo.discountType === "PERCENTAGE" ? `${promo.discountValue}%` : `${promo.currency} ${Number(promo.discountValue).toFixed(2)}`}
                     </Badge>
+                    {/* Review MED 2: a deleted sponsor (FK SetNull) leaves the flag
+                        set but inert, so the badge follows the sponsor, not the flag. */}
+                    {promo.sponsorCoversFee && promo.sponsorId && (
+                      <Badge variant="outline" className="border-emerald-300 text-emerald-700">Sponsor pays</Badge>
+                    )}
                     {!promo.isActive && <Badge variant="outline" className="text-slate-400">Inactive</Badge>}
                   </div>
                   <div className="flex items-center gap-6">
@@ -279,6 +312,17 @@ export function PromoCodesPanel({ eventId }: Props) {
                       )}
                     </div>
                     <div className="flex items-center gap-1">
+                      {eventSlug && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Copy registration link with this code"
+                          aria-label={`Copy registration link for ${promo.code}`}
+                          onClick={() => copyRegistrationLink(promo.code)}
+                        >
+                          <Link2 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button size="icon" variant="ghost" onClick={() => openEdit(promo)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -409,7 +453,14 @@ export function PromoCodesPanel({ eventId }: Props) {
                 </p>
                 <Select
                   value={form.sponsorId || NO_SPONSOR}
-                  onValueChange={(v) => setForm({ ...form, sponsorId: v === NO_SPONSOR ? "" : v })}
+                  onValueChange={(v) =>
+                    setForm({
+                      ...form,
+                      sponsorId: v === NO_SPONSOR ? "" : v,
+                      // No sponsor, nobody to pay: the switch goes off with it.
+                      sponsorCoversFee: v === NO_SPONSOR ? false : form.sponsorCoversFee,
+                    })
+                  }
                 >
                   <SelectTrigger><SelectValue placeholder="No sponsor" /></SelectTrigger>
                   <SelectContent>
@@ -419,6 +470,30 @@ export function PromoCodesPanel({ eventId }: Props) {
                     ))}
                   </SelectContent>
                 </Select>
+                {form.sponsorId && (
+                  <div className="mt-3 rounded-md border border-slate-200 p-3 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={form.sponsorCoversFee}
+                        onCheckedChange={(v) =>
+                          setForm({
+                            ...form,
+                            sponsorCoversFee: v,
+                            // The sponsor pays the whole fee, so the code is 100% off.
+                            ...(v ? { discountType: "PERCENTAGE" as const, discountValue: "100" } : {}),
+                          })
+                        }
+                      />
+                      <Label>Sponsor covers the fee</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Everyone who registers with this code is marked <strong>Inclusive</strong> under this
+                      sponsor: no payment, no quote. Share the regular registration link with the code on
+                      it (the link button on the code). Set <em>Max Total Uses</em> (required) to cap how many people the
+                      sponsor can bring, and <em>Applicable Registration Types</em> for who they may register.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {(ticketTypes as { id: string; name: string }[]).length > 0 && (

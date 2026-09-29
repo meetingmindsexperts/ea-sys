@@ -57,7 +57,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
     const promoCode = await db.promoCode.findUnique({
       where: { eventId_code: { eventId: event.id, code: code.toUpperCase().trim() } },
-      include: { ticketTypes: { select: { ticketTypeId: true } } },
+      include: {
+        ticketTypes: { select: { ticketTypeId: true } },
+        // Named on the form when the sponsor covers the fee (Sep 29, 2026).
+        sponsor: { select: { name: true } },
+      },
     });
 
     if (!promoCode || !promoCode.isActive) {
@@ -133,6 +137,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       discountAmount,
       originalPrice,
       finalPrice,
+      // "Sponsor covers the fee": the form says who, and the registration is
+      // saved INCLUSIVE under that sponsor.
+      coveredBySponsor:
+        promoCode.sponsorCoversFee && finalPrice === 0 ? (promoCode.sponsor?.name ?? null) : null,
     });
     });
   } catch (error) {

@@ -170,7 +170,10 @@ export default function RegisterOverviewPage() {
       : pickMainRegisterTier(event.ticketTypes, readMainRegisterTiers({ mainRegisterTiers: event.mainRegisterTiers }));
 
     if (activeTier) {
-      router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}`);
+      // Keep the query string: a sponsor's link carries `?promo=CODE` (and
+      // UTM tags), and the rate page applies it (Sep 29, 2026).
+      const query = typeof window !== "undefined" ? window.location.search : "";
+      router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}${query}`);
       return (
         <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />

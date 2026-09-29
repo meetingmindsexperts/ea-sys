@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 
 const updatePromoCodeSchema = z
   .object({
@@ -35,6 +36,11 @@ const updatePromoCodeSchema = z
     // Blank or whitespace clears it, matching how a form Select reports "no
     // selection"; omitting the key leaves the current sponsor alone.
     sponsorId: z.string().max(100).nullable().optional(),
+    // The sponsor pays for every registration made with this code (Sep 29,
+    // 2026). Checked against the code AS IT WILL BE after this edit, so
+    // removing the sponsor or lowering the discount cannot leave it claiming
+    // that the sponsor pays.
+    sponsorCoversFee: z.boolean().optional(),
   })
   .refine(
     (d) => !d.discountType || d.discountType !== "PERCENTAGE" || !d.discountValue || d.discountValue <= 100,
@@ -157,7 +163,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }),
       db.promoCode.findFirst({
         where: { id: promoCodeId, eventId },
-        select: { id: true },
+        select: { id: true, sponsorId: true, sponsorCoversFee: true, discountType: true, discountValue: true, maxUses: true },
       }),
     ]);
 
@@ -198,6 +204,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
         { status: 400 },
       );
+    }
+
+    const coverError = sponsorCoverError({
+      sponsorCoversFee: data.sponsorCoversFee ?? existing.sponsorCoversFee,
+      sponsorId: sponsorId !== undefined ? sponsorId : existing.sponsorId,
+      discountType: data.discountType ?? existing.discountType,
+      discountValue: data.discountValue ?? Number(existing.discountValue),
+      // `null` in the body clears the cap, so only an absent key keeps it.
+      maxUses: data.maxUses !== undefined ? data.maxUses : existing.maxUses,
+    });
+    if (coverError) {
+      apiLogger.warn({
+        msg: "events/promo-codes:invalid-sponsor-cover",
+        eventId,
+        promoCodeId,
+        userId: session.user.id,
+        detail: coverError,
+      });
+      return NextResponse.json({ error: coverError, code: "INVALID_SPONSOR_COVER" }, { status: 400 });
     }
 
     // Check for duplicate code if code is being changed
@@ -245,6 +270,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(data.validUntil !== undefined && { validUntil: data.validUntil ? new Date(data.validUntil) : null }),
           ...(data.isActive !== undefined && { isActive: data.isActive }),
           ...(sponsorId !== undefined && { sponsorId }),
+          ...(data.sponsorCoversFee !== undefined && { sponsorCoversFee: data.sponsorCoversFee }),
         },
         include: {
           ticketTypes: {

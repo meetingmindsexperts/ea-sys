@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a sponsor's registration link, where the sponsor pays (September 29, 2026)
+
+Sponsors send one link to their exhibitors, physicians, nurses. A promo code
+gains **Sponsor covers the fee** (`PromoCode.sponsorCoversFee`, additive
+migration `20260929150000`, owner decision: an explicit switch rather than
+inferring it from a sponsor code at 100% off). Valid only on a sponsor's code at
+100% off, one rule for create, edit (checked against the code as it will be
+after the edit) and the dialog (`src/lib/promo-sponsor-cover.ts`). A public
+registration using it is saved **INCLUSIVE with `sponsorId`** instead of
+COMPLIMENTARY with no sponsor, so the sponsor filter and export report it. The
+link is the REGULAR registration link with `?promo=CODE`: the `/register`
+redirect keeps the query string, the form applies the code once a type is
+chosen, and says "covered by [sponsor]". A copy-link button sits on every code;
+Max uses caps the sponsor's allocation, applicable types limit categories. Also
+a success log line on public registration (`public/register:created`), which
+had none. Adversarial review the same day (0 BLOCKER / 1 HIGH / 4 MED), all
+fixed before shipping: HIGH, the confirmation email itemised the full price
+with Payment Pending, Pay Now and a quote for sponsor-covered people; it now
+says "Registration covered by [sponsor]" with no quote (`coveredBySponsorName`,
+the group-payer pattern). MED: the rule now also requires Max Total Uses (the
+link is a bearer pass) and runs in the agent/MCP `update_promo_code` tool; the
+"Sponsor pays" badge follows the sponsor, not the flag (a deleted sponsor
+leaves it inert); the form ignores out-of-order promo checks; both exports gain
+a "Registration Fee" column (the base price) so a sponsor's value can be summed
+from INCLUSIVE rows. Not changed: a code applied AFTER registering (registrant portal)
+still only discounts; group registration does not read the switch.
+
 ### Added: a live, shareable page of abstracts or session proposals (September 29)
 
 Organisers wanted to show a committee the submissions without sending a CSV that

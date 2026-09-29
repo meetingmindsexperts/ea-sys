@@ -199,4 +199,14 @@ describe("MCP promo-code tools carry sponsor attribution", () => {
     const update = /const updatePromoCode: ToolExecutor[\s\S]*?^};/m.exec(src);
     expect(update![0]).toContain("sponsorId: true");
   });
+
+  // Review MED 2, Sep 29, 2026: the tool cannot set "Sponsor covers the fee",
+  // but it could remove the sponsor, lower the discount or lift the cap under
+  // it. It must run the same rule as the dashboard on the merged state.
+  it("update_promo_code applies the sponsor-cover rule to the code as it will be", () => {
+    const update = /const updatePromoCode: ToolExecutor[\s\S]*?^};/m.exec(src);
+    expect(update![0]).toContain("sponsorCoverError(");
+    expect(update![0]).toContain("sponsorCoversFee: existing.sponsorCoversFee");
+    expect(update![0]).toContain("INVALID_SPONSOR_COVER");
+  });
 });

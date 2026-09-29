@@ -882,6 +882,12 @@ model PromoCode {
   /// the two. VALIDATED on write against the event's sponsor list, so this does
   /// not become a second unvalidated pointer.
   sponsorId       String?
+  /// The sponsor pays for everyone who registers with this code (Sep 29, 2026).
+  /// A registration made with it is saved INCLUSIVE and attributed to
+  /// `sponsorId`, instead of COMPLIMENTARY with no sponsor. Only valid on a
+  /// sponsor's code at 100% off (src/lib/promo-sponsor-cover.ts). The code is
+  /// shared as the regular registration link with `?promo=CODE`.
+  sponsorCoversFee Boolean     @default(false)
   description     String?      @db.Text
   discountType    DiscountType
   discountValue   Decimal      @db.Decimal(10, 2)

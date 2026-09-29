@@ -248,7 +248,7 @@ function CategoryRegistrationContent() {
   const [billingSame, setBillingSame] = useState(true);
   const [promoCode, setPromoCode] = useState("");
   const [promoValidating, setPromoValidating] = useState(false);
-  const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; error?: string } | null>(null);
+  const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; coveredBySponsor?: string | null; error?: string } | null>(null);
   const [showPromoInput, setShowPromoInput] = useState(false);
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
@@ -553,6 +553,53 @@ function CategoryRegistrationContent() {
     }
   }
 
+  const promoRequestRef = useRef(0);
+  // Validate a promo code against the chosen type and tier. Shared by the
+  // Apply button and the `?promo=` link.
+  async function applyPromo(code: string) {
+    if (!code.trim()) return;
+    // Only the LATEST check may set the result (review MED 3, Sep 29, 2026):
+    // switching category quickly could let an earlier "not applicable" answer
+    // land last, and a registration submitted then would drop the code and be
+    // saved UNPAID on a fee the sponsor was meant to cover.
+    const requestId = ++promoRequestRef.current;
+    setPromoValidating(true);
+    try {
+      const ticketTypeId = form.getValues("ticketTypeId");
+      const pricingTierId = form.getValues("pricingTierId");
+      const email = form.getValues("email");
+      const res = await fetch(`/api/public/events/${slug}/validate-promo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, ticketTypeId, pricingTierId: pricingTierId || undefined, email: email || "check@temp.com" }),
+      });
+      const data = await res.json();
+      if (requestId !== promoRequestRef.current) return;
+      setPromoResult(data);
+    } catch (err) {
+      console.warn("[register] promo validation failed", err);
+      if (requestId !== promoRequestRef.current) return;
+      setPromoResult({ valid: false, error: "Failed to validate promo code" });
+    } finally {
+      if (requestId === promoRequestRef.current) setPromoValidating(false);
+    }
+  }
+
+  // A sponsor (or anyone) shares the REGULAR registration link with
+  // `?promo=CODE` (Sep 29, 2026). Applied once a registration type is chosen,
+  // and again when the type changes, because a code can be limited to types.
+  const linkedPromo = (searchParams.get("promo") ?? "").trim().toUpperCase();
+  const linkTicketId = form.watch("ticketTypeId");
+  useEffect(() => {
+    if (!linkedPromo || !linkTicketId) return;
+    setShowPromoInput(true);
+    setPromoCode(linkedPromo);
+    void applyPromo(linkedPromo);
+    // applyPromo reads the form at call time; re-running on its identity
+    // would re-validate on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedPromo, linkTicketId]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -630,6 +677,7 @@ function CategoryRegistrationContent() {
     .filter((o) => o.canPurchase)
     .map((o) => (isVirtualMode && o.virtualPrice != null ? { ...o, price: o.virtualPrice } : o));
   const selectedTicketId = form.watch("ticketTypeId");
+
   const selectedSpecialty = form.watch("specialty");
   const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
   // Which evidence fields to render, from the type's switches rather than its
@@ -1296,25 +1344,7 @@ function CategoryRegistrationContent() {
                                 type="button"
                                 variant="outline"
                                 disabled={!promoCode.trim() || promoValidating}
-                                onClick={async () => {
-                                  setPromoValidating(true);
-                                  try {
-                                    const ticketTypeId = form.getValues("ticketTypeId");
-                                    const pricingTierId = form.getValues("pricingTierId");
-                                    const email = form.getValues("email");
-                                    const res = await fetch(`/api/public/events/${slug}/validate-promo`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ code: promoCode, ticketTypeId, pricingTierId: pricingTierId || undefined, email: email || "check@temp.com" }),
-                                    });
-                                    const data = await res.json();
-                                    setPromoResult(data);
-                                  } catch {
-                                    setPromoResult({ valid: false, error: "Failed to validate promo code" });
-                                  } finally {
-                                    setPromoValidating(false);
-                                  }
-                                }}
+                                onClick={() => void applyPromo(promoCode)}
                                 className="shrink-0"
                               >
                                 {promoValidating ? "Checking..." : "Apply"}
@@ -1324,6 +1354,11 @@ function CategoryRegistrationContent() {
                               promoResult.valid ? (
                                 <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-200">
                                   <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                  {promoResult.coveredBySponsor ? (
+                                    <span>
+                                      Your registration is covered by <strong>{promoResult.coveredBySponsor}</strong>. Nothing to pay.
+                                    </span>
+                                  ) : (
                                   <span>
                                     {promoResult.discountType === "PERCENTAGE"
                                       ? `${promoResult.discountValue}% off`
@@ -1331,6 +1366,7 @@ function CategoryRegistrationContent() {
                                     {" — "}you save {promoResult.discountAmount?.toFixed(2)}
                                     {promoResult.finalPrice === 0 && " (Free!)"}
                                   </span>
+                                  )}
                                 </div>
                               ) : (
                                 <p className="text-sm text-red-500">{promoResult.error || "Invalid promo code"}</p>

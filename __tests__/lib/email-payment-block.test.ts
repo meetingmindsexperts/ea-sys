@@ -23,6 +23,16 @@ describe("buildRegistrationPaymentBlock", () => {
     expect(b.text).toContain("Registration covered by Acme & Co");
   });
 
+  // Review HIGH, Sep 29, 2026: a sponsor-covered (INCLUSIVE) registration was
+  // itemised at the full price with Payment Pending and Pay Now.
+  it("a sponsor-covered registration gets the covered-by note, never an amount or Pay Now", () => {
+    const b = buildRegistrationPaymentBlock({ coveredBySponsorName: "Abbott & Co", ticketPrice: 200, paymentLink: LINK, quoteAttached: true });
+    expect(b.html).toContain("Registration covered by Abbott &amp; Co");
+    expect(b.html).not.toContain("Payment Pending");
+    expect(b.html).not.toContain("Pay Now");
+    expect(b.text).toContain("no payment is required from you");
+  });
+
   it("the confirmation (quote attached) says Payment Pending, points at the quote and offers Pay Now", () => {
     const b = buildRegistrationPaymentBlock({ ticketPrice: 100, ticketCurrency: "USD", paymentLink: LINK, quoteAttached: true });
     expect(b.html).toContain("Payment Pending");

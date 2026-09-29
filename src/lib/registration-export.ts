@@ -57,6 +57,10 @@ export const REGISTRATION_EXPORT_HEADERS = [
   "Sponsor",
   "Status",
   "Payment Status",
+  // The base price before any discount (Sep 29, 2026). For an INCLUSIVE row it
+  // is what the sponsor covers, whether the row came from a sponsor's code or
+  // was marked Inclusive by hand, so a sponsor's value can be summed from it.
+  "Registration Fee",
   "Amount Due",
   "Total Paid",
   "Discount",
@@ -139,6 +143,8 @@ export interface RegistrationExportContext {
 export interface RegistrationRowMoney {
   currency: string;
   totalPaid: number;
+  /** The base price before discount: for INCLUSIVE, what the sponsor covers. */
+  fee: number;
   /** 0 once CANCELLED or on a settled payment status, else the balance due. */
   amountDue: number;
   discount: number;
@@ -157,8 +163,9 @@ export function computeRegistrationRowMoney(
   const totalPaid = (r.payments ?? [])
     .filter((p) => p.status === "PAID" || String(p.status).toLowerCase() === "succeeded")
     .reduce((sum, p) => sum + Number(p.amount), 0);
+  const fee = readRegistrationBasePrice(r);
   const fin = computeRegistrationFinancials({
-    subtotal: readRegistrationBasePrice(r),
+    subtotal: fee,
     discount: r.discountAmount != null ? Number(r.discountAmount) : 0,
     taxRate: ctx.taxRate,
     taxLabel: ctx.taxLabel,
@@ -174,6 +181,7 @@ export function computeRegistrationRowMoney(
   return {
     currency: fin.currency,
     totalPaid,
+    fee,
     amountDue: noPaymentDue ? 0 : fin.balanceDue,
     discount: fin.discount,
   };
@@ -198,6 +206,7 @@ export function buildRegistrationExportRow(
   // Null when redaction removed the inputs; the cells below render "" then.
   const rowMoney = computeRegistrationRowMoney(r, ctx);
   const totalPaid = rowMoney ? rowMoney.totalPaid : null;
+  const fee = rowMoney ? rowMoney.fee : null;
   const amountDue = rowMoney ? rowMoney.amountDue : null;
   const discount = rowMoney ? rowMoney.discount : null;
 
@@ -235,6 +244,7 @@ export function buildRegistrationExportRow(
     r.sponsorId ? (ctx.sponsorNameById?.get(r.sponsorId) ?? r.sponsorId) : "",
     r.status,
     r.paymentStatus,
+    money(fee),
     money(amountDue),
     money(totalPaid),
     money(discount),
@@ -271,6 +281,7 @@ export const REGISTRATION_SALES_COLUMNS = [
   "Sponsor",
   "Registration Type",
   "Payment Status",
+  "Registration Fee",
   "Promo Code",
   "Discount",
   "Total Paid",

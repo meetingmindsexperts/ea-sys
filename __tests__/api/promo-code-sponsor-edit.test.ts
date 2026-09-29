@@ -138,6 +138,47 @@ describe("PUT — attributing an existing promo code", () => {
   });
 });
 
+// Sep 29, 2026: "Sponsor covers the fee" is checked against the code AS IT
+// WILL BE after the edit, so an edit cannot leave it claiming the sponsor pays.
+describe("PUT — sponsor covers the fee", () => {
+  it("turns it on for a sponsor's 100% code", async () => {
+    mockDb.promoCode.findFirst.mockResolvedValue({
+      id: "promo-1", sponsorId: "spn_abbott", sponsorCoversFee: false, discountType: "PERCENTAGE", discountValue: 100, maxUses: 20,
+    });
+    const res = await PUT(req({ sponsorCoversFee: true }), { params });
+    expect(res.status).toBe(200);
+    expect(lastUpdateData()).toMatchObject({ sponsorCoversFee: true });
+  });
+
+  it("refuses turning it on for a 20% code, and writes nothing", async () => {
+    mockDb.promoCode.findFirst.mockResolvedValue({
+      id: "promo-1", sponsorId: "spn_abbott", sponsorCoversFee: false, discountType: "PERCENTAGE", discountValue: 20,
+    });
+    const res = await PUT(req({ sponsorCoversFee: true }), { params });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code?: string }).code).toBe("INVALID_SPONSOR_COVER");
+    expect(mockDb.promoCode.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses lifting the cap from a sponsor-pays code (the link would be an unlimited pass)", async () => {
+    mockDb.promoCode.findFirst.mockResolvedValue({
+      id: "promo-1", sponsorId: "spn_abbott", sponsorCoversFee: true, discountType: "PERCENTAGE", discountValue: 100, maxUses: 20,
+    });
+    const res = await PUT(req({ maxUses: null }), { params });
+    expect(res.status).toBe(400);
+    expect(mockDb.promoCode.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses removing the sponsor from a code that is still marked sponsor-pays", async () => {
+    mockDb.promoCode.findFirst.mockResolvedValue({
+      id: "promo-1", sponsorId: "spn_abbott", sponsorCoversFee: true, discountType: "PERCENTAGE", discountValue: 100, maxUses: 20,
+    });
+    const res = await PUT(req({ sponsorId: null }), { params });
+    expect(res.status).toBe(400);
+    expect(mockDb.promoCode.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET — the detail route redacts like its list sibling", () => {
   beforeEach(() => {
     mockDb.promoCode.findFirst.mockResolvedValue({

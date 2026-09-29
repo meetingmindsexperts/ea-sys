@@ -68,7 +68,7 @@ describe("registrations list rowMoney", () => {
   it("attaches collected + outstanding for an ORGANIZER (100 + 5% VAT, 40 paid)", async () => {
     mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "ORGANIZER", userId: "u1" });
     const body = await (await LIST_GET(req(), params)).json();
-    expect(body[0].rowMoney).toEqual({ currency: "USD", totalPaid: 40, amountDue: 65, discount: 0 });
+    expect(body[0].rowMoney).toEqual({ currency: "USD", totalPaid: 40, fee: 100, amountDue: 65, discount: 0 });
   });
 
   it("keeps it for MEMBER (finance-capable since the June 17 desk decision)", async () => {

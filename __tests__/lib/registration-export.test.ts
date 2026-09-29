@@ -96,6 +96,14 @@ describe("buildRegistrationExportRow", () => {
     expect(col(r, "Amount Due")).toBe("0.00");
   });
 
+  // Sep 29, 2026: the base price, so a sponsor's value can be summed from
+  // INCLUSIVE rows (the discount column is 0 on a hand-marked Inclusive row).
+  it("Registration Fee is the base price, and owes nothing when INCLUSIVE", () => {
+    const r = buildRegistrationExportRow(row({ paymentStatus: "INCLUSIVE", payments: [] }), ctx);
+    expect(col(r, "Registration Fee")).toBe("100.00");
+    expect(col(r, "Amount Due")).toBe("0.00");
+  });
+
   it("prices from the pricing tier when one is set", () => {
     const r = buildRegistrationExportRow(
       row({ originalPrice: null, pricingTier: { name: "Early Bird", currency: "USD", price: 400 }, payments: [] }),
@@ -164,6 +172,7 @@ describe("computeRegistrationRowMoney", () => {
     expect(computeRegistrationRowMoney(row(), ctx)).toEqual({
       currency: "USD",
       totalPaid: 40,
+      fee: 100,
       amountDue: 65,
       discount: 0,
     });
