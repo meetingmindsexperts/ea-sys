@@ -14,7 +14,7 @@ import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
 import { abstractToDocxEntry, exportSubtitle } from "@/lib/submission-docx-export";
 import { toCsvRow } from "@/lib/csv-escape";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
-import { formatPersonName } from "@/lib/utils";
+import { getTitleLabel } from "@/lib/utils";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
@@ -164,7 +164,7 @@ async function exportAbstractsDocx(req: Request, args: ExportArgs): Promise<Next
 function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
   const header = toCsvRow([
     "Abstract #", "Title", "Status", "Presentation Type", "Theme", "Sub-theme", "Track",
-    "Author", "Email", "Additional Email", "Organization", "Country", "Specialty", "Co-authors",
+    "Author Title", "Author First Name", "Author Last Name", "Email", "Additional Email", "Organization", "Country", "Specialty", "Co-authors",
     "Submitted At", "Reviews", "Mean Score", "Abstract",
   ]);
   const rows = args.abstracts.map((a) =>
@@ -176,7 +176,9 @@ function exportAbstractsCsv(req: Request, args: ExportArgs): NextResponse {
       a.theme?.name ?? "",
       a.subTheme?.name ?? "",
       a.track?.name ?? "",
-      a.speaker ? formatPersonName(a.speaker.title, a.speaker.firstName, a.speaker.lastName) : "",
+      getTitleLabel(a.speaker?.title),
+      a.speaker?.firstName ?? "",
+      a.speaker?.lastName ?? "",
       a.speaker?.email ?? "",
       a.speaker?.additionalEmail ?? "",
       a.speaker?.organization ?? "",
