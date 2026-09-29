@@ -62,13 +62,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Reviewers/submitters (non-REGISTRANT with no org) can't own a
-    // registration — reject before the nested relation filter.
-    const isRegistrant = authedUser.role === "REGISTRANT";
-    if (!isRegistrant && !authedUser.organizationId) {
-      apiLogger.warn({ userId: authedUser.id, role: authedUser.role, registrationId }, "registrant-barcode:forbidden-no-org");
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Owner-scoped: the caller may read only their OWN registration (the where
+    // below filters on userId). That is every REGISTRANT, and since Sep 29 2026
+    // every org-less account too: a SUBMITTER owns a registration when they
+    // are a speaker (the faculty companion) or paid a presenter rate, and was
+    // being refused their own barcode, invoices and quote.
+    const ownerScoped = authedUser.role === "REGISTRANT" || !authedUser.organizationId;
 
     const registration = await db.registration.findFirst({
       where: {
@@ -78,7 +77,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         // `buildEventAccessWhere` (no eventId) makes this ASSIGNMENT-scoped for
         // ONSITE (settings.onsiteUserIds) instead of org-wide, so an ONSITE
         // temp assigned to Event A can no longer pull a barcode for Event B.
-        ...(isRegistrant
+        ...(ownerScoped
           ? { userId: authedUser.id }
           : { event: buildEventAccessWhere(authedUser) }),
       },
@@ -86,7 +85,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
-      apiLogger.warn({ userId: authedUser.id, registrationId, isRegistrant }, "registrant-barcode:not-found-or-no-access");
+      apiLogger.warn({ userId: authedUser.id, registrationId, ownerScoped }, "registrant-barcode:not-found-or-no-access");
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 

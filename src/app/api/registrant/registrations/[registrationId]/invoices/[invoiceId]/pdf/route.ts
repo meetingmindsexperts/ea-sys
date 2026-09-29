@@ -30,22 +30,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf", userId: session?.user?.id }, async () => {
 
-    // Verify ownership. See sibling `/invoices/route.ts` for the
-    // null-organizationId guard — REVIEWER / SUBMITTER sessions have
-    // `organizationId: null` and would otherwise produce a Prisma
-    // validation error instead of a clean 403.
-    const isRegistrant = session.user.role === "REGISTRANT";
-    if (!isRegistrant) {
-      if (!session.user.organizationId) {
-        apiLogger.warn({
-          msg: "registrant/invoice-pdf:forbidden-no-org",
-          registrationId,
-          invoiceId,
-          userId: session.user.id,
-          role: session.user.role,
-        });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+    // Owner-scoped: the caller may read only their OWN registration (the where
+    // below filters on userId). That is every REGISTRANT, and since Sep 29 2026
+    // every org-less account too: a SUBMITTER owns a registration when they
+    // are a speaker (the faculty companion) or paid a presenter rate, and was
+    // being refused their own barcode, invoices and quote.
+    const ownerScoped = session.user.role === "REGISTRANT" || !session.user.organizationId;
+    if (!ownerScoped) {
       // Invoice PDF carries every financial figure on the registration —
       // MEMBER (org-bound read-only viewer) must not see it. REGISTRANT
       // branch stays exempt as the legitimate self-view path. Closed
@@ -66,7 +57,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        ...(isRegistrant
+        ...(ownerScoped
           ? { userId: session.user.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
           : { event: buildEventAccessWhere(session.user) }),

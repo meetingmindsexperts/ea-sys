@@ -29,23 +29,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/invoices", userId: session?.user?.id }, async () => {
 
-    // Scope the lookup by role. REGISTRANTs are org-independent so we
-    // match on ownership (userId). Everyone else must be scoped to
-    // their org — and if `organizationId` is null (e.g., a REVIEWER /
-    // SUBMITTER who wandered into this route, or a stale session),
-    // Prisma's nested relation filter rejects the query rather than
-    // silently matching every event. Short-circuit to 403 instead.
-    const isRegistrant = session.user.role === "REGISTRANT";
-    if (!isRegistrant) {
-      if (!session.user.organizationId) {
-        apiLogger.warn({
-          msg: "registrant/invoices:forbidden-no-org",
-          registrationId,
-          userId: session.user.id,
-          role: session.user.role,
-        });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+    // Owner-scoped: the caller may read only their OWN registration (the where
+    // below filters on userId). That is every REGISTRANT, and since Sep 29 2026
+    // every org-less account too: a SUBMITTER owns a registration when they
+    // are a speaker (the faculty companion) or paid a presenter rate, and was
+    // being refused their own barcode, invoices and quote.
+    const ownerScoped = session.user.role === "REGISTRANT" || !session.user.organizationId;
+    if (!ownerScoped) {
       // Invoice list carries amounts/totals — gate MEMBER. REGISTRANT
       // branch is owner-scoped and stays exempt. See sibling /quote
       // route for the same reasoning. Closed Pass #1 (June 2026).
@@ -64,7 +54,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        ...(isRegistrant
+        ...(ownerScoped
           ? { userId: session.user.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
           : { event: buildEventAccessWhere(session.user) }),

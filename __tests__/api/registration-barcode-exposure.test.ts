@@ -117,6 +117,24 @@ describe("H8 — registrant barcode route assignment-scoping", () => {
     expect(where.event).toBeUndefined();
   });
 
+  it("owner-scopes a SUBMITTER too: a speaker reads its own companion barcode (Sep 29 2026)", async () => {
+    // Was a 403 `registrant-barcode:forbidden-no-org` on prod: 25 org-less
+    // SUBMITTER accounts own a registration (faculty companion or presenter
+    // rate) and were refused their own entry barcode.
+    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      user: { id: "sub-user", role: "SUBMITTER", organizationId: null },
+    });
+    mockDb.registration.findFirst.mockImplementation((args: { where: unknown }) => {
+      capturedBarcodeWhere.value = args.where;
+      return Promise.resolve({ qrCode: null });
+    });
+    const res = await BARCODE_GET(barcodeReq(), barcodeParams);
+    expect(res.status).toBe(404); // no qrCode in the fixture; the where is the point
+    const where = capturedBarcodeWhere.value as { userId?: string; event?: unknown };
+    expect(where.userId).toBe("sub-user");
+    expect(where.event).toBeUndefined();
+  });
+
   it("429s when rate-limited", async () => {
     (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       user: { id: "reg-user", role: "REGISTRANT", organizationId: null },

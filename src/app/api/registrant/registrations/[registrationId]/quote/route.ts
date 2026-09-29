@@ -56,21 +56,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/quote", userId: authedUser.id }, async () => {
 
-    // Fetch registration with all needed data. Reviewers/submitters
-    // (role != REGISTRANT but organizationId == null) are rejected
-    // here — Prisma would otherwise throw a validation error on the
-    // nested relation filter.
-    const isRegistrant = authedUser.role === "REGISTRANT";
-    if (!isRegistrant) {
-      if (!authedUser.organizationId) {
-        apiLogger.warn({
-          msg: "registrant/quote:forbidden-no-org",
-          registrationId,
-          userId: authedUser.id,
-          role: authedUser.role,
-        });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+    // Owner-scoped: the caller may read only their OWN registration (the where
+    // below filters on userId). That is every REGISTRANT, and since Sep 29 2026
+    // every org-less account too: a SUBMITTER owns a registration when they
+    // are a speaker (the faculty companion) or paid a presenter rate, and was
+    // being refused their own barcode, invoices and quote.
+    const ownerScoped = authedUser.role === "REGISTRANT" || !authedUser.organizationId;
+    if (!ownerScoped) {
       // MEMBER has organizationId but is the read-only no-finance role; the
       // quote PDF carries amounts/tax/payer, so this branch must be gated.
       // The REGISTRANT branch above stays exempt — viewing your own quote
@@ -92,7 +84,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       where: {
         id: registrationId,
         // Allow owner or org members
-        ...(isRegistrant
+        ...(ownerScoped
           ? { userId: authedUser.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
           : { event: buildEventAccessWhere(authedUser) }),

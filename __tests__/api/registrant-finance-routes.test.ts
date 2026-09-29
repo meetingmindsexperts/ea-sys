@@ -14,6 +14,12 @@
  *     guard still blocks genuinely non-finance roles (REVIEWER/SUBMITTER/
  *     REGISTRANT via the non-owner branch). REGISTRANT owners stay exempt
  *     (viewing your own quote/invoice is the point of the portal).
+ *   - Sep 29, 2026: EVERY org-less account is owner-scoped, not only
+ *     REGISTRANT. A SUBMITTER owns a registration when they are a speaker (the
+ *     faculty companion) or paid a presenter rate, and was refused its own
+ *     quote, invoices and barcode with a 403. Owner-scoped means the lookup
+ *     filters on the caller's userId, so an org-less account still reaches
+ *     nothing it does not own (404), and never an event-wide lookup.
  *
  * These tests are the regression net for the denyFinance boundary.
  */
@@ -60,14 +66,22 @@ import { GET as quoteGET } from "@/app/api/registrant/registrations/[registratio
 import { GET as invoicesGET } from "@/app/api/registrant/registrations/[registrationId]/invoices/route";
 import { GET as invoicePdfGET } from "@/app/api/registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf/route";
 
-// REVIEWER is non-finance and org-independent (organizationId=null) and not a
-// REGISTRANT owner, so it's rejected by the non-registrant branch's
-// "must have an org" guard with a plain 403. (Since every org-BOUND role is now
-// finance-visible, the denyFinance/FINANCE_FORBIDDEN path is defense-in-depth
-// that no current role reaches.)
-const blockedSession = {
+// Org-less, non-REGISTRANT accounts: owner-scoped since Sep 29 2026. A
+// REVIEWER that owns nothing gets a 404; a SUBMITTER that owns its
+// registration (speaker companion / presenter rate) gets it.
+const orglessSession = {
   user: { id: "user-reviewer", role: "REVIEWER", organizationId: null },
 };
+const submitterSession = {
+  user: { id: "user-sub", role: "SUBMITTER", organizationId: null },
+};
+
+/** The lookup was owner-scoped to this user, never event-scoped. */
+function expectOwnerScoped(userId: string) {
+  const where = mockDb.registration.findFirst.mock.calls[0][0].where;
+  expect(where.userId).toBe(userId);
+  expect(where.event).toBeUndefined();
+}
 // MEMBER is now a finance role — it must PASS the guard.
 const memberSession = {
   user: { id: "user-member", role: "MEMBER", organizationId: "org-1" },
@@ -88,13 +102,20 @@ beforeEach(() => {
 });
 
 describe("registrant /quote — finance boundary", () => {
-  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
-    mockAuth.mockResolvedValue(blockedSession);
+  it("an org-less non-registrant is owner-scoped: a row it does not own is a 404", async () => {
+    mockAuth.mockResolvedValue(orglessSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Forbidden");
-    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    expect(res.status).toBe(404);
+    expectOwnerScoped("user-reviewer");
+  });
+
+  it("a SUBMITTER is owner-scoped too (its companion / presenter registration)", async () => {
+    mockAuth.mockResolvedValue(submitterSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
+    expect(res.status).toBe(404);
+    expectOwnerScoped("user-sub");
   });
 
   it("MEMBER now PASSES the finance guard (it records payments — reaches the lookup)", async () => {
@@ -123,14 +144,22 @@ describe("registrant /quote — finance boundary", () => {
 });
 
 describe("registrant /invoices — finance boundary", () => {
-  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
-    mockAuth.mockResolvedValue(blockedSession);
+  it("an org-less non-registrant is owner-scoped: a row it does not own is a 404", async () => {
+    mockAuth.mockResolvedValue(orglessSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await invoicesGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Forbidden");
-    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    expect(res.status).toBe(404);
+    expectOwnerScoped("user-reviewer");
     expect(mockDb.invoice.findMany).not.toHaveBeenCalled();
+  });
+
+  it("a SUBMITTER owner reaches its own invoices", async () => {
+    mockAuth.mockResolvedValue(submitterSession);
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1" });
+    mockDb.invoice.findMany.mockResolvedValue([]);
+    const res = await invoicesGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
+    expect(res.status).toBe(200);
+    expectOwnerScoped("user-sub");
   });
 
   it("MEMBER passes the finance guard and reaches the lookup", async () => {
@@ -151,15 +180,14 @@ describe("registrant /invoices — finance boundary", () => {
 });
 
 describe("registrant /invoices/[invoiceId]/pdf — finance boundary", () => {
-  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
-    mockAuth.mockResolvedValue(blockedSession);
+  it("an org-less non-registrant is owner-scoped: a row it does not own is a 404", async () => {
+    mockAuth.mockResolvedValue(orglessSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await invoicePdfGET(req(), {
       params: Promise.resolve({ registrationId: "r1", invoiceId: "inv1" }),
     });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Forbidden");
-    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+    expect(res.status).toBe(404);
+    expectOwnerScoped("user-reviewer");
     expect(mockDb.invoice.findFirst).not.toHaveBeenCalled();
   });
 
