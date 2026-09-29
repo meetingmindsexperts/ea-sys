@@ -7,7 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
@@ -16,38 +16,20 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandin
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 
-const registerSchema = z.object({
-  title: titleEnum,
-  role: attendeeRoleEnum,
-  firstName: z.string().min(1, "First name is required").max(100),
-  lastName: z.string().min(1, "Last name is required").max(100),
-  email: z.string().email("Valid email is required").max(255),
-  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
-  password: z.string().min(6, "Password must be at least 6 characters").max(128),
-  state: z.string().max(255).optional(),
-  zipCode: z.string().max(20).optional(),
-  organization: z.string().min(1, "Organization is required").max(255),
-  jobTitle: z.string().min(1, "Position is required").max(255),
-  phone: z.string().min(1, "Mobile number is required").max(50),
-  city: z.string().min(1, "City is required").max(255),
-  country: z.string().min(1, "Country is required").max(255),
-  specialty: z.string().min(1, "Specialty is required").max(255),
-  customSpecialty: z.string().max(255).optional(),
-  registrationType: z.string().max(255).optional(),
-  // Which public flow is registering: "abstract" (default — the historical
-  // behavior) or "proposal" (the session-proposal register page). Gates below
-  // branch on it; the created account/Speaker is identical either way.
-  source: z.enum(["abstract", "proposal"]).default("abstract"),
-  /** Presenter rate the submitter chose. Ignored on proposals and on events
-   *  with no presenter tiers configured (plan D4). The TIER and the price are
-   *  resolved server-side, never taken from the client. */
-  ticketTypeId: z.string().max(100).optional(),
-}).refine(
-  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
-  {
-    message: "Please specify your specialty",
-    path: ["customSpecialty"],
-  },
+const registerSchema = refinePresenterSpecialty(
+  presenterDetailsSchema.extend({
+    email: z.string().email("Valid email is required").max(255),
+    password: z.string().min(6, "Password must be at least 6 characters").max(128),
+    registrationType: z.string().max(255).optional(),
+    // Which public flow is registering: "abstract" (default — the historical
+    // behavior) or "proposal" (the session-proposal register page). Gates below
+    // branch on it; the created account/Speaker is identical either way.
+    source: z.enum(["abstract", "proposal"]).default("abstract"),
+    /** Presenter rate the submitter chose. Ignored on proposals and on events
+     *  with no presenter tiers configured (plan D4). The TIER and the price are
+     *  resolved server-side, never taken from the client. */
+    ticketTypeId: z.string().max(100).optional(),
+  }),
 );
 
 interface RouteParams {

@@ -107,3 +107,42 @@ export function parseAttendeeRole(raw: string | null | undefined): AttendeeRoleV
   const normalized = raw.trim().toUpperCase().replace(/[\s-]/g, "_");
   return ATTENDEE_ROLE_SET.has(normalized) ? (normalized as AttendeeRoleValue) : null;
 }
+
+/**
+ * A presenter's contact details, as BOTH public abstract doors collect them:
+ * the new-account `/submitter` and the existing-account `/abstract-start`
+ * (Sep 29, 2026). One definition so the two doors cannot require different
+ * things; before this, a signed-in presenter became a speaker with only a name
+ * (organisation, phone, country and specialty blank) and the payable
+ * registration was minted from those blanks.
+ *
+ * Kept as a plain object (no refine) so each door can `.extend()` it; apply
+ * `refinePresenterSpecialty` to the final schema.
+ */
+export const presenterDetailsSchema = z.object({
+  title: titleEnum,
+  role: attendeeRoleEnum,
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
+  state: z.string().max(255).optional(),
+  zipCode: z.string().max(20).optional(),
+  organization: z.string().min(1, "Organization is required").max(255),
+  jobTitle: z.string().min(1, "Position is required").max(255),
+  phone: z.string().min(1, "Mobile number is required").max(50),
+  city: z.string().min(1, "City is required").max(255),
+  country: z.string().min(1, "Country is required").max(255),
+  specialty: z.string().min(1, "Specialty is required").max(255),
+  customSpecialty: z.string().max(255).optional(),
+});
+
+/** "Others" as a specialty needs the free-text one. Shared by both doors. */
+export function refinePresenterSpecialty<T extends z.ZodTypeAny>(schema: T) {
+  return schema.refine(
+    (data) => {
+      const d = data as { specialty?: string; customSpecialty?: string };
+      return d.specialty !== "Others" || (d.customSpecialty?.trim().length ?? 0) > 0;
+    },
+    { message: "Please specify your specialty", path: ["customSpecialty"] },
+  );
+}

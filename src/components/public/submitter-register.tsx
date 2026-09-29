@@ -265,6 +265,10 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     | { state: "signin" }
   >({ state: "idle" });
   const [signingIn, setSigningIn] = useState(false);
+  // Set once an EXISTING account has signed in on an event that charges
+  // presenters: step 2 then shows "Your registration" (who they are + the
+  // rate picker) instead of the new-account details form.
+  const [existingPerson, setExistingPerson] = useState<{ name: string; email: string } | null>(null);
   const router = useRouter();
 
   const form = useForm<RegisterForm>({
@@ -328,6 +332,12 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     // server-side, since a form can be bypassed.
     if (offersRates && !data.ticketTypeId) {
       form.setError("ticketTypeId", { message: "Please choose a registration type" });
+      return;
+    }
+    // An existing account fills in the SAME page, but its details go to the
+    // sign-in door, which verifies the password again and sets them up.
+    if (existingPerson) {
+      await completeExistingSignIn(data);
       return;
     }
     setSubmitting(true);
@@ -409,11 +419,17 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     if (pwOk) setStep(2);
   }
 
-  // Step-1 sign-IN path (existing account): verify + set up as a submitter
-  // (prefilled from any existing registration) via abstract-start (shared by
-  // both variants — it just upgrades the role + ensures the Speaker), THEN
-  // sign in so the fresh session carries the upgraded role, then go straight
-  // to the variant's home surface.
+  // Step-1 sign-IN path (existing account).
+  //
+  // Owner decision, Sep 29 2026: an existing account gets the SAME details
+  // page as a new one. Signing in only checks the password and fetches the
+  // details we already hold (`intent: "lookup"`, nothing is created); step 2
+  // then shows them prefilled and editable, with the presenter rates below,
+  // and submitting sets the person up with what they confirmed. Before this,
+  // signing in skipped the details entirely: the speaker was built from a
+  // registration on this event only (usually none, so just a name), and on an
+  // event charging presenters no rate was ever asked for, which the server
+  // refused (53 refusals from 9 people on MEHF2027).
   async function handleExistingSignIn() {
     if (!(await form.trigger(["email", "password"]))) return;
     setSigningIn(true);
@@ -423,16 +439,70 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       const res = await fetch(`/api/public/events/${slug}/abstract-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, source: variant }),
+        body: JSON.stringify({ email, password, source: variant, intent: "lookup" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error || "Sign in failed. Please check your password.");
         return;
       }
+      const prefill = (data.prefill ?? {}) as Partial<Record<keyof RegisterForm, string>>;
+      for (const [key, value] of Object.entries(prefill)) {
+        if (value) form.setValue(key as keyof RegisterForm, value, { shouldValidate: false });
+      }
+      // The new-account schema also checks the confirmation; the password was
+      // just verified, so mirror it rather than asking twice.
+      form.setValue("confirmPassword", password);
+      const name = [prefill.firstName, prefill.lastName].filter(Boolean).join(" ");
+      setExistingPerson({ name, email });
+      setStep(2);
+    } catch (err) {
+      console.error(`[${copy.logPrefix}] existing sign-in failed`, err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  // Step 2 submit for an existing account: set them up as a submitter with the
+  // details they confirmed and the rate they chose (abstract-start verifies the
+  // password again), THEN sign in so the fresh session carries the upgraded
+  // role, then go straight to the variant's home surface.
+  async function completeExistingSignIn(data: RegisterForm) {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/public/events/${slug}/abstract-start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          source: variant,
+          ticketTypeId: data.ticketTypeId || undefined,
+          details: {
+            title: data.title || undefined,
+            role: data.role || undefined,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            additionalEmail: data.additionalEmail || undefined,
+            organization: data.organization,
+            jobTitle: data.jobTitle,
+            phone: data.phone,
+            city: data.city,
+            country: data.country,
+            specialty: data.specialty,
+            customSpecialty: data.customSpecialty || undefined,
+          },
+        }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(result.error || "Something went wrong. Please try again.");
+        return;
+      }
       const signInRes = await signIn("credentials", {
-        email,
-        password,
+        email: data.email,
+        password: data.password,
         surface: "EVENT_PAGE",
         redirect: false,
       });
@@ -447,14 +517,71 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       // Existing person signing in → land on My Details (ONE shared landing
       // for both variants, owner decision Aug 4 2026 — the page adapts its
       // actions to the person's surfaces).
-      router.push(`/events/${data.eventId}/my-details`);
+      router.push(`/events/${result.eventId}/my-details`);
     } catch (err) {
       console.error(`[${copy.logPrefix}] existing sign-in failed`, err);
       toast.error("Something went wrong. Please try again.");
     } finally {
-      setSigningIn(false);
+      setSubmitting(false);
     }
   }
+
+  // The presenter-rate picker, at the foot of step 2's details form, which new
+  // and existing accounts share.
+  const ratePicker = offersRates ? (
+    <div className="space-y-5">
+      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
+        Registration
+      </h3>
+      <FormField control={form.control} name="ticketTypeId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel className="text-sm font-medium text-slate-600">
+              Registration type <span className="text-red-400">*</span>
+            </FormLabel>
+            <div className="space-y-2">
+              {rateOptions.map((o) => (
+                <label
+                  key={o.ticketTypeId}
+                  className={cn(
+                    "flex items-center justify-between gap-4 rounded-lg border p-4 cursor-pointer transition-colors",
+                    field.value === o.ticketTypeId
+                      ? "border-primary bg-primary/5"
+                      : "border-slate-200 hover:border-slate-300",
+                  )}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="radio"
+                      name="ticketTypeId"
+                      value={o.ticketTypeId}
+                      checked={field.value === o.ticketTypeId}
+                      onChange={() => { field.onChange(o.ticketTypeId); form.clearErrors("ticketTypeId"); }}
+                      className="h-4 w-4 shrink-0 accent-[#00aade]"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-base font-medium text-slate-800 truncate">
+                        {o.ticketTypeName}
+                      </span>
+                      <span className="block text-xs text-slate-400">{o.tierName}</span>
+                    </span>
+                  </span>
+                  <span className="text-base font-semibold text-slate-800 whitespace-nowrap tabular-nums">
+                    {o.currency} {o.price.toFixed(2)}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="text-sm text-slate-400">
+              You will receive a quote by email. Payment is not required to
+              submit your abstract, and the organizing team will confirm your
+              fee once your submission has been reviewed.
+            </p>
+            <FormMessage />
+          </FormItem>
+        )} />
+    </div>
+  ) : null;
 
   if (loading) {
     return (
@@ -540,7 +667,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{copy.pageHeading}</h2>
             <p className="text-base text-slate-500 mt-1">
-              {step === 1 ? "Create your account to get started." : "Fill in your details to complete registration."}
+              {step === 1 ? "Create your account to get started." : existingPerson ? "Check your details to continue." : "Fill in your details to complete registration."}
             </p>
             <div className="flex items-center gap-2 mt-4">
               <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
@@ -674,6 +801,14 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                 {/* ── STEP 2: Contact Details ── */}
                 {step === 2 && (
                   <>
+                    {existingPerson && (
+                      <p className="text-base text-slate-700">
+                        Signed in as{" "}
+                        <span className="font-semibold">{existingPerson.name || existingPerson.email}</span>
+                        {existingPerson.name && <span className="text-slate-400"> ({existingPerson.email})</span>}
+                        . We have filled in the details we hold; please check them before you continue.
+                      </p>
+                    )}
                     <div className="space-y-5">
                       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
@@ -796,71 +931,18 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                       gets the complimentary Faculty registration and there is
                       nothing to choose (D4).
                     */}
-                    {offersRates && (
-                      <div className="space-y-5">
-                        <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
-                          Registration
-                        </h3>
-                        <FormField control={form.control} name="ticketTypeId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">
-                                Registration type <span className="text-red-400">*</span>
-                              </FormLabel>
-                              <div className="space-y-2">
-                                {rateOptions.map((o) => (
-                                  <label
-                                    key={o.ticketTypeId}
-                                    className={cn(
-                                      "flex items-center justify-between gap-4 rounded-lg border p-4 cursor-pointer transition-colors",
-                                      field.value === o.ticketTypeId
-                                        ? "border-primary bg-primary/5"
-                                        : "border-slate-200 hover:border-slate-300",
-                                    )}
-                                  >
-                                    <span className="flex items-center gap-3 min-w-0">
-                                      <input
-                                        type="radio"
-                                        name="ticketTypeId"
-                                        value={o.ticketTypeId}
-                                        checked={field.value === o.ticketTypeId}
-                                        onChange={() => field.onChange(o.ticketTypeId)}
-                                        className="h-4 w-4 shrink-0 accent-[#00aade]"
-                                      />
-                                      <span className="min-w-0">
-                                        <span className="block text-base font-medium text-slate-800 truncate">
-                                          {o.ticketTypeName}
-                                        </span>
-                                        <span className="block text-xs text-slate-400">{o.tierName}</span>
-                                      </span>
-                                    </span>
-                                    <span className="text-base font-semibold text-slate-800 whitespace-nowrap tabular-nums">
-                                      {o.currency} {o.price.toFixed(2)}
-                                    </span>
-                                  </label>
-                                ))}
-                              </div>
-                              <p className="text-sm text-slate-400">
-                                You will receive a quote by email. Payment is not required to
-                                submit your abstract, and the organizing team will confirm your
-                                fee once your submission has been reviewed.
-                              </p>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                      </div>
-                    )}
+                    {ratePicker}
 
                     {/* Navigation */}
                     <div className="flex items-center justify-between pt-2">
-                      <Button type="button" variant="outline" className="rounded-lg text-base" onClick={() => setStep(1)}>
+                      <Button type="button" variant="outline" className="rounded-lg text-base" onClick={() => { setExistingPerson(null); setStep(1); }}>
                         <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
                       <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 py-3 text-base">
                         {submitting ? (
-                          <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Creating Account…</>
+                          <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> {existingPerson ? "Setting up…" : "Creating Account…"}</>
                         ) : (
-                          <>Create Account <ChevronRight className="ml-1 h-5 w-5" /></>
+                          <>{existingPerson ? "Continue" : "Create Account"} <ChevronRight className="ml-1 h-5 w-5" /></>
                         )}
                       </Button>
                     </div>

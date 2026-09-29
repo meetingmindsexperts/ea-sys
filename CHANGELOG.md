@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: presenters with an existing account get the same details page, with their rate (September 29)
+
+On an event that charges presenters, someone signing in with an existing
+account on the abstract (or session proposal) page was never asked for a rate,
+and the server, strict since Sep 21, refused them: 53 refusals from 9 people on
+MEHF2027. Separately, that path built the speaker from a registration on the
+same event only, so an account from another event became a speaker with just a
+name, and any paid presenter registration was minted with blank organisation,
+phone, country and specialty (2 such records on prod).
+
+Now signing in only checks the password and returns what is on file
+(`abstract-start` `intent: "lookup"`, nothing created). Step 2 is the SAME
+details form a new account fills in, prefilled field by field (speaker here,
+registration here, latest speaker anywhere, latest registration anywhere, then
+the account name), with the presenter rates below. Submitting sends the
+confirmed details, validated by one shared schema used by both doors
+(`presenterDetailsSchema` in `src/lib/schemas.ts`). Edits apply to this event
+only. Every event, with or without a fee. Payment is still not required to
+submit; the quote is settled after review, as before.
+
 ### Added: a budget approver with a backup; the chain review items closed (September 28)
 
 Owner: "when it comes to budget Lina has the final say", with Medhat as backup, and

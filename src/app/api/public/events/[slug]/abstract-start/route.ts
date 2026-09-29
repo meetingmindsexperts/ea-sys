@@ -10,6 +10,7 @@ import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
 import { upsertEventSpeaker } from "@/lib/speaker-companion";
 import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/presenter-signup";
+import { presenterDetailsSchema, refinePresenterSpecialty } from "@/lib/schemas";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -25,6 +26,16 @@ import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/
  * The client calls this FIRST, then `signIn(...)`, so the freshly-minted JWT
  * already carries the upgraded role (no stale-token bounce to /my-registration),
  * then routes straight to /events/[id]/abstracts/new.
+ *
+ * TWO CALLS since Sep 29, 2026 (owner decision). `intent: "lookup"` checks the
+ * password and returns the details we already hold, creating nothing; the page
+ * shows them on the same details form a new account fills in, with the
+ * presenter rates below. `intent: "start"` (the default) then carries the
+ * confirmed `details`, which are validated exactly as the new-account door
+ * validates them and become this event's speaker and registration. Before this
+ * the speaker was built only from a registration on THIS event, so a person
+ * whose account came from another event became a speaker with just a name.
+ * Edits apply to this event only; the login account is untouched.
  */
 const bodySchema = z.object({
   email: z.string().email().max(255),
@@ -36,7 +47,68 @@ const bodySchema = z.object({
   source: z.enum(["abstract", "proposal"]).default("abstract"),
   /** Presenter rate, for someone signing in who holds no registration yet. */
   ticketTypeId: z.string().max(100).optional(),
+  /** "lookup" = check the password and return the details on file, nothing else. */
+  intent: z.enum(["lookup", "start"]).default("start"),
+  /** The details the person confirmed on the page. Absent only from a page
+   *  loaded before Sep 29, 2026, which keeps the old on-file behaviour. */
+  details: refinePresenterSpecialty(presenterDetailsSchema).optional(),
 });
+
+/** The detail fields, in the order the form shows them. */
+const DETAIL_KEYS = [
+  "title", "role", "firstName", "lastName", "additionalEmail", "organization", "jobTitle",
+  "phone", "city", "country", "specialty", "customSpecialty",
+] as const;
+type DetailKey = (typeof DETAIL_KEYS)[number];
+type DetailSource = Partial<Record<DetailKey, string | null>> | null | undefined;
+
+const DETAIL_SELECT = {
+  title: true, role: true, firstName: true, lastName: true, additionalEmail: true,
+  organization: true, jobTitle: true, phone: true, city: true, country: true,
+  specialty: true, customSpecialty: true,
+} as const;
+
+/**
+ * What to prefill for a person signing in, field by field, from the most
+ * specific record that has a value: their speaker profile on this event, their
+ * registration on this event, their latest speaker profile anywhere, their
+ * latest registration anywhere, then the account's own name. Only this
+ * person's rows (their user id or their email) are read.
+ */
+async function loadPresenterPrefill(args: {
+  eventId: string;
+  userId: string;
+  email: string;
+  hereAttendee: DetailSource;
+  user: { firstName: string | null; lastName: string | null };
+}): Promise<Record<DetailKey, string>> {
+  const mine = { OR: [{ userId: args.userId }, { email: args.email }] };
+  const [speakerHere, latestSpeaker, latestRegistration] = await Promise.all([
+    db.speaker.findFirst({ where: { eventId: args.eventId, email: args.email }, select: DETAIL_SELECT }),
+    db.speaker.findFirst({ where: mine, orderBy: { updatedAt: "desc" }, select: DETAIL_SELECT }),
+    db.registration.findFirst({
+      where: {
+        status: { not: "CANCELLED" },
+        OR: [{ userId: args.userId }, { attendee: { email: args.email } }],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { attendee: { select: DETAIL_SELECT } },
+    }),
+  ]);
+  const sources: DetailSource[] = [
+    speakerHere,
+    args.hereAttendee,
+    latestSpeaker,
+    latestRegistration?.attendee,
+    { firstName: args.user.firstName, lastName: args.user.lastName },
+  ];
+  const out = {} as Record<DetailKey, string>;
+  for (const key of DETAIL_KEYS) {
+    const found = sources.find((src) => src?.[key]?.toString().trim());
+    out[key] = found?.[key]?.toString() ?? "";
+  }
+  return out;
+}
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -130,15 +202,61 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: {
             title: true, firstName: true, lastName: true, organization: true, jobTitle: true,
             phone: true, city: true, state: true, zipCode: true, country: true,
-            specialty: true, registrationType: true, role: true, additionalEmail: true,
+            specialty: true, customSpecialty: true, registrationType: true, role: true,
+            additionalEmail: true,
           },
         },
       },
       orderBy: { createdAt: "asc" },
     });
     const att = registration?.attendee ?? null;
-    const firstName = att?.firstName || user.firstName || "";
-    const lastName = att?.lastName || user.lastName || "";
+
+    if (parsed.data.intent === "lookup") {
+      const prefill = await loadPresenterPrefill({
+        eventId: event.id,
+        userId: user.id,
+        email: emailLower,
+        hereAttendee: att,
+        user,
+      });
+      apiLogger.info({ msg: "public/abstract-start:lookup", eventId: event.id, userId: user.id });
+      return NextResponse.json({ ok: true, prefill });
+    }
+
+    // The confirmed details win; without them (a page loaded before Sep 29,
+    // 2026) the old on-file behaviour stands.
+    const d = parsed.data.details;
+    const firstName = d?.firstName || att?.firstName || user.firstName || "";
+    const lastName = d?.lastName || att?.lastName || user.lastName || "";
+    const profile = d
+      ? {
+          title: d.title ?? null,
+          role: d.role ?? null,
+          additionalEmail: d.additionalEmail || null,
+          organization: d.organization,
+          jobTitle: d.jobTitle,
+          phone: d.phone,
+          city: d.city,
+          state: d.state || null,
+          zipCode: d.zipCode || null,
+          country: d.country,
+          specialty: d.specialty,
+          customSpecialty: d.customSpecialty || null,
+        }
+      : {
+          title: att?.title ?? null,
+          role: att?.role ?? null,
+          additionalEmail: att?.additionalEmail ?? null,
+          organization: att?.organization ?? null,
+          jobTitle: att?.jobTitle ?? null,
+          phone: att?.phone ?? null,
+          city: att?.city ?? null,
+          state: att?.state ?? null,
+          zipCode: att?.zipCode ?? null,
+          country: att?.country ?? null,
+          specialty: att?.specialty ?? null,
+          customSpecialty: att?.customSpecialty ?? null,
+        };
 
     // Presenter rate: REQUIRED when this event charges presenters (Sep 21,
     // 2026 security review, finding #1). The SAME hole existed on this door as
@@ -176,28 +294,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       }
 
-      // Sign-in flow: ensure the speaker exists + is linked to this user, but
-      // don't clobber an existing profile (overwriteExisting: false).
+      // Ensure the speaker exists and is linked to this user. With confirmed
+      // details the person just reviewed their profile, so refresh it like the
+      // new-account door does (a name already on file stays locked); without
+      // them, never clobber an existing profile.
       speakerId = await upsertEventSpeaker(tx, {
         eventId: event.id,
         organizationId: event.organizationId,
         email: emailLower,
         userId: user.id,
-        overwriteExisting: false,
+        overwriteExisting: Boolean(d),
         profile: {
           firstName,
           lastName,
-          title: att?.title ?? null,
-          role: att?.role ?? null,
-          additionalEmail: att?.additionalEmail ?? null,
-          organization: att?.organization ?? null,
-          jobTitle: att?.jobTitle ?? null,
-          phone: att?.phone ?? null,
-          city: att?.city ?? null,
-          state: att?.state ?? null,
-          zipCode: att?.zipCode ?? null,
-          country: att?.country ?? null,
-          specialty: att?.specialty ?? null,
+          ...profile,
           registrationType: att?.registrationType ?? null,
           sourceRegistrationId: registration?.id ?? null,
           submitterSource: parsed.data.source,
@@ -221,27 +331,26 @@ export async function POST(req: Request, { params }: RouteParams) {
         email: emailLower,
         firstName,
         lastName,
-        title: att?.title ?? null,
-        role: att?.role ?? null,
-        additionalEmail: att?.additionalEmail ?? null,
-        organization: att?.organization ?? null,
-        jobTitle: att?.jobTitle ?? null,
-        phone: att?.phone ?? null,
-        city: att?.city ?? null,
-        state: att?.state ?? null,
-        zipCode: att?.zipCode ?? null,
-        country: att?.country ?? null,
-        specialty: att?.specialty ?? null,
+        title: profile.title,
+        role: profile.role,
+        additionalEmail: profile.additionalEmail,
+        organization: profile.organization,
+        jobTitle: profile.jobTitle,
+        phone: profile.phone,
+        city: profile.city,
+        state: profile.state,
+        zipCode: profile.zipCode,
+        country: profile.country,
+        specialty: profile.specialty,
       },
       organizationId: event.organizationId,
       eventSettings: event.settings,
       source: parsed.data.source,
       ticketTypeId: parsed.data.ticketTypeId ?? null,
-      // This door has no picker: someone signing in with an existing account
-      // goes straight to the abstract form. With no type chosen the rate
-      // resolver returns null, so they get the complimentary companion (D4) or
-      // simply keep the registration they already hold. The organizer can move
-      // them onto a paid rate with Grant registration.
+      // The rate the person chose on the details page (Sep 29, 2026). Where the
+      // event charges presenters it is required above; where it charges
+      // nothing they get the complimentary companion (D4) or keep the
+      // registration they already hold.
       expectedLink: null,
       requestIp: getClientIp(req),
     });

@@ -19,6 +19,8 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy } = vi.h
     // Written by the shared public-credential guard (review M7).
     loginEvent: { create: vi.fn() },
     registration: { findFirst: vi.fn() },
+    // Read only by the lookup intent's prefill (Sep 29, 2026).
+    speaker: { findFirst: vi.fn() },
     // No presenter rates on this event -> the D4 comp path, which is what this
     // file asserts. The route asks BEFORE the transaction (Sep 21, 2026), so
     // the mock has to answer.
@@ -90,6 +92,7 @@ beforeEach(() => {
     termsAcceptedAt: new Date("2026-01-01"),
   });
   mockDb.registration.findFirst.mockResolvedValue(null);
+  mockDb.speaker.findFirst.mockResolvedValue(null);
   upsertSpy.mockResolvedValue("sp1");
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "reg1" });
 });
@@ -188,5 +191,85 @@ describe("abstract-start — guards", () => {
     mockDb.event.findFirst.mockResolvedValue(null);
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(404);
+  });
+});
+
+// Sep 29, 2026 (owner decision): an existing account gets the same details
+// page as a new one. `intent: "lookup"` returns what is on file and creates
+// nothing; the start call then carries the confirmed details.
+describe("abstract-start — lookup, then confirmed details", () => {
+  const details = {
+    title: "DR",
+    role: "PHYSICIAN",
+    firstName: "Jane",
+    lastName: "Doe",
+    organization: "Heart Institute",
+    jobTitle: "Consultant",
+    phone: "+971500000000",
+    city: "Dubai",
+    country: "United Arab Emirates",
+    specialty: "Cardiology",
+  };
+
+  it("lookup checks the password, returns details merged field by field, and creates nothing", async () => {
+    // A speaker profile from ANOTHER event has the organisation; the latest
+    // registration elsewhere has the phone; the account has the name.
+    mockDb.speaker.findFirst
+      .mockResolvedValueOnce(null) // no speaker on this event
+      .mockResolvedValueOnce({ organization: "Heart Institute", jobTitle: "Consultant", phone: null });
+    mockDb.registration.findFirst
+      .mockResolvedValueOnce(null) // no registration on this event
+      .mockResolvedValueOnce({ attendee: { phone: "+971500000000", country: "United Arab Emirates" } });
+    const res = await POST(makeReq({ ...validBody, intent: "lookup" }), params);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { prefill: Record<string, string> };
+    expect(body.prefill).toMatchObject({
+      firstName: "Jane",
+      lastName: "Doe",
+      organization: "Heart Institute",
+      jobTitle: "Consultant",
+      phone: "+971500000000",
+      country: "United Arab Emirates",
+      specialty: "",
+    });
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+    expect(mockDb.ticketType.findMany).not.toHaveBeenCalled(); // no rate check on a lookup
+  });
+
+  it("lookup with a wrong password is a 401 and reveals nothing", async () => {
+    compareSpy.mockResolvedValue(false);
+    const res = await POST(makeReq({ ...validBody, intent: "lookup" }), params);
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { prefill?: unknown }).prefill).toBeUndefined();
+  });
+
+  it("start with confirmed details refreshes the speaker from them and builds the registration from them", async () => {
+    const res = await POST(makeReq({ ...validBody, details }), params);
+    expect(res.status).toBe(200);
+    expect(upsertSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        overwriteExisting: true,
+        profile: expect.objectContaining({
+          organization: "Heart Institute",
+          phone: "+971500000000",
+          country: "United Arab Emirates",
+          specialty: "Cardiology",
+        }),
+      }),
+    );
+    expect(ensureCompanionSpy.mock.calls[0][0]).toMatchObject({
+      organization: "Heart Institute",
+      specialty: "Cardiology",
+    });
+  });
+
+  it("refuses details missing a required field, exactly as the new-account door does", async () => {
+    const { organization: _dropped, ...incomplete } = details;
+    void _dropped;
+    const res = await POST(makeReq({ ...validBody, details: incomplete }), params);
+    expect(res.status).toBe(400);
+    expect(upsertSpy).not.toHaveBeenCalled();
   });
 });
