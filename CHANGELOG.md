@@ -44,6 +44,29 @@ policy in `prisma/rls/submissionshare.sql`); the public route and page at
 and token minting moved into `src/lib/share-link-access.ts` and
 `src/lib/share-token.ts`, used by both. Plan: `docs/REGISTRATION_SHARE_PLAN.md`.
 
+The sponsor and promo code filters (and columns) use the same three-way attribution as
+the Registrations page's sponsor filter: tagged to the sponsor, used the sponsor's
+promo code, or belongs to a group that used it. The first draft matched only the tag,
+which would have missed most of a sponsor's delegation; caught in code review before
+the push (`sponsorAttributionWhere` / `promoCodeUseWhere` in
+`src/lib/registration-share.ts`). Deployed as `4edff7bb`.
+
+### Docs: budget history and AI drafting plan; procurement pilot parked (September 28 to 29)
+
+- `docs/BUDGET_AI_PLAN.md` (`25ec274f`): a staged plan for loading past budgets from
+  CSV, comparing budgets line by line (what improved, increased or regressed), and
+  drafting an optimised budget. Stage 1 is load and compare with no AI; stage 2 adds
+  per-category cost drivers (median and range, no point estimate under three events);
+  stage 3 is narrow AI (classification and a cited summary). Adversarially reviewed; all
+  33 findings mapped in the plan. Stage 0 waits on finance: two real CSVs per source,
+  and the attendance and VAT definitions.
+- The procurement pilot (event 4GHH2026: e2e spec, load baseline) is parked on local
+  branch `wip/procurement-pilot` with a ROADMAP entry (`8ff01910`); the spec must be
+  updated for chain routing when resumed.
+- `docs/CUSTOM_ROLES_PLAN.md` is unchanged and still the plan of record. What exists
+  from it: the procurement custom roles (permission sets on Settings, Roles) and Phase 0
+  step 1 (`WRITE_ROLES` allow-list). Phase 0 gaps G6, G7 and G9 are still open.
+
 ### Added: a sponsor's registration link, where the sponsor pays (September 29, 2026)
 
 Sponsors send one link to their exhibitors, physicians, nurses. A promo code
