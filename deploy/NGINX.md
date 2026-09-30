@@ -2,7 +2,7 @@
 
 The production site config is **`deploy/nginx.conf`**. It is a byte-for-byte copy
 of the live file on the box, `/etc/nginx/sites-available/ea-sys`, plus a header.
-There is no other nginx file in this repo. Last verified identical: 24 Sep 2026.
+There is no other nginx file in this repo. Last verified identical: 30 Sep 2026.
 
 ## Who reads it
 
@@ -30,6 +30,16 @@ The box is where changes happen, because Certbot rewrites the live file.
 
 Run the drift check after any Certbot run too. Exit codes: 0 identical, 1 drift,
 2 could not check.
+
+## History
+
+- **30 Sep 2026: catch-all for :443.** A scanner reached the app through the bare
+  IP (`https://3.108.247.193/...`, 93 refused API calls in 14 seconds), because the
+  site block was the default server for :443. A `default_server` block with
+  `ssl_reject_handshake on` now refuses any HTTPS connection that does not name
+  the site, before a request is read. Port 80 already 404ed other hosts. Real
+  traffic (browsers, Stripe, MCP clients, Certbot, the deploy smoke test) uses the
+  domain name and is unaffected. Needs nginx 1.19.4+ (the box has 1.24).
 
 ## What is deliberately not in this file
 
