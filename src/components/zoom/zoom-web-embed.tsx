@@ -61,14 +61,21 @@ interface ZoomWebEmbedProps {
   }) => void;
 }
 
+/** Zoom's "Meeting has not started" join refusal: retried, not shown as an error. */
+const MEETING_NOT_STARTED = 3008;
+const HOST_WAIT_RETRY_MS = 10_000;
+/** One hour of 10-second retries, then the error shows as before. */
+const HOST_WAIT_MAX_ATTEMPTS = 360;
+
 type LoadState =
   | { phase: "loading" }
   | { phase: "joining" }
+  | { phase: "waiting-host" }
   | { phase: "joined" }
   | { phase: "error"; message: string };
 
 export function ZoomWebEmbed({
-  sdkKey,
+  // sdkKey stays on the props (the parent gates on it) but is not sent to join.
   signature,
   meetingNumber,
   passcode,
@@ -166,14 +173,32 @@ export function ZoomWebEmbed({
         reachedPhase = "joining";
         setState({ phase: "joining" });
 
-        await client.join({
-          sdkKey,
-          signature,
-          meetingNumber,
-          password: passcode || "",
-          userName,
-          userEmail: userEmail || "",
-        });
+        // Zoom refuses a join with 3008 "Meeting has not started" until the
+        // host starts it in Zoom. A producer can open our room first (Sep 30,
+        // 2026: seen in the practice run), so rather than showing an error the
+        // attendee waits here and we retry quietly. Any other failure throws
+        // to the catch below as before.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            // No sdkKey here: the SDK removed it from joinOptions in v4 and
+            // warns when it is passed; the key travels inside the signature.
+            await client.join({
+              signature,
+              meetingNumber,
+              password: passcode || "",
+              userName,
+              userEmail: userEmail || "",
+            });
+            break;
+          } catch (joinErr) {
+            const waitingForHost =
+              extractZoomErrorCode(joinErr) === MEETING_NOT_STARTED && attempt < HOST_WAIT_MAX_ATTEMPTS;
+            if (!waitingForHost || cancelled) throw joinErr;
+            setState({ phase: "waiting-host" });
+            await new Promise((resolve) => setTimeout(resolve, HOST_WAIT_RETRY_MS));
+            if (cancelled) return;
+          }
+        }
 
         if (cancelled) return;
         reachedPhase = "joined";
@@ -261,6 +286,16 @@ export function ZoomWebEmbed({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
           <Loader2 className="h-8 w-8 animate-spin" />
           <p className="text-sm">Joining the webinar…</p>
+        </div>
+      )}
+
+      {state.phase === "waiting-host" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white p-6 text-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <p className="text-sm font-medium">Waiting for the host to start the webinar</p>
+          <p className="text-xs text-gray-300 max-w-md">
+            Keep this page open. You&apos;ll join automatically as soon as it starts.
+          </p>
         </div>
       )}
 

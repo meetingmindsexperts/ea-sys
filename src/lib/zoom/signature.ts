@@ -27,8 +27,9 @@ export function generateZoomSignature(
   const iat = Math.floor(Date.now() / 1000) - 30; // 30s clock skew buffer
   const exp = iat + expiresInSeconds;
 
+  // appKey only (Sep 30, 2026): the SDK warns that sdkKey in the signature is
+  // deprecated after v5 ("use appKey:sdkKey or appKey:clientId").
   const payload = {
-    sdkKey,
     appKey: sdkKey,
     mn: meetingNumber,
     role,

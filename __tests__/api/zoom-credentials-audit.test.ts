@@ -51,6 +51,16 @@ describe("zoom credential audit", () => {
     expect(src).toContain("void db.auditLog");
   });
 
+  it("trims every key and secret before storing it (Sep 30, 2026)", () => {
+    // A secret pasted with a trailing space or newline signs every Meeting SDK
+    // join wrongly: Zoom answers 3712 in the attendee's browser. Every string
+    // field in the schema must trim.
+    const schema = src.slice(src.indexOf("const credentialsSchema"), src.indexOf("});", src.indexOf("const credentialsSchema")));
+    for (const f of ["accountId", "clientId", "clientSecret", "sdkKeyDev", "sdkSecretDev", "sdkKeyProd", "sdkSecretProd"]) {
+      expect(schema).toMatch(new RegExp(`${f}: z\\.string\\(\\)\\.trim\\(\\)`));
+    }
+  });
+
   it("captures the resulting sdkMode, which selects which credentials sign", () => {
     expect(src).toContain("sdkMode: cleanZoom.sdkMode");
   });

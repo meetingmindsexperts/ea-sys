@@ -9,15 +9,20 @@ import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
+// Every value is trimmed (Sep 30, 2026). Zoom's console makes it easy to copy a
+// key or secret with a trailing space or newline, and a secret saved with one
+// signs every Meeting SDK join wrongly: Zoom answers 3712 "Signature is
+// invalid" in the attendee's browser, with nothing on the server to say why.
+// A whitespace-only secret trims to "" and keeps the stored one, as before.
 const credentialsSchema = z.object({
-  accountId: z.string().min(1).max(500),
-  clientId: z.string().min(1).max(500),
-  clientSecret: z.string().max(500).optional(), // optional on update — keeps existing if empty
+  accountId: z.string().trim().min(1).max(500),
+  clientId: z.string().trim().min(1).max(500),
+  clientSecret: z.string().trim().max(500).optional(), // optional on update: keeps existing if empty
   // Meeting SDK credentials (dev + prod)
-  sdkKeyDev: z.string().max(500).optional(),
-  sdkSecretDev: z.string().max(500).optional(),
-  sdkKeyProd: z.string().max(500).optional(),
-  sdkSecretProd: z.string().max(500).optional(),
+  sdkKeyDev: z.string().trim().max(500).optional(),
+  sdkSecretDev: z.string().trim().max(500).optional(),
+  sdkKeyProd: z.string().trim().max(500).optional(),
+  sdkSecretProd: z.string().trim().max(500).optional(),
   sdkMode: z.enum(["dev", "prod"]).optional(),
 });
 

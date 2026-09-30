@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: the in-page webinar join works; it waits for the host instead of erroring (September 30)
+
+- Root cause of "Signature is invalid" on every webinar join: the Meeting SDK
+  production key held the Server-to-Server OAuth Client ID (saved Aug 19). The owner
+  created a Zoom General App with Meeting SDK enabled and saved its credentials.
+  Verified locally against the real test webinar through the event page: the
+  attendee joins inside the page. No production webinar had ever joined in-page before.
+- Zoom answers 3008 "Meeting has not started" when the room is opened before the host
+  starts: the player now shows "Waiting for the host to start the webinar" and retries
+  every 10 seconds for up to an hour, instead of an error.
+- `sdkKey` is no longer sent in the join options or the signature (deprecated by the
+  SDK, which warned on every join); the key travels as `appKey`.
+- Zoom credentials are trimmed on save, so a key or secret pasted with a stray space
+  or newline cannot sign joins wrongly.
+- The webinar practice guide gains the real in-page join and the waiting-for-host
+  screenshots, and a "Signature is invalid" troubleshooting row.
+
 ### Fixed: no Join button in the webinar waiting room; a console hydration error (September 30)
 
 - In the 15 minutes before a webinar starts, with the room still closed, the session
