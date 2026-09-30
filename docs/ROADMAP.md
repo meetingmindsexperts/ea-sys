@@ -34,7 +34,12 @@ Options, cheapest first:
    roles. Touches `auth.ts`, `auth.config.ts`, `procurement-visibility.ts` and the
    client checks that read `session.user.procurementPermissions`.
 3. **Drop `organizationName`, `organizationLogo`, `organizationPrimaryColor`** from
-   the token; the sidebar already reads branding through `useOrgBranding`.
+   the token. A leftover from Mar 31, 2026 (`b85d5d5c`), before `useOrgBranding`
+   existed: nothing reads the logo or colour from the session any more, and the
+   name is read in three places (`sidebar.tsx` 243 as a fallback and 460,
+   `header.tsx` 299) that can use `useOrgBranding`. Mobile login returns the name
+   in its own payload, not from this cookie. Saves roughly 100 to 200 bytes: a
+   cleanup more than a size fix.
 4. **Warn log when the encoded session cookie passes ~3k**, so growth is seen long
    before nginx refuses it.
 
