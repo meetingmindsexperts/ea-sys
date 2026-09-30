@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Training Pack</title>
+<style>
+  :root {
+    --ink: #1c2430; --muted: #5f6b7a; --line: #dde3ea; --paper: #ffffff; --wash: #f4f7fa;
+    --accent: #0a8fc0; --accent-ink: #076e95; --ok: #0f7b4f; --warn: #9a6a05; --warn-wash: #fdf6e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e6ebf0; --muted: #9aa6b3; --line: #2a333e; --paper: #141a21; --wash: #1b222b;
+      --accent: #4fc0e8; --accent-ink: #7fd2f0; --ok: #4ac08a; --warn: #d8ab4d; --warn-wash: #2a2416;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e6ebf0; --muted: #9aa6b3; --line: #2a333e; --paper: #141a21; --wash: #1b222b;
+    --accent: #4fc0e8; --accent-ink: #7fd2f0; --ok: #4ac08a; --warn: #d8ab4d; --warn-wash: #2a2416;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; padding: 40px 16px 96px; }
+  .page { max-width: 880px; margin: 0 auto; }
+  .masthead { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-ink); font-weight: 700; margin: 0 0 10px; }
+  h1 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; }
+  h2 { font-size: 24px; margin: 48px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 18px; margin: 26px 0 6px; }
+  .standfirst { font-size: 18px; color: var(--muted); max-width: 64ch; margin: 0; }
+  p, li { max-width: 72ch; }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .toc a { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; text-decoration: none; color: var(--ink); background: var(--wash); }
+  .toc a b { display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); }
+  .panel { border: 1px solid var(--line); background: var(--wash); border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
+  .panel.warn { background: var(--warn-wash); border-color: var(--warn); }
+  .panel h4 { margin: 0 0 6px; font-size: 15px; }
+  .panel ul, .panel ol { margin: 6px 0 0; padding-left: 20px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  td.t { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--accent-ink); font-weight: 700; }
+  ol.steps { padding-left: 22px; }
+  ol.steps > li { margin: 8px 0; }
+  .ui { font-weight: 700; }
+  .sheet { border: 2px solid var(--accent); border-radius: 12px; padding: 18px 22px; margin: 22px 0; }
+  .sheet h3 { margin-top: 0; color: var(--accent-ink); }
+  .sheet .who { color: var(--muted); margin: -2px 0 10px; }
+  .muted { color: var(--muted); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; background: var(--wash); padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 600px) { h1 { font-size: 27px; } td.t { white-space: normal; } }
+  @media print {
+    body { padding: 0; }
+    .toc, .no-print { display: none; }
+    .sheet { page-break-before: always; border-color: #000; }
+    h2 { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+<header class="masthead">
+  <p class="eyebrow">Budgets &amp; Procurement &middot; Office training</p>
+  <h1>Budget training pack</h1>
+  <p class="standfirst">Everything for one session that gets the office familiar with Budgets: a live demo, then everyone
+  practises their own part on a training event. The session agenda, the setup to do beforehand, the clean-up afterwards,
+  and a one-page sheet for each role.</p>
+</header>
+
+<ul class="toc">
+  <li><a href="#agenda"><b>1</b>Agenda</a></li>
+  <li><a href="#setup"><b>2</b>Setup, the day before</a></li>
+  <li><a href="#cleanup"><b>3</b>Clean-up, the same day</a></li>
+  <li><a href="#sheets"><b>4</b>Role sheets</a></li>
+</ul>
+
+<div class="panel warn">
+  <h4>Practice happens on the live system, fenced off</h4>
+  <ul>
+    <li>Everything uses a draft event called <span class="ui">Budget Training</span> (code <code>TRAIN2026</code>), which is never public.</li>
+    <li>Emails are real: approvers get real approval emails. That is part of the practice.</li>
+    <li>Numbers are real. The session will use the first request and order numbers of the year, starting at
+      <code>PR-2026-0001</code> and <code>PO-2026-0001</code>. They end up cancelled with the reason "Training session, void".
+      Tell the accountant which numbers these were. The numbers start again at 0001 each January.</li>
+    <li>Nothing reaches the accounts: EA-SYS reads from QuickBooks and never writes to it.</li>
+    <li><strong>Clean up the same day.</strong> A request left waiting gets a reminder after 24 hours and is passed on after 48,
+      so a forgotten practice request turns into real emails for real people.</li>
+  </ul>
+</div>
+
+<h2 id="agenda">1. Agenda (about 75 minutes)</h2>
+
+<table>
+  <thead><tr><th>Time</th><th>What</th><th>Who</th></tr></thead>
+  <tbody>
+    <tr><td class="t">0:00 to 0:05</td><td><strong>Why we have it.</strong> One place for every event's plan, every purchase and every approval,
+      with a record of who decided what. No more chasing approvals by email.</td><td>Trainer</td></tr>
+    <tr><td class="t">0:05 to 0:25</td><td><strong>Live demo, on the projector.</strong>
+      <ol>
+        <li>The Budgets page: the training budget, its lines, planned and committed, and the category chips.</li>
+        <li>Raise a request against a line, attach a quote, and read the panel on the right (what is left, who decides).</li>
+        <li>The approver's view: <span class="ui">Budgets &rsaquo; Approvals &rsaquo; Waiting on me</span>, then Approve.</li>
+        <li>The purchase order that appears on approval (<code>PO-2026-...</code>), its PDF, and committed going up on the line.</li>
+        <li>Mark it received. Then a quick look at close-out and the Activity trail.</li>
+      </ol></td><td>Trainer</td></tr>
+    <tr><td class="t">0:25 to 0:35</td><td><strong>Round 1: requests.</strong> Every requester raises one request of AED 200 to 1,500 against a line
+      of the training budget, attaches one quote and submits it. One volunteer raises a request larger than the line has left, with a
+      justification, to see the over-budget path.</td><td>Requesters</td></tr>
+    <tr><td class="t">0:35 to 0:45</td><td><strong>Round 2: decisions.</strong> Approvers open Waiting on me, approve most requests, and reject one
+      with a note. The requester of the rejected one reads the note under My requests. The final approver decides the over-budget one.</td><td>Approvers</td></tr>
+    <tr><td class="t">0:45 to 0:55</td><td><strong>Round 3: orders.</strong> Everyone opens their approved request and finds its order and PDF.
+      Requesters mark their order received, and one of them uses Undo receipt. Finance cancels one order with a reason
+      and watches the request go back to its approver.</td><td>Requesters, Finance</td></tr>
+    <tr><td class="t">0:55 to 1:05</td><td><strong>Budget authors:</strong> move an amount between two lines (under 10% applies at once, over 10% asks for approval),
+      and open Close out to see the variance notes.</td><td>Budget authors</td></tr>
+    <tr><td class="t">1:05 to 1:15</td><td><strong>Questions.</strong> Show the help chat (bottom corner of every page): it answers from the user guide.
+      Hand out the role sheets.</td><td>Everyone</td></tr>
+  </tbody>
+</table>
+
+<h2 id="setup">2. Setup, the day before</h2>
+<p class="muted">Done by a super admin, in the app. About 30 minutes.</p>
+
+<h3>A. Decide who plays which part</h3>
+<table>
+  <thead><tr><th>Part</th><th>Who</th><th>Role to give (Settings &rsaquo; Users, wallet icon)</th></tr></thead>
+  <tbody>
+    <tr><td>Requester</td><td>Most of the office</td><td><span class="ui">Requester</span></td></tr>
+    <tr><td>Budget author</td><td>Project managers</td><td><span class="ui">PO Author</span></td></tr>
+    <tr><td>Approver</td><td>Two or three managers</td><td><span class="ui">PO Approver</span>, plus an amount in <span class="ui">Approve up to (AED)</span>, e.g. 2,000 for one and 5,000 for another</td></tr>
+    <tr><td>Final approver</td><td>The admin who already has unlimited approval</td><td>Nothing to change</td></tr>
+    <tr><td>Finance</td><td>Accounts</td><td><span class="ui">Finance Settle</span></td></tr>
+  </tbody>
+</table>
+<div class="panel">
+  <h4>Two combinations the system refuses</h4>
+  <ul>
+    <li>The final approver cannot also be a requester (their own request would have nobody above them).</li>
+    <li>Finance sign-off cannot sit with approving (that puts the approval and the check in one pair of hands).</li>
+  </ul>
+  <p>A role that approves does nothing until an amount is set on the person. Changes reach people within five minutes; ask them to sign out and in again if a menu is missing.</p>
+</div>
+
+<h3>B. Create the training event</h3>
+<ol class="steps">
+  <li><span class="ui">Events &rsaquo; New event</span>: name <span class="ui">Budget Training</span>, any dates, leave it as <span class="ui">Draft</span>.</li>
+  <li>Open the event's <span class="ui">Settings</span> and set <span class="ui">Event Code</span> to <code>TRAIN2026</code>. A budget needs a code.</li>
+</ol>
+
+<h3>C. Add two practice suppliers</h3>
+<ol class="steps">
+  <li><span class="ui">Budgets &rsaquo; Suppliers &rsaquo; Propose a supplier</span>: <span class="ui">TRAINING Venue Co</span> and <span class="ui">TRAINING Print Co</span>, currency AED, country UAE.</li>
+  <li>For the contact email, use <strong>the trainer's own mailbox</strong>, never a real supplier's, so a "Send to supplier" during practice lands with you.</li>
+  <li>Approve both (the Finance Settle holder, a super admin, or the final approver can). Only an approved supplier can carry an order.</li>
+</ol>
+
+<h3>D. Create and approve the training budget</h3>
+<ol class="steps">
+  <li><span class="ui">Budgets &rsaquo; New budget</span>: event <span class="ui">Budget Training</span>, currency AED, contingency 10%, expected attendance 50.</li>
+  <li>Fill three lines with the pencil icon: <span class="ui">510400 Venue</span> AED 4,000; <span class="ui">500300 Design, Marketing &amp; Production</span> AED 2,000; <span class="ui">510200 Speakers &amp; Faculty</span> AED 2,000.</li>
+  <li>Click <span class="ui">Mark the remaining N not applicable</span>, then <span class="ui">Submit for approval</span>.</li>
+  <li>The final approver approves it under <span class="ui">Budgets &rsaquo; Approvals</span>. The budget is now <span class="ui">Active</span> and ready for requests.</li>
+</ol>
+<p class="muted">Tip: keep a second draft budget unfinished if you want to show filling a budget during the demo.</p>
+
+<h3>E. Check</h3>
+<ul>
+  <li>Sign in as one requester (or ask one) and confirm <span class="ui">Budgets</span> shows in the sidebar.</li>
+  <li>Have a sample quote ready to attach: any PDF, PNG or JPEG under 10 MB.</li>
+</ul>
+
+<h2 id="cleanup">3. Clean-up, the same day</h2>
+<p class="muted">Right after the session. About 15 minutes, by the trainer with an admin or Finance Settle account.</p>
+<ol class="steps">
+  <li><strong>Orders:</strong> on each training request that has an order, open the order section. If it was received, <span class="ui">Undo receipt</span> first (the person who marked it, or an admin).
+    Then <span class="ui">Cancel order</span> with the reason <em>Training session, void</em>. The request goes back to its approver.</li>
+  <li><strong>Requests:</strong> cancel every training request (draft, waiting or approved) with the same reason. None may stay waiting overnight.</li>
+  <li><strong>Suppliers:</strong> deactivate TRAINING Venue Co and TRAINING Print Co.</li>
+  <li><strong>Budget:</strong> leave it. It can stay as the practice budget for new joiners, or be closed out.</li>
+  <li><strong>Approval amounts:</strong> remove any amount you set only for the session (Settings &rsaquo; Users).</li>
+  <li><strong>Accountant:</strong> send the range of numbers used, e.g. <code>PR-2026-0001 to PR-2026-0020</code> and <code>PO-2026-0001 to PO-2026-0015</code>, all void.</li>
+  <li><strong>Check next morning:</strong> <span class="ui">Budgets &rsaquo; Approvals</span> shows nothing from TRAIN2026 waiting.</li>
+</ol>
+
+<h2 id="sheets">4. Role sheets</h2>
+<p class="muted">One page each; they print on separate pages. The same guidance is in the user guide, chapter 22, so the help chat can answer from it.</p>
+
+<section class="sheet">
+  <h3>Requester: asking for money</h3>
+  <p class="who">You need something bought for an event.</p>
+  <ol class="steps">
+    <li><span class="ui">Budgets &rsaquo; Requests &rsaquo; New request</span>.</li>
+    <li>Pick the event's budget and the <strong>line</strong> the cost belongs to (Venue, Printing, ...).</li>
+    <li>Give a title, the amount <strong>before VAT</strong>, and the VAT as a rate (type <code>5</code> for 5%).</li>
+    <li>Choose the supplier. Not on the list? Propose a vendor; Finance approves it.</li>
+    <li>Say how it was sourced (single quote, competitive quotes), when it is needed, and why.</li>
+    <li>Save as draft, attach at least one <strong>quote</strong>, then <span class="ui">Submit</span>.</li>
+  </ol>
+  <p><strong>Watch the panel on the right:</strong> it shows what the line has left, whether you are within budget, and who will decide.</p>
+  <p><strong>Over budget?</strong> You can still submit with a justification. It goes to the final approver.</p>
+  <p><strong>After approval</strong> the purchase order appears on your request with its PO number and a PDF. When the goods arrive, click <span class="ui">Mark received</span>.</p>
+  <p class="muted">You can withdraw a request while it waits, and cancel it with a reason. You never approve your own request.</p>
+</section>
+
+<section class="sheet">
+  <h3>Approver: deciding</h3>
+  <p class="who">You have been given an approval amount.</p>
+  <ol class="steps">
+    <li>You get an email when something waits for you. The email only notifies: decide in the app.</li>
+    <li><span class="ui">Budgets &rsaquo; Approvals &rsaquo; Waiting on me</span>.</li>
+    <li>Open the item: the amount, the budget line, what the line has left, the supplier and the quotes.</li>
+    <li><span class="ui">Approve</span> (note optional) or <span class="ui">Reject</span> (note required: the requester needs to know what to change).</li>
+  </ol>
+  <p><strong>Approving a request issues the purchase order at once</strong> and commits the amount on the budget line.</p>
+  <p><strong>Timing:</strong> a reminder after 24 hours; after 48 hours your stand-in (or the next approver) can decide too; after 96 hours it moves up. Decide the same day.</p>
+  <p class="muted">You only see requests within your amount. Larger ones and over-budget exceptions go higher.</p>
+</section>
+
+<section class="sheet">
+  <h3>Finance: suppliers, orders, sign-off</h3>
+  <p class="who">You hold the Finance Settle role.</p>
+  <ol class="steps">
+    <li><strong>Suppliers:</strong> <span class="ui">Budgets &rsaquo; Suppliers</span>, the Proposed queue. Check the tax number, terms and currency, then approve or reject with a note. Bank details are yours to enter.</li>
+    <li><strong>Orders:</strong> open a request to see its order: number, lines, PDF. <span class="ui">Send to supplier</span> emails the PDF to the supplier's contact.</li>
+    <li><strong>Receiving:</strong> a full receipt of AED 50,000 or more needs a second person to <span class="ui">Confirm receipt</span>, never the one who marked it.</li>
+    <li><strong>Cancelling:</strong> only while nothing is received. <span class="ui">Cancel order</span> with a reason; the amount is released and the request goes back to its approver. Tell the supplier yourself.</li>
+    <li><strong>Sign off:</strong> after the author closes a budget, review the summary and click <span class="ui">Sign off</span>.</li>
+  </ol>
+  <p class="muted">"Actual" shows 0.00 until EA-SYS reads paid figures from the accounts. Read "Committed" for what has been ordered.</p>
+</section>
+
+<section class="sheet">
+  <h3>Budget author: the event's plan</h3>
+  <p class="who">You hold the PO Author role, usually a project manager.</p>
+  <ol class="steps">
+    <li>The event needs an <span class="ui">Event Code</span> (event Settings) first.</li>
+    <li><span class="ui">Budgets &rsaquo; New budget</span>: event, currency, contingency %, expected attendance.</li>
+    <li>Fill a line per expected cost with the pencil: description, quantity, unit cost, VAT rate. Planned is before VAT.</li>
+    <li>Every category must have a line or be marked <strong>not applicable</strong> (click its chip).</li>
+    <li><span class="ui">Submit for approval</span>. Once approved the budget is <strong>Active</strong> and people can raise requests.</li>
+  </ol>
+  <p><strong>Plans change:</strong> <span class="ui">Move an amount</span> between lines (up to 10% of a line is yours; more asks for approval). A big change is a <span class="ui">New version</span>.</p>
+  <p><strong>After the event:</strong> <span class="ui">Close out</span>, write a note for any line out by more than 10% or AED 5,000, then close. Finance signs off.</p>
+</section>
+
+</main>
+</body>
+</html>

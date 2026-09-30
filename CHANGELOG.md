@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Docs: a budget training pack and quick guides by role (September 30)
+
+`docs/BUDGET_TRAINING.html` is the pack for an office-wide Budgets session: a
+75-minute agenda (live demo, then hands-on rounds for requests, decisions and
+orders), the setup to do the day before (roles and approval amounts, a draft
+"Budget Training" event with code TRAIN2026, two practice suppliers whose contact
+email is the trainer's own, a small approved budget), the same-day clean-up
+(undo receipts, cancel orders and requests as "Training session, void", deactivate
+the suppliers, tell the accountant the void PR/PO numbers) and a printable sheet
+per role. Prod had no budget records on Sep 30, so the session will use
+PR-2026-0001 and PO-2026-0001 onward. The user guide's chapter 22 gains "Quick
+guides by role" so the help chat can answer from the same sheets.
+
 ### Added: export all of an event's data as one ZIP (September 30)
 
 Owner: "build one under event setup that says export data". **Event Setup** gains an
