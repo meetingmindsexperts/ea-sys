@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webinar Practice Guide</title>
+<style>
+  :root {
+    --ink: #1c2430; --muted: #5f6b7a; --line: #dde3ea; --paper: #ffffff; --wash: #f4f7fa;
+    --accent: #0a8fc0; --accent-ink: #076e95; --ok: #0f7b4f; --ok-wash: #e8f6ef; --warn: #9a6a05; --warn-wash: #fdf6e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e6ebf0; --muted: #9aa6b3; --line: #2a333e; --paper: #141a21; --wash: #1b222b;
+      --accent: #4fc0e8; --accent-ink: #7fd2f0; --ok: #4ac08a; --ok-wash: #14271e; --warn: #d8ab4d; --warn-wash: #2a2416;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e6ebf0; --muted: #9aa6b3; --line: #2a333e; --paper: #141a21; --wash: #1b222b;
+    --accent: #4fc0e8; --accent-ink: #7fd2f0; --ok: #4ac08a; --ok-wash: #14271e; --warn: #d8ab4d; --warn-wash: #2a2416;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; padding: 40px 16px 96px; }
+  .page { max-width: 880px; margin: 0 auto; }
+  .masthead { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-ink); font-weight: 700; margin: 0 0 10px; }
+  h1 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; }
+  h2 { font-size: 24px; margin: 48px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 18px; margin: 26px 0 6px; }
+  .standfirst { font-size: 18px; color: var(--muted); max-width: 64ch; margin: 0; }
+  p, li { max-width: 72ch; }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .toc a { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; text-decoration: none; color: var(--ink); background: var(--wash); }
+  .toc a b { display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); }
+  .panel { border: 1px solid var(--line); background: var(--wash); border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
+  .panel.ok { background: var(--ok-wash); border-color: var(--ok); }
+  .panel.warn { background: var(--warn-wash); border-color: var(--warn); }
+  .panel h4 { margin: 0 0 6px; font-size: 15px; }
+  .panel ul, .panel ol { margin: 6px 0 0; padding-left: 20px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  td.t { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--accent-ink); font-weight: 700; }
+  ol.steps > li { margin: 8px 0; }
+  .ui { font-weight: 700; }
+  .check li { list-style: none; margin-left: -20px; }
+  .check li::before { content: "\2610  "; color: var(--accent-ink); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; background: var(--wash); padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 600px) { h1 { font-size: 27px; } td.t { white-space: normal; } }
+  @media print { body { padding: 0; } .toc { display: none; } h2 { page-break-after: avoid; } }
+</style>
+</head>
+<body>
+<main class="page">
+
+<header class="masthead">
+  <p class="eyebrow">Webinars &middot; Hands-on practice for the webinar team</p>
+  <h1>Webinar practice guide</h1>
+  <p class="standfirst">Run one practice webinar end to end, with the team playing producer, speakers and attendees.
+  The main thing to prove: <strong>attendees watch inside our event page and are never sent off to the Zoom app.</strong></p>
+</header>
+
+<ul class="toc">
+  <li><a href="#journey"><b>1</b>What attendees see</a></li>
+  <li><a href="#cast"><b>2</b>Who plays what</a></li>
+  <li><a href="#setup"><b>3</b>Setup</a></li>
+  <li><a href="#run"><b>4</b>The practice run</a></li>
+  <li><a href="#check"><b>5</b>Checklist</a></li>
+  <li><a href="#cleanup"><b>6</b>Clean-up</a></li>
+  <li><a href="#help"><b>7</b>If something goes wrong</a></li>
+</ul>
+
+<div class="panel warn">
+  <h4>This runs on the live system, with a real Zoom webinar</h4>
+  <ul>
+    <li>Creating a webinar event makes a real webinar in the company Zoom account and schedules its reminder emails.</li>
+    <li>Only team members register, with their own work email. Nobody outside the team gets an email.</li>
+    <li>Keep the event name obviously a practice, e.g. <span class="ui">Webinar Practice, do not share</span>, and never post its link.</li>
+    <li>This will be the first time attendees join through our page on the live system. Past webinars sent people to Zoom
+      directly. So watch closely and write down anything odd, with the browser and device.</li>
+  </ul>
+</div>
+
+<h2 id="journey">1. What attendees see</h2>
+<p>Every webinar email links to <strong>our event page</strong>, not to Zoom. From there:</p>
+<ol class="steps">
+  <li><strong>Register</strong> on the event's page (name, email, a password). That creates their account.</li>
+  <li><strong>Emails</strong> arrive: a reminder the day before, one an hour before, a "we are live" note and a thank-you with the recording.
+    Each has a button back to the session page.</li>
+  <li><strong>Sign in</strong> on the session page. Unregistered visitors only see a sign-in or register prompt.</li>
+  <li><strong>Waiting room.</strong> Before the producer opens the room they see the event banner (or a holding video),
+    a countdown and "You're in the waiting room. Keep this page open. You'll join automatically, right here, when the host opens the session."
+    There is no Join button yet, on purpose.</li>
+  <li><strong>Admitted automatically.</strong> Within about 20 seconds of the producer opening the room, the page switches to
+    "Live now" and the webinar plays <strong>inside the Live Video tab of our page</strong>. The card above it reads
+    "Join the webinar without leaving this page."</li>
+  <li><strong>After the event</strong>, the same page offers <span class="ui">Watch Replay</span> once the recording has come in.</li>
+</ol>
+<div class="panel ok">
+  <h4>What attendees should never see</h4>
+  <ul>
+    <li>A browser prompt "Open zoom.us?" or "Open Zoom Meetings?"</li>
+    <li>A Zoom download page, or the Zoom app starting.</li>
+  </ul>
+  <p>Allowing the browser to use the speaker or microphone is normal: that is the browser, not the Zoom app.
+  If the in-page player fails, the page shows the error and a button <span class="ui">Open in Zoom app instead</span>.
+  It never switches to Zoom on its own. If anyone sees that button during practice, note their browser and device.</p>
+</div>
+<p class="muted">Speakers and the host are different: they run the webinar from Zoom itself, with their own links (next section).</p>
+
+<h2 id="cast">2. Who plays what</h2>
+<table>
+  <thead><tr><th>Part</th><th>Who</th><th>Uses</th></tr></thead>
+  <tbody>
+    <tr><td>Producer</td><td>One person from the webinar team</td><td>The <span class="ui">Webinar Console</span> in EA-SYS, plus <span class="ui">Start as Host</span>, which opens Zoom as the host</td></tr>
+    <tr><td>Speakers (panelists)</td><td>One or two team members</td><td>Their personal panelist link from the invitation email, in the Zoom app</td></tr>
+    <tr><td>Attendees</td><td>Everyone else, ideally on a mix of devices: Chrome, Safari, Edge, an iPhone, an Android phone</td><td>Only our event page</td></tr>
+    <tr><td>Admin</td><td>An admin or organiser</td><td>Deletes the practice event afterwards (the webinar team role cannot delete events)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="setup">3. Setup, the day before</h2>
+<p class="muted">By the producer, about 20 minutes.</p>
+<ol class="steps">
+  <li><strong>Create the event.</strong> <span class="ui">Events &rsaquo; New event</span>, choose <strong>Webinar</strong> as the event type, name it
+    <span class="ui">Webinar Practice, do not share</span>, set tomorrow's date and a one-hour slot. Saving creates the anchor session, the Zoom
+    webinar and the email sequence by itself.</li>
+  <li><strong>Check the console.</strong> Open the event's <span class="ui">Webinar Console</span>. The Overview card shows the Zoom webinar's join URL
+    and passcode, and the Email Sequence card lists the four emails. If something is missing, click <span class="ui">Re-run provisioner</span>.</li>
+  <li><strong>Dress the waiting room</strong> (Setup tab, Waiting Room card):
+    <ul>
+      <li><span class="ui">How attendees watch</span>: keep <span class="ui">Zoom embed, interactive, native Q&amp;A/chat</span>.</li>
+      <li>Optional: a YouTube or Vimeo <span class="ui">Holding video</span>, a <span class="ui">Waiting room image</span>, and a <span class="ui">Lobby message</span>.</li>
+      <li>Click <span class="ui">Save lobby settings</span>.</li>
+    </ul></li>
+  <li><strong>Add the speakers.</strong> Add them as speakers on the event, then in the Panelists card click <span class="ui">Import from Speakers</span>
+    (or add them there directly). Each gets an email with a personal panelist link.</li>
+  <li><strong>Publish</strong> the event: event <span class="ui">Settings</span>, status <span class="ui">Published</span>. While it is a Draft the room always counts as open, so nobody would see a waiting room.</li>
+  <li><strong>Attendees register.</strong> Send the event's public link to the attendee group only. Each registers with their own work email and a password.</li>
+</ol>
+
+<h2 id="run">4. The practice run (about 45 minutes)</h2>
+<table>
+  <thead><tr><th>When</th><th>What happens</th><th>Who</th></tr></thead>
+  <tbody>
+    <tr><td class="t">T&minus;20 min</td><td>Speakers open their panelist link from the email. Zoom holds them until the host starts.</td><td>Speakers</td></tr>
+    <tr><td class="t">T&minus;15 min</td><td>Attendees open the session page from their reminder email and sign in. <strong>Check:</strong> waiting room, countdown, no Join button.</td><td>Attendees</td></tr>
+    <tr><td class="t">T&minus;10 min</td><td>Producer clicks <span class="ui">Start as Host</span>, then <span class="ui">Start only</span> in the dialog. Zoom opens for the host; speakers are let in. This is a private rehearsal: attendees stay in the waiting room.</td><td>Producer, speakers</td></tr>
+    <tr><td class="t">T&minus;0</td><td>Producer clicks <span class="ui">Open the room / Go live</span> in the Waiting Room card (or <span class="ui">Start and open the room</span> if not started yet).</td><td>Producer</td></tr>
+    <tr><td class="t">T+1 min</td><td>Attendees switch to "Live now" by themselves and watch inside the Live Video tab. <strong>Check:</strong> no Zoom app, no prompt. The console's <span class="ui">Live now</span> card fills with names, moving from Lobby to Joined.</td><td>Attendees, producer</td></tr>
+    <tr><td class="t">T+5 min</td><td>Speakers share a slide and talk. Attendees try Q&amp;A and chat inside the embedded player. The host runs a quick poll.</td><td>Everyone</td></tr>
+    <tr><td class="t">T+15 min</td><td>One attendee closes the tab and reopens the link: they should come straight back in (if the browser wants a click first, a <span class="ui">Join now</span> button appears inside the page). Another clicks <span class="ui">Leave</span>, then joins again.</td><td>Two attendees</td></tr>
+    <tr><td class="t">T+20 min</td><td>Producer clicks <span class="ui">Close the room</span>: attendees go back to the waiting room. Then opens it again: they come back in by themselves.</td><td>Producer</td></tr>
+    <tr><td class="t">T+30 min</td><td>Host ends the webinar in Zoom. Producer closes the room.</td><td>Producer</td></tr>
+    <tr><td class="t">Next day</td><td>Console <span class="ui">Analytics</span> tab: attendance, polls, Q&amp;A pulled from Zoom. The session page shows <span class="ui">Watch Replay</span> once the recording arrives. Check the thank-you email.</td><td>Producer</td></tr>
+  </tbody>
+</table>
+
+<h2 id="check">5. Checklist: tick as you go</h2>
+<h3>Attendees (each person, note browser and device)</h3>
+<ul class="check">
+  <li>The reminder email's button opens our session page, not Zoom.</li>
+  <li>Before the room opens: waiting room with countdown, and no Join button.</li>
+  <li>After the room opens: admitted within about 20 seconds without clicking anything.</li>
+  <li>The webinar plays inside our page. No "Open Zoom?" prompt, no Zoom download page, no Zoom app.</li>
+  <li>Sound works, and Q&amp;A or chat can be sent from inside the page.</li>
+  <li>Closing and reopening the page brings them straight back in (at most one click on <span class="ui">Join now</span>, still inside our page).</li>
+  <li>On a phone, the player fits the screen and is usable.</li>
+</ul>
+<h3>Producer</h3>
+<ul class="check">
+  <li>Every attendee appears in the <span class="ui">Live now</span> card, and moves from Lobby to Joined.</li>
+  <li>Closing the room sends attendees back to the waiting room, and reopening admits them again.</li>
+  <li>The next day: attendance, polls and Q&amp;A show in Analytics, and the replay is available.</li>
+</ul>
+<h3>Speakers</h3>
+<ul class="check">
+  <li>The panelist invitation arrived and its link opened Zoom as a panelist.</li>
+  <li>They could share a screen and be seen and heard on the attendees' pages.</li>
+</ul>
+
+<h2 id="cleanup">6. Clean-up</h2>
+<ol class="steps">
+  <li>An admin deletes the practice event.</li>
+  <li>Deleting the event does not delete the Zoom webinar: remove it at zoom.us, under Webinars.</li>
+  <li>The team members' practice attendee accounts can stay; they do no harm.</li>
+  <li>Send the notes from the checklist, with any screenshots, to the EA-SYS team.</li>
+</ol>
+
+<h2 id="help">7. If something goes wrong</h2>
+<table>
+  <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+  <tbody>
+    <tr><td>Attendee sees "Sign in to join"</td><td>They are not signed in. Sign in with the email and password they registered with.</td></tr>
+    <tr><td>"You must be registered for this event"</td><td>Signed in with a different email from the one they registered. Register that email, or sign in with the other.</td></tr>
+    <tr><td>Stuck in the waiting room after the room opened</td><td>Wait 30 seconds; it checks every 15 to 20. Still stuck: refresh the page. Note it on the checklist.</td></tr>
+    <tr><td>The player shows an error and "Open in Zoom app instead"</td><td>Note the browser, device and the error text, then use the button so they can keep watching. This is exactly what the practice is looking for.</td></tr>
+    <tr><td>Someone missing from the Live now card</td><td>It counts pages open in the last 60 seconds. Ask them to keep the tab in front for a minute.</td></tr>
+    <tr><td>No reminder emails</td><td>Check the Email Sequence card; <span class="ui">Re-enqueue</span> recreates it. A reminder whose time has already passed is skipped.</td></tr>
+  </tbody>
+</table>
+
+</main>
+</body>
+</html>

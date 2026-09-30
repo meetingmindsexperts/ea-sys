@@ -629,6 +629,7 @@ export default function PublicSessionPage() {
             recordingLoading={recordingLoading}
             onWatchRecording={handleWatchRecording}
             isJoining={isJoining}
+            inWaitingRoom={showWaitingRoom}
             onJoin={() => setIsJoining(true)}
             onLeave={() => setIsJoining(false)}
           />
@@ -1018,6 +1019,7 @@ function StickyCta({
   recordingLoading,
   onWatchRecording,
   isJoining,
+  inWaitingRoom,
   onJoin,
   onLeave,
 }: {
@@ -1035,6 +1037,8 @@ function StickyCta({
   recordingLoading: boolean;
   onWatchRecording: () => void;
   isJoining: boolean;
+  /** The branded waiting room is showing: the host has not opened the room. */
+  inWaitingRoom: boolean;
   onJoin: () => void;
   onLeave: () => void;
 }) {
@@ -1154,6 +1158,30 @@ function StickyCta({
                 Join opens at {formatJoinOpens(new Date(joinableAt), timezone)}
               </p>
             )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Waiting room (Sep 30, 2026): no Join button until the host opens the room.
+  // It used to show here in the 15 minutes before the start: on the embed it
+  // flipped to "In meeting" with nothing mounted (the waiting room still held
+  // the video area) and presence reported the attendee as joined; on the URL
+  // fallback it opened Zoom and skipped our lobby. Admission is automatic when
+  // the room opens (the lobby poll sets isJoining), so nothing is lost.
+  if (joinInfo && inWaitingRoom) {
+    return (
+      <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+            <Clock className="h-6 w-6 text-blue-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">You&apos;re in the waiting room</p>
+            <p className="text-xs text-muted-foreground">
+              Keep this page open. You&apos;ll join automatically, right here, when the host opens the session.
+            </p>
           </div>
         </CardContent>
       </Card>

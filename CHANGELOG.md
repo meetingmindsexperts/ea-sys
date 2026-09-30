@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: no Join button in the webinar waiting room; a console hydration error (September 30)
+
+- In the 15 minutes before a webinar starts, with the room still closed, the session
+  page showed an active **Join Webinar**. On the embed it flipped to "In meeting" with
+  nothing mounted (the waiting room still held the video area) and presence counted
+  the attendee as joined; on the URL fallback it opened Zoom and skipped our lobby.
+  The card now says "You're in the waiting room ... you'll join automatically, right
+  here" and admission stays automatic when the producer opens the room.
+- The Webinar Console heading put the refresh spinner (divs) inside a `<p>`, which
+  React logged as a hydration error on every background refetch.
+- `docs/WEBINAR_DEMO_GUIDE.html`: a hands-on practice guide for the webinar team
+  (attendee journey, cast, setup, a timed run, a checklist, clean-up, fixes). Found
+  while preparing it: no production webinar has had an attendee join through our
+  page yet (CADF2026, 509 registered, 0 page joins), so the practice is the first
+  end-to-end test of the in-page join.
+
 ### Changed: custom roles Phase 0 complete (September 30)
 
 - A claude.ai connection now ends when the person's access ends. Deactivating

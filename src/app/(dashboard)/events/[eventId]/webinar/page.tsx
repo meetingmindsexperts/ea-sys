@@ -233,12 +233,15 @@ export default function WebinarConsolePage() {
             <Video className="h-8 w-8" />
             Webinar Console
           </h1>
-          <p className="text-muted-foreground mt-1">
+          {/* A div, not a p: ReloadingSpinner renders divs, and a div inside a
+              p is invalid HTML (React logged a hydration error on every
+              background refetch, Sep 30, 2026). */}
+          <div className="text-muted-foreground mt-1">
             {data?.event?.name}
             {isFetching && !isLoading && (
               <ReloadingSpinner className="ml-2 inline-block" />
             )}
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <GlobalRefreshButton
