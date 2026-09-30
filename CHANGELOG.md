@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: export all of an event's data as one ZIP (September 30)
+
+Owner: "build one under event setup that says export data". **Event Setup** gains an
+**Export Data** card (admins and organisers) opening a page whose button downloads
+`<slug>-data-<date>.zip`: one CSV per area plus `README.txt` (every file with its row
+count, and anything left out with the reason).
+
+- **No second copy of any column list.** Areas that already had an export
+  (registrations, abstracts, session proposals, invoices, survey responses, webinar
+  attendance, reimbursements, travel grants, each RSVP list) are produced by calling
+  that export's own route handler in-process as the same user, so the file is
+  byte-identical to the page's button and the area keeps its own permission check,
+  rate limit and audit row. A refused or failing area is listed in the README and
+  never takes the others down.
+- **New sheets** for areas that had no export (`src/lib/event-export/sheets.ts`):
+  event details, registration types and pricing tiers, speakers (with their sessions),
+  sessions and session topics, accommodation bookings, hotels and room types, promo
+  codes, sponsors. Prices follow `canViewFinance`, the honorarium
+  `canManageReimbursements`, as on screen; every cell goes through the CSV escaper.
+- `GET /api/events/[eventId]/export-bundle`: `denyReviewer` write roles, the
+  access-scoped event, 5 bundles per person per event per hour, one
+  `EventDataBundle` audit row (format `zip`, total rows, files, skipped areas).
+- Not included by design: uploaded files and sent emails (the README says where
+  they are). No schema change.
+
 ### Added: a speaker's and a registration's personal details stay in step (September 29)
 
 Editing a person's personal details on their speaker record now updates their

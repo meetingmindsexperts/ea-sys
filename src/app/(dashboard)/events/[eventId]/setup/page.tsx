@@ -33,6 +33,7 @@ import {
   Banknote,
   CalendarCheck,
   CheckCircle2,
+  Download,
   Circle,
   ClipboardList,
   GraduationCap,
@@ -48,6 +49,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { canWrite } from "@/lib/can-write";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -197,6 +199,19 @@ const INVOICES_CARD: SetupCardConfig = {
   hoverBorder: "hover:border-teal-400",
 };
 
+// Admin/organiser-only card (Sep 30, 2026): the whole event as a ZIP of CSVs.
+// Last in the grid on purpose: it is the "take it all away" action, not a
+// setup step. Same gate as the route (canWrite = denyReviewer's write roles).
+const EXPORT_CARD: SetupCardConfig = {
+  slug: "export",
+  title: "Export Data",
+  description:
+    "Download everything for this event in one ZIP: registrations, speakers, sessions, abstracts, invoices, accommodation and more, one spreadsheet each.",
+  icon: Download,
+  colorClasses: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  hoverBorder: "hover:border-slate-400",
+};
+
 // Status shape — one entry per slug. `configured` drives the pill;
 // `count` (optional) shows next to the pill when informative.
 interface SetupStatus {
@@ -279,7 +294,11 @@ export default async function SetupPage({ params }: SetupPageProps) {
   if (!event) notFound();
 
   const canFinance = canViewFinance(session.user.role);
-  const visibleCards = canFinance ? [...SETUP_CARDS, INVOICES_CARD] : SETUP_CARDS;
+  const visibleCards = [
+    ...SETUP_CARDS,
+    ...(canFinance ? [INVOICES_CARD] : []),
+    ...(canWrite(session.user.role) ? [EXPORT_CARD] : []),
+  ];
 
   // Compute per-card statuses. Each is intentionally cheap — boolean
   // for binary configure/not-configure cases, count where the number
@@ -345,6 +364,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       configured: true,
       labelOverride: `${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`,
     },
+    export: { configured: true, labelOverride: "ZIP of spreadsheets" },
   };
 
   return (
