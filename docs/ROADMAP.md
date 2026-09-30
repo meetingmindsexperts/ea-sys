@@ -12,13 +12,35 @@
 The session JWT carries `procurementPermissions`, so the cookie grows with every
 role a person holds. On Sep 30 a 12-permission role pushed the `Set-Cookie` on
 `/api/auth/session` past nginx's 4k header buffer and the sidebar lost the user's
-role (INC-006 in `docs/INCIDENTS.md`). nginx now allows 16k, about four times
-today's largest cookie, so this is not urgent, but custom roles for every team
-(docs/CUSTOM_ROLES_PLAN.md) would eat that margin. Options: carry role ids or a
-permissions version number and resolve the keys server side (cached), or a
-compact encoding of the keys. Add a warn log when the encoded JWT passes ~3k.
-Effort: S to M. Touches auth.ts, auth.config.ts, procurement-visibility and the
-client checks that read `session.user.procurementPermissions`.
+role (INC-006 in `docs/INCIDENTS.md`). nginx now allows 16k, so this is not urgent,
+but custom roles for every team (docs/CUSTOM_ROLES_PLAN.md) would eat that margin.
+Owner ruling Sep 30: all four options below stay on the roadmap, none built yet.
+
+Measured locally (Sep 30), the `/api/auth/session` response:
+
+| Account | Session cookie | All Set-Cookie headers |
+|---|---|---|
+| ADMIN, no budget role | 1,139 chars | 2,463 bytes |
+| ADMIN + Finance Settle (12 permissions) | 1,609 chars | 3,403 bytes |
+
+The rest of the header block (the CSP and security headers) adds to that, which
+is how one role crossed 4k.
+
+Options, cheapest first:
+1. **Compact permission codes** instead of full keys (`procurement.suppliers.financials.view`):
+   roughly a third of the size. Small, low risk.
+2. **Role ids only in the cookie**, permission keys resolved server side (cached,
+   refreshed on the existing five-minute cycle). The cookie stops growing with
+   roles. Touches `auth.ts`, `auth.config.ts`, `procurement-visibility.ts` and the
+   client checks that read `session.user.procurementPermissions`.
+3. **Drop `organizationName`, `organizationLogo`, `organizationPrimaryColor`** from
+   the token; the sidebar already reads branding through `useOrgBranding`.
+4. **Warn log when the encoded session cookie passes ~3k**, so growth is seen long
+   before nginx refuses it.
+
+Suggested set when picked up: 2 + 3 + 4, about a day, reviewed and verified per
+role in a browser (auth is load-bearing). Do it before rolling budget roles out to
+the whole office.
 
 ## Procurement pilot + e2e + load baseline (Sep 28, 2026): parked, code kept
 
