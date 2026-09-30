@@ -7,6 +7,19 @@
 
 ---
 
+## Session cookie size: keep permissions out of the JWT (recorded Sep 30, 2026)
+
+The session JWT carries `procurementPermissions`, so the cookie grows with every
+role a person holds. On Sep 30 a 12-permission role pushed the `Set-Cookie` on
+`/api/auth/session` past nginx's 4k header buffer and the sidebar lost the user's
+role (INC-006 in `docs/INCIDENTS.md`). nginx now allows 16k, about four times
+today's largest cookie, so this is not urgent, but custom roles for every team
+(docs/CUSTOM_ROLES_PLAN.md) would eat that margin. Options: carry role ids or a
+permissions version number and resolve the keys server side (cached), or a
+compact encoding of the keys. Add a warn log when the encoded JWT passes ~3k.
+Effort: S to M. Touches auth.ts, auth.config.ts, procurement-visibility and the
+client checks that read `session.user.procurementPermissions`.
+
 ## Procurement pilot + e2e + load baseline (Sep 28, 2026): parked, code kept
 
 Parked by the owner on Sep 28 until the multi-level approval chain is settled, because

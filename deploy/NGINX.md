@@ -33,6 +33,15 @@ Run the drift check after any Certbot run too. Exit codes: 0 identical, 1 drift,
 
 ## History
 
+- **30 Sep 2026: response header buffers raised to 16k.** The session cookie
+  carries a user's procurement permissions, and with a role of 12 permissions the
+  `Set-Cookie` on `/api/auth/session` outgrew nginx's default 4k
+  `proxy_buffer_size`. nginx logged "upstream sent too big header", answered with
+  the maintenance JSON, and the sidebar lost the user's role (HR, Budgets, CRM and
+  Invoices vanished while the pages still opened). `proxy_buffer_size 16k`,
+  `proxy_buffers 8 16k`, `proxy_busy_buffers_size 32k` at server level. Write-up:
+  INC-006 in `docs/INCIDENTS.md`. The lasting fix is keeping the permission list
+  out of the cookie (ROADMAP).
 - **30 Sep 2026: catch-all for :443.** A scanner reached the app through the bare
   IP (`https://3.108.247.193/...`, 93 refused API calls in 14 seconds), because the
   site block was the default server for :443. A `default_server` block with

@@ -16,6 +16,52 @@ rotating `NEXTAUTH_SECRET` breaks).
 
 ---
 
+## INC-006: Sidebar lost HR, Budgets, CRM and Invoices: the session cookie outgrew nginx's header buffer (2026-09-30)
+
+**Impact.** An admin (and likely a second person) saw the sidebar without HR,
+Budgets, Invoices and CRM from about 28 Sep until 30 Sep 07:05 UTC. The pages
+themselves still opened by URL, which made it look like a permissions problem.
+Nobody else was affected. No data was touched.
+
+**Cause.** The session JWT carries each user's procurement permissions
+(`procurementPermissions`, added with custom roles). A role of 12 permissions
+made the encrypted cookie large enough that the `Set-Cookie` header on
+`GET /api/auth/session` exceeded nginx's default `proxy_buffer_size` (4k, one
+memory page). nginx logged `upstream sent too big header while reading response
+header from upstream` and, through `error_page 502 503 504`, answered with the
+maintenance JSON. The client's `useSession()` therefore had no session, so every
+role-gated sidebar entry hid itself. Page loads do not re-issue the cookie, which
+is why `/hr` opened.
+
+**How it was found.** Code, data and the HR flag all said "allowed", and a local
+reproduction with the same grants showed the entry. The decisive step was asking
+the user to open `/api/auth/session` in their browser: it returned
+`{"code":"MAINTENANCE"}`, which pointed at nginx, and the nginx error log named it.
+
+**Fix.** `proxy_buffer_size 16k; proxy_buffers 8 16k; proxy_busy_buffers_size 32k;`
+in the site server block (`deploy/nginx.conf`, applied on the box, reloaded;
+`npm run nginx:drift` identical). Session requests returned 200 immediately.
+
+**Recognise it next time.**
+- Symptom: a signed-in user's sidebar or header acts as if they have no role, but
+  pages open by direct URL; or any API call returns the maintenance JSON for one
+  user while `/api/health` is fine.
+- Check: `sudo grep "too big header" /var/log/nginx/error.log` on the box, and ask
+  the user to open `/api/auth/session`.
+- Anything that grows the JWT can trigger it: more permission keys or roles,
+  new claims, long names. The same applies to any large response header
+  (`Set-Cookie`, `Link`, CSP).
+
+**Action items.**
+- [x] Raise the nginx response header buffers to 16k (done 2026-09-30).
+- [ ] Keep the permission list out of the session cookie (a short version token or
+  role ids, resolved server side), so the cookie cannot grow with roles
+  (ROADMAP, "Session cookie size").
+- [ ] Log a warning when the session JWT passes a size threshold, so growth is
+  seen before nginx refuses it.
+
+---
+
 ## INC-002 — Production database wiped: a local `prisma migrate reset` hit the prod DB (2026-07-30)
 
 > **⚠️ Correction (2026-07-30, from the downloaded Supabase Postgres logs):** the
