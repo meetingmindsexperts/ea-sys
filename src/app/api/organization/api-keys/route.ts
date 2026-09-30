@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, denyNonOrgAdmin } from "@/lib/auth-guards";
 import { generateApiKey, hashApiKey, keyPrefix } from "@/lib/api-key";
 import { apiLogger } from "@/lib/logger";
 
@@ -18,9 +18,8 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "organization/api-keys:GET" });
     if (denied) return denied;
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only admins can manage API keys" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/api-keys:GET", message: "Only admins can manage API keys" });
+    if (notAdmin) return notAdmin;
 
     const keys = await db.apiKey.findMany({
       where: { organizationId: session.user.organizationId! },
@@ -53,9 +52,8 @@ export async function POST(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "organization/api-keys:POST" });
     if (denied) return denied;
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only admins can manage API keys" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/api-keys:POST", message: "Only admins can manage API keys" });
+    if (notAdmin) return notAdmin;
 
     const body = await req.json();
     const parsed = createKeySchema.safeParse(body);

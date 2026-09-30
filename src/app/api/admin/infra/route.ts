@@ -13,6 +13,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getInfraSnapshot, type InfraScope } from "@/lib/infra/aws-ops";
 import { canActAsPlatformOperator } from "@/lib/platform-operator";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 export async function GET(req: Request) {
   try {
@@ -20,11 +21,8 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const role = session.user.role;
-    if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
-      apiLogger.warn({ userId: session.user.id, role }, "infra:forbidden");
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "admin/infra:GET" });
+    if (notAdmin) return notAdmin;
 
     // Guard against a hammered refresh even though the snapshot is cached 60s.
     const { allowed, retryAfterSeconds } = checkRateLimit({
@@ -53,7 +51,7 @@ export async function GET(req: Request) {
     } else if (session.user.organizationId) {
       scope = { kind: "org", orgId: session.user.organizationId };
     } else {
-      apiLogger.warn({ userId: session.user.id, role }, "infra:admin-without-org");
+      apiLogger.warn({ userId: session.user.id, role: session.user.role }, "infra:admin-without-org");
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const snapshot = await getInfraSnapshot(force, scope);

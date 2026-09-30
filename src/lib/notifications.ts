@@ -5,6 +5,7 @@ import {
   isNotificationEnabled,
   type NotificationSettingKey,
 } from "@/lib/notification-settings";
+import { WRITE_ROLES } from "@/lib/team-roles";
 
 interface CreateNotificationParams {
   userId: string;
@@ -85,7 +86,7 @@ export async function notifyEventAdmins(
     const admins = await db.user.findMany({
       where: {
         organizationId: event.organizationId,
-        role: { in: ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] },
+        role: { in: [...WRITE_ROLES] },
       },
       select: { id: true },
     });

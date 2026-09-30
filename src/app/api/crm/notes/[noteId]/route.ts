@@ -4,14 +4,12 @@ import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateNote, deleteNote } from "@/crm/services/note-service";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 const updateNoteSchema = z.object({
   body: z.string().min(1).max(10000).optional(),
   activityType: z.enum(["NOTE", "CALL", "MEETING"]).optional(),
 });
-
-/** An admin may DELETE any note but may never REWRITE one — see note-service. */
-const ADMIN_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ noteId: string }> }) {
   const [{ error, ctx }, { noteId }] = await Promise.all([requireCrmWrite(req), params]);
@@ -30,7 +28,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
     noteId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    isAdmin: ADMIN_ROLES.has(ctx.role ?? "") || ctx.fromApiKey,
+    // An admin may DELETE any note but may never REWRITE one; note-service enforces which.
+    isAdmin: isOrgAdmin(ctx.role) || ctx.fromApiKey,
     source: ctx.fromApiKey ? "api" : "rest",
   });
 
@@ -49,7 +48,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ noteI
     noteId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
-    isAdmin: ADMIN_ROLES.has(ctx.role ?? "") || ctx.fromApiKey,
+    // An admin may DELETE any note but may never REWRITE one; note-service enforces which.
+    isAdmin: isOrgAdmin(ctx.role) || ctx.fromApiKey,
     source: ctx.fromApiKey ? "api" : "rest",
   });
 

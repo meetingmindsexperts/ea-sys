@@ -49,6 +49,7 @@ import { signOutCallbackUrl } from "@/lib/sign-out-target";
 import { isTeamRole } from "@/lib/team-roles";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { canWrite } from "@/lib/can-write";
 
 // ── Role metadata ─────────────────────────────────────────────────────────────
 
@@ -314,7 +315,7 @@ export function Header() {
 
       {/* ── Right: Notifications + Profile ────────────────────────────────── */}
       <div className="flex items-center gap-4">
-        {["SUPER_ADMIN", "ADMIN", "ORGANIZER"].includes(role) && (
+        {canWrite(role) && (
           <NotificationBell />
         )}
 

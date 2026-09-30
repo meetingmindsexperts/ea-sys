@@ -6,6 +6,7 @@ import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 /**
  * Sign someone out of every device, without locking them out.
@@ -53,7 +54,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if ("error" in org) return org.error;
 
     const isSelf = session.user.id === userId;
-    const isAdmin = session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN";
+    const isAdmin = isOrgAdmin(session.user.role);
     if (!isAdmin && !isSelf) {
       apiLogger.warn({
         msg: "revoke-sessions:forbidden",

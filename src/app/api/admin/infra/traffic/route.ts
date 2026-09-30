@@ -20,6 +20,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { canActAsPlatformOperator } from "@/lib/platform-operator";
 import { fetchNginxTraffic } from "@/lib/infra/nginx-traffic";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 export async function GET() {
   try {
@@ -27,11 +28,8 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const role = session.user.role;
-    if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
-      apiLogger.warn({ userId: session.user.id, role }, "infra-traffic:forbidden");
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "admin/infra/traffic:GET" });
+    if (notAdmin) return notAdmin;
 
     if (!canActAsPlatformOperator(session.user)) {
       // Not an error and not a 403: the card exists, this audience may not see

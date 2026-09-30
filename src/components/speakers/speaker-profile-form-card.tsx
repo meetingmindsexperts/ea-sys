@@ -31,8 +31,7 @@ import {
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { toast } from "sonner";
-
-const STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+import { canWrite } from "@/lib/can-write";
 
 interface Props {
   eventId: string;
@@ -49,7 +48,7 @@ interface FormRow {
 
 export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
   const { data: session } = useSession();
-  const allowed = STAFF_ROLES.has(session?.user?.role ?? "");
+  const allowed = canWrite(session?.user?.role);
 
   const [form, setForm] = useState<FormRow | null>(null);
   const [loading, setLoading] = useState(true);

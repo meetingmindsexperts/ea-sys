@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { createNotification } from "@/lib/notifications";
 import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup";
+import { ORG_ADMIN_ROLES } from "@/lib/team-roles";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
       db.user.findMany({
         where: {
           organizationId: user.organizationId,
-          role: { in: ["SUPER_ADMIN", "ADMIN"] },
+          role: { in: [...ORG_ADMIN_ROLES] },
           id: { not: user.id },
         },
         select: { id: true },

@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { canWrite } from "@/lib/can-write";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -32,8 +33,6 @@ async function probeStreamLive(mediamtxUrl: string, streamKey: string): Promise<
   return isLive;
 }
 
-const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
-
 // M3 (program/agenda review): the HLS playback URL embeds the streamKey, which
 // doubles as the RTMP PUBLISH credential on MediaMTX — so handing the URL to
 // anyone both bypassed the registration gate zoom-join enforces AND leaked a
@@ -50,7 +49,7 @@ async function isAuthorizedViewer(
   event: { id: string; organizationId: string },
 ): Promise<boolean> {
   if (!user) return false;
-  if (ORG_STAFF_ROLES.has(user.role ?? "") && user.organizationId === event.organizationId) {
+  if (canWrite(user.role) && user.organizationId === event.organizationId) {
     return true;
   }
   const cacheKey = `${user.id}:${event.id}`;

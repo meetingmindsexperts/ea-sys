@@ -23,12 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { canWrite } from "@/lib/can-write";
 
 /** Same population the route allows (denyReviewer with no allow-list). */
-const SURVEY_RESET_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
-
 export function canResetSurvey(role: string | null | undefined): boolean {
-  return !!role && SURVEY_RESET_ROLES.has(role);
+  return canWrite(role);
 }
 
 interface HeldCertificate {

@@ -34,6 +34,7 @@ import {
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
+import { canWrite } from "@/lib/can-write";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -411,8 +412,6 @@ export type SubmitAbstractReviewResult =
     }
   | { ok: false; code: SubmitAbstractReviewErrorCode; message: string };
 
-const ORG_ADMIN_ROLES = new Set(["ADMIN", "SUPER_ADMIN", "ORGANIZER"]);
-
 /**
  * Create or update one reviewer's submission for an abstract.
  *
@@ -487,7 +486,7 @@ export async function submitAbstractReview(
     const selfSubmitAdminBypass =
       !onBehalf &&
       !!actor.role &&
-      ORG_ADMIN_ROLES.has(actor.role) &&
+      canWrite(actor.role) &&
       !!actor.organizationId &&
       actor.organizationId === event.organizationId;
     if (!isPoolReviewer && !assignment && !selfSubmitAdminBypass) {

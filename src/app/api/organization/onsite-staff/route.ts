@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 
 /**
  * Org-level view that powers the Settings → Onsite Staff tab: every ONSITE
@@ -30,7 +31,7 @@ export async function GET() {
 
     const [users, events] = await Promise.all([
       db.user.findMany({
-        where: { organizationId: orgId, role: { in: ["ONSITE", "WEBINARS"] } },
+        where: { organizationId: orgId, role: { in: [...ONSITE_ACCOUNT_ROLES] } },
         select: { id: true, firstName: true, lastName: true, email: true, emailVerified: true, createdAt: true },
         orderBy: { createdAt: "desc" },
       }),

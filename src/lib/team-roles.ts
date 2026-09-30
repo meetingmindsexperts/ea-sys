@@ -29,3 +29,31 @@ export const TEAM_ROLES = [
 export function isTeamRole(role: string | null | undefined): boolean {
   return !!role && (TEAM_ROLES as readonly string[]).includes(role);
 }
+
+/**
+ * The two base role pairs every hand-written role check in the application
+ * turned out to be (CUSTOM_ROLES_PLAN Phase 0 step 9, Sep 30, 2026). Declared
+ * here, in the browser-safe module, so a component and a route read the same
+ * list; `auth-guards` re-exports them. Custom roles (Phase 1) replace these
+ * with permissions, and every caller is then one import to change rather than
+ * a string to find.
+ *
+ * WRITE_ROLES is the general-write allow-list behind `denyReviewer` (G1): the
+ * WHOLE comment on why it is an allow-list lives in auth-guards.ts.
+ */
+export const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
+
+/** Organisation administrators: users, API keys, integrations, org settings, infrastructure. */
+export const ORG_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
+
+/** True for SUPER_ADMIN and ADMIN. Fails closed on an unknown or missing role. */
+export function isOrgAdmin(role: string | null | undefined): boolean {
+  return !!role && (ORG_ADMIN_ROLES as readonly string[]).includes(role);
+}
+
+/**
+ * The temporary accounts the Settings → Onsite Staff tab creates and assigns:
+ * ONSITE (assignment-gated desk staff) and WEBINARS (kept accepted there since
+ * its Aug 10, 2026 widening made the assignment redundant but harmless).
+ */
+export const ONSITE_ACCOUNT_ROLES = ["ONSITE", "WEBINARS"] as const;

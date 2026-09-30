@@ -54,6 +54,7 @@ import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 interface Contact {
   id: string;
@@ -93,7 +94,7 @@ type TagMode = "add" | "remove" | "replace";
 
 export default function ContactsPage() {
   const { data: userSession } = useSession();
-  const isAdmin = userSession?.user?.role === "SUPER_ADMIN" || userSession?.user?.role === "ADMIN";
+  const isAdmin = isOrgAdmin(userSession?.user?.role);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);

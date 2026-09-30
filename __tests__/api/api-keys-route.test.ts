@@ -34,7 +34,9 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-vi.mock("@/lib/auth-guards", () => ({
+// The REAL denyNonOrgAdmin (Phase 0 step 9): the admin gate is what these tests pin.
+vi.mock("@/lib/auth-guards", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/auth-guards")>("@/lib/auth-guards")),
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
     if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {

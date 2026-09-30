@@ -8,10 +8,9 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
 import {readWebinarSettings} from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
+import { canWrite } from "@/lib/can-write";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
-
-const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 /**
  * Public session detail — the program page's data source.
@@ -79,7 +78,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // same 404 as a nonexistent event — no existence leak.
     const isOrgStaff =
       !!authSession?.user &&
-      ORG_STAFF_ROLES.has(authSession.user.role ?? "") &&
+      canWrite(authSession.user.role) &&
       authSession.user.organizationId === event.organizationId;
 
     if (event.status === "DRAFT" && !isOrgStaff) {

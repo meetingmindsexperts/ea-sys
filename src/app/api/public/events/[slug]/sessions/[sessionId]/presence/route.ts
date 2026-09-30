@@ -6,10 +6,9 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { canWrite } from "@/lib/can-write";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
-
-const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 const presenceSchema = z.object({ phase: z.enum(["lobby", "joined"]) });
 
@@ -68,7 +67,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Org staff (host/QA testing) have no registration → don't pollute the
     // live roster or set webinarFirstJoinedAt.
     const isOrgStaff =
-      ORG_STAFF_ROLES.has(authSession.user.role ?? "") &&
+      canWrite(authSession.user.role) &&
       authSession.user.organizationId === event.organizationId;
     if (isOrgStaff) {
       return NextResponse.json({ ok: true, tracked: false });

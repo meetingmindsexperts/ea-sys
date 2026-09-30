@@ -12,6 +12,8 @@ const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: mockWarn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { isOrgAdmin } from "@/lib/team-roles";
+import { canWrite } from "@/lib/can-write";
 
 const IS_ORG_ADMIN: Record<UserRole, boolean> = {
   SUPER_ADMIN: true,
@@ -57,5 +59,26 @@ describe("denyNonOrgAdmin", () => {
     mockWarn.mockClear();
     denyNonOrgAdmin({ user: { id: "u2", role: "ADMIN" } }, { route: "x" });
     expect(mockWarn).not.toHaveBeenCalled();
+  });
+});
+
+describe("isOrgAdmin and canWrite, the browser-safe halves (Phase 0 step 9)", () => {
+  const WRITES: Record<string, boolean> = { SUPER_ADMIN: true, ADMIN: true, ORGANIZER: true };
+
+  it.each(Object.values(UserRole))("%s", (role) => {
+    expect(isOrgAdmin(role)).toBe(IS_ORG_ADMIN[role]);
+    expect(canWrite(role)).toBe(WRITES[role] === true);
+  });
+
+  it("fail closed on missing or unknown roles", () => {
+    for (const r of [null, undefined, "", "CUSTOM", "admin"]) {
+      expect(isOrgAdmin(r)).toBe(false);
+      expect(canWrite(r)).toBe(false);
+    }
+  });
+
+  it("denyNonOrgAdmin keeps a route's own wording when given", async () => {
+    const res = denyNonOrgAdmin({ user: { id: "u", role: "MEMBER" } }, { route: "t", message: "Only admins can manage API keys" });
+    expect(await res?.json()).toEqual({ error: "Only admins can manage API keys" });
   });
 });

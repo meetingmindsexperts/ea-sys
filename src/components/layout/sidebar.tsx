@@ -70,6 +70,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 // Surface the CRM entry in the normal staff sidebar (for roles with `canCrm`).
 // Flip to `false` to hide it again (a one-line reversal). A dedicated CRM_USER
@@ -319,7 +320,7 @@ export function Sidebar() {
   );
   const eventsOnlyNavigation = navigation.filter((item) => ["Events"].includes(item.name));
 
-  const isAdmin = session?.user?.role === "ADMIN" || isSuperAdmin;
+  const isAdmin = isOrgAdmin(session?.user?.role);
 
   // CRM_USER is confined to the CRM — the sidebar shows only that entry.
   const crmOnlyNavigation = navigation.filter((item) => ["CRM"].includes(item.name));

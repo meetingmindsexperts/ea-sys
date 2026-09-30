@@ -10,6 +10,7 @@ import {
   submitAbstractReview,
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
+import { canWrite } from "@/lib/can-write";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -79,9 +80,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
     const isOrgMember = event.organizationId === session.user.organizationId;
-    const isOrgStaff =
-      isOrgMember &&
-      (session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN" || session.user.role === "ORGANIZER");
+    const isOrgStaff = isOrgMember && canWrite(session.user.role);
     const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
     if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

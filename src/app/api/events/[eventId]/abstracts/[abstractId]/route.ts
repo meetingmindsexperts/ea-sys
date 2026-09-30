@@ -29,6 +29,7 @@ import {
   isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
   isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
 } from "@/lib/abstract-theme-requirement";
+import { canWrite } from "@/lib/can-write";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -179,8 +180,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    const isAdmin =
-      session.user.role === "SUPER_ADMIN" || session.user.role === "ADMIN" || session.user.role === "ORGANIZER";
+    const isAdmin = canWrite(session.user.role);
     const isReviewer = session.user.role === "REVIEWER";
     const canReview = isAdmin || isReviewer;
     const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];

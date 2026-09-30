@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, denyNonOrgAdmin } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -23,9 +23,8 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session, { route: "organization/oauth-clients:GET" });
     if (denied) return denied;
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Only admins can view OAuth clients" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/oauth-clients:GET", message: "Only admins can view OAuth clients" });
+    if (notAdmin) return notAdmin;
 
     const organizationId = session.user.organizationId!;
 

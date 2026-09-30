@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { canWrite } from "@/lib/can-write";
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -99,7 +100,7 @@ export default function RegisterOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
-  const isAuthorized = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "ORGANIZER";
+  const isAuthorized = canWrite(session?.user?.role);
 
   useEffect(() => {
     async function fetchEvent() {

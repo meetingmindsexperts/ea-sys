@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -88,9 +89,8 @@ export async function PUT(req: Request) {
     }
 
     // Only admins can update organization settings
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization:PUT" });
+    if (notAdmin) return notAdmin;
 
     const body = await req.json();
     const validated = updateOrganizationSchema.safeParse(body);

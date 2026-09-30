@@ -6,13 +6,14 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
-import { isTeamRole } from "@/lib/team-roles";
+import { isTeamRole, isOrgAdmin } from "@/lib/team-roles";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readUserPermissions } from "@/lib/permissions/permission-set-service";
 import { separationConflicts } from "@/lib/permissions/separation";
+import { canWrite } from "@/lib/can-write";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -120,7 +121,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Only admins can update users (except self)
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN" && session.user.id !== userId) {
+    if (!isOrgAdmin(session.user.role) && session.user.id !== userId) {
+      apiLogger.warn({ msg: "organization/users:update-not-allowed", callerRole: session.user.role, userId: session.user.id, targetUserId: userId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -179,7 +181,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Regular users can only update their own name, not role
-    if (session.user.id === userId && validated.data.role && session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+    if (session.user.id === userId && validated.data.role && !isOrgAdmin(session.user.role)) {
+      apiLogger.warn({ msg: "organization/users:own-role-change-refused", callerRole: session.user.role, userId: session.user.id });
       return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
     }
 
@@ -187,7 +190,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // yourself out is not a mistake worth allowing, and the DELETE handler
     // already refuses self-deletion for the same reason.
     if (validated.data.deactivated !== undefined) {
-      if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+      if (!isOrgAdmin(session.user.role)) {
         apiLogger.warn({
           msg: "organization/users:deactivate-not-allowed",
           callerRole: session.user.role,
@@ -555,7 +558,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // delete ONSITE (registration-desk temp) accounts — enforced on the
     // fetched target below, so an organizer can't remove admins or peers.
     const callerRole = session.user.role;
-    if (callerRole !== "ADMIN" && callerRole !== "SUPER_ADMIN" && callerRole !== "ORGANIZER") {
+    if (!canWrite(callerRole)) {
+      apiLogger.warn({ msg: "organization/users:delete-not-allowed", callerRole, userId: session.user.id, targetUserId: userId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

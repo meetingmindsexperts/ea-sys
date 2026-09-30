@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: custom roles Phase 0 complete (September 30)
+
+- A claude.ai connection now ends when the person's access ends. Deactivating
+  someone, "Sign out everywhere" and a password reset revoke their OAuth
+  grants, and the MCP endpoint refuses a deactivated grantee on every request.
+  Before this the grant was a database row that never consulted the account.
+- One shared admin check, `denyNonOrgAdmin`, replaces the SUPER_ADMIN/ADMIN
+  line that was copied into the organisation settings routes (AI, Stripe,
+  Zoom, EventsAir keys, API keys, OAuth clients, organisation PUT, the
+  infrastructure page and the user editor). Same answer for every role;
+  every refusal now reaches /logs as `auth-guard:org-admin-denied` with the
+  route (the two infrastructure routes' own log names are retired).
+- Integrations using an API key may filter registrations by sponsor, which the
+  list already returned to them unredacted.
+- Role membership is decided by named predicates only: `WRITE_ROLES` and
+  `ORG_ADMIN_ROLES` (with `isOrgAdmin`) live in the browser-safe
+  `team-roles.ts`; about 45 hand-written role lists moved onto `canWrite`,
+  `isOrgAdmin` or `denyNonOrgAdmin`, and `no-inline-role-lists.test.ts`
+  fails on a new one. Plan: `docs/CUSTOM_ROLES_PLAN.md` §6 Phase 0.
+
 ### Changed: a slimmer session cookie, and the org logo no longer goes missing after sign-in (September 30)
 
 - The session no longer carries the organisation's logo and colour: nothing read

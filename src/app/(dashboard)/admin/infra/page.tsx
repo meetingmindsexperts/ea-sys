@@ -23,6 +23,7 @@ import type { UploadsStorage, DrArtifact } from "@/lib/infra/aws-ops";
 import { describeDrStaleness } from "@/lib/infra/dr-staleness";
 import { UploadsStorageBody } from "@/components/infra/uploads-storage-body";
 import { ago, fmtTime, num } from "@/components/infra/format";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 interface Snapshot {
   scope: "platform" | "org";
@@ -188,7 +189,7 @@ function StatusNote({ status, error, unconfiguredHint }: { status: string; error
 export default function InfraPage() {
   const { data: session } = useSession();
   const role = session?.user?.role;
-  const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
+  const isAdmin = isOrgAdmin(role);
 
   // A tenant's ADMIN reaches this page too, and sees a different thing: their
   // own service health, not our infrastructure. The snapshot says which it is,

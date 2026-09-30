@@ -5,10 +5,9 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { canWrite } from "@/lib/can-write";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
-
-const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
 
 /**
  * Registration-gated access to a session's cloud recording.
@@ -64,7 +63,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Same authorization as the live join: org staff (QA / host testing) OR a
     // non-cancelled registration for this event.
     const isOrgStaff =
-      ORG_STAFF_ROLES.has(authSession.user.role ?? "") &&
+      canWrite(authSession.user.role) &&
       authSession.user.organizationId === event.organizationId;
 
     if (!isOrgStaff) {

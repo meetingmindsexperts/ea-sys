@@ -6,8 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, FileSignature, CheckCircle2, Send } from "lucide-react";
 import { toast } from "sonner";
-
-const MANAGER_ROLES = new Set(["ADMIN", "SUPER_ADMIN", "ORGANIZER"]);
+import { canWrite } from "@/lib/can-write";
 
 /**
  * Sidebar card on the abstract edit page for the Presenter Agreement (the
@@ -34,7 +33,7 @@ export function PresenterAgreementCard({
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState<string | null>(null);
 
-  if (!MANAGER_ROLES.has(session?.user?.role ?? "")) return null;
+  if (!canWrite(session?.user?.role)) return null;
 
   const send = async () => {
     if (sending) return;

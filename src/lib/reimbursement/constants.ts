@@ -14,6 +14,7 @@
  */
 
 import { z } from "zod";
+import { canWrite } from "@/lib/can-write";
 
 // ── Currencies (owner decision: match the paper form exactly) ─────────
 
@@ -141,7 +142,7 @@ export const ROLE_AT_EVENT_OPTIONS = [
  * predicate exists for UI gating and as the named statement of the boundary.
  */
 export function canManageReimbursements(role: string | null | undefined): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "ORGANIZER";
+  return canWrite(role);
 }
 
 // ── Validation (shared client + server) ───────────────────────────────

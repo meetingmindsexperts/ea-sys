@@ -98,6 +98,8 @@ import {
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { isOrgAdmin } from "@/lib/team-roles";
+import { canWrite } from "@/lib/can-write";
 
 interface Organization {
   id: string;
@@ -211,13 +213,13 @@ export default function SettingsPage() {
     password: "",
   });
 
-  const isAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "SUPER_ADMIN";
+  const isAdmin = isOrgAdmin(session?.user?.role);
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   // Organizers can see Onsite Staff (view + event assignment) and Billing
   // (payer book + read-only org billing details) — matches the API layer,
   // where denyReviewer/denyFinance already admit ORGANIZER. Account
   // create/delete and org-settings writes stay ADMIN-only.
-  const isOrganizerOrAbove = isAdmin || session?.user?.role === "ORGANIZER";
+  const isOrganizerOrAbove = canWrite(session?.user?.role);
 
   useEffect(() => {
     fetchOrganization();

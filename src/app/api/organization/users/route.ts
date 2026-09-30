@@ -12,6 +12,7 @@ import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/securi
 import { TEAM_ROLES, isTeamRole, ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isInternalEmail } from "@/lib/internal-domains";
 import { UserRole } from "@prisma/client";
+import { canWrite } from "@/lib/can-write";
 
 /** Human label for a team role (used in invite emails + promote messages). */
 const ROLE_LABELS: Record<string, string> = {
@@ -115,7 +116,8 @@ export async function POST(req: Request) {
     // create ONSITE (registration-desk temp) accounts — enforced on the parsed
     // role below, so an organizer can't invite admins/organizers.
     const callerRole = session.user.role;
-    if (callerRole !== "ADMIN" && callerRole !== "SUPER_ADMIN" && callerRole !== "ORGANIZER") {
+    if (!canWrite(callerRole)) {
+      apiLogger.warn({ msg: "organization/users:invite-not-allowed", callerRole, userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

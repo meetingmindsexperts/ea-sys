@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
+import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 
 /**
  * Per-event ONSITE (registration-desk) staff assignment.
@@ -90,7 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { id: true },
       }),
       db.user.findFirst({
-        where: { id: userId, organizationId: orgGuard.orgId, role: { in: ["ONSITE", "WEBINARS"] } },
+        where: { id: userId, organizationId: orgGuard.orgId, role: { in: [...ONSITE_ACCOUNT_ROLES] } },
         select: { id: true },
       }),
     ]);

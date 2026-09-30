@@ -8,6 +8,7 @@ import { canViewHr, HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
 import { canViewProcurement, PROCUREMENT_AUDIT_ENTITY_TYPES } from "@/lib/procurement-visibility";
 import { describeProcurementActivity, type DescribeContext } from "@/lib/procurement-activity";
 import type { Prisma } from "@prisma/client";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 /**
  * THREE SCOPES OVER ONE TABLE (HR split Sep 3, 2026; procurement split Sep 15).
@@ -259,10 +260,8 @@ export async function GET(req: Request) {
     }
 
     // Only SUPER_ADMIN and ADMIN can view global activity
-    const allowedRoles = ["SUPER_ADMIN", "ADMIN"];
-    if (!allowedRoles.includes(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "activity:GET" });
+    if (notAdmin) return notAdmin;
 
     const url = new URL(req.url);
 

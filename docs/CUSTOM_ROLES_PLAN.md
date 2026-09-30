@@ -420,6 +420,25 @@ Closes G1 to G9 without introducing permissions.
 8. G9: let API keys use the sponsor filter (they already receive the field).
 9. Collapse the identical role sets (§2.2 item 3) into named predicates and
    move the 20+ inline role lists onto them.
+   **DONE Sep 30, 2026.** The two base pairs, `WRITE_ROLES` and
+   `ORG_ADMIN_ROLES` with `isOrgAdmin`, live in the browser-safe
+   `team-roles.ts` (`auth-guards` re-exports them); `canWrite` reads
+   `WRITE_ROLES`. About 45 inline copies moved onto `canWrite`, `isOrgAdmin`
+   or `denyNonOrgAdmin`, including 13 refusals that never logged (API keys x3,
+   OAuth clients, organisation PUT, the user editor x2, invite, delete user,
+   activity, event activity, and the MCP consent page and decision), the
+   `["ONSITE", "WEBINARS"]` pair (`ONSITE_ACCOUNT_ROLES`) and the recipient
+   queries. The two infrastructure routes already logged; their log names
+   changed to `auth-guard:org-admin-denied` with a `route` field. The
+   `*-visibility` sets stay as they are: each is a named predicate that becomes
+   its own permission in Phase 1. `no-inline-role-lists.test.ts` scans `src/`
+   and `worker/` for the forms it can recognise (an array of two or more STAFF
+   role names, two comparisons on one variable, a comparison joined to an
+   `is…Admin` helper, consecutive `case` labels, all across line breaks) and
+   passes a hit only on a `const` definition in the named-predicate files.
+   A role name held in a variable and compared later is outside what it sees.
+   Outside-user roles (REVIEWER, SUBMITTER, REGISTRANT) route portals and are
+   not scanned.
 
 **Proof:** the existing ~30 role test files pass unchanged, plus one new test
 per step. **Rollback:** revert the commit; no data changes.

@@ -76,6 +76,7 @@ import {
   abstractStatusLabel,
 } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -135,7 +136,7 @@ export default function AbstractsPage() {
   const isSubmitter  = session?.user?.role === "SUBMITTER";
   const isReviewer   = session?.user?.role === "REVIEWER";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
-  const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
+  const isAdmin      = isOrgAdmin(session?.user?.role);
   const isOrganizer  = session?.user?.role === "ORGANIZER";
   // Organizers manage abstracts with the same powers as admins — edit,
   // approve/reject, change presentation type, assign reviewers, force-status.

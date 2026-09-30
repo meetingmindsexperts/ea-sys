@@ -6,6 +6,7 @@ import { canViewHr } from "@/lib/hr-visibility";
 import { canViewProcurement } from "@/lib/procurement-visibility";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { ActivityTabs } from "./activity-tabs";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 /** "Every change made across your events, with budgets and HR changes on their own tabs, and who has been signing in." */
 function describePage(tabs: string[]): string {
@@ -21,8 +22,7 @@ export default async function ActivityPage() {
     redirect("/login");
   }
 
-  const allowedRoles = ["SUPER_ADMIN", "ADMIN"];
-  if (!allowedRoles.includes(session.user.role)) {
+  if (!isOrgAdmin(session.user.role)) {
     redirect("/dashboard");
   }
 

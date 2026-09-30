@@ -87,6 +87,7 @@ export type TravelGrantSubmit = z.infer<typeof travelGrantSubmitSchema>;
 // exactly the cross-caller duplication this repo forbids.
 
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
+import { canWrite } from "@/lib/can-write";
 
 export type TravelGrantStatusValue = "PENDING" | "CONSENTED" | "DECLINED";
 
@@ -150,10 +151,8 @@ export function isOrganizerDecided(decidedBy: string | null | undefined): boolea
  * staff: this is a list of who has asked to have their travel paid for, which
  * is a financial-adjacent decision list rather than an operational one.
  */
-const TRAVEL_GRANT_MANAGE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
-
 export function canManageTravelGrants(role: string | null | undefined): boolean {
-  return !!role && TRAVEL_GRANT_MANAGE_ROLES.has(role);
+  return canWrite(role);
 }
 
 /** The author's personal consent URL. One template, two callers. */

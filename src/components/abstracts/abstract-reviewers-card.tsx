@@ -45,6 +45,7 @@ import {
   type AbstractReviewerRow,
 } from "@/hooks/use-api";
 import { ABSTRACT_REVIEWER_ROLE_OPTIONS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { canWrite } from "@/lib/can-write";
 
 interface PoolReviewer {
   userId: string | null;
@@ -60,13 +61,6 @@ interface Entry {
   assignment: AbstractReviewerRow | null;
 }
 
-// Must stay in lockstep with the guards on
-// `GET|POST|DELETE /api/events/[eventId]/abstracts/[abstractId]/reviewers`,
-// which admit exactly the roles `denyReviewer` does not restrict AND that carry
-// an organizationId. Widening this set without widening the route's guards
-// produces a visible card whose every request 403s.
-const ADMIN_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
-
 export function AbstractReviewersCard({
   eventId,
   abstractId,
@@ -75,7 +69,10 @@ export function AbstractReviewersCard({
   abstractId: string;
 }) {
   const { data: session } = useSession();
-  const isAdmin = ADMIN_ROLES.has(session?.user?.role ?? "");
+  // `canWrite` is WRITE_ROLES, the same list `denyReviewer` admits on
+  // `GET|POST|DELETE .../abstracts/[abstractId]/reviewers`, so the card and the
+  // route cannot drift apart (they were two copies until Sep 30, 2026).
+  const isAdmin = canWrite(session?.user?.role);
 
   // Gated on the role, not just on the ids: this card renders inside the
   // abstract edit page, which submitters and reviewers legitimately open, and

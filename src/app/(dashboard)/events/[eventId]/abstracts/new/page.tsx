@@ -38,6 +38,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
 import { enabledPresentationTypeOptions } from "../abstract-enums";
+import { isOrgAdmin } from "@/lib/team-roles";
 
 interface Speaker {
   id: string;
@@ -67,7 +68,7 @@ export default function NewAbstractPage() {
   const { data: session } = useSession();
 
   const isSubmitter = session?.user?.role === "SUBMITTER";
-  const isAdmin = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN";
+  const isAdmin = isOrgAdmin(session?.user?.role);
 
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);

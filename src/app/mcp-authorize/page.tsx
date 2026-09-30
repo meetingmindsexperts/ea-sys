@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getClient } from "@/lib/mcp-oauth";
 import { describeRedirectTarget } from "@/lib/mcp-client-trust";
 import { apiLogger } from "@/lib/logger";
+import { canWrite } from "@/lib/can-write";
 
 /**
  * OAuth 2.1 authorization endpoint — rendered as a Next.js page (server
@@ -112,7 +113,8 @@ export default async function McpAuthorizePage({ searchParams }: PageProps) {
 
   // ── RBAC: only ADMIN / SUPER_ADMIN / ORGANIZER can grant MCP access ─
   const role = session.user.role;
-  if (role !== "ADMIN" && role !== "SUPER_ADMIN" && role !== "ORGANIZER") {
+  if (!canWrite(role)) {
+    apiLogger.warn({ msg: "mcp-oauth:consent-role-refused", role, userId: session.user.id, clientId });
     return errorPage(
       "Access denied",
       "Only organization admins and organizers can grant MCP access. Your role does not have permission to approve this request.",

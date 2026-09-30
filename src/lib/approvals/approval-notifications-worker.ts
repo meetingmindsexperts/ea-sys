@@ -43,6 +43,7 @@ import { DEFAULT_STEP_DUE_HOURS, loadApprovalChain, requiresFinalApprover } from
 import { NOTIFY_WINDOW_DAYS, hoursBetween, pickDelegate, pickNextTier, planStepAction, type ApproverHolder, type StepAction } from "./escalation-rules";
 import { chainKindFor, readChainSnapshot, standInAt, type ChainKind, type ChainSnapshot } from "./approval-chain";
 import { buildApprovalEmail, subjectWordFor, type ApprovalEmailInput, type ApprovalEmailKind } from "./approval-emails";
+import { ORG_ADMIN_ROLES } from "@/lib/team-roles";
 
 /** Never read an unbounded queue in one tick; a backlog drains over several. */
 export const SCAN_CAP = 500;
@@ -192,7 +193,7 @@ async function processOrg(orgId: string, steps: PendingStepRow[], decided: Decid
   const grantAdmins = async (): Promise<string[]> => {
     if (adminIds) return adminIds;
     const rows = await db.user.findMany({
-      where: { organizationId: orgId, deactivatedAt: null, role: { in: ["SUPER_ADMIN", "ADMIN"] } },
+      where: { organizationId: orgId, deactivatedAt: null, role: { in: [...ORG_ADMIN_ROLES] } },
       select: { id: true, firstName: true, lastName: true, email: true, deactivatedAt: true, role: true },
     });
     for (const row of rows) people.set(row.id, row);

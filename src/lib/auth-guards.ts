@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { TEAM_ROLES } from "@/lib/team-roles";
+import { ORG_ADMIN_ROLES, TEAM_ROLES, WRITE_ROLES } from "@/lib/team-roles";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { apiLogger } from "@/lib/logger";
 
@@ -27,7 +27,7 @@ import { apiLogger } from "@/lib/logger";
  * `ctx.role === null`), and a key is org admin-equivalent. MEMBER cannot mint
  * one, so this is not a hole.
  */
-export const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
+export { WRITE_ROLES } from "@/lib/team-roles";
 
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
@@ -226,11 +226,7 @@ export function denyFinance(
   return null;
 }
 
-/**
- * Organisation administrators: the people who hold the org's integration
- * credentials (AI, Stripe, Zoom, EventsAir) and test those connections.
- */
-export const ORG_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
+export { ORG_ADMIN_ROLES, isOrgAdmin } from "@/lib/team-roles";
 
 /**
  * 403 unless the caller is an organisation administrator (G7,
@@ -246,7 +242,8 @@ export const ORG_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
  */
 export function denyNonOrgAdmin(
   session: { user?: { id?: string; role?: string } } | null,
-  ctx: { route: string },
+  /** `message` keeps a route's own wording where a screen shows it ("Only admins can manage API keys"). */
+  ctx: { route: string; message?: string },
 ) {
   const role = session?.user?.role;
   if (role && (ORG_ADMIN_ROLES as readonly string[]).includes(role)) return null;
@@ -256,5 +253,5 @@ export function denyNonOrgAdmin(
     userId: session?.user?.id ?? null,
     route: ctx.route,
   });
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  return NextResponse.json({ error: ctx.message ?? "Forbidden" }, { status: 403 });
 }

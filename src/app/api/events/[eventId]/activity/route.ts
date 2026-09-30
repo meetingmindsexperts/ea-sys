@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { runWithTenant } from "@/lib/tenant-context";
+import { canWrite } from "@/lib/can-write";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -18,8 +19,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Activity feed is internal-only (SUPER_ADMIN, ADMIN, ORGANIZER)
-    const internalRoles = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"];
-    if (!internalRoles.includes(session.user.role)) {
+    if (!canWrite(session.user.role)) {
+      apiLogger.warn({ msg: "events/activity:forbidden", role: session.user.role, userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
