@@ -16,8 +16,8 @@ export default function AuthLayout({
             src="/mmg-logo.png"
             alt="Meeting Minds Group"
             width={140}
-            height={50}
-            className="object-contain"
+            height={97}
+            className="h-auto w-[140px] object-contain"
             priority
           />
         </div>
@@ -38,8 +38,8 @@ export default function AuthLayout({
               src="/mmg-logo.png"
               alt="Meeting Minds Group"
               width={140}
-              height={50}
-              className="object-contain"
+              height={97}
+              className="h-auto w-[140px] object-contain"
             />
           </div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60 mb-3">
