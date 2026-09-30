@@ -109,23 +109,28 @@ function splitCSVLines(text: string): string[] {
   return logicalLines;
 }
 
-/** Parse a full CSV text into headers + rows, with validation */
-export function parseCSV(text: string): {
+/**
+ * Parse a full CSV text into headers + rows, with validation. `maxRows`
+ * raises the ceiling for one importer that needs it (the ProcurementExpress
+ * history loader); every other caller keeps CSV_MAX_ROWS.
+ */
+export function parseCSV(text: string, opts: { maxRows?: number } = {}): {
   headers: string[];
   rows: string[][];
   error?: string;
 } {
   const lines = splitCSVLines(text);
+  const maxRows = opts.maxRows ?? MAX_ROWS;
 
   if (lines.length < 2) {
     return { headers: [], rows: [], error: "CSV must have a header row and at least one data row" };
   }
 
-  if (lines.length - 1 > MAX_ROWS) {
+  if (lines.length - 1 > maxRows) {
     return {
       headers: [],
       rows: [],
-      error: `CSV exceeds maximum of ${MAX_ROWS} rows. Please split into smaller files.`,
+      error: `CSV exceeds maximum of ${maxRows} rows. Please split into smaller files.`,
     };
   }
 

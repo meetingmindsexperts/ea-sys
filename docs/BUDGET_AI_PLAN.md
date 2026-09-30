@@ -11,6 +11,19 @@ an amount.
 a new event's budget from what similar past events cost, with the source of every figure shown. The draft is
 an ordinary budget draft and still goes to the budget approver.
 
+**Sep 30, 2026, owner ruling: the QuickBooks P&L is confidential.** It will not necessarily be shared, so the
+plan no longer depends on it. Finance may instead give a small **per-event actuals summary** (category and
+amount, one event per file, nothing company-wide); without it, every comparison and draft runs on **planned
+and committed** evidence, labelled as such. See section 2 and the stage 3 gate.
+
+**Sep 30, 2026, owner: the ProcurementExpress line-level export is the baseline.** Finance supplied a real
+export (641 lines, Jan 1 to Jul 28, 2025). It carries an account code on almost every line and PX's own
+payment record, so it gives **paid** evidence for PO spend without the P&L. Its confirmed shape and the
+import rules it forces are section 2a; the per-event actuals summary drops to a fallback.
+**Built the same day:** the reader and planner for that file, pure functions with no database and no UI
+(`src/procurement/lib/px-import.ts`, tests in `__tests__/procurement/px-import.test.ts` on invented rows).
+Storage, the upload page and the comparison wait for the full export and the budget sheets.
+
 It is the build plan's Phase 4 archive loader and Phase 6 benchmarks
 ([BUDGET_PROCUREMENT_BUILD_PLAN.md](BUDGET_PROCUREMENT_BUILD_PLAN.md) sections 8 and 9), staged and joined.
 
@@ -23,7 +36,7 @@ It is the build plan's Phase 4 archive loader and Phase 6 benchmarks
 | **0** | Real sample files and written definitions | none | owner and finance |
 | **1** | Load past budgets into a versioned archive; compare events | none | stage 0 done |
 | **2** | A draft budget calculated by code, created in one step | none | stage 1 checked against finance's own spreadsheet on 3+ events |
-| **3** | AI: sort unmatched lines into categories; write the comparison summary | narrow | enough history with real spend (at least 5 events per event type); the AI data agreement in place |
+| **3** | AI: sort unmatched lines into categories; write the comparison summary | narrow | at least 5 events per event type with **committed, paid or actual** spend; the AI data agreement in place |
 
 Each stage is useful alone, and each is a stopping point. Stage 1 answers "what increased, what improved,
 what regressed between budgets" without any AI.
@@ -32,17 +45,106 @@ what regressed between budgets" without any AI.
 
 ## 2. Stage 0: before any code (hard gate)
 
-1. **Two real files per source system** from finance: ProcurementExpress export, QuickBooks P&L by Class,
-   and the Excel sheets used today. The importer is designed against these files, not against guesses.
+1. **Two real files per source system** from finance: the ProcurementExpress export and the Excel budget
+   sheets used today. The importer is designed against these files, not against guesses.
+   **Status Sep 30:** ProcurementExpress RECEIVED (section 2a). Still needed: the same line-level report
+   **with no date filter** (every event complete, and the archive copy before the PX subscription ends),
+   and two of the Excel budget sheets, which are the only source of *planned* figures.
+   **Not requested: the QuickBooks P&L** (owner, Sep 30, 2026: confidential; it shows margins across every
+   event). **Optional instead:** a per-event actuals summary, one event per file, two columns (budget
+   category, amount paid ex-VAT), which finance fills and shares event by event at its discretion. Nothing
+   company-wide, no margins, no other events. An event without one simply has no *actual* evidence.
 2. **Written definitions**, agreed with finance:
    - **Attendance** means checked-in delegates excluding faculty: the figure EA-SYS already records at
      close-out (`recordedAttendance`, budget-service.ts). Every past event's attendance is captured with its
      basis (checked-in, registered, badges), and only checked-in figures are used for per-head numbers.
    - **VAT:** the module is ex-VAT. Each file states whether its amounts include VAT and at what rate
      (UAE 5%, KSA 15%); code converts to ex-VAT.
-   - **Evidence types:** *planned* (what was budgeted), *committed* (orders raised), *actual* (what was
-     paid, from accounting). Every number shown says which one it is.
+   - **Evidence types:** *planned* (what was budgeted, from the Excel sheets), *committed* (orders
+     raised and approved), *paid* (what ProcurementExpress records as paid against an order), *actual*
+     (only from a per-event actuals summary finance chose to share). Every number shown says which one it
+     is. *Paid* is shown as "paid per ProcurementExpress", never as "actual": it covers PO spend only
+     (no payroll, no card spend outside PX) and its payment records are not always reliable (2a.3).
 3. **Who loads history:** admins, super admins and the settle holder (see section 6).
+
+---
+
+## 2a. The ProcurementExpress export (received Sep 30, 2026)
+
+### 2a.1 Which report
+
+Two reports came. **The line-level one is the source** (`Purchase-Order-ID` + `Purchase-Order-Line#`, one row
+per order line). The order-level one (one row per PO, long `Notes` history) adds nothing the line file
+lacks and is not imported.
+
+Columns used, and what for:
+
+| Column | Use |
+|---|---|
+| `Purchase-Order-ID`, `Purchase-Order-Line#`, `PO-Number` | line identity; re-importing the same line updates it, never duplicates it |
+| `Date` | order date, and the event's year when the Budget name carries none |
+| `Status` | which lines count (2a.2) |
+| `Budget` | the event. Occasionally two names, comma-separated, on one line |
+| `Item-Number-SKU` | account code prefix (`510203 Speaker Air Ticket`), mapped by the existing `accountGroupCode` rule |
+| `Description`, `Supplier` | shown in the preview; used for mapping when the SKU is empty |
+| `Quantity`, `Unit-Price-in-PO-ccy`, `PO-Currency`, `Tax%` | kept per line for the line mix (stage 2, 4.2 step 6) |
+| `AED-Net-Amount` | **the amount**: AED, ex-VAT, already converted by PX. The rate is derived per line (AED net / net in PO currency) and stored |
+| `Total-Paid-Amount`, `Remaining Amount`, `Payment-Date` | *paid* evidence |
+| `QuickBooks Class` | cross-check only; never the event key (2a.3) |
+
+Columns dropped at parse, never stored: `Notes`, `Narration`, `Submitter`, `Approvers`, `Cost-Code`,
+`Cost-Type`, `Department`, `Fulfillment-Date`, `Received-Quantity`, `Archived`, `Vat 5%`, `Class`.
+
+### 2a.2 Import rules the file forces
+
+1. **Status:** only `approved` and `paid` lines count (case-insensitive: the file has both `paid` and
+   `Paid`). `pending`, `draft`, `cancelled` and `rejected` are dropped and counted in the preview
+   (in this file: 42 pending, 60 cancelled, 16 rejected, 1 draft of 641).
+2. **Cancel and revise:** PX handles a change by cancelling the order and raising a new one, so the same
+   purchase appears twice. Rule 1 drops the cancelled copy. The preview also lists pairs of *counted* lines
+   with the same supplier, event and amount on different POs, for a person to confirm are genuinely two.
+3. **Event key:** the `Budget` text, trimmed, with whitespace collapsed and `" - 2025"` and `" 2025"`
+   treated as equal. Each distinct name is mapped **once per organisation** to an EA-SYS event, to a
+   past-event record, or to **Not an event** (for example `MME`, office and IT spend). The mapping is stored
+   (`BudgetImportMapping`) so the next file maps itself. A line naming two events is split evenly and
+   flagged *shared*; a person may change the split in the preview.
+4. **Category:** the first six digits of `Item-Number-SKU` through `accountGroupCode`. Codes outside the
+   event cost groups (`6xxxxx` overheads, `22xxxx` balance sheet) are dropped as *not event spend* and
+   counted. An empty SKU (35 of 641 here: municipality fees, service charges, round-off) goes to
+   **Unmapped**. Municipality fee and service-charge lines are then suggested into the category of the other
+   lines on the same PO, for a person to confirm.
+5. **Numbers:** amount columns can carry a currency prefix (`"AED 11620.0"`); the parser strips a leading
+   ISO code and refuses anything else that is not a number, naming the row. Negative lines (credits) are
+   kept and net off within their category.
+6. **VAT check:** where `Tax%` is 5 but gross equals net, the line is flagged *VAT unclear* in the preview.
+   The amount used is net either way.
+7. **Coverage:** an event whose first order falls before the file's first date, or whose Budget year is
+   earlier than the file's, is marked **partial** and excluded from comparisons and baselines until a file
+   covering it whole is loaded (in this file: every 2024 event, and OSHC 2025).
+
+### 2a.3 How far "paid" can be trusted
+
+- `Total-Paid-Amount` is PX's own payment record, not the bank's. In this file some orders say *paid* while
+  their lines show nothing paid, and payments were deleted and re-marked in bulk on Jul 24, 2025.
+- So: a line is *paid* evidence for the amount in `Total-Paid-Amount`; a status of `paid` with 0 paid counts
+  as *committed*. The comparison shows, per event, what share of committed spend is recorded as paid, so a
+  thin payment record is visible rather than read as savings.
+- Some codes do not match their descriptions (PO 4564481: certificate printing coded as delegate badges).
+  The importer trusts the code; the preview shows code and description side by side so a person can
+  correct it. Corrections are remembered as confirmed pairs.
+- `QuickBooks Class` disagrees with `Budget` on some lines (`Conference:MEHFC 2024` against `MEHFC 2025`).
+  It is shown as a warning, never used as the key.
+
+### 2a.4 Personal data in the file
+
+- The file holds individuals' names beside honorarium and reimbursement amounts (speakers paid as
+  suppliers), and passport and ticket details inside `Notes`.
+- The importer drops `Notes`, `Narration`, `Submitter` and `Approvers` at parse. A supplier that is a
+  person is stored as **Individual (speaker)**, not by name: a line under `5102xx` (Speakers and faculty)
+  whose supplier is not a registered supplier record keeps only its category and amount.
+- The raw file is not stored after the batch is saved; the staging batch expires after 24 hours (3.1).
+- **The real files are never committed to the repository or used as test fixtures.** Tests use invented
+  rows with the same columns and the same quirks.
 
 ---
 
@@ -63,9 +165,10 @@ what regressed between budgets" without any AI.
    negatives; refuse, with a clear message, an encoding that cannot be detected (Arabic Excel files are
    often Windows-1256; Arabic content is otherwise out of scope, build plan section 12). The row cap is
    raised above the parser's 5,000 for this importer only.
-3. **Source shapes:** a QuickBooks P&L by Class has classes as columns, section headers and subtotal rows
-   ("Total 500200"); it is unpivoted and its subtotal and header rows dropped, or totals would be counted
-   twice. Each shape has its own tested adapter.
+3. **Source shapes:** the ProcurementExpress **line-level** export (confirmed shape and rules: section 2a),
+   finance's Excel budget sheets, and the optional per-event actuals summary (category, amount). Excel sheets with section headers and subtotal rows
+   ("Total 500200") have those rows dropped, or totals would be counted twice. Each shape has its own
+   tested adapter. (A QuickBooks P&L by Class adapter is no longer planned: see the Sep 30 ruling above.)
 4. **Map columns once** per organisation and source system; the mapping is stored (a mapping table), so
    the next file from the same system maps itself.
 5. **Map lines to categories, deterministically:** by account code (expense groups `5xxxxx` through the
@@ -116,7 +219,7 @@ what regressed between budgets" without any AI.
 build plan Phase 3): `closeBudget` writes `actual` from `BudgetLine.actual`, which nothing fills yet. So an
 EA-SYS close-out row is **committed** evidence (orders raised), never actual. The comparison uses, per
 category and per event, the best evidence available and labels it: **actual** if loaded, otherwise
-**committed**, otherwise **planned**. A row whose actual is all zero is never read as "cost nothing".
+**paid** (ProcurementExpress), otherwise **committed**, otherwise **planned**. A row whose actual is all zero is never read as "cost nothing".
 
 ### 3.4 The comparison page
 
@@ -163,7 +266,7 @@ Not every cost grows with attendance. Each category gets a **driver**, with defa
    a stated order when too few match, and the page shows how many were used. **Fewer than 3 comparables:
    the page shows the range, and no single figure.**
 2. **Per category:** each comparable's cost per driver unit, in AED ex-VAT, using the best evidence (actual,
-   else committed, else planned, labelled); the **median**, with the minimum and maximum beside it; times
+   else paid, else committed, else planned, labelled); the **median**, with the minimum and maximum beside it; times
    the new event's driver quantity (expected checked-in attendance, days, faculty count).
 3. **Inflation:** compounded per year between the comparable event and the new one, at a rate the user sets
    (default 0%).
@@ -236,7 +339,7 @@ follows the in-app-door-only rule for writes.
 | Stage | Effort |
 |---|---|
 | 0 | owner and finance |
-| 1 | 2 to 3 weeks: three source adapters, staging, mapping storage, batches and delete, the comparison module and page, tenancy work, tests, a three-lens review, a browser pass |
+| 1 | 2 to 3 weeks (the PX adapter first, since its shape is now known): three source adapters, staging, mapping storage, batches and delete, the comparison module and page, tenancy work, tests, a three-lens review, a browser pass |
 | 2 | about 1 week: drivers, baseline, one-step draft, review screen, review |
 | 3 | about 1 week, later: classification, placeholder summary, safety rules, a golden set for this feature |
 
@@ -247,8 +350,9 @@ their gates are met. Nothing here touches the approval flow.
 
 ## 8. Not in scope
 
-Savings targets per category, revenue forecasting, live actuals from QuickBooks (the connector's own
-phase), charts of accounts other than MM Group's, Arabic file content, and editing an archived line in place
+Savings targets per category, revenue forecasting, the QuickBooks P&L or any company-wide accounting report
+(owner ruling, Sep 30, 2026: confidential), live actuals from QuickBooks (the connector's own phase, and only
+if someone with access chooses to connect it), charts of accounts other than MM Group's, Arabic file content, and editing an archived line in place
 (re-upload or delete the batch instead).
 
 **Manual alternative, for the record:** finance can compare past events in Excel with a pivot table. Stage 1
