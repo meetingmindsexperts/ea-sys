@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: a slimmer session cookie, and the org logo no longer goes missing after sign-in (September 30)
+
+- The session no longer carries the organisation's logo and colour: nothing read
+  them (the sidebar loads branding itself), and every byte of that cookie rides
+  every request (INC-006). Sessions issued before shed them on their next refresh.
+  The organisation name stays; three screens still read it.
+- Found while checking that: the branding lookup ran on the login page too, before
+  sign-in, and its empty answer was reused for ten minutes after signing in, so the
+  sidebar showed no logo and the org colour was missing. It now waits for a signed-in
+  session and is kept per organisation. The same fault existed before today's change.
+
 ### Docs: a budget training pack and quick guides by role (September 30)
 
 `docs/BUDGET_TRAINING.html` is the pack for an office-wide Budgets session: a

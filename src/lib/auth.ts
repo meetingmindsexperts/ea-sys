@@ -162,7 +162,7 @@ export const {
               deactivatedAt: true,
               organizationId: true,
               organization: {
-                select: { name: true, logo: true, primaryColor: true },
+                select: { name: true },
               },
             },
           },
@@ -314,8 +314,6 @@ export const {
           procurementPermissions: await permissionsForToken(user.id, user.organizationId),
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
-          organizationLogo: user.organization?.logo ?? null,
-          organizationPrimaryColor: user.organization?.primaryColor ?? null,
           firstName: user.firstName,
           lastName: user.lastName,
         };
@@ -329,13 +327,18 @@ export const {
     },
     async jwt({ token, user, trigger }) {
       // On sign in, populate token from user object
+      // The org logo and colour left the session on Sep 30, 2026: nothing read
+      // them (the sidebar uses useOrgBranding) and every byte of this cookie
+      // rides every request (INC-006). Strip them from cookies issued before,
+      // so existing sessions shrink on their next refresh, not their next login.
+      delete token.organizationLogo;
+      delete token.organizationPrimaryColor;
+
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.organizationId = user.organizationId ?? null;
         token.organizationName = user.organizationName ?? null;
-        token.organizationLogo = user.organizationLogo ?? null;
-        token.organizationPrimaryColor = user.organizationPrimaryColor ?? null;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.tokenVersion = user.tokenVersion ?? 0;
@@ -349,12 +352,10 @@ export const {
       if (trigger === "update" && token.id) {
         const dbUser = await db.user.findUnique({
           where: { id: token.id as string },
-          include: { organization: { select: { name: true, logo: true, primaryColor: true } } },
+          include: { organization: { select: { name: true } } },
         });
         if (dbUser) {
           token.organizationName = dbUser.organization?.name ?? null;
-          token.organizationLogo = dbUser.organization?.logo ?? null;
-          token.organizationPrimaryColor = dbUser.organization?.primaryColor ?? null;
           token.firstName = dbUser.firstName;
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;

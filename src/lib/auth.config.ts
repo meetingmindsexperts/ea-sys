@@ -17,8 +17,6 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
     session.user.role = token.role as string;
     session.user.organizationId = (token.organizationId as string) ?? null;
     session.user.organizationName = (token.organizationName as string) ?? null;
-    session.user.organizationLogo = (token.organizationLogo as string) ?? null;
-    session.user.organizationPrimaryColor = (token.organizationPrimaryColor as string) ?? null;
     session.user.firstName = (token.firstName as string) ?? "";
     session.user.lastName = (token.lastName as string) ?? "";
     session.user.hrAccess = (token.hrAccess as boolean | undefined) ?? false;

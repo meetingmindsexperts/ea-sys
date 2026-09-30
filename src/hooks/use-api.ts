@@ -2,6 +2,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError } from "@/lib/api-fetch";
 
@@ -160,11 +161,21 @@ export interface OrgBranding {
   primaryColor: string | null;
 }
 
+/**
+ * Keyed by organisation and held until there is a signed-in session (Sep 30,
+ * 2026). OrgTheme mounts this on every page, the login page included, so the
+ * old single key cached the signed-out answer (all nulls) and the client-side
+ * hop to the dashboard reused it for ten minutes: no logo in the sidebar and no
+ * brand colour. The settings page still invalidates by the `orgBranding` prefix.
+ */
 export function useOrgBranding() {
+  const { data: session, status } = useSession();
+  const organizationId = session?.user?.organizationId ?? null;
   return useQuery({
-    queryKey: queryKeys.orgBranding,
+    queryKey: [...queryKeys.orgBranding, organizationId],
     queryFn: () => fetchApi<OrgBranding>("/api/organization/branding"),
     staleTime: 10 * 60 * 1000, // 10 minutes
+    enabled: status === "authenticated",
   });
 }
 

@@ -8,8 +8,6 @@ declare module "next-auth" {
       role: string;
       organizationId?: string | null;
       organizationName?: string | null;
-      organizationLogo?: string | null;
-      organizationPrimaryColor?: string | null;
       firstName: string;
       lastName: string;
       /** Explicit per-person HR grant. See User.hrAccess in the schema. */
@@ -30,8 +28,6 @@ declare module "next-auth" {
     tokenVersion?: number;
     organizationId?: string | null;
     organizationName?: string | null;
-    organizationLogo?: string | null;
-    organizationPrimaryColor?: string | null;
     firstName?: string;
     lastName?: string;
     hrAccess?: boolean;
@@ -59,8 +55,6 @@ declare module "next-auth/jwt" {
     tokenVersion?: number;
     organizationId?: string | null;
     organizationName?: string | null;
-    organizationLogo?: string | null;
-    organizationPrimaryColor?: string | null;
     firstName?: string;
     lastName?: string;
     /**
