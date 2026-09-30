@@ -11,6 +11,7 @@ const { mockDb, mockAuth, mockLogger, mockReadPermissions, mockRunWithTenant } =
   mockDb: {
     user: { findFirst: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
+    mcpOAuthAccessToken: { updateMany: vi.fn() },
   },
   mockAuth: vi.fn(),
   // All four levels, not only the ones this file asserts on. The route logs a
@@ -60,6 +61,7 @@ beforeEach(() => {
   mockDb.user.findFirst.mockImplementation(async (args: { where: { id: string } }) => ROWS[args.where.id] ?? null);
   mockDb.user.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ id: "x", ...args.data }));
   mockDb.auditLog.create.mockResolvedValue({});
+  mockDb.mcpOAuthAccessToken.updateMany.mockResolvedValue({ count: 0 });
   mockReadPermissions.mockResolvedValue([]);
 });
 
@@ -114,6 +116,16 @@ describe("the no-op guard, and the three things it must never swallow", () => {
     // here. Suppressing on that alone would lose a security-relevant row.
     expect((await put("owner", { deactivated: true })).status).toBe(200);
     expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+  it("deactivation revokes the person's claude.ai connections (G6); other saves do not", async () => {
+    expect((await put("owner", { deactivated: true })).status).toBe(200);
+    expect(mockDb.mcpOAuthAccessToken.updateMany).toHaveBeenCalledWith({
+      where: { userId: "owner", revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+    mockDb.mcpOAuthAccessToken.updateMany.mockClear();
+    expect((await put("owner", { deactivated: false })).status).toBe(200);
+    expect(mockDb.mcpOAuthAccessToken.updateMany).not.toHaveBeenCalled();
   });
 });
 

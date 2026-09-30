@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { db } from "@/lib/db";
 import { getStripe, StripeCredentialsMissingError } from "@/lib/stripe";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 /**
  * Probe the EFFECTIVE Stripe client for this org — the same resolution chain
@@ -17,9 +18,8 @@ export async function POST() {
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/stripe/test-connection:POST" });
+    if (notAdmin) return notAdmin;
     const orgId = session.user.organizationId;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({

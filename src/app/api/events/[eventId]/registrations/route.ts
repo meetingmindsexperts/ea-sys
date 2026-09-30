@@ -273,9 +273,16 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER and a filter would hand the same fact straight back: filter to
     // Abbott, read the names off the rows. A redacted field must not stay
     // filterable, or the filter reconstructs it.
+    //
+    // ONE value decides both, so they cannot drift apart again (G9,
+    // CUSTOM_ROLES_PLAN): until Sep 30, 2026 the filter asked
+    // `canViewFinance(role)` while the redaction below asked
+    // `role !== null && ...`, so an API key (role null, admin-equivalent) got
+    // unredacted sponsor fields on every row and a 403 on the filter.
+    const redactsFinance = orgCtx.role !== null && !canViewFinance(orgCtx.role);
     const sponsorIdParam = searchParams.get("sponsorId");
     const sponsorFilterId = sponsorIdParam?.trim() ? sponsorIdParam.trim().slice(0, 100) : null;
-    if (sponsorFilterId && !canViewFinance(orgCtx.role)) {
+    if (sponsorFilterId && redactsFinance) {
       apiLogger.warn({
         msg: "events/registrations:sponsor-filter-refused",
         eventId,
@@ -550,7 +557,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const withMoney = flagged.map((r) => ({ ...r, rowMoney: computeRegistrationRowMoney(r, moneyCtx) }));
 
     let payload = withMoney;
-    if (orgCtx.role !== null && !canViewFinance(orgCtx.role)) {
+    if (redactsFinance) {
       payload = redactFinancialFields(payload);
     }
     // H6/H7 (check-in review): the entry barcode + DTCM code are physical-access

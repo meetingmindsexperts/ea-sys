@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
@@ -96,6 +97,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // "Everywhere" includes claude.ai: OAuth grants never read tokenVersion (G6).
+    const oauthRevoked = await revokeUserOAuthTokens(userId);
+
     // Read back rather than computing the new value: the counter is a shared
     // integer and two admins reacting to the same incident is the normal case,
     // so the number in the audit row should be the one the database landed on.
@@ -116,6 +120,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             targetEmail: updated?.email ?? null,
             tokenVersion: updated?.tokenVersion ?? null,
             self: isSelf,
+            oauthTokensRevoked: oauthRevoked,
             ip: getClientIp(req),
           },
         },
@@ -133,6 +138,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       targetUserId: userId,
       self: isSelf,
       tokenVersion: updated?.tokenVersion ?? null,
+      oauthTokensRevoked: oauthRevoked,
     });
 
     return NextResponse.json({

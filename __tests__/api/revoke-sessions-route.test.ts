@@ -19,6 +19,7 @@ const { mockAuth, mockDb, mockRateLimit } = vi.hoisted(() => ({
   mockDb: {
     user: { updateMany: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
+    mcpOAuthAccessToken: { updateMany: vi.fn() },
   },
   mockRateLimit: vi.fn(),
 }));
@@ -71,6 +72,7 @@ beforeEach(() => {
     tokenVersion: 3,
   });
   mockDb.auditLog.create.mockResolvedValue({});
+  mockDb.mcpOAuthAccessToken.updateMany.mockResolvedValue({ count: 2 });
 });
 
 describe("who may revoke", () => {
@@ -159,6 +161,23 @@ describe("what it actually writes", () => {
     const res = await POST(req(), params());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ revoked: true });
+  });
+});
+
+describe("claude.ai connections (G6, CUSTOM_ROLES_PLAN)", () => {
+  it("revokes the target's live OAuth grants and records how many", async () => {
+    await POST(req(), params("target-1"));
+    expect(mockDb.mcpOAuthAccessToken.updateMany).toHaveBeenCalledWith({
+      where: { userId: "target-1", revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ oauthTokensRevoked: 2 });
+  });
+
+  it("revokes nothing when the user is not in the caller's org", async () => {
+    mockDb.user.updateMany.mockResolvedValue({ count: 0 });
+    expect((await POST(req(), params("elsewhere"))).status).toBe(404);
+    expect(mockDb.mcpOAuthAccessToken.updateMany).not.toHaveBeenCalled();
   });
 });
 

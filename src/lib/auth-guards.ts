@@ -225,3 +225,36 @@ export function denyFinance(
   }
   return null;
 }
+
+/**
+ * Organisation administrators: the people who hold the org's integration
+ * credentials (AI, Stripe, Zoom, EventsAir) and test those connections.
+ */
+export const ORG_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
+
+/**
+ * 403 unless the caller is an organisation administrator (G7,
+ * docs/CUSTOM_ROLES_PLAN.md §2.4). Until Sep 30, 2026 this was the line
+ * `role !== "SUPER_ADMIN" && role !== "ADMIN"` copied into 13 handlers across
+ * the organisation settings routes, two of them as local `requireAdmin`
+ * helpers, and none logged the refusal. One allow-list means a custom role is
+ * refused here until the permission sweep says otherwise, and the refusal
+ * reaches /logs.
+ *
+ * An API key (no role) is refused, as the copied line refused it. Each
+ * route's own 401 check stays where it is: this answers "may", not "who".
+ */
+export function denyNonOrgAdmin(
+  session: { user?: { id?: string; role?: string } } | null,
+  ctx: { route: string },
+) {
+  const role = session?.user?.role;
+  if (role && (ORG_ADMIN_ROLES as readonly string[]).includes(role)) return null;
+  apiLogger.warn({
+    msg: "auth-guard:org-admin-denied",
+    role: role ?? null,
+    userId: session?.user?.id ?? null,
+    route: ctx.route,
+  });
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}

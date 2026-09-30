@@ -316,6 +316,29 @@ export async function revokeToken(raw: string): Promise<void> {
   });
 }
 
+/**
+ * Revoke every live OAuth grant a person holds (G6, CUSTOM_ROLES_PLAN §2.4).
+ *
+ * A browser session is re-validated against `User.tokenVersion`; an MCP OAuth
+ * token is a database row that never consulted it, so "Sign out everywhere",
+ * deactivation and a password reset left claude.ai connected for up to 90 days
+ * of refreshes. Every place that bumps `tokenVersion` calls this beside it.
+ * Takes the caller's transaction client when there is one. Returns the count.
+ */
+export async function revokeUserOAuthTokens(
+  userId: string,
+  client: Pick<typeof db, "mcpOAuthAccessToken"> = db,
+): Promise<number> {
+  const result = await client.mcpOAuthAccessToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  if (result.count > 0) {
+    apiLogger.info({ msg: "mcp-oauth:user-tokens-revoked", userId, count: result.count });
+  }
+  return result.count;
+}
+
 // ── Client registration helpers ────────────────────────────────────────────
 
 export interface RegisteredClientInfo {

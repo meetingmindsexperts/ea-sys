@@ -7,6 +7,7 @@ import { encryptSecret } from "@/lib/eventsair-client";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 const credentialsSchema = z.object({
   accountId: z.string().min(1).max(500),
@@ -77,9 +78,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:GET" });
+    if (notAdmin) return notAdmin;
 
     const org = await db.organization.findUnique({
       where: { id: session.user.organizationId },
@@ -118,9 +118,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:PUT" });
+    if (notAdmin) return notAdmin;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `zoom-creds:${session.user.organizationId}`,
@@ -264,9 +263,8 @@ export async function DELETE() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:DELETE" });
+    if (notAdmin) return notAdmin;
 
     // Atomic delete of just the zoom key — other settings keys preserved.
     await updateOrganizationSettings(session.user.organizationId, (cur) => {

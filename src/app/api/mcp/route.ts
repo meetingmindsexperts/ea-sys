@@ -71,8 +71,19 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
     // CRM predicates are consulted.
     const grantee = await db.user.findUnique({
       where: { id: oauth.userId },
-      select: { role: true, organizationId: true },
+      select: { role: true, organizationId: true, deactivatedAt: true },
     });
+    // A deactivated grantee is refused on every request (G6). Their tokens are
+    // also revoked when they are deactivated; this covers a grant made before
+    // that revocation existed, and any path that deactivates without it.
+    if (grantee?.deactivatedAt) {
+      apiLogger.warn({
+        msg: "mcp:oauth-grantee-deactivated",
+        organizationId: oauth.organizationId,
+        userId: oauth.userId,
+      });
+      return null;
+    }
     if (grantee && grantee.organizationId !== oauth.organizationId) {
       apiLogger.warn({
         msg: "mcp:oauth-grantee-org-mismatch",

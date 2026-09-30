@@ -86,3 +86,23 @@ describe("registrations list rowMoney", () => {
     expect(body[0].attendee.country).toBe("Oman");
   });
 });
+
+describe("sponsor filter follows the redaction (G9, CUSTOM_ROLES_PLAN)", () => {
+  const sponsorReq = () => new Request("http://localhost/x?sponsorId=sp1");
+
+  it("lets an API key filter by sponsor, since it receives the field unredacted", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null });
+    const res = await LIST_GET(sponsorReq(), params);
+    expect(res.status).toBe(200);
+    const where = JSON.stringify(mockDb.registration.findMany.mock.calls[0][0].where);
+    expect(where).toContain('"sponsorId":"sp1"');
+  });
+
+  it("still refuses a role that cannot see finance, before any query", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "REGISTRANT", userId: "g1" });
+    const res = await LIST_GET(sponsorReq(), params);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "SPONSOR_FILTER_FORBIDDEN" });
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+});

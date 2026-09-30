@@ -100,7 +100,12 @@ describe("the sponsor filter", () => {
   it("is gated on the same predicate as the redaction", () => {
     // A redacted field must not stay filterable: filter to Abbott, read the
     // names off the rows, and the redaction has bought nothing.
-    expect(src).toMatch(/sponsorFilterId && !canViewFinance\(/);
+    // ONE value decides both (G9): an API key receives the field unredacted,
+    // so it may filter on it too.
+    expect(src).toContain("const redactsFinance = orgCtx.role !== null && !canViewFinance(orgCtx.role);");
+    expect(src).toMatch(/sponsorFilterId && redactsFinance\)/);
+    expect(src).toMatch(/if \(redactsFinance\) \{\s*payload = redactFinancialFields\(payload\)/);
+    expect(src.match(/canViewFinance\(orgCtx\.role\)/g)).toHaveLength(1);
     expect(src).toContain("SPONSOR_FILTER_FORBIDDEN");
   });
 

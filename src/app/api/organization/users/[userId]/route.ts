@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isTeamRole } from "@/lib/team-roles";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
@@ -449,6 +450,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         createdAt: true,
       },
     });
+
+    // Deactivation also disconnects claude.ai: OAuth grants never read
+    // tokenVersion (G6). The MCP route refuses a deactivated grantee as well.
+    if (deactivated === true) await revokeUserOAuthTokens(userId);
 
     // NOTHING CHANGED, NOTHING TO RECORD (F3, Sep 17 2026).
     //

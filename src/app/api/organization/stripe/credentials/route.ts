@@ -8,6 +8,7 @@ import { updateOrganizationSettings } from "@/lib/event-settings";
 import { invalidateStripeClientCache } from "@/lib/stripe";
 import { z } from "zod";
 import type { Session } from "next-auth";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 /**
  * Per-org Stripe credentials (Platform decision item 7 — the Zoom
@@ -27,14 +28,12 @@ const credentialsSchema = z.object({
   webhookSecret: z.string().max(500).optional(),
 });
 
-function requireAdmin(session: Session | null) {
+/** The 401 for a signed-out or org-less caller, then the shared admin gate (G7). */
+function requireAdmin(session: Session | null, route: string) {
   if (!session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return null;
+  return denyNonOrgAdmin(session, { route: route });
 }
 
 function readStripeSub(settings: unknown): Record<string, unknown> {
@@ -51,7 +50,7 @@ function keyModeOf(secretKey: string): "live" | "test" {
 export async function GET() {
   try {
     const session = await auth();
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/stripe/credentials:GET");
     if (denied) return denied;
     const orgId = session!.user.organizationId!;
 
@@ -81,7 +80,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const [session, body] = await Promise.all([auth(), req.json()]);
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/stripe/credentials:PUT");
     if (denied) return denied;
     const orgId = session!.user.organizationId!;
 
@@ -172,7 +171,7 @@ export async function PUT(req: Request) {
 export async function DELETE() {
   try {
     const session = await auth();
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/stripe/credentials:DELETE");
     if (denied) return denied;
     const orgId = session!.user.organizationId!;
 

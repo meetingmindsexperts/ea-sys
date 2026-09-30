@@ -7,6 +7,7 @@ import { checkRateLimit } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 import type { Session } from "next-auth";
+import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 /**
  * Per-org AI credentials + Help Chat provider preference (item 7). ONE route
@@ -33,14 +34,12 @@ const deleteSchema = z.object({
   provider: z.enum(["anthropic", "openai"]),
 });
 
-function requireAdmin(session: Session | null) {
+/** The 401 for a signed-out or org-less caller, then the shared admin gate (G7). */
+function requireAdmin(session: Session | null, route: string) {
   if (!session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.role !== "SUPER_ADMIN" && session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return null;
+  return denyNonOrgAdmin(session, { route: route });
 }
 
 function readSub(settings: unknown, key: string): Record<string, unknown> {
@@ -58,7 +57,7 @@ const ENV_KEY: Record<"anthropic" | "openai", () => string | undefined> = {
 export async function GET() {
   try {
     const session = await auth();
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/ai/credentials:GET");
     if (denied) return denied;
 
     const org = await db.organization.findUnique({
@@ -93,7 +92,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const [session, body] = await Promise.all([auth(), req.json()]);
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/ai/credentials:PUT");
     if (denied) return denied;
     const orgId = session!.user.organizationId!;
 
@@ -185,7 +184,7 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const [session, body] = await Promise.all([auth(), req.json().catch(() => null)]);
-    const denied = requireAdmin(session);
+    const denied = requireAdmin(session, "organization/ai/credentials:DELETE");
     if (denied) return denied;
     const orgId = session!.user.organizationId!;
 

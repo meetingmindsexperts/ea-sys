@@ -6,6 +6,7 @@ import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup"
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { maskEmail } from "@/lib/mask-email";
+import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 
 const resetPasswordSchema = z
   .object({
@@ -122,6 +123,8 @@ export async function POST(req: Request) {
           tokenVersion: { increment: 1 },
         },
       });
+      // And every claude.ai connection, which never reads tokenVersion (G6).
+      await revokeUserOAuthTokens(user.id, tx);
 
       await tx.verificationToken.delete({
         where: {

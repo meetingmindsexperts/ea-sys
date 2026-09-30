@@ -63,7 +63,7 @@ if echo "$guards_code" | grep -qE 'route\?:[[:space:]]*string'; then
    someone says 'it doesn't work for me'."
 fi
 
-# denyNonProcurement (src/procurement/lib/procurement-roles.ts) is held to the
+# denyNonProcurement (src/procurement/lib/procurement-roles.ts) and denyNonOrgAdmin are held to the
 # call-site checks below (2-4) but not to this file-level one: it lives in its
 # module, and its `route: string` is required by its own signature.
 for guard in denyReviewer denyFinance; do
@@ -79,7 +79,7 @@ while IFS= read -r hit; do
   [ -z "$hit" ] && continue
   say_fail "empty or placeholder route label: $hit"
 done < <(
-  grep -rn -E 'deny(Reviewer|Finance|NonProcurement)\(' src --include="*.ts" \
+  grep -rn -E 'deny(Reviewer|Finance|NonProcurement|NonOrgAdmin)\(' src --include="*.ts" \
     | grep -v "$GUARDS_FILE" \
     | grep -E 'route:[[:space:]]*("([[:space:]]*|test|TODO|xxx)")' || true
 )
@@ -101,14 +101,14 @@ while IFS= read -r file; do
       missing=$((missing + 1))
     fi
   done < <(
-    grep -n -E 'deny(Reviewer|Finance|NonProcurement)\(' "$file" \
+    grep -n -E 'deny(Reviewer|Finance|NonProcurement|NonOrgAdmin)\(' "$file" \
       | grep -vE ':[[:space:]]*(\*|//)' \
       | cut -d: -f1 || true
   )
-done < <(grep -rl -E 'deny(Reviewer|Finance|NonProcurement)\(' src --include="*.ts" | grep -v "$GUARDS_FILE" || true)
+done < <(grep -rl -E 'deny(Reviewer|Finance|NonProcurement|NonOrgAdmin)\(' src --include="*.ts" | grep -v "$GUARDS_FILE" || true)
 
 if [ "$fail" -eq 0 ]; then
-  total=$(grep -rc -E 'deny(Reviewer|Finance|NonProcurement)\(' src --include="*.ts" \
+  total=$(grep -rc -E 'deny(Reviewer|Finance|NonProcurement|NonOrgAdmin)\(' src --include="*.ts" \
     | grep -v "$GUARDS_FILE" | cut -d: -f2 | paste -sd+ - | bc)
   echo "✓ guard route labels: $total call sites, all named"
 fi
