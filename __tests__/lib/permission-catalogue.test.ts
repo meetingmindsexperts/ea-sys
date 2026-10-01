@@ -15,10 +15,14 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  LIVE_PERMISSION_CATALOGUE,
+  LIVE_PERMISSION_GROUPS,
   PERMISSION_KEYS,
   PERMISSION_CATALOGUE,
   PERMISSION_GROUPS,
   STARTER_ROLES,
+  describePermission,
+  isLivePermissionKey,
   isPermissionKey,
 } from "@/lib/permissions/catalogue";
 
@@ -41,14 +45,25 @@ describe("permission catalogue", () => {
       expect(d.description.trim().length).toBeGreaterThan(10);
       // The label is what an administrator ticks; a key leaking into it means
       // somebody pasted the identifier instead of writing the words.
-      expect(d.label).not.toContain("procurement.");
+      expect(d.label).not.toMatch(/\w\.\w/);
     }
   });
 
-  it("namespaces every key, so a second module cannot collide (D5)", () => {
+  it("namespaces every key by domain, so modules cannot collide (D5)", () => {
     for (const key of PERMISSION_KEYS) {
-      expect(key.startsWith("procurement.")).toBe(true);
+      expect(key, key).toMatch(/^[a-z][a-zA-Z]+(\.[a-zA-Z]+)+$/);
     }
+  });
+
+  it("marks a scope-taking key and a person-grant key consistently", () => {
+    for (const d of PERMISSION_CATALOGUE) {
+      if (d.personGrant) expect(d.eventBound, d.key).toBeUndefined();
+      if (d.eventBound) expect(d.group, d.key).not.toBe("Organisation");
+    }
+    expect(describePermission("registrations.checkin")?.eventBound).toBe(true);
+    expect(describePermission("org.settings")?.eventBound).toBeUndefined();
+    expect(describePermission("hr.read")?.personGrant).toBe("hrAccess");
+    expect(describePermission("procurement.approvals.decide")?.personGrant).toBe("procurementApprove");
   });
 
   it("recognises only real keys, and fails closed on anything else", () => {
@@ -57,6 +72,48 @@ describe("permission catalogue", () => {
     expect(isPermissionKey("procurement.budgets.delete")).toBe(false);
     expect(isPermissionKey("")).toBe(false);
     expect(isPermissionKey("budgets.create")).toBe(false);
+  });
+});
+
+describe("live keys: what the editor offers and the service stores (Phase 1)", () => {
+  it("is exactly the procurement keys routes check today, and nothing from the application yet", () => {
+    expect(LIVE_PERMISSION_CATALOGUE.map((p) => p.key)).toEqual([
+      "procurement.budgets.view",
+      "procurement.budgets.create",
+      "procurement.budgets.edit",
+      "procurement.budgets.discard",
+      "procurement.budgets.signoff",
+      "procurement.approvals.decide",
+      "procurement.requests.view",
+      "procurement.requests.create",
+      "procurement.requests.manage",
+      "procurement.orders.view",
+      "procurement.orders.receive",
+      "procurement.orders.cancel",
+      "procurement.orders.confirmReceipt",
+      "procurement.orders.send",
+      "procurement.suppliers.view",
+      "procurement.suppliers.propose",
+      "procurement.suppliers.decide",
+      "procurement.suppliers.edit",
+      "procurement.suppliers.financials.view",
+      "procurement.catalogue.manage",
+    ]);
+    // The two admin-by-role procurement keys are defined for the system roles, not offered yet.
+    expect(isLivePermissionKey("procurement.integrations.manage")).toBe(false);
+    expect(isLivePermissionKey("registrations.checkin")).toBe(false);
+    expect(isPermissionKey("registrations.checkin")).toBe(true);
+  });
+
+  it("keeps the editor's groups and their order as they were", () => {
+    expect([...LIVE_PERMISSION_GROUPS]).toEqual(["Budgets", "Approvals", "Requests", "Orders", "Suppliers", "Catalogue"]);
+  });
+
+  it("defines the whole application beside them, with no empty group", () => {
+    for (const group of PERMISSION_GROUPS) {
+      expect(PERMISSION_CATALOGUE.some((p) => p.group === group), group).toBe(true);
+    }
+    expect(PERMISSION_KEYS.length).toBeGreaterThan(LIVE_PERMISSION_CATALOGUE.length);
   });
 });
 
@@ -74,7 +131,7 @@ describe("starter roles (D11, narrowed by D14)", () => {
     for (const role of STARTER_ROLES) {
       expect(role.permissions.length).toBeGreaterThan(0);
       for (const key of role.permissions) {
-        expect(isPermissionKey(key)).toBe(true);
+        expect(isLivePermissionKey(key)).toBe(true);
       }
       expect(new Set(role.permissions).size).toBe(role.permissions.length);
     }

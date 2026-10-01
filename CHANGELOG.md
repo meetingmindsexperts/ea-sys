@@ -23,6 +23,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Added: custom roles Phase 1, slice 1: the catalogue, the system roles as data, `can()` (September 30)
+
+- `src/lib/permissions/catalogue.ts` now names every operation in the
+  application (146 keys), each with its group, an event-bound flag (the key
+  takes a scope: every event, assigned events, or webinars), a sensitive flag,
+  a person-grant flag (HR access, the approval ceiling) and a `live` flag.
+  Only live keys, the 20 procurement keys, can be put on a custom role; the
+  Roles tab and its API are unchanged for users.
+- `system-roles.ts` writes down what each existing role holds today (Super
+  Admin, Admin, Organizer, Member, Onsite, Webinars, CRM User, HR User, and the
+  API key), taken from the code, not the docs.
+- `can.ts`: `can()` decides on whole (permission, scope) pairs, so a person
+  holding two roles gets each role's power at that role's scope and never the
+  wider scope with the stronger power; `eventWhereFor()` gives the matching
+  event lookup so the two cannot be separated.
+- `system-roles-parity.test.ts` checks the matrix against every predicate a
+  route asks today, for every role and every procurement grant combination;
+  `api-key-reach.test.ts` derives the API key's row from the tool registry
+  (`tool-permissions.ts` maps each tool to its permission). Cells a route's
+  own guard decides are the matrix's reading until the Phase 2 route matrix
+  pins them. Nothing in production calls `can()` yet. Plan:
+  `docs/CUSTOM_ROLES_PLAN.md` §6 Phase 1.
+- One label on the live Roles tab corrected: "Edit and submit budgets" no
+  longer claims to reopen or unfreeze a closed budget, which the transition
+  route gives to the catalogue admin key.
+
 ### Fixed: no Join button in the webinar waiting room; a console hydration error (September 30)
 
 - In the 15 minutes before a webinar starts, with the room still closed, the session

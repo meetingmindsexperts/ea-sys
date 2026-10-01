@@ -14,7 +14,7 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { STARTER_ROLES, isPermissionKey, type PermissionKey } from "./catalogue";
+import { STARTER_ROLES, isLivePermissionKey, type PermissionKey } from "./catalogue";
 import { separationConflicts, unionPermissions } from "./separation";
 
 export const PERMISSION_SET_SELECT = {
@@ -118,7 +118,7 @@ export async function readUserPermissions(
   const keys = new Set<PermissionKey>();
   for (const row of held) {
     for (const { permission } of row.permissionSet.permissions) {
-      if (isPermissionKey(permission)) keys.add(permission);
+      if (isLivePermissionKey(permission)) keys.add(permission);
     }
   }
   return [...keys];
@@ -190,7 +190,9 @@ function cleanPermissions(raw: readonly string[]): { ok: true; keys: PermissionK
   const keys: PermissionKey[] = [];
   const seen = new Set<string>();
   for (const key of raw) {
-    if (!isPermissionKey(key)) {
+    // LIVE keys only: a key the catalogue defines but no route checks yet
+    // (the application keys of Phase 1) would read as access and grant none.
+    if (!isLivePermissionKey(key)) {
       return fail("UNKNOWN_PERMISSION", `This build does not have a permission called "${key}".`, { permission: key });
     }
     if (!seen.has(key)) {

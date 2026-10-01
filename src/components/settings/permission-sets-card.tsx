@@ -26,7 +26,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PERMISSION_CATALOGUE, PERMISSION_GROUPS } from "@/lib/permissions/catalogue";
+import { LIVE_PERMISSION_CATALOGUE, LIVE_PERMISSION_GROUPS } from "@/lib/permissions/catalogue";
 import { separationConflicts } from "@/lib/permissions/separation";
 import { permissionSetKeys, usePermissionSets, type PermissionSetRow } from "@/hooks/use-permission-sets";
 
@@ -295,8 +295,8 @@ function PermissionSetDialog({
           )}
 
           <div className="space-y-4">
-            {PERMISSION_GROUPS.map((group) => {
-              const items = PERMISSION_CATALOGUE.filter((p) => p.group === group);
+            {LIVE_PERMISSION_GROUPS.map((group) => {
+              const items = LIVE_PERMISSION_CATALOGUE.filter((p) => p.group === group);
               if (items.length === 0) return null;
               return (
                 <div key={group} className="rounded-lg border p-3">

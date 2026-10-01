@@ -1,6 +1,6 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status: PLANNED, NOT BUILT. Revision 3 (Sep 16, 2026).** Owner rulings this
+> **Status: PHASE 0 COMPLETE, PHASE 1 IN BUILD. Revision 4 (Sep 30, 2026).** Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
 > (permission, scope) pairs, which reverses revision 2's D3 (§7.3 explains why
 > that section argued for scope-on-the-grant, not for one role); and the build
@@ -27,6 +27,17 @@
 > (§2.4), two of which give a newly added role more access than intended.
 
 ---
+
+> **Revision 4 (Sep 30, 2026).** Phase 0 is complete (G1 to G9 and step 9,
+> `no-inline-role-lists.test.ts`). The owner ruled D1, D2, D4, D5, D7, D8, D9,
+> D10 as recommended and D15 as "No base access" (§10), and one design
+> correction was made before Phase 1 code: **the tables §3.3 proposed already
+> exist**, shipped on Sep 16 as `PermissionSet`, `PermissionSetGrant` and
+> `UserPermissionSet` by the procurement roles plan, so Phase 1 extends them
+> instead of building a second role system (§3.3). Phase 1 slice 1 is built:
+> the whole-application catalogue, the system roles as data, `can()` and
+> `eventWhereFor()`, and safety net 1 (§6 Phase 1). Nothing in production
+> calls them yet.
 
 ## 1. Scope
 
@@ -194,40 +205,35 @@ under a `WEBINAR`-scoped grant must end up `eventType: WEBINAR`. This replaces
 today's two special cases (`WEBINAR_ONLY` on events POST, the eventType-flip
 refusal on the event PUT) with one rule in `requirePermission`.
 
-### 3.3 Data model (additive)
+### 3.3 Data model (additive; revised Sep 30, 2026: extend, never duplicate)
+
+The three tables this section first proposed (`Role`, `RoleGrant`,
+`UserRoleAssignment`) shipped on Sep 16, 2026 under
+[PROCUREMENT_ROLES_PLAN.md](PROCUREMENT_ROLES_PLAN.md) as `PermissionSet`,
+`PermissionSetGrant` and `UserPermissionSet`, with the catalogue in code, the
+service (create, edit, archive, assign to a person, several per person),
+the separation-of-duties checks on the union, and a `version` bumped on every
+change. Revision 3 was written the day before and did not know. **Phase 1
+extends those tables** (owner, Sep 30); the columns below are the whole
+difference.
 
 ```prisma
-enum UserRole { ... CUSTOM }               // additive; see below
-
-model Role {
-  id             String   @id @default(cuid())
-  organizationId String
-  key            String                   // "admin", "onsite", "custom-a1b2"
-  name           String
-  description    String?
-  isSystem       Boolean  @default(false)
-  version        Int      @default(1)     // bumped on every grant change
-  archivedAt     DateTime?
-  grants         RoleGrant[]              // EMPTY for system roles (grants live in code)
-  holders        UserRoleAssignment[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model PermissionSet {          // the plan's Role
+  key       String?            // "super_admin", "onsite": set on system roles only
+  isSystem  Boolean  @default(false)
+  // name, description, version, archivedAt, organizationId: as today
   @@unique([organizationId, key])
 }
 
-model RoleGrant {
-  id             String      @id @default(cuid())
-  organizationId String
-  roleId         String
-  permission     String                   // validated against the code catalogue
-  scope          GrantScope?              // null for non-event permissions
-  role           Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  @@unique([roleId, permission])
+model PermissionSetGrant {     // the plan's RoleGrant
+  scope     GrantScope?        // on an event-bound key; null on an organisation-wide one
 }
 
 enum GrantScope { ALL ASSIGNED WEBINAR }
 
-model EventStaffAssignment {               // replaces settings.onsiteUserIds (Phase 4)
+// UserPermissionSet is the plan's UserRoleAssignment, unchanged (D3: several per person).
+// EventStaffAssignment (Phase 4) is unchanged:
+model EventStaffAssignment {   // replaces settings.onsiteUserIds (Phase 4)
   id             String   @id @default(cuid())
   organizationId String
   eventId        String
@@ -236,20 +242,10 @@ model EventStaffAssignment {               // replaces settings.onsiteUserIds (P
   createdAt      DateTime @default(now())
   @@unique([eventId, userId])
 }
-
-model UserRoleAssignment {                 // additive (D3): any number per person
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
-  roleId         String
-  assignedById   String?
-  createdAt      DateTime @default(now())
-  role           Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  @@unique([userId, roleId])
-}
-
-// User keeps `role` (the enum) as its BASE role. Further roles are rows above.
 ```
+
+No `UserRole.CUSTOM` and no `User.roleId` (D15, below). `User.role` stays the
+base role.
 
 **What `User.role` holds (revised for D3).** Because roles are additive, the
 enum keeps its job: it is the person's **base** role, and the 121 files that
@@ -257,27 +253,34 @@ read the role string, plus the eleven `isTeamRole` decisions, carry on reading
 it unchanged. Custom roles are `UserRoleAssignment` rows **on top**, so nobody's
 `User.role` changes when they gain one.
 
-`UserRole.CUSTOM` is therefore needed only for a person who should hold **no**
-base access at all (a pure "PO Author" with nothing else). Two ways to express
-that, and it is open (§10 D15): add `CUSTOM` as planned, or seed a system role
-named "No base access" with an empty grant set, which avoids touching
-`TEAM_ROLES`, `ASSIGNABLE_USER_ROLES` and the compile guard entirely. The
-second is smaller; the first is what revision 1 assumed.
+A person who should hold **no** base access at all (a pure "PO Author" with
+nothing else) is expressed as a system role named **"No base access"** with an
+empty grant set (D15, owner, Sep 30 2026), not as a `CUSTOM` enum value. How
+that base is STORED is left to Phase 5, the first phase that needs it: today
+every account carries a `UserRole` value and nothing in Phases 1 to 4 changes
+one. The smallest storage is a nullable `User.baseRoleKey` read ahead of
+`User.role`; an enum value would touch `TEAM_ROLES`, `ASSIGNABLE_USER_ROLES`
+and the compile guard, which is what D15 avoids.
 
 After Phase 0 every predicate a route still uses is an allow-list, so a role
 that grants something not yet swept fails closed. That is what makes "custom
 roles stay off until the sweep is complete" structural rather than a promise.
 
 **System roles resolve their grants from code.** `src/lib/permissions/system-roles.ts`
-is the only definition. A system `Role` row exists per org for identity and the
+(built Sep 30, 2026) is the only definition. A system `Role` row exists per org for identity and the
 FK, with no `RoleGrant` rows. A permission added in a later feature therefore
 reaches every tenant's system roles the day it ships, which a seeded copy never
 would. Cloning a system role snapshots the code grants into `RoleGrant` rows at
 that moment, and the editor says so: a custom role does not follow later
 additions.
 
-**The catalogue lives in code** (`src/lib/permissions/catalogue.ts`) with label,
-description, domain, event-bound flag, risk tier and person-grant flag.
+**The catalogue lives in code** (`src/lib/permissions/catalogue.ts`, extended
+Sep 30, 2026) with label, description, group, event-bound flag, sensitive flag
+and person-grant flag, plus a **`live`** flag: a key is live when routes check
+it. The system roles hold every key and `can()` answers for every key, but the
+editor offers and the service stores only live keys (the 20 procurement keys
+today), so a custom role can never carry a key nothing enforces. Phase 2 flips
+a domain's keys to live as it sweeps it.
 `RoleGrant.permission` is validated against it on write; a key later removed
 from code is reported by a startup check rather than silently ignored.
 
@@ -298,9 +301,13 @@ Four permissions require a grant on the person in addition to the role:
 | Permission | Person grant | Why it is per person (recorded decisions) |
 |---|---|---|
 | `hr.read`, `hr.write` | `User.hrAccess` (SUPER_ADMIN and HR_USER exempt) | "HR is no longer implied by ADMIN precisely so that some admins can be kept out of it" (`users/[userId]/route.ts:32-38`). A role cannot express "this admin, not that one" |
-| `procurement.request` | `User.procurementRequest` | Spec §8.8: the final approver never requests |
-| `procurement.settle` | `User.procurementSettle` | Settlement is a named finance person |
-| `procurement.approve` | `procurementApproveCeilingAed` / `procurementApproveUnlimited` | An AED ceiling per person |
+| `procurement.approvals.decide` | `procurementApproveCeilingAed` / `procurementApproveUnlimited` | An AED ceiling per person |
+
+(Revised Sep 30, 2026: the shipped procurement code lets `procurement.requests.create`
+and `procurement.budgets.signoff` stand alone on a custom role, with
+`User.procurementRequest` and `User.procurementSettle` as a transition arm that
+grants the same keys by themselves until PROCUREMENT_ROLES_PLAN §10a retires
+them. The code won; only the approval ceiling stays a person grant.)
 
 These stay columns, SUPER_ADMIN-only to set, and **no role, system or custom,
 grants them on its own**. `can()` checks both. The editor refuses a combination
@@ -358,9 +365,9 @@ Event-bound keys take a scope. **R** = risk tier "sensitive" (editor warns).
 | Contacts | `contacts.read` · `contacts.write` · `contacts.delete` R · `contacts.import` · `contacts.export` R |
 | CRM | `crm.read` · `crm.write` · `crm.delete` · `crm.export` R · `crm.purge` R · `crm.inbox.read` · `crm.dealValues.view` |
 | HR | `hr.read` P · `hr.write` P |
-| Procurement | `procurement.read` · `budgets.author` · `procurement.admin` · `procurement.request` P · `procurement.settle` P · `procurement.approve` P · `suppliers.financials.view` |
+| Procurement | The 20 keys the procurement roles plan shipped (`procurement.budgets.view/create/edit/discard/signoff`, `approvals.decide` P, `requests.view/create/manage`, `orders.view/receive/cancel/confirmReceipt/send`, `suppliers.view/propose/decide/edit/financials.view`, `catalogue.manage`), plus `procurement.integrations.manage` and `procurement.suppliers.transfer` for the two admin-by-role predicates. The coarse draft keys of revision 3 (`procurement.read`, `budgets.author`, `procurement.admin`) are superseded. Only `approvals.decide` is P: the code lets the request and settle keys stand alone, with the legacy columns as a transition arm (`LEGACY_PROCUREMENT_GRANTS`) |
 | Organization | `org.settings` · `org.credentials` R · `users.invite` · `users.manage` R · `roles.manage` R · `apiKeys.manage` R · `loginActivity.read` · `agent.use` · `mcp.connect` (OAuth consent) |
-| Field visibility | `finance.view` · `barcode.view` · `honorarium.view` · `supportingDocs.view` · `zoomHost.view` · `contacts.pii.view` |
+| Field visibility | `finance.view` · `barcode.view` · `honorarium.view` · `supportingDocs.view` · `zoomHost.view` (`contacts.pii.view` dropped: no predicate exists for it) |
 
 **Not in the catalogue:** the platform operator, the INTERNAL rate-limit tier,
 and the public, token, registrant and cron routes. `upload/photo` and
@@ -384,14 +391,62 @@ as data; this table is the reviewable summary.
 | System role | Holds | Does NOT hold (the cells the first draft got wrong are here) |
 |---|---|---|
 | **Super Admin** | Every catalogue key at `ALL`, incl. `crm.purge`, `activity.org.read`, `loginActivity.read`, `org.credentials`, `users.manage`; HR without a person grant; plus the fixed operator boundary | `procurement.request`, `.settle`, `.approve` without the person grant (grant-only for everyone, §3.4) |
-| **Admin** | Every event, money, speaker, program, communications, certificates, webinar, faculty-extras, contacts key at `ALL`; `crm.read/write/delete/export/inbox/dealValues`; `procurement.read`, `budgets.author`, `procurement.admin`, `suppliers.financials.view`; `org.settings`, `org.credentials`, `users.invite`, `users.manage`, `apiKeys.manage`, `loginActivity.read`, `activity.org.read`, `agent.use`, `mcp.connect`; all six field keys | `crm.purge`; `abstracts.delete` (SUPER_ADMIN only today); `hr.*` without `hrAccess`; procurement P keys without person grants |
-| **Organizer** | The same event-domain keys as Admin at `ALL`, incl. refund, cancel, credit notes, certificates, reimbursements, travel grants, supporting documents, registrations export; `activity.read` per event; `contacts.read/write/export`; `crm.read/write/inbox/dealValues`; `procurement.read`, `budgets.author`, `suppliers.financials.view`; `users.invite` (Onsite role only, D9); `agent.use`, `mcp.connect`; `finance`, `barcode`, `zoomHost`, `supportingDocs`, `honorarium` field keys | `crm.delete`, `crm.export`, `crm.purge`; `procurement.admin`; `org.settings`, `org.credentials`, `apiKeys.manage`, `users.manage`, `loginActivity.read`, `activity.org.read`; `abstracts.delete`; `hr.*` without `hrAccess` |
-| **Member** | Most `*.read` at `ALL`; the desk at `ALL` (`registrations.create`, `.update`, `.checkin`, `.badges.print`, `payments.record`); `invoices.read`, `invoices.ledger`, `invoices.export`; `finance.view`; `contacts.read`, `contacts.export`; `crm.read`; `procurement.read`; `agent.use` (read tools only, by consequence of holding no writes) | Every write outside the desk; `barcode.view`, `zoomHost.view`, `supportingDocs.view`, `honorarium.view`; `registrations.export`; `dtcm.assign`; `rsvp.roster.read`; `crm.inbox.read`, `crm.dealValues.view`; `loginActivity.read`, `activity.org.read` |
+| **Admin** | Every event, money, speaker, program, communications, certificates, webinar, faculty-extras, contacts key at `ALL`; `crm.read/write/delete/export/inbox/dealValues`; `procurement.budgets/requests/orders/suppliers.view`, `budgets.create/edit/discard`, `requests.manage`, `catalogue.manage`, `integrations.manage`, `suppliers.transfer`, `suppliers.financials.view`, `orders.send/receive/cancel`; `org.settings`, `org.credentials`, `users.invite`, `users.manage`, `apiKeys.manage`, `loginActivity.read`, `activity.org.read`, `agent.use`, `mcp.connect`; all six field keys | `crm.purge`; `abstracts.delete` (SUPER_ADMIN only today); `hr.*` without `hrAccess`; procurement P keys without person grants |
+| **Organizer** | The same event-domain keys as Admin at `ALL`, incl. refund, cancel, credit notes, certificates, reimbursements, travel grants, supporting documents, registrations export; `activity.read` per event; `contacts.read/write/delete/import/export`; `crm.read/write/inbox/dealValues`; `procurement.*.view`, `budgets.create/edit/discard`, `suppliers.financials.view`; `events.staff.assign` (the Onsite Staff tab, D9); `agent.use`, `mcp.connect`; `finance`, `barcode`, `zoomHost`, `supportingDocs`, `honorarium` field keys | `crm.delete`, `crm.export`, `crm.purge`; `procurement.admin`; `org.settings`, `org.credentials`, `apiKeys.manage`, `users.manage`, `loginActivity.read`, `activity.org.read`; `abstracts.delete`; `hr.*` without `hrAccess` |
+| **Member** | Most `*.read` at `ALL`; the desk at `ALL` (`registrations.create`, `.update`, `.checkin`, `.badges.print`, `payments.record`); `invoices.read`, `invoices.ledger`, `invoices.export`; `finance.view`; `contacts.read`, `contacts.export`; `crm.read`; `procurement.*.view`; `billingAccounts.read`; `agent.use` (read tools only, by consequence of holding no writes) | Every write outside the desk; `barcode.view`, `zoomHost.view`, `supportingDocs.view`, `honorarium.view`; `registrations.export`; `dtcm.assign`; `rsvp.roster.read`; `crm.inbox.read`, `crm.dealValues.view`; `loginActivity.read`, `activity.org.read` |
 | **Onsite** | Desk at `ASSIGNED`: `registrations.read`, `.create`, `.update`, `.checkin`, `.badges.print`, `.export`, `payments.record`, `dtcm.assign`; `finance.view`, `barcode.view` | Everything else, incl. any event it is not assigned to |
 | **Webinars** | Desk at `ALL` (as Member, plus `barcode.view`, `dtcm.assign`, `registrations.export`); full event control at `WEBINAR`: `events.create` and `events.update` (resulting type must be WEBINAR, §3.2), sessions, speakers, communications and templates, webinar, sponsors, media, surveys, tickets, registrations incl. import; `finance.view`, `zoomHost.view` | `registrations.delete` (L-4), refunds, cancel, credit notes, certificates, reimbursements, contacts, `invoices.ledger`, `emailLogs.read` beyond the desk, `events.delete`, `events.clone`, promo codes, `agent.use` |
 | **CRM User** | `crm.read`, `crm.write`, `crm.delete`, `crm.inbox.read`, `crm.dealValues.view`; `contacts.read` | Every event key; `crm.export`, `crm.purge`; `contacts.export` |
 | **HR User** | `hr.read`, `hr.write` (no person grant needed) | Everything else |
-| **API key (full)** | Every event-domain key at `ALL` and every field key, matching today's REST and MCP behaviour | The per-person and person-scoped surfaces it is refused today: `hr.*`, procurement, `loginActivity.read`, `supportingDocs.view`, `crm.purge`, `users.manage`, `roles.manage`; the operator |
+| **API key (full)** | What a key reaches, derived (`tool-permissions.ts`, `api-key-reach.test.ts`): the MCP tools (reads and writes across events, registrations, invoices, speakers, abstracts, programme, tickets, promo codes, accommodation, communications, templates, certificate templates, sponsors) and the key-capable REST routes (contacts, CRM, four event reads), at `ALL`; `finance`, `barcode` and `zoomHost` field keys. No deletes beyond promo codes and room types, no refunds, cancels or credit notes, no certificate issue, no payments, badges, DTCM, imports, exports beyond registrations and contacts | The per-person and person-scoped surfaces it is refused today: `hr.*`, procurement, `loginActivity.read`, `supportingDocs.view`, `crm.purge`, `users.manage`, `roles.manage`; the operator |
+
+**Recorded on Sep 30, 2026 while writing the matrix as data** (`system-roles.ts`;
+the code won each time, per §7.6):
+
+- ORGANIZER holds `contacts.delete` and `contacts.import` (`denyReviewer` on
+  the contacts routes admits it), not only read, write and export as the table
+  said.
+- ORGANIZER's ONSITE-only invite is modelled as `events.staff.assign` (the
+  Onsite Staff tab: create, assign, remove), and `users.invite` / `users.manage`
+  are ADMIN and above, which is what `isOrgAdmin` decides on the users routes.
+- The API key does not hold `activity.read` (a session-only route) beside the
+  three faculty-money keys its predicate refuses; everything else event-domain
+  it holds at `ALL`, as the table said.
+- **A gap to decide (not fixed):** the org-wide invoice ledger
+  (`/api/invoices`) refuses WEBINARS by name but not ONSITE, whose `denyFinance`
+  answer is yes, so a contractor account can read every event's invoices
+  through the API (the UI confines it). The ONSITE system role does not hold
+  `invoices.ledger`; the route is pinned when the money domain is swept.
+- `canViewHr` reads the per-person tick on ANY role, staff or not; an org-null
+  account never reaches the org-scoped module, so the HR rows of the matrix are
+  stated for staff roles and parity is tested on those.
+- Grant-only keys, held by no system role: `approvals.decide`, `requests.create`,
+  `budgets.signoff`, `orders.confirmReceipt`, `suppliers.propose/edit`. The
+  super admin is never an approver, the final approver never requests,
+  settlement is a named person: these come from the person's grants or a
+  custom role, and the parity test pins the list. ADMIN and SUPER_ADMIN send,
+  receive and cancel orders by role (`commitment-service` `actsOnOrder`); a
+  request holder sends and receives their OWN order only, a row rule no key
+  carries, which the service keeps.
+- Found by the first adversarial review of the matrix (Sep 30, 2026) and
+  corrected: MEMBER does not read email logs (`email-logs` and `email-activity`
+  are `WRITE_ROLES` plus `WEBINAR_STAFF_ALLOW`); the API key row had been
+  written as "admin if it could reach" and was some forty cells wider than the
+  code, so it is now derived from the tool registry and the key-capable routes
+  and pinned by `api-key-reach.test.ts`; seven read keys were missing
+  (`templates.read`, `media.read`, `sponsors.read`, `certificates.read`,
+  `billingAccounts.read`, `surveys.read`) and `registrations.promo.apply` had
+  been dropped without a note.
+- **Under-claims left for the Phase 2 route matrix** (a swept route would
+  refuse, never leak, so they are recorded rather than guessed): ONSITE today
+  reads its assigned event's speakers, sessions, tickets, promo codes, invoices,
+  analytics, abstracts, proposals, webinar attendance, email templates and
+  sponsors through routes with no desk gate; WEBINARS reads promo codes,
+  invoice exports, abstracts and proposals on webinar events; MEMBER reads
+  speaker documents (`allow: ["MEMBER"]`); accommodation and hotel GETs are
+  org-scoped with no role gate (G5), so ONSITE and WEBINARS read every org
+  event's bookings today. The survey reset is `denyReviewer` with no
+  allow-list although WEBINARS holds `surveys.manage` at `WEBINAR`.
 
 ---
 
@@ -445,27 +500,47 @@ per step. **Rollback:** revert the commit; no data changes.
 
 ### Phase 1: Catalogue, system roles, `can()`, the two safety nets (3 weeks)
 
-- Additive migration: `UserRole.CUSTOM`, `Role`, `RoleGrant`, `GrantScope`,
-  `User.roleId`; RLS policies, harness assertions, CI entries.
-- `src/lib/permissions/catalogue.ts`, `system-roles.ts` (the §5 matrix as
-  code), `can.ts` (`can`, `requirePermission` with the §3.2 resulting-object
-  rule, `eventWhereFor`), person-grant checks (§3.4).
-- Seed, idempotent, per org: one system `Role` row per system role (no grants)
-  and `roleId` on every staff user. Prod: 15 accounts.
-- **Safety net 1, predicate parity.** Generated: for every system role and every
-  existing predicate, `oldPredicate(role) === can(systemRole, key)`, and the
-  `where` from `buildEventAccessWhere` equals `eventWhereFor` per role and
-  surface. This proves the **roles** hold the right permissions.
-- **Safety net 2, the route status matrix.** It proves the **routes** check the
-  right permissions, which parity cannot: a route that today requires two
-  predicates (§2.1) and is swept to one key would still pass parity. A harness
-  extending the shape of `webinars-role-regression-matrix.test.ts` records, per
-  handler, the status for each of the eight staff roles, the three external
-  roles, an API key and no session, with the event lookup's `where` captured.
-  Phase 1 builds the harness and snapshots the first two domains; every later
-  domain is snapshotted before it is swept.
-- Nothing in production calls `can()` yet. **Rollback:** revert; the new
-  tables are unused.
+Cut into four slices (Sep 30, 2026), each shippable dark:
+
+1. **Catalogue, system roles as data, `can()`, safety net 1. BUILT Sep 30, 2026.**
+   `catalogue.ts` grew from 20 procurement keys to 146 with the event-bound,
+   sensitive, person-grant and `live` flags; `system-roles.ts` is the §5
+   matrix as data (eight staff roles and the API key, `impliedPersonGrants`,
+   `LEGACY_PROCUREMENT_GRANTS`); `can.ts` is `systemPrincipal()`, `can()` on
+   whole (permission, scope) pairs and `eventWhereFor()`.
+   `system-roles-parity.test.ts` runs every predicate a route asks today,
+   for every role in the Prisma enum and the API key, and every legacy
+   procurement grant combination, and deep-equals `buildEventAccessWhere` per
+   role and surface against `eventWhereFor`; `api-key-reach.test.ts` derives
+   the API key row from the tool registry (`tool-permissions.ts`) and the
+   key-capable routes. Six deliberate wrong cells (MEMBER with barcodes,
+   WEBINARS controlling every event, ONSITE unassigned, the key with sign-in
+   activity, SUPER_ADMIN without the HR tick, a legacy grant without the
+   views) each failed parity. Its blind spots are stated in the test header:
+   route-decided cells are the matrix's reading until Phase 2 pins them.
+   No migration, no behaviour change, nothing calls it.
+2. **Schema:** `scope` on `PermissionSetGrant`, `key` and `isSystem` on
+   `PermissionSet`, `GrantScope`; RLS policy, harness assertions,
+   `check-tenant-als.sh` entries; the service validates a scope on event-bound
+   keys. Additive migration. Seed, idempotent, per org: one system
+   `PermissionSet` row per system role, no grants.
+3. **Request-time resolution (§3.5):** the token carries role ids and a
+   composite version; grants are read per request inside the tenant lane with
+   a per-process cache keyed on `id:version`; `procurementPermissions` leaves
+   the cookie. This absorbs ROADMAP §"Session cookie size" options 2 and 4.
+   Touches `auth.ts`: a browser pass per role and the owner's confirmation
+   before it is pushed.
+4. **`requirePermission()` (with the §3.2 resulting-object rule), `eventWhereFor`
+   at the route boundary, and safety net 2.** The route status matrix harness
+   extends the shape of `webinars-role-regression-matrix.test.ts`: per handler,
+   the status for each of the eight staff roles, the three external roles, an
+   API key and no session, with the event lookup's `where` captured. It proves
+   the **routes** check the right keys, which parity cannot (§2.1). Built with
+   the first two domains snapshotted; every later domain is snapshotted before
+   it is swept.
+
+Nothing in production calls `can()` until Phase 2. **Rollback:** revert; the
+new columns are unused.
 
 ### Phase 2: The route sweep (6 to 9 weeks)
 
@@ -514,6 +589,10 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
 - **Rollback:** the JSON stays written during the dual-read release.
 
 ### Phase 5: The role editor (1 to 2 weeks)
+
+- Before the editor ships: split the application descriptors out of the module
+  the Settings client chunk imports (`permission-sets-card.tsx` reaches
+  `catalogue.ts`), or accept the roughly 10 KB of labels it carries today.
 
 Behind `CUSTOM_ROLES_ENABLED`, and only once Phase 2's gate covers every
 directory (§7.1).
@@ -665,8 +744,11 @@ Before save, the editor flags:
 
 ## 9. Testing
 
-- **Predicate parity** (Phase 1): every system role × every predicate × every
-  surface, generated.
+- **Predicate parity** (Phase 1, BUILT Sep 30 2026: `system-roles-parity.test.ts`,
+  `api-key-reach.test.ts`): every system role × every predicate, plus every
+  legacy procurement grant combination, the event `where` per surface, and the
+  API key row derived from the tool registry. Route-decided cells (about half
+  the keys) are outside it by construction: see the route status matrix.
 - **Route status matrix** (Phase 1 harness, one snapshot per domain in Phase 2):
   every handler × eight staff roles × three external roles × API key × no
   session, status and event `where`.
@@ -690,21 +772,21 @@ Before save, the editor flags:
 
 | # | Question | Recommendation |
 |---|---|---|
-| D1 | System roles editable, or clone-only? | Clone-only; their grants live in code (§3.3) |
-| D2 | Scopes `ALL`, `ASSIGNED`, `WEBINAR`: enough? | Yes; generalize to any event type only when a tenant asks |
+| D1 | System roles editable, or clone-only? | Clone-only; their grants live in code (§3.3) **Ruled as recommended (owner, Sep 30, 2026).** |
+| D2 | Scopes `ALL`, `ASSIGNED`, `WEBINAR`: enough? | Yes; generalize to any event type only when a tenant asks **Ruled as recommended (owner, Sep 30, 2026).** |
 | D3 | One role per user, or several? | **Several** (owner, Sep 16 2026). Additive on top of a base role, unioned over (permission, scope) pairs (§7.3) |
-| D4 | API keys hold a role? | Yes, defaulting to "API key (full)" (§8.1) |
-| D5 | Who manages roles: SUPER_ADMIN only, or ADMIN too? | ADMIN too, under §7.4 |
+| D4 | API keys hold a role? | Yes, defaulting to "API key (full)" (§8.1) **Ruled as recommended (owner, Sep 30, 2026).** |
+| D5 | Who manages roles: SUPER_ADMIN only, or ADMIN too? | ADMIN too, under §7.4 **Ruled as recommended (owner, Sep 30, 2026).** |
 | D6 | Procurement approval ceiling: user attribute or role parameter? | User attribute (§3.4) |
-| D7 | Fold `hrAccess` and the procurement grants into roles? | **No** (changed in revision 2): they are per person on purpose (§3.4) |
-| D8 | Enable the editor on master, the platform, or both? | Build once; enable on master first with one test user, then the platform |
-| D9 | ORGANIZER may invite ONSITE only. Generalize as "may assign roles no wider than your own"? | Yes (§7.4) |
-| D10 | `upload/photo` and `help-chat` stay session-only for any signed-in account? | Yes; the reviewers and submitters using them hold no role (G8) |
+| D7 | Fold `hrAccess` and the procurement grants into roles? | **No** (changed in revision 2): they are per person on purpose (§3.4) **Ruled as recommended (owner, Sep 30, 2026).** |
+| D8 | Enable the editor on master, the platform, or both? | Build once; enable on master first with one test user, then the platform **Ruled as recommended (owner, Sep 30, 2026).** |
+| D9 | ORGANIZER may invite ONSITE only. Generalize as "may assign roles no wider than your own"? | Yes (§7.4) **Ruled as recommended (owner, Sep 30, 2026).** |
+| D10 | `upload/photo` and `help-chat` stay session-only for any signed-in account? | Yes; the reviewers and submitters using them hold no role (G8) **Ruled as recommended (owner, Sep 30, 2026).** |
 | D11 | Start with Phase 0 alone and decide on the rest after? | Yes |
-| D12 | A custom-role user's `User.role` holds a new `CUSTOM` value? | Yes (§3.3) |
+| D12 | A custom-role user's `User.role` holds a new `CUSTOM` value? | Yes (§3.3) **Superseded Sep 30, 2026 by D15: no `CUSTOM` value.** |
 | D13 | Custom-role grants read in a lane borrowed from the user row, or exempt the role tables from RLS? | Borrow the lane (§3.5) |
 | D17 | Checkboxes on a named role or directly on the person? | **Named role** (owner, Sep 16 2026); see PROCUREMENT_ROLES_PLAN §8a |
-| D15 | A person with no base access: add `UserRole.CUSTOM`, or seed a "No base access" system role? | Open; the seeded role is smaller (§3.3) |
+| D15 | A person with no base access: add `UserRole.CUSTOM`, or seed a "No base access" system role? | Open; the seeded role is smaller (§3.3) **Ruled: "No base access" system role (owner, Sep 30, 2026); storage decided in Phase 5, §3.3.** |
 | D16 | Build order | **Reversed the same day.** Procurement roles first (PROCUREMENT_ROLES_PLAN §0: three staff are blocked or over-permissioned today and Phase 0 fixes none of it). Phase 0 step 1 shipped on its own; the rest follows |
 | D14 | Should the org-wide ORGANIZER scope be recorded as intended, since the docs say "assigned events only"? | Owner call; the migration preserves the code either way |
 
