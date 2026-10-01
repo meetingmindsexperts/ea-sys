@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { createPromoCode, type CreatePromoCodeErrorCode } from "@/services/promo-code-service";
@@ -68,11 +67,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "promo.read", { route: "events/[eventId]/promo-codes:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, promoCodes] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.promoCode.findMany({
@@ -124,8 +126,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/promo-codes:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "promo.write", { route: "events/[eventId]/promo-codes:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const parsed = createPromoCodeSchema.safeParse(body);
@@ -138,6 +140,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const { ticketTypeIds, ...data } = parsed.data;
+
+    // The event must be one the grant reaches. The service checks only the
+    // organisation, which is equivalent while every `promo.write` holder is
+    // org-wide; a scoped custom role would not be.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "events/promo-codes:create-event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     // Domain logic lives in promo-code-service.createPromoCode (shared with the
     // MCP create_promo_code tool) — this route keeps auth, Zod, and HTTP mapping.

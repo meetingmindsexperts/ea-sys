@@ -198,6 +198,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: registration types and promo codes check permissions instead of roles (October 1)
+
+- Custom roles Phase 2, second domain: registration types, pricing tiers and
+  promo codes. Nobody's access changes. Onsite staff keep reading their
+  assigned event's registration types and promo codes, and the webinar team
+  keeps reading a webinar's promo codes; those three reads are now named
+  permissions on the two roles rather than a side effect of the old checks.
+
 ### Changed: the events routes check permissions instead of roles (October 1)
 
 - Custom roles Phase 2, first domain. The events list, an event's page, and

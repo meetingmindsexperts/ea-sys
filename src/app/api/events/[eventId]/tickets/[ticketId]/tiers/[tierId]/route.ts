@@ -5,8 +5,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 
 const updateTierSchema = z.object({
@@ -40,14 +39,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tickets.write", { route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept pricingTier read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, tier] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.pricingTier.findFirst({
@@ -151,14 +150,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tickets.delete", { route: "events/[eventId]/tickets/[ticketId]/tiers/[tierId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept pricingTier read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, tier] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.pricingTier.findFirst({

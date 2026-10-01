@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
@@ -65,6 +64,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "promo.read", { route: "events/[eventId]/promo-codes/[promoCodeId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event through the role's own scope, exactly as the list
     // route beside this one does, before exposing the promo code and its
     // redemption PII. It was org-bound only until Oct 1, 2026, which the route
@@ -72,7 +74,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // conferences, and CRM_USER and HR_USER (confined to their modules) any
     // event, each seeing attendee names and emails given a promo code id.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -147,8 +149,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "promo.write", { route: "events/[eventId]/promo-codes/[promoCodeId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const parsed = updatePromoCodeSchema.safeParse(body);
     if (!parsed.success) {
@@ -163,7 +165,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existing] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.promoCode.findFirst({
@@ -329,14 +331,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "promo.delete", { route: "events/[eventId]/promo-codes/[promoCodeId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, promoCode] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.promoCode.findFirst({

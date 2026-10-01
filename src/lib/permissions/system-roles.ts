@@ -316,8 +316,14 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     key: "ONSITE",
     name: "Onsite Staff",
     baseRole: "ONSITE",
-    // The desk on assigned events only; sees amounts and codes.
-    grants: [...at("ASSIGNED", "events.read", "registrations.read", ...DESK, ...DESK_WITH_CODES), ...org("finance.view", "barcode.view", "hr.read", "hr.write")],
+    // The desk on assigned events only; sees amounts and codes. It reads the
+    // event's registration types (the desk's add-registration form needs
+    // them) and promo codes, which the route matrix recorded on Oct 1, 2026
+    // and the owner kept (plan §6 Phase 2, "Registration types and promo codes").
+    grants: [
+      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", ...DESK, ...DESK_WITH_CODES),
+      ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
+    ],
     impliedPersonGrants: [],
   },
   WEBINARS: {
@@ -331,6 +337,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     grants: [
       ...at("ALL", "events.read", "registrations.read", ...DESK, ...DESK_WITH_CODES, "emailLogs.read"),
       ...at("WEBINAR", ...WEBINARS_MANAGE),
+      // Reads a webinar's promo codes (no write: promo codes are hidden on
+      // webinars); recorded by the route matrix, kept by the owner, Oct 1, 2026.
+      ...at("WEBINAR", "promo.read"),
       ...org("finance.view", "barcode.view", "zoomHost.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],

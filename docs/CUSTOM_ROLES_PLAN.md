@@ -617,14 +617,20 @@ Domain by domain:
   ONSITE, MEMBER and CRM_USER. Two 403s on those pages predate the sweep and
   come from other routes (`/api/organization/eventsair/credentials` for
   WEBINARS and MEMBER, the event activity feed for MEMBER).
-- **Registration types and promo codes: WAITING ON AN OWNER RULING.** The
-  matrix shows three reads the system roles do not grant: ONSITE reads
-  registration types and promo codes on its assigned events, and WEBINARS
-  reads promo codes on webinars (§5 under-claims). Swept as the catalogue
-  stands, those turn into 404s. ONSITE's desk add-registration form needs the
-  registration types, so the recommendation is to grant `tickets.read` and
-  `promo.read` at `ASSIGNED` to ONSITE and `promo.read` at `WEBINAR` to
-  WEBINARS, which keeps today's behaviour.
+- **Registration types and promo codes SWEPT Oct 1, 2026** (the six
+  `tickets` and `promo-codes` route files): `tickets.read` / `.write` /
+  `.delete` and `promo.read` / `.write` / `.delete`. The matrix showed three
+  reads the system roles did not grant (§5 under-claims); the owner kept them
+  ("proceed" on the recommendation), so ONSITE now holds `tickets.read` and
+  `promo.read` at `ASSIGNED` (its desk add-registration form needs the
+  types) and WEBINARS `promo.read` at `WEBINAR`. The promo create route gained
+  an event check through `gate.eventWhere`: the service's own lookup is
+  org-wide, equivalent only while every `promo.write` holder is org-wide.
+  Matrix byte for byte; all six files are in `check-permission-guards.sh`.
+  Verified on the standalone build as ADMIN (type, tier and promo create,
+  edit, delete), ONSITE assigned (reads 200, writes 403), MEMBER, WEBINARS on
+  a conference and CRM_USER (404s), with no failed request and no console
+  message.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

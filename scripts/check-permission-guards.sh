@@ -29,6 +29,13 @@ SWEPT=(
   # events core (Oct 1, 2026)
   "src/app/api/events/route.ts"
   "src/app/api/events/[eventId]/route.ts"
+  # registration types, tiers and promo codes (Oct 1, 2026)
+  "src/app/api/events/[eventId]/tickets/route.ts"
+  "src/app/api/events/[eventId]/tickets/[ticketId]/route.ts"
+  "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/route.ts"
+  "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/[tierId]/route.ts"
+  "src/app/api/events/[eventId]/promo-codes/route.ts"
+  "src/app/api/events/[eventId]/promo-codes/[promoCodeId]/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped.

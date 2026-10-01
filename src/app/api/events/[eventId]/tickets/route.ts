@@ -4,9 +4,8 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -79,11 +78,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "tickets:list", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "tickets.read", { route: "tickets:list", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketTypes] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.ticketType.findMany({
@@ -141,11 +143,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "tickets:create", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tickets:create", eventId });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tickets.write", { route: "tickets:create", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 
