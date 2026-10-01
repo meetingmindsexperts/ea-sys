@@ -491,6 +491,10 @@ export function ZoomWebEmbed({
         !isFullscreen && "rounded-lg",
         isFallback && "fixed inset-0 z-50",
       )}
+      // A pinned `inset-0` box with auto height still honours a sibling
+      // margin from the parent's `space-y-*`, which would leave a strip of
+      // page showing below the player.
+      style={isFallback ? { margin: 0 } : undefined}
     >
       {/* Our bar. The one place for controls we add, kept clear of Zoom's
           header and toolbar, which live inside its panel below. */}

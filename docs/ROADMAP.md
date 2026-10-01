@@ -723,6 +723,28 @@ This is a coverage gap underneath it, not an error in it.
 
 ## Deferred review findings
 
+### Webinar full screen review — deferred LOWs (Oct 1, 2026)
+
+The review of the attendee-page full screen work (`e85f5680` and its
+follow-up) found two HIGHs and one MED, all shipped; the owner's call on
+the MED/LOW list was "fix med", so these three LOWs are recorded here:
+
+- **Prefixed fullscreen refusal is invisible.** On old iPad Safari the
+  WebKit-prefixed `webkitRequestFullscreen()` returns void and never rejects,
+  so a refused request is treated as entered in `useFullscreen` and the
+  in-page fallback never kicks in; the button then does nothing. Fix: after
+  the request, wait briefly for `webkitfullscreenchange` and check
+  `api.current() === el` before treating it as entered, else fall back.
+- **HLS player: non-playing states are not centred in native fullscreen.**
+  `LivePlayer` keys its flex centring on the in-page fallback only, so in
+  native fullscreen the loading, offline and error states sit as a 400px
+  strip at the top-left of the black screen. Fix: key the centring on
+  `isFullscreen`, as the Zoom embed's area does.
+- **Empty catch on the share-event subscription.** The new
+  `client.on("peer-share-state-change", …)` copies the shape of the
+  pre-existing `connection-change` subscription, including the silent
+  catch that Code Conventions rule 10 forbids. Fix: `console.warn` in both.
+
 ### Public-by-id routes and media lifecycle review (Sep 8, 2026): cheap fixes shipped, the token scheduled, one race recorded
 
 External review of the confirmation-page routes and the media library: **0 BLOCKER / 2 P1 / 3 P2**, all five verified against source. Shipped the same day: a rate limit on the public payment-status route (it had none), the host-resolved tenant lane around the public document route (its Registration read sat outside the lane and would fail closed on the platform), and one shared storage-then-row helper for both media upload routes (the org route left an orphan in public storage when the row insert failed).

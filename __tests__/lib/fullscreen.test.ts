@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveFullscreenApi, shrinkToFit } from "@/lib/fullscreen";
+import { lockDocumentScroll, resolveFullscreenApi, shrinkToFit } from "@/lib/fullscreen";
 
 /**
  * The fullscreen helpers behind both webinar players (Oct 1, 2026). The hook
@@ -63,6 +63,43 @@ describe("resolveFullscreenApi", () => {
   it("is null when the document cannot exit", () => {
     const el: FakeEl = { requestFullscreen: async () => {} };
     expect(resolveFullscreenApi(el as unknown as HTMLElement, fakeDoc())).toBeNull();
+  });
+});
+
+describe("lockDocumentScroll", () => {
+  function fakes(scrollY: number, inline: Record<string, string> = {}, htmlInline: Record<string, string> = {}) {
+    const style: Record<string, string> = { ...inline };
+    const htmlStyle: Record<string, string> = { ...htmlInline };
+    const doc = { body: { style }, documentElement: { style: htmlStyle } } as unknown as Document;
+    const scrollTo = vi.fn();
+    const win = { scrollY, scrollTo } as unknown as Window;
+    return { style, htmlStyle, doc, win, scrollTo };
+  }
+
+  it("pins the body at the current offset (iOS Safari ignores overflow: hidden) and hides html overflow", () => {
+    const { style, htmlStyle, doc, win } = fakes(640);
+    lockDocumentScroll(doc, win);
+    expect(style.position).toBe("fixed");
+    expect(style.top).toBe("-640px");
+    expect(style.width).toBe("100%");
+    expect(style.overflow).toBe("hidden");
+    expect(htmlStyle.overflow).toBe("hidden");
+  });
+
+  it("unlock restores the inline styles that were there and the scroll offset", () => {
+    const { style, htmlStyle, doc, win, scrollTo } = fakes(
+      640,
+      { position: "relative", width: "90%" },
+      { overflow: "auto" },
+    );
+    const unlock = lockDocumentScroll(doc, win);
+    unlock();
+    expect(style.position).toBe("relative");
+    expect(style.width).toBe("90%");
+    expect(style.top).toBe("");
+    expect(style.overflow).toBe("");
+    expect(htmlStyle.overflow).toBe("auto");
+    expect(scrollTo).toHaveBeenCalledWith(0, 640);
   });
 });
 

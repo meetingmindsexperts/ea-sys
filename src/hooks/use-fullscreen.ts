@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { resolveFullscreenApi } from "@/lib/fullscreen";
+import { lockDocumentScroll, resolveFullscreenApi } from "@/lib/fullscreen";
 
 export interface UseFullscreen {
   /** Native fullscreen OR the in-page fallback is active. */
@@ -59,11 +59,13 @@ export function useFullscreen(ref: RefObject<HTMLElement | null>): UseFullscreen
       if (e.key === "Escape") setIsFallback(false);
     };
     window.addEventListener("keydown", onKey);
-    const previous = document.documentElement.style.overflow;
-    document.documentElement.style.overflow = "hidden";
+    // Body-pinning lock: `overflow: hidden` on the document does not stop
+    // touch scrolling on iOS Safari, the platform this fallback exists for
+    // (review, Oct 1, 2026).
+    const unlock = lockDocumentScroll(document, window);
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.documentElement.style.overflow = previous;
+      unlock();
     };
   }, [isFallback]);
 

@@ -46,6 +46,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the SDK's panel is a direct child with its own box; it now reads the root's
   scroll extent, which sees any overflow however the SDK nests its DOM, and
   the per-child observers (which also leaked across the session) went with it.
+  The MED shipped on the owner's call ("fix med"): the fallback's scroll lock
+  now pins the body at the current offset (`lockDocumentScroll`, restored on
+  exit), because iOS Safari ignores `overflow: hidden` for touch scrolling
+  and iPhone Safari is the platform the fallback exists for. The three LOWs
+  (prefixed-API refusal on old iPad Safari, HLS non-playing states not
+  centred in native fullscreen, the empty catch on the share-event
+  subscription) are recorded in `docs/ROADMAP.md` under "Deferred review
+  findings".
 - Verified in headed Chromium on Oct 1 on a local harness (bar, overlay
   states, native fullscreen, the browser-side exit that Esc triggers, button
   exit, unmount while fullscreen, the in-page fallback with scroll lock, phone

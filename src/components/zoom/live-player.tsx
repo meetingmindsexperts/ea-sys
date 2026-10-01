@@ -208,6 +208,9 @@ export function LivePlayer({
         !isFullscreen && "rounded-lg",
         isFallback && "fixed inset-0 z-50 flex items-center justify-center",
       )}
+      // Same as the Zoom embed: a pinned box keeps the parent's `space-y-*`
+      // sibling margin, which would leave a strip of page showing below it.
+      style={isFallback ? { margin: 0 } : undefined}
     >
       {/* The way out while fullscreen and NOT playing. The controls overlay
           below (with its own toggle) exists only while playing, and in the

@@ -73,6 +73,42 @@ export function resolveFullscreenApi(
 }
 
 /**
+ * Stop the page behind an in-page fullscreen fallback from scrolling, and
+ * return the function that undoes it.
+ *
+ * `overflow: hidden` on the document is not enough: iOS Safari ignores it for
+ * touch scrolling, and iPhone Safari is the one platform the fallback exists
+ * for. Pinning the body with `position: fixed` at the current offset holds
+ * everywhere; the offset is put back on unlock so the viewer lands where
+ * they were. Inline styles that were there before are restored as they were.
+ */
+export function lockDocumentScroll(doc: Document, win: Window): () => void {
+  const body = doc.body;
+  const html = doc.documentElement;
+  const scrollY = win.scrollY;
+  const keys = ["position", "top", "left", "right", "width", "overflow"] as const;
+  const previous = Object.fromEntries(keys.map((k) => [k, body.style[k] ?? ""])) as Record<
+    (typeof keys)[number],
+    string
+  >;
+  const previousHtmlOverflow = html.style.overflow ?? "";
+  body.style.position = "fixed";
+  body.style.top = `-${scrollY}px`;
+  body.style.left = "0";
+  body.style.right = "0";
+  body.style.width = "100%";
+  body.style.overflow = "hidden";
+  // Desktop browsers honour this and it keeps a stray scrollbar from showing
+  // beside the pinned body; iOS ignores it, which is what the pin is for.
+  html.style.overflow = "hidden";
+  return () => {
+    for (const k of keys) body.style[k] = previous[k];
+    html.style.overflow = previousHtmlOverflow;
+    win.scrollTo(0, scrollY);
+  };
+}
+
+/**
  * Next width to ask the Zoom SDK for, or null when the drawn panel already
  * fits its area. `drawn` is the root's scroll extent: the root is sized to
  * the request and is the panel's containing block, so the SDK can only match
