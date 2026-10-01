@@ -63,7 +63,15 @@ export function principalFromApiKey(organizationId: string): Principal {
 }
 
 export type PermissionGate =
-  | { ok: true; principal: Principal; eventWhere: Prisma.EventWhereInput | null }
+  | {
+      ok: true;
+      principal: Principal;
+      /**
+       * Always defined, so a lookup built from it can never fail open: for an
+       * event-bound key the events the grant reaches, otherwise none.
+       */
+      eventWhere: Prisma.EventWhereInput;
+    }
   | { ok: false; response: NextResponse };
 
 export interface RequirePermissionOptions {
@@ -72,13 +80,56 @@ export interface RequirePermissionOptions {
   /** For an event-bound key on an event-nested route: `eventWhere` is then scoped to this id. */
   eventId?: string;
   /**
-   * For a create or update: what the event will be after the write (§3.2).
-   * The organisation is the principal's own; a create cannot place an event elsewhere.
+   * For a create: what the event will be (§3.2). An update runs the same rule
+   * through `refuseOutOfScope` once it has read the event and the body.
    */
   resulting?: Omit<EventFacts, "organizationId">;
+  /**
+   * What a caller who does not hold an event-bound key gets. "forbid" (the
+   * default, for writes) is a 403, as `denyReviewer` gives. "hide" (for reads)
+   * passes with an event filter that matches nothing, so the route's own
+   * lookup answers 404 or an empty list, as `buildEventAccessWhere` gives a
+   * role with no events. Reads hide and writes refuse: that is how every
+   * event route answers today, and the route matrix holds the sweep to it.
+   */
+  onMissing?: "forbid" | "hide";
 }
 
+const NO_EVENTS: Prisma.EventWhereInput = { id: { in: [] } };
 const forbidden = () => NextResponse.json({ error: "Forbidden" }, { status: 403 });
+const isPrincipal = (c: Session | Principal): c is Principal => Array.isArray((c as Principal).grants);
+
+/**
+ * The §3.2 refusal for an event that a write would leave outside the
+ * caller's scope, or null when the scope admits it. A caller whose only grant
+ * of the key is webinar-scoped gets the `WEBINAR_ONLY` answer the two
+ * hand-written checks gave before (a client may read the code).
+ */
+export function refuseOutOfScope(
+  principal: Principal,
+  permission: PermissionKey,
+  resulting: Omit<EventFacts, "organizationId">,
+  ctx: { route: string; eventId?: string },
+): NextResponse | null {
+  const facts: EventFacts = { ...resulting, organizationId: principal.organizationId ?? "" };
+  if (can(principal, permission, { event: facts })) return null;
+  apiLogger.warn({
+    msg: "permissions:resulting-out-of-scope",
+    ...ctx,
+    permission,
+    role: principal.baseRole,
+    userId: principal.userId,
+    eventType: resulting.eventType,
+  });
+  const scopes = new Set(principal.grants.filter((g) => g.permission === permission).map((g) => g.scope));
+  const webinarOnly = scopes.size === 1 && scopes.has("WEBINAR");
+  return NextResponse.json(
+    webinarOnly
+      ? { error: "Your role can only manage Webinar events", code: "WEBINAR_ONLY" }
+      : { error: "Your role does not allow an event of this kind.", code: "OUT_OF_SCOPE" },
+    { status: 403 },
+  );
+}
 
 /**
  * Decide at the route boundary. Accepts the session, or a principal already
@@ -90,33 +141,28 @@ export function requirePermission(
   opts: RequirePermissionOptions,
 ): PermissionGate {
   const { route, eventId } = opts;
-  const isPrincipal = (c: Session | Principal): c is Principal => Array.isArray((c as Principal).grants);
   if (!caller || (!isPrincipal(caller) && !caller.user)) {
     apiLogger.warn({ msg: "permissions:unauthenticated", route, permission });
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const principal = isPrincipal(caller) ? caller : principalFromSession(caller);
-  const who = { route, permission, eventId, role: principal.baseRole, fromApiKey: principal.fromApiKey, userId: principal.userId };
+  const eventBound = describePermission(permission)?.eventBound === true;
 
   if (!can(principal, permission)) {
+    const who = { route, permission, eventId, role: principal.baseRole, fromApiKey: principal.fromApiKey, userId: principal.userId };
+    if (opts.onMissing === "hide" && eventBound) {
+      // Logged at warn like every refusal; the lookup's 404 follows.
+      apiLogger.warn({ msg: "permissions:hidden", ...who });
+      return { ok: true, principal, eventWhere: NO_EVENTS };
+    }
     apiLogger.warn({ msg: "permissions:denied", ...who });
     return { ok: false, response: forbidden() };
   }
 
   if (opts.resulting) {
-    const facts: EventFacts = { ...opts.resulting, organizationId: principal.organizationId ?? "" };
-    if (!can(principal, permission, { event: facts })) {
-      apiLogger.warn({ msg: "permissions:resulting-out-of-scope", ...who, eventType: opts.resulting.eventType });
-      return {
-        ok: false,
-        response: NextResponse.json(
-          { error: "Your role does not allow an event of this kind.", code: "OUT_OF_SCOPE" },
-          { status: 403 },
-        ),
-      };
-    }
+    const refused = refuseOutOfScope(principal, permission, opts.resulting, { route, eventId });
+    if (refused) return { ok: false, response: refused };
   }
 
-  const eventWhere = describePermission(permission)?.eventBound ? eventWhereFor(principal, permission, eventId) : null;
-  return { ok: true, principal, eventWhere };
+  return { ok: true, principal, eventWhere: eventBound ? eventWhereFor(principal, permission, eventId) : NO_EVENTS };
 }

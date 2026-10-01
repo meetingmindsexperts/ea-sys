@@ -9,7 +9,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { isTeamRole } from "@/lib/auth-guards";
+import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -153,8 +154,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return response;
     }
 
+    // Staff: the events the person holds `events.read` on (WEBINARS every org
+    // event, the desk view; ONSITE its assigned ones). A role holding none
+    // (CRM_USER, HR_USER) gets the same 404 a missing event gives.
+    const gate = requirePermission(session, "events.read", { route: "events/[eventId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: gate.eventWhere,
       include: {
         _count: {
           select: {
@@ -206,12 +212,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.update", { route: "events/[eventId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
-    // Verify event belongs to user's organization (use select for minimal data)
+    // The events this person may update (WEBINARS: webinars only).
     const existingEvent = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: {
         id: true,
         slug: true,
@@ -239,26 +245,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Review M-2: the WEBINARS role must not flip an event's TYPE — a
-    // webinar re-typed to CONFERENCE would be a conference minted end-to-end
-    // by the webinar team, a two-step bypass of the create route's
-    // WEBINAR_ONLY gate. Same 403 shape as that gate.
-    if (
-      session.user.role === "WEBINARS" &&
-      validated.data.eventType !== undefined &&
-      validated.data.eventType !== "WEBINAR"
-    ) {
-      apiLogger.warn({
-        msg: "events:webinars-role-event-type-flip-refused",
-        eventId,
-        userId: session.user.id,
-        requestedType: validated.data.eventType,
-      });
-      return NextResponse.json(
-        { error: "Your role can only manage Webinar events", code: "WEBINAR_ONLY" },
-        { status: 403 },
-      );
-    }
+    // Review M-2, now the resulting-object rule (custom roles plan §3.2): an
+    // update must leave the event inside the scope that let the caller in, so
+    // a webinar-only grant cannot re-type a webinar into a conference, a
+    // two-step bypass of the create route's rule.
+    const outOfScope = refuseOutOfScope(
+      gate.principal,
+      "events.update",
+      { eventType: validated.data.eventType ?? existingEvent.eventType ?? "" },
+      { route: "events/[eventId]:PUT", eventId },
+    );
+    if (outOfScope) return outOfScope;
 
     const {
       name,
@@ -891,8 +888,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const deniedDel = denyReviewer(session, { route: "events/[eventId]:DELETE" });
-    if (deniedDel) return deniedDel;
+    const gate = requirePermission(session, "events.delete", { route: "events/[eventId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Require explicit confirmation to prevent accidental deletion
     const { searchParams } = new URL(req.url);
@@ -905,7 +902,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Verify event belongs to user's organization (select only needed fields)
     const existingEvent = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true },
     });
 

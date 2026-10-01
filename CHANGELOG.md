@@ -85,6 +85,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the events routes check permissions instead of roles (October 1)
+
+- Custom roles Phase 2, first domain. The events list, an event's page, and
+  creating, editing and deleting events now ask "does this person hold the
+  permission, and on which events?" instead of checking role names. Nobody's
+  access changes: the route status matrix for these routes is identical
+  before and after, and each role was checked in a browser.
+- A new CI check, `check-permission-guards.sh`, stops a route that has moved
+  to permissions from picking up a role check again.
+
 ### Fixed: a promo code's detail page is limited to the events your role can open (October 1)
 
 - The promo code detail route checked the organisation but not the role, so

@@ -604,6 +604,28 @@ Domain by domain:
    a swept directory, `denyReviewer(`, `role ===`, `role !==` or `*_ALLOW`
    fails CI naming the file. The list only grows.
 
+**Progress.**
+- **Events core SWEPT Oct 1, 2026** (`/api/events`, `/api/events/[eventId]`):
+  `events.read` (list and detail, `onMissing: "hide"`, so CRM_USER and HR_USER
+  still get an empty list and a 404), `events.create`, `events.update`,
+  `events.delete`. The two WEBINAR_ONLY checks are now `refuseOutOfScope`
+  (§3.2), which keeps the `WEBINAR_ONLY` code for a webinar-only grant. The
+  external roles keep their `buildEventAccessWhere` branch (§1) and
+  `requireOrgId` stays (G5). Matrix byte for byte; the two files are the
+  first entries in `scripts/check-permission-guards.sh` (gating in CI).
+  Verified in a headed browser on the standalone build as ADMIN, WEBINARS,
+  ONSITE, MEMBER and CRM_USER. Two 403s on those pages predate the sweep and
+  come from other routes (`/api/organization/eventsair/credentials` for
+  WEBINARS and MEMBER, the event activity feed for MEMBER).
+- **Registration types and promo codes: WAITING ON AN OWNER RULING.** The
+  matrix shows three reads the system roles do not grant: ONSITE reads
+  registration types and promo codes on its assigned events, and WEBINARS
+  reads promo codes on webinars (§5 under-claims). Swept as the catalogue
+  stands, those turn into 404s. ONSITE's desk add-registration form needs the
+  registration types, so the recommendation is to grant `tickets.read` and
+  `promo.read` at `ASSIGNED` to ONSITE and `promo.read` at `WEBINAR` to
+  WEBINARS, which keeps today's behaviour.
+
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·
 certificates · webinar · faculty extras · contacts · registrations desk ·

@@ -154,6 +154,12 @@ jobs:
       - name: Org guard (organizationId! footgun)
         run: bash scripts/check-org-guard.sh
 
+      # Custom roles Phase 2: a route file moved onto requirePermission() must
+      # not regain a role check (denyReviewer, *_ALLOW, role ===). The list
+      # of swept files only grows (docs/CUSTOM_ROLES_PLAN.md §6).
+      - name: Permission guards (swept routes stay swept)
+        run: bash scripts/check-permission-guards.sh
+
       # A live org API key sat in a tracked Claude Code settings file in this
       # PUBLIC repo for five months (INC-005, 2026-09-04). GitHub's secret
       # scanning does not know our `mmg_` shape. This does; it masks what it

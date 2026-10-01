@@ -10,8 +10,8 @@ import type { Session } from "next-auth";
 const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: mockWarn, info: vi.fn(), error: vi.fn() } }));
 
-import { principalFromApiKey, principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
-import { eventWhereFor } from "@/lib/permissions/can";
+import { principalFromApiKey, principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
+import { eventWhereFor, systemPrincipal } from "@/lib/permissions/can";
 
 const session = (role: string, extra: Record<string, unknown> = {}, organizationId: string | null = "org-1") =>
   ({ user: { id: "user-1", role, organizationId, firstName: "F", lastName: "L", ...extra } }) as unknown as Session;
@@ -40,13 +40,25 @@ describe("holding the key", () => {
     );
   });
 
-  it("an organisation-wide key passes with no event filter", () => {
+  it("an organisation-wide key passes with an event filter that reaches nothing", () => {
     const gate = requirePermission(session("ADMIN"), "org.settings", { route: "r" });
-    expect(gate.ok && gate.eventWhere).toBeNull();
+    expect(gate.ok && gate.eventWhere).toEqual({ id: { in: [] } });
   });
 
   it("refuses an org-less staff account an organisation-wide key (requireOrgId's job today)", async () => {
     expect(await status(requirePermission(session("ADMIN", {}, null), "org.settings", { route: "r" }))).toBe(403);
+  });
+});
+
+describe("onMissing: hide (reads)", () => {
+  it("passes with a filter that matches nothing, so the lookup 404s as today", () => {
+    const gate = requirePermission(session("CRM_USER"), "events.read", { route: "r", eventId: "ev-1", onMissing: "hide" });
+    expect(gate.ok && gate.eventWhere).toEqual({ id: { in: [] } });
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "permissions:hidden", role: "CRM_USER" }));
+  });
+
+  it("still refuses an organisation-wide key: there is no lookup to hide behind", async () => {
+    expect(await status(requirePermission(session("MEMBER"), "org.settings", { route: "r", onMissing: "hide" }))).toBe(403);
   });
 });
 
@@ -74,12 +86,25 @@ describe("the resulting-object rule (§3.2)", () => {
     expect(refused.ok).toBe(false);
     if (refused.ok) return;
     expect(refused.response.status).toBe(403);
-    expect((await refused.response.json()).code).toBe("OUT_OF_SCOPE");
+    // The same answer the hand-written check gave, for a client that reads the code.
+    expect(await refused.response.json()).toEqual({ error: "Your role can only manage Webinar events", code: "WEBINAR_ONLY" });
     expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ msg: "permissions:resulting-out-of-scope", eventType: "CONFERENCE" }));
   });
 
   it("a WEBINAR-scoped events.update cannot flip a webinar into a conference", async () => {
     expect(await status(requirePermission(session("WEBINARS"), "events.update", { route: "r", eventId: "ev-1", resulting: { eventType: "CONFERENCE" } }))).toBe(403);
+  });
+
+  it("a scope that is not webinar-only answers OUT_OF_SCOPE", async () => {
+    // An assigned-only grant cannot create anything: a new event has no staff list yet.
+    const p = systemPrincipal({ role: "MEMBER", organizationId: "org-1", userId: "user-1", customGrants: [{ permission: "events.create", scope: "ASSIGNED" }] });
+    const refused = refuseOutOfScope(p, "events.create", { eventType: "CONFERENCE" }, { route: "r" });
+    expect(refused?.status).toBe(403);
+    expect((await refused?.json()).code).toBe("OUT_OF_SCOPE");
+  });
+
+  it("refuseOutOfScope answers null when the scope admits the result", () => {
+    expect(refuseOutOfScope(principalFromSession(session("WEBINARS")), "events.update", { eventType: "WEBINAR" }, { route: "r" })).toBeNull();
   });
 
   it("an ALL-scoped grant creates either kind", async () => {

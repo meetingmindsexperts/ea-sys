@@ -9,7 +9,8 @@ import { resolveUniqueEventCode } from "@/lib/event-code";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { EVENT_LIST_SELECT } from "@/lib/event-visibility";
-import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { isTeamRole } from "@/lib/auth-guards";
+import { principalFromApiKey, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
@@ -71,10 +72,13 @@ export async function GET(req: Request) {
         return NextResponse.json(events);
       }
 
+      // Staff: every event the person holds `events.read` on (WEBINARS reads
+      // every org event, the desk view; ONSITE its assigned ones). A role that
+      // holds none (CRM_USER, HR_USER) gets an empty list, never a 403.
+      const gate = requirePermission({ ...session, user }, "events.read", { route: "events:GET", onMissing: "hide" });
+      if (!gate.ok) return gate.response;
       const events = await db.event.findMany({
-        // Desk surface: for the WEBINARS role the events LIST must show its
-        // assigned conferences (desk duty) alongside all org webinars.
-        where: { ...buildEventAccessWhere(user, undefined, { surface: "desk" }), ...(slug && { slug }) },
+        where: { ...gate.eventWhere, ...(slug && { slug }) },
         orderBy,
         include: {
           _count: { select: { registrations: true, speakers: true } },
@@ -99,8 +103,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(principalFromApiKey(result.organizationId), "events.read", {
+      route: "events:GET",
+      onMissing: "hide",
+    });
+    if (!gate.ok) return gate.response;
     const events = await db.event.findMany({
-      where: { organizationId: result.organizationId, ...(slug && { slug }) },
+      where: { ...gate.eventWhere, ...(slug && { slug }) },
       orderBy,
       include: {
         _count: { select: { registrations: true, speakers: true } },
@@ -127,8 +136,8 @@ export async function POST(req: Request) {
     const orgGuard = requireOrgId(session, { route: "events:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.create", { route: "events:POST" });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json();
     const validated = createEventSchema.safeParse(body);
@@ -144,20 +153,12 @@ export async function POST(req: Request) {
     const { name, description, eventType, tag, specialty, code, startDate, endDate, venue, address, city, country } =
       validated.data;
 
-    // The WEBINARS role may ONLY create webinar events — that's its whole
-    // remit. Anything else (or an omitted type, which defaults to null) is a
-    // hard refusal, not a silent coercion.
-    if (session.user.role === "WEBINARS" && eventType !== "WEBINAR") {
-      apiLogger.warn({
-        msg: "events:webinars-role-non-webinar-create-refused",
-        userId: session.user.id,
-        requestedType: eventType ?? null,
-      });
-      return NextResponse.json(
-        { error: "Your role can only create Webinar events", code: "WEBINAR_ONLY" },
-        { status: 403 },
-      );
-    }
+    // The resulting-object rule (custom roles plan §3.2): a create under a
+    // webinar-only grant must produce a webinar. An omitted type is stored as
+    // null, which is not a webinar, so it is refused too: a hard refusal, not
+    // a silent coercion.
+    const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: eventType ?? "" }, { route: "events:POST" });
+    if (outOfScope) return outOfScope;
 
     // Create event slug
     let slug = slugify(name);
