@@ -9,6 +9,7 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
+import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -58,7 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, settings: true },
+      select: { id: true, slug: true, settings: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -115,10 +116,36 @@ export async function POST(req: Request, { params }: RouteParams) {
       validated.data.open ? "webinar:room-opened" : "webinar:room-closed",
     );
 
+    // Custom-stream mode: tell Zoom to start pushing when the room opens and
+    // to stop when it closes. Failure-isolated: the room state is already
+    // saved, and the usual failure (the host has not started the webinar in
+    // Zoom yet) is fixed by the console's Start stream button.
+    let stream: { ok: true } | { ok: false; error: string } | undefined;
+    if (webinar.viewingMode === "hls") {
+      const anchor = await db.eventSession.findFirst({
+        where: { id: webinar.sessionId, eventId },
+        select: { name: true },
+      });
+      const result = await controlWebinarLiveStream({
+        organizationId: orgGuard.orgId,
+        eventId,
+        eventSlug: event.slug,
+        sessionId: webinar.sessionId,
+        sessionName: anchor?.name ?? "Webinar",
+        action: validated.data.open ? "start" : "stop",
+        userId: session.user.id,
+      });
+      stream = result.ok ? { ok: true } : { ok: false, error: result.message };
+      if (!result.ok) {
+        apiLogger.warn({ eventId, code: result.code, open: validated.data.open }, "webinar:room-stream-control-failed");
+      }
+    }
+
     return NextResponse.json({
       open: validated.data.open,
       sessionId: webinar.sessionId,
       status: nextStatus,
+      ...(stream ? { stream } : {}),
     });
     });
   } catch (error) {

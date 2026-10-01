@@ -59,11 +59,13 @@ import {
   Settings as SettingsIcon,
   CircleDot,
   CheckCircle,
+  Radio,
 } from "lucide-react";
 import {
   useWebinar,
   useUpdateWebinarSettings,
   useToggleWebinarRoom,
+  useWebinarLiveStream,
   useWebinarPresence,
   useProvisionWebinar,
   useWebinarSequence,
@@ -470,7 +472,26 @@ function WebinarStatusBar({
   // while the audience watches a countdown.
   const roomOpen = anchor?.status === "LIVE";
   const toggleRoom = useToggleWebinarRoom(eventId);
+  const liveStream = useWebinarLiveStream(eventId);
   const [confirmStartOpen, setConfirmStartOpen] = useState(false);
+
+  // "Start as Host" opens the room a moment after the Zoom tab, before the
+  // host has actually started the webinar, so Zoom refuses the custom-stream
+  // start that opening the room attempts. Keep asking every 10 s for up to
+  // two minutes, then hand over to the Start stream button.
+  const retryStreamStart = async () => {
+    for (let attempt = 0; attempt < STREAM_START_RETRIES; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, STREAM_START_RETRY_MS));
+      try {
+        await liveStream.mutateAsync("start");
+        toast.success("Custom stream started");
+        return;
+      } catch (err) {
+        console.warn("webinar-console:stream-start-retry", attempt + 1, err);
+      }
+    }
+    toast.warning("The stream still has not started. Check that the webinar is running in Zoom, then press Start stream in the Waiting Room card.");
+  };
 
   // The Zoom tab is opened from the CLICK HANDLER, synchronously, before any
   // await — a popup blocker kills a window.open() that happens after one.
@@ -482,8 +503,14 @@ function WebinarStatusBar({
     openHostTab();
     setConfirmStartOpen(false);
     try {
-      await toggleRoom.mutateAsync(true);
+      const res = await toggleRoom.mutateAsync(true);
       toast.success("Room opened — attendees are being let in");
+      if (res.stream && !res.stream.ok) {
+        toast.info("Waiting for Zoom to start the webinar, then starting the custom stream…");
+        void retryStreamStart();
+      } else {
+        announceStreamResult(res.stream, true);
+      }
     } catch (err) {
       // The host tab already opened, so this must NOT read as a failed start.
       toast.error(
@@ -2065,6 +2092,26 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
 /** Grace window after the scheduled end during which the overdue alert still shows. */
 const ROOM_OVERDUE_GRACE_MS = 30 * 60_000;
 
+const STREAM_START_RETRIES = 12;
+const STREAM_START_RETRY_MS = 10_000;
+
+/** After a room toggle in custom-stream mode, say what happened to the stream. */
+function announceStreamResult(
+  stream: { ok: true } | { ok: false; error: string } | undefined,
+  open: boolean,
+) {
+  if (!stream) return;
+  if (stream.ok) {
+    toast.success(open ? "Custom stream started" : "Custom stream stopped");
+    return;
+  }
+  toast.warning(
+    open
+      ? `The room is open, but the stream did not start: ${stream.error}`
+      : `The room is closed, but the stream did not stop: ${stream.error}`,
+  );
+}
+
 function LobbyCard({
   eventId,
   webinar,
@@ -2078,6 +2125,22 @@ function LobbyCard({
 }) {
   const updateSettings = useUpdateWebinarSettings(eventId);
   const toggleRoom = useToggleWebinarRoom(eventId);
+  const liveStream = useWebinarLiveStream(eventId);
+
+  const runStreamAction = async (action: "sync" | "start" | "stop") => {
+    try {
+      await liveStream.mutateAsync(action);
+      toast.success(
+        action === "sync"
+          ? "Stream settings sent to Zoom"
+          : action === "start"
+            ? "Zoom is starting the stream; attendees see it within about 20 seconds"
+            : "Stream stopped",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Stream control failed");
+    }
+  };
 
   const [viewingMode, setViewingMode] = useState<"zoom" | "hls">(
     () => webinar.viewingMode ?? "zoom",
@@ -2137,6 +2200,7 @@ function LobbyCard({
       toast.success(
         res.open ? "Room opened — attendees are being let in" : "Room closed",
       );
+      announceStreamResult(res.stream, res.open);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update the room");
     }
@@ -2255,6 +2319,39 @@ function LobbyCard({
               : "Unlimited viewers via the custom stream; no in-page Q&A. Needs the live stream enabled on the session."}
           </p>
         </div>
+
+        {/* Custom stream controls. Shown for the SAVED mode, so the buttons
+            match what attendees actually get. Zoom only starts pushing once
+            the host has started the webinar; opening the room tries it too. */}
+        {webinar.viewingMode === "hls" && (
+          <div className="space-y-3 rounded-lg border p-4">
+            <div>
+              <p className="font-medium">Custom stream</p>
+              <p className="text-sm text-muted-foreground">
+                Start the webinar as host in Zoom first, then press Start stream. Opening the room
+                also tries to start it. Re-send the settings if the session was set up before
+                streaming was on, or if the stream never arrives.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => void runStreamAction("start")}
+                disabled={liveStream.isPending}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {liveStream.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Radio className="h-4 w-4 mr-2" />}
+                Start stream
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void runStreamAction("stop")} disabled={liveStream.isPending}>
+                Stop stream
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void runStreamAction("sync")} disabled={liveStream.isPending}>
+                Re-send stream settings to Zoom
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Holding video */}
         <div className="space-y-2">

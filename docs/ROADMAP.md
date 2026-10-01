@@ -723,6 +723,21 @@ This is a coverage gap underneath it, not an error in it.
 
 ## Deferred review findings
 
+### Custom stream controls review — deferred findings (Oct 1, 2026)
+
+The review of the Start / Stop / Re-send controls found four issues; the two
+that would mislead a producer live shipped in-band (the header's Start as Host
+now retries the stream start for two minutes; Zoom's 3001 points at the
+provisioner). Recorded:
+
+- **Concurrent first-time syncs can store mismatched keys.** Two Re-send
+  clicks at the same moment on a session with no key each mint a key, send it
+  to Zoom and save it unconditionally. Fix: save with
+  `updateMany({ where: { id, streamKey: null } })` and re-read the winner.
+- **The session card's RTMP address can stay on "Loading…".** If the address
+  request fails, the card never shows an error and Copy copies the
+  placeholder. Fix: an error state on the query, Copy disabled until loaded.
+
 ### Webinar full screen review — deferred LOWs (Oct 1, 2026)
 
 The review of the attendee-page full screen work (`e85f5680` and its

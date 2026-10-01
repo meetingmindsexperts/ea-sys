@@ -1,3 +1,4 @@
+import { newStreamKey, rtmpIngestUrl } from "@/lib/webinar/livestream";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -21,7 +22,6 @@ import {
   enableZoomLiveStreaming,
   enableWebinarLiveStreaming,
 } from "@/lib/zoom";
-import crypto from "crypto";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import type { ZoomRecurrence } from "@/lib/zoom";
 import { z } from "zod";
@@ -261,7 +261,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Generate stream key if live streaming enabled
     const liveStreamEnabled = validated.data.liveStreamEnabled;
-    const streamKey = liveStreamEnabled ? crypto.randomUUID().replace(/-/g, "") : undefined;
+    const streamKey = liveStreamEnabled ? newStreamKey() : undefined;
 
     // Store in database.
     //
@@ -324,7 +324,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Configure Zoom to push RTMP to MediaMTX
     if (liveStreamEnabled && streamKey) {
-      const rtmpBaseUrl = process.env.RTMP_INGEST_URL || `rtmp://${new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost").hostname}:1935/live/`;
+      const rtmpBaseUrl = rtmpIngestUrl();
       const pageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/e/${event.slug}/session/${sessionId}`;
 
       try {

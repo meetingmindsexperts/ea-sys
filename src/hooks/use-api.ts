@@ -2545,10 +2545,31 @@ export function useToggleWebinarRoom(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (open: boolean) =>
-      fetchApi<{ open: boolean; sessionId: string; status: string }>(
+      fetchApi<{
+        open: boolean;
+        sessionId: string;
+        status: string;
+        stream?: { ok: true } | { ok: false; error: string };
+      }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
       ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+/** Custom stream controls: send settings to Zoom, start or stop the push. */
+export function useWebinarLiveStream(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "sync" | "start" | "stop") =>
+      fetchApi<{ ok: true; action: string }>(`/api/events/${eventId}/webinar/livestream`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+        headers: { "Content-Type": "application/json" },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },

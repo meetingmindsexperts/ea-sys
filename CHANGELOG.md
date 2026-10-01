@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: custom stream controls in the Webinar Console; MediaMTX publish authorisation (October 1)
+
+- Zoom never starts a custom live stream by itself and the app never asked
+  it to, so every custom-stream webinar needed the host to find the setting
+  in Zoom by hand, while the session card claimed Zoom streams automatically.
+  The console now has Start stream, Stop stream and Re-send stream settings
+  to Zoom (Zoom's `livestream/status` and `livestream` endpoints), shared
+  with the room toggle, which starts the stream on open and stops it on close
+  in Custom stream mode (failure never blocks the room). Re-send also turns
+  streaming on for a session created without it, keeping any existing key.
+- The session card shows the RTMP address from the server, the same value
+  sent to Zoom, and its text now says how the stream actually starts.
+- `POST /api/webhooks/mediamtx-auth` authorises MediaMTX publishes (only
+  `live/<key>` for a meeting with streaming on; fails closed). Inert until
+  MediaMTX is restarted with the auth settings: an owner step, written up in
+  `docs/LIVE_STREAMING.md` §11a with the version pin.
+- Files: `src/lib/webinar/livestream.ts`, the livestream and mediamtx-auth
+  routes, the room route, the Webinar Console, the Zoom session form, the Zoom
+  create route (shared helpers), `useWebinarLiveStream`, 14 tests.
+- Code review before commit: the header's Start as Host opens the room
+  before Zoom is running, so the stream start failed; it now retries every
+  10 s for two minutes. Zoom's 3001 ("does not exist") now points at the
+  provisioner. Two smaller findings are in `docs/ROADMAP.md`.
+- Verified in headed Chromium on the local console (controls render; Start
+  on an unconfigured session shows its plain-language refusal); the Zoom side
+  needs a real webinar.
+
 ### Fixed: the webinar Zoom panel sits centred in every layout (October 1)
 
 - Live screenshots: with two panelists Zoom switched to its stacked-tiles

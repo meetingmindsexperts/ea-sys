@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   Dialog,
@@ -206,6 +207,7 @@ export function ZoomMeetingForm({
         {/* Live streaming info */}
         {zoomLiveStreamEnabled && zoomStreamKey && (
           <StreamingInfoCard
+            eventId={eventId}
             streamKey={zoomStreamKey}
             streamStatus={zoomStreamStatus}
             eventSlug={eventSlug}
@@ -400,20 +402,31 @@ function CopyField({ label, value }: { label: string; value: string }) {
 }
 
 function StreamingInfoCard({
+  eventId,
   streamKey,
   streamStatus,
   eventSlug,
   sessionId,
 }: {
+  eventId: string;
   streamKey: string;
   streamStatus?: string;
   eventSlug?: string;
   sessionId: string;
 }) {
-  const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-
-  const rtmpUrl = `rtmp://${hostname}:1935/live/`;
+  // The server's address, the same one sent to Zoom. It used to be built from
+  // the browser's hostname, which could disagree with RTMP_INGEST_URL.
+  const { data: ingest } = useQuery({
+    queryKey: ["webinar-rtmp-ingest", eventId],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/webinar/livestream`);
+      if (!res.ok) throw new Error(`stream address ${res.status}`);
+      return (await res.json()) as { rtmpIngestUrl: string };
+    },
+    staleTime: 60 * 60 * 1000,
+  });
+  const rtmpUrl = ingest?.rtmpIngestUrl ?? "Loading…";
   const hlsUrl = `${origin}/stream/live/${streamKey}/index.m3u8`;
   const sessionPageUrl = eventSlug ? `${origin}/e/${eventSlug}/session/${sessionId}` : "";
 
@@ -447,7 +460,8 @@ function StreamingInfoCard({
       </div>
 
       <p className="text-[10px] text-muted-foreground">
-        Zoom auto-streams when the host starts the meeting. Attendees watch via the embedded player at the attendee page URL.
+        Zoom does not start the stream by itself. Start the webinar as host, then press Start stream
+        in the Webinar Console (opening the room also tries it). Attendees watch at the attendee page URL.
       </p>
     </div>
   );

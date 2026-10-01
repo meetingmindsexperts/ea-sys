@@ -245,6 +245,69 @@ On the `ZoomMeeting` model (1:1 with `EventSession`):
 
 ---
 
+## 11a. Producer controls and publish authorisation (Oct 1, 2026)
+
+**Starting the stream.** Zoom never starts a custom live stream by itself,
+and until Oct 1 nothing in the app asked it to. The Webinar Console now has a
+**Custom stream** block (shown when the saved viewing mode is Custom stream)
+with three buttons, all going through `controlWebinarLiveStream` in
+[src/lib/webinar/livestream.ts](../src/lib/webinar/livestream.ts) via
+`POST /api/events/[eventId]/webinar/livestream`:
+
+- **Start stream** calls Zoom's `PATCH /webinars/{id}/livestream/status`
+  with `action: start`. Zoom refuses until the host has started the webinar,
+  and the console says so in plain words.
+- **Stop stream** sends `action: stop`.
+- **Re-send stream settings to Zoom** sends the RTMP address and key again
+  (`PATCH /webinars/{id}/livestream`) and switches streaming on for a session
+  created without it, so a session no longer has to be deleted and recreated.
+  An existing key is kept, so a running push is never broken.
+
+Opening the room in Custom stream mode also tries Start, and closing it tries
+Stop; a failure there never blocks the room (the toast says what happened).
+The session card shows the RTMP address from the server (`rtmpIngestUrl()`,
+the same value sent to Zoom), no longer one built from the browser.
+
+**Publish authorisation (staged, needs a MediaMTX restart).** MediaMTX
+accepted a publish on any path from anyone who could reach port 1935.
+`POST /api/webhooks/mediamtx-auth` now answers MediaMTX's HTTP auth: a
+publish is allowed only on `live/<key>` for a Zoom meeting with streaming on;
+anything else is refused; a lookup error refuses. It lives under
+`/api/webhooks/` because MediaMTX sends no Origin header, which the
+middleware's CSRF check refuses elsewhere. It does nothing until MediaMTX is
+configured to call it. The deploy script never restarts MediaMTX (it only
+starts it when absent), so this is an owner step:
+
+1. Check the running version (auth over HTTP needs v1.8 or later):
+
+   ```
+   docker exec ea-sys-mediamtx /mediamtx --version
+   ```
+
+2. Pin that version (or a tested newer one) in `docker-compose.prod.yml` in
+   place of `bluenviron/mediamtx:latest`.
+3. Add to `mediamtx.yml`. Reads are excluded so 5,000 viewers never reach the
+   app; only publishes are checked:
+
+   ```yaml
+   authMethod: http
+   authHTTPAddress: https://events.meetingmindsgroup.com/api/webhooks/mediamtx-auth
+   authHTTPExclude:
+     - action: read
+     - action: playback
+   ```
+
+4. Restart MediaMTX and push a test stream with a wrong key (must be refused)
+   and the session's real key (must play):
+
+   ```
+   docker compose -f docker-compose.prod.yml up -d --force-recreate mediamtx
+   docker logs --tail 50 ea-sys-mediamtx
+   ```
+
+On the platform instance the tenant-less key lookup is hidden by RLS, so a
+publish there is refused until the lookup moves to the operator lane.
+
 ## 12. Future work
 
 - ~~Fold the nginx `/stream/` proxy into `deploy/nginx.conf`~~ — **done**
