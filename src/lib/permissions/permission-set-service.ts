@@ -14,30 +14,49 @@
  */
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { STARTER_ROLES, isLivePermissionKey, type PermissionKey } from "./catalogue";
+import type { GrantScope } from "@prisma/client";
+import { STARTER_ROLES, describePermission, isLivePermissionKey, type PermissionKey } from "./catalogue";
+import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS, type Grant } from "./system-roles";
 import { separationConflicts, unionPermissions } from "./separation";
 
 export const PERMISSION_SET_SELECT = {
   id: true,
   name: true,
   description: true,
+  key: true,
+  isSystem: true,
   version: true,
   archivedAt: true,
-  permissions: { select: { permission: true } },
+  permissions: { select: { permission: true, scope: true } },
 } as const;
 
 export interface PermissionSetView {
   id: string;
   name: string;
   description: string | null;
+  /** Set on a system role only. */
+  key: string | null;
+  isSystem: boolean;
   version: number;
   archivedAt: Date | null;
-  permissions: { permission: string }[];
+  permissions: { permission: string; scope: GrantScope | null }[];
 }
 
+/**
+ * One ticked permission as the routes send it: a bare key (every live key
+ * today is organisation-wide, so a scope never applies), or a key with the
+ * scope an event-bound key needs once Phase 2 makes one live.
+ */
+export type GrantInput = string | { permission: string; scope?: GrantScope | null };
+
+/**
+ * The custom roles of an organisation. System roles (`isSystem`) are rows for
+ * identity and the foreign key, with their grants in code; they are never
+ * listed, edited, archived or assigned here (Phase 1 slice 2).
+ */
 async function readAll(organizationId: string): Promise<PermissionSetView[]> {
   return db.permissionSet.findMany({
-    where: { organizationId },
+    where: { organizationId, isSystem: false },
     orderBy: [{ archivedAt: "asc" }, { name: "asc" }],
     select: PERMISSION_SET_SELECT,
   });
@@ -124,6 +143,62 @@ export async function readUserPermissions(
   return [...keys];
 }
 
+/**
+ * The same union as (permission, scope) PAIRS, for `can()` (Phase 1 slice 3
+ * reads this per request). Two roles holding one key at two scopes give two
+ * pairs; the union is never collapsed to the wider scope (plan §7.3).
+ */
+export async function readUserGrants(organizationId: string, userId: string): Promise<Grant[]> {
+  const held = await db.userPermissionSet.findMany({
+    where: { organizationId, userId, permissionSet: { archivedAt: null } },
+    select: { permissionSet: { select: { permissions: { select: { permission: true, scope: true } } } } },
+  });
+  const seen = new Set<string>();
+  const grants: Grant[] = [];
+  for (const row of held) {
+    for (const { permission, scope } of row.permissionSet.permissions) {
+      if (!isLivePermissionKey(permission)) continue;
+      const pair = `${permission}@${scope ?? ""}`;
+      if (seen.has(pair)) continue;
+      seen.add(pair);
+      grants.push(scope ? { permission, scope } : { permission });
+    }
+  }
+  return grants;
+}
+
+/** The row key of a system role: "super_admin", "api_key". */
+export function systemRoleRowKey(key: (typeof SYSTEM_ROLE_KEYS)[number]): string {
+  return key.toLowerCase();
+}
+
+/**
+ * One row per system role per organisation, for identity and the foreign key
+ * (plan §3.3): no grants, those live in code. Idempotent: an upsert on the
+ * (organisation, key) unique, so running it twice changes nothing, and a
+ * renamed system role is renamed on the next run. NOT CALLED BY ANY ROUTE
+ * YET (Phase 1 slice 2 ships it dark); the list, edit, archive and assign
+ * paths all refuse a system row, so a seeded row changes nothing a user sees.
+ */
+export async function ensureSystemPermissionSets(organizationId: string): Promise<PermissionSetView[]> {
+  return tenantTransaction(async (tx) => {
+    const rows: PermissionSetView[] = [];
+    for (const k of SYSTEM_ROLE_KEYS) {
+      const role = SYSTEM_ROLES[k];
+      const key = systemRoleRowKey(k);
+      rows.push(
+        await tx.permissionSet.upsert({
+          where: { organizationId_key: { organizationId, key } },
+          create: { organizationId, key, name: role.name, isSystem: true, description: "A built-in role. Its permissions are fixed by the application." },
+          update: { name: role.name },
+          select: PERMISSION_SET_SELECT,
+        }),
+      );
+    }
+    return rows;
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * Managing roles: the Settings screens' half of the service (step 4).
  *
@@ -141,6 +216,9 @@ export type PermissionSetErrorCode =
   | "ARCHIVED"
   | "STALE_WRITE"
   | "SEPARATION_CONFLICT"
+  | "SCOPE_REQUIRED"
+  | "SCOPE_NOT_ALLOWED"
+  | "SYSTEM_ROLE"
   | "UNKNOWN";
 
 export interface PermissionSetFailure {
@@ -186,24 +264,48 @@ function cleanName(raw: string | undefined | null): string | null {
  * store a role that grants less than the screen showed, which is the one
  * failure an administrator has no way to notice.
  */
-function cleanPermissions(raw: readonly string[]): { ok: true; keys: PermissionKey[] } | PermissionSetFailure {
-  const keys: PermissionKey[] = [];
+interface CleanGrant {
+  permission: PermissionKey;
+  scope: GrantScope | null;
+}
+
+const SCOPES: ReadonlySet<string> = new Set(["ALL", "ASSIGNED", "WEBINAR"]);
+
+function cleanGrants(raw: readonly GrantInput[]): { ok: true; grants: CleanGrant[]; keys: PermissionKey[] } | PermissionSetFailure {
+  const grants: CleanGrant[] = [];
   const seen = new Set<string>();
-  for (const key of raw) {
+  for (const item of raw) {
+    const key = typeof item === "string" ? item : item.permission;
+    const scope = typeof item === "string" ? null : (item.scope ?? null);
     // LIVE keys only: a key the catalogue defines but no route checks yet
     // (the application keys of Phase 1) would read as access and grant none.
     if (!isLivePermissionKey(key)) {
       return fail("UNKNOWN_PERMISSION", `This build does not have a permission called "${key}".`, { permission: key });
     }
+    // The scope goes with the key's kind: an event-bound key without one
+    // would grant nothing (`can()` fails closed on it), and a scope on an
+    // organisation-wide key would read as a restriction that does not exist.
+    const eventBound = describePermission(key)?.eventBound === true;
+    if (eventBound && (scope === null || !SCOPES.has(scope))) {
+      return fail("SCOPE_REQUIRED", `"${key}" applies to events, so it needs a scope: every event, assigned events, or webinars.`, { permission: key });
+    }
+    if (!eventBound && scope !== null) {
+      return fail("SCOPE_NOT_ALLOWED", `"${key}" applies to the whole organisation and takes no scope.`, { permission: key, scope });
+    }
     if (!seen.has(key)) {
       seen.add(key);
-      keys.push(key);
+      grants.push({ permission: key, scope });
     }
   }
-  if (keys.length === 0) {
+  if (grants.length === 0) {
     return fail("NO_PERMISSIONS", "A role has to grant at least one permission, or it grants nothing while looking like access.");
   }
-  return { ok: true, keys };
+  return { ok: true, grants, keys: grants.map((g) => g.permission) };
+}
+
+/** What the audit row records for a grant: the key, with its scope when it has one. */
+function auditGrant(g: CleanGrant): string {
+  return g.scope ? `${g.permission}@${g.scope}` : g.permission;
 }
 
 /** Rule 2 applied to one role on its own (rule 1 needs a person's AED authority). */
@@ -230,13 +332,13 @@ export async function createPermissionSet(input: {
   actorUserId: string;
   name: string;
   description?: string | null;
-  permissions: readonly string[];
+  permissions: readonly GrantInput[];
   ip?: string | null;
 }): Promise<PermissionSetResult> {
   const name = cleanName(input.name);
   if (!name) return fail("NAME_REQUIRED", "Give the role a name of up to 100 characters.");
 
-  const cleaned = cleanPermissions(input.permissions);
+  const cleaned = cleanGrants(input.permissions);
   if (!cleaned.ok) return cleaned;
   const selfConflict = refuseSelfConflict(cleaned.keys);
   if (selfConflict) return selfConflict;
@@ -249,7 +351,9 @@ export async function createPermissionSet(input: {
         description: input.description?.trim() || null,
         // The child carries its own organizationId: a nested create does not
         // inherit it, and the RLS policy is flat on that column.
-        permissions: { create: cleaned.keys.map((permission) => ({ organizationId: input.organizationId, permission })) },
+        permissions: {
+          create: cleaned.grants.map((g) => ({ organizationId: input.organizationId, permission: g.permission, scope: g.scope })),
+        },
       },
       select: PERMISSION_SET_SELECT,
     });
@@ -258,7 +362,7 @@ export async function createPermissionSet(input: {
       actorUserId: input.actorUserId,
       action: "CREATE",
       entityId: set.id,
-      changes: { name, permissions: cleaned.keys, ip: input.ip ?? null },
+      changes: { name, permissions: cleaned.grants.map(auditGrant), ip: input.ip ?? null },
     });
     apiLogger.info({ msg: "permissions:role-created", organizationId: input.organizationId, permissionSetId: set.id, name });
     return { ok: true, set };
@@ -288,7 +392,7 @@ export async function updatePermissionSet(input: {
   expectedVersion: number;
   name?: string;
   description?: string | null;
-  permissions?: readonly string[];
+  permissions?: readonly GrantInput[];
   ip?: string | null;
 }): Promise<PermissionSetResult> {
   const current = await db.permissionSet.findFirst({
@@ -296,6 +400,7 @@ export async function updatePermissionSet(input: {
     select: PERMISSION_SET_SELECT,
   });
   if (!current) return fail("NOT_FOUND", "That role no longer exists.");
+  if (current.isSystem) return fail("SYSTEM_ROLE", "A system role cannot be edited. Clone it into a custom role instead.");
   if (current.version !== input.expectedVersion) {
     return fail("STALE_WRITE", "Somebody else changed this role while you were editing it. Reload and try again.", {
       currentVersion: current.version,
@@ -309,14 +414,16 @@ export async function updatePermissionSet(input: {
     name = cleanedName;
   }
 
-  const before = current.permissions.map((p) => p.permission);
-  let nextKeys: string[] = before;
+  const before = current.permissions.map((p) => auditGrant({ permission: p.permission as PermissionKey, scope: p.scope }));
+  let nextGrants: CleanGrant[] = current.permissions.map((p) => ({ permission: p.permission as PermissionKey, scope: p.scope }));
+  let nextKeys: string[] = current.permissions.map((p) => p.permission);
   const permissionsChanged = input.permissions !== undefined;
   if (input.permissions !== undefined) {
-    const cleaned = cleanPermissions(input.permissions);
+    const cleaned = cleanGrants(input.permissions);
     if (!cleaned.ok) return cleaned;
     const selfConflict = refuseSelfConflict(cleaned.keys);
     if (selfConflict) return selfConflict;
+    nextGrants = cleaned.grants;
     nextKeys = [...cleaned.keys];
   }
 
@@ -351,10 +458,11 @@ export async function updatePermissionSet(input: {
       if (permissionsChanged) {
         await tx.permissionSetGrant.deleteMany({ where: { permissionSetId: input.permissionSetId } });
         await tx.permissionSetGrant.createMany({
-          data: nextKeys.map((permission) => ({
+          data: nextGrants.map((g) => ({
             organizationId: input.organizationId,
             permissionSetId: input.permissionSetId,
-            permission,
+            permission: g.permission,
+            scope: g.scope,
           })),
         });
       }
@@ -371,7 +479,7 @@ export async function updatePermissionSet(input: {
       entityId: input.permissionSetId,
       changes: {
         name,
-        ...(permissionsChanged ? { permissionsBefore: before, permissionsAfter: nextKeys } : {}),
+        ...(permissionsChanged ? { permissionsBefore: before, permissionsAfter: nextGrants.map(auditGrant) } : {}),
         ip: input.ip ?? null,
       },
     });
@@ -405,9 +513,10 @@ export async function setPermissionSetArchived(input: {
 }): Promise<PermissionSetResult & { holderCount?: number }> {
   const current = await db.permissionSet.findFirst({
     where: { id: input.permissionSetId, organizationId: input.organizationId },
-    select: { id: true, name: true, archivedAt: true, _count: { select: { holders: true } } },
+    select: { id: true, name: true, isSystem: true, archivedAt: true, _count: { select: { holders: true } } },
   });
   if (!current) return fail("NOT_FOUND", "That role no longer exists.");
+  if (current.isSystem) return fail("SYSTEM_ROLE", "A system role cannot be archived.");
 
   try {
     const claimed = await db.permissionSet.updateMany({
@@ -467,11 +576,17 @@ export async function setUserPermissionSets(input: {
   const sets = wanted.length
     ? await db.permissionSet.findMany({
         where: { organizationId: input.organizationId, id: { in: wanted } },
-        select: { id: true, name: true, archivedAt: true, permissions: { select: { permission: true } } },
+        select: { id: true, name: true, isSystem: true, archivedAt: true, permissions: { select: { permission: true } } },
       })
     : [];
   if (sets.length !== wanted.length) {
     return fail("NOT_FOUND", "One of those roles no longer exists. Reload and try again.");
+  }
+  const system = sets.find((s) => s.isSystem);
+  if (system) {
+    return fail("SYSTEM_ROLE", `"${system.name}" is a system role: it is held through a person's base role, not assigned.`, {
+      permissionSetId: system.id,
+    });
   }
   const archived = sets.find((s) => s.archivedAt !== null);
   if (archived) {

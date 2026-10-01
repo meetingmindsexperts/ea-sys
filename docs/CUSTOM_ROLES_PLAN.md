@@ -519,11 +519,21 @@ Cut into four slices (Sep 30, 2026), each shippable dark:
    views) each failed parity. Its blind spots are stated in the test header:
    route-decided cells are the matrix's reading until Phase 2 pins them.
    No migration, no behaviour change, nothing calls it.
-2. **Schema:** `scope` on `PermissionSetGrant`, `key` and `isSystem` on
-   `PermissionSet`, `GrantScope`; RLS policy, harness assertions,
-   `check-tenant-als.sh` entries; the service validates a scope on event-bound
-   keys. Additive migration. Seed, idempotent, per org: one system
-   `PermissionSet` row per system role, no grants.
+2. **Schema. BUILT Oct 1, 2026.** `GrantScope` enum, `scope` on
+   `PermissionSetGrant`, `key` and `isSystem` on `PermissionSet` with a unique
+   on (organisation, key); migration `20261001090000`, additive and
+   idempotent (re-applied to the local copy with notices only). The existing
+   RLS policies are flat on `organizationId` and the three tables were already
+   in the harness and `check-tenant-als.sh`, so no tenancy change was needed.
+   The service accepts a grant as a key or a key with a scope, and refuses a
+   scope on an organisation-wide key (`SCOPE_NOT_ALLOWED`) or none on an
+   event-bound one (`SCOPE_REQUIRED`); `readUserGrants()` returns the union as
+   pairs for slice 3. `ensureSystemPermissionSets()` upserts one system row per
+   system role (key, name, `isSystem`, no grants) and is CALLED BY NOTHING yet;
+   the list, edit, archive and assign paths all refuse a system row
+   (`SYSTEM_ROLE`), so when a later slice seeds them nothing a user sees
+   changes. Every live key is organisation-wide, so the Roles tab's requests
+   and storage are byte-for-byte what they were.
 3. **Request-time resolution (§3.5):** the token carries role ids and a
    composite version; grants are read per request inside the tenant lane with
    a per-process cache keyed on `id:version`; `procurementPermissions` leaves

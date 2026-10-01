@@ -25,6 +25,10 @@ export const HTTP_STATUS_FOR_PERMISSION_SET_ERROR: Record<PermissionSetErrorCode
   // 422: the request was well formed and the role exists; the COMBINATION is
   // what is refused, which is a different thing for a client to act on.
   SEPARATION_CONFLICT: 422,
+  SCOPE_REQUIRED: 400,
+  SCOPE_NOT_ALLOWED: 400,
+  // 409: the row exists and the request was well formed; what it names is not a thing that can be done to it.
+  SYSTEM_ROLE: 409,
   UNKNOWN: 500,
 };
 

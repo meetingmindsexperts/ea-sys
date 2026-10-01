@@ -24,7 +24,13 @@ import { denyNonRoleAdmin, permissionSetErrorResponse } from "@/lib/permissions/
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).nullable().optional(),
-  permissions: z.array(z.string().max(100)).min(1).max(100),
+  // A bare key, or a key with the scope an event-bound key needs (Phase 1 slice 2).
+  permissions: z.array(
+    z.union([
+      z.string().max(100),
+      z.object({ permission: z.string().max(100), scope: z.enum(["ALL", "ASSIGNED", "WEBINAR"]).nullable().optional() }),
+    ]),
+  ).min(1).max(100),
 });
 
 export async function GET(req: Request) {

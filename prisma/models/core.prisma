@@ -695,6 +695,16 @@ model EventStats {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
+/// Where an event-bound grant applies (docs/CUSTOM_ROLES_PLAN.md §3.1): every
+/// event in the organisation, the events the holder is assigned to, or
+/// webinar-type events. Null on an organisation-wide key. Added Oct 1, 2026
+/// (Phase 1 slice 2); nothing reads it until the Phase 2 route sweep.
+enum GrantScope {
+  ALL
+  ASSIGNED
+  WEBINAR
+}
+
 /// A CUSTOM ROLE: a named set of permission keys, tagged onto people (D8).
 ///
 /// Named `PermissionSet` rather than `Role` on purpose. `UserRole` is already
@@ -714,6 +724,12 @@ model PermissionSet {
   organizationId String
   name           String
   description    String?   @db.Text
+  /// Set on SYSTEM roles only ("super_admin", "onsite", ...): the row exists
+  /// for identity and the foreign key; its grants live in code
+  /// (src/lib/permissions/system-roles.ts) and it is never edited or archived.
+  /// Null on every custom role. Added Oct 1, 2026 (Phase 1 slice 2).
+  key            String?
+  isSystem       Boolean   @default(false)
   version        Int       @default(1)
   archivedAt     DateTime?
   createdAt      DateTime  @default(now())
@@ -724,6 +740,7 @@ model PermissionSet {
   holders      UserPermissionSet[]
 
   @@unique([organizationId, name])
+  @@unique([organizationId, key])
   @@index([organizationId])
 }
 
@@ -739,6 +756,9 @@ model PermissionSetGrant {
   organizationId  String
   permissionSetId String
   permission      String
+  /// Required on an event-bound key, null on an organisation-wide one; the
+  /// service validates against the catalogue on write (Phase 1 slice 2).
+  scope           GrantScope?
   createdAt       DateTime @default(now())
 
   organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)

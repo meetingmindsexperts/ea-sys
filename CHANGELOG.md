@@ -23,6 +23,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Added: custom roles Phase 1, slice 2: a scope on each grant, the system roles as rows (October 1)
+
+- Migration `20261001090000`: `GrantScope` (every event, assigned events,
+  webinars), `scope` on a permission-set grant, `key` and `isSystem` on a
+  permission set. Additive and idempotent; nothing reads the columns yet.
+- The Roles service takes a grant as a key or a key with a scope, and refuses
+  the wrong pairing; a system role cannot be edited, archived or assigned.
+  Every key a custom role can hold today is organisation-wide, so the Roles
+  tab sends and stores exactly what it did. Plan: `docs/CUSTOM_ROLES_PLAN.md`
+  §6 Phase 1, slice 2.
+
 ### Added: custom roles Phase 1, slice 1: the catalogue, the system roles as data, `can()` (September 30)
 
 - `src/lib/permissions/catalogue.ts` now names every operation in the
