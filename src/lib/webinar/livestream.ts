@@ -59,8 +59,15 @@ export function zoomMessage(err: unknown, action: LiveStreamAction): string {
   if (/\(code: 3001\)/.test(raw)) {
     return "Zoom says this webinar no longer exists. Re-run the provisioner to create it again.";
   }
-  if (action === "start" && /not started|has not started|not in progress|not running/i.test(raw)) {
-    return "Zoom refused to start the stream: the webinar is not running yet. Start it as host in Zoom, then press Start stream again.";
+  // Zoom takes one start request per 30 seconds; a second one inside that
+  // window gets 429 even though the first may still be starting the stream.
+  if (/Zoom API error: 429\b/.test(raw)) {
+    return "Zoom is still handling the previous start request (it accepts one every 30 seconds). Wait half a minute and check the attendee page before pressing Start stream again.";
+  }
+  if (/not started|has not started|not in progress|not running/i.test(raw)) {
+    return action === "stop"
+      ? "There is no stream to stop: the webinar is not live in Zoom."
+      : "Zoom refused to start the stream: the webinar is not live in Zoom yet. Start it as host, and if Zoom shows a practice session, click Start Webinar to go live, then press Start stream again.";
   }
   return raw;
 }

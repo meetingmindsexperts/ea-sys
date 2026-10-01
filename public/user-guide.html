@@ -2000,8 +2000,8 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
         <p><strong>Step 3 &mdash; On the day.</strong></p>
         <div class="steps">
-          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Host:</strong> click <strong>Start as Host</strong> and start the webinar in Zoom as usual.</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Producer:</strong> click <strong>Open the room / Go live</strong>. The console starts the stream by itself, retrying for up to two minutes while Zoom gets ready. If it has still not started, click <strong>Start stream</strong> in the Waiting Room card.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Host:</strong> click <strong>Start as Host</strong> and start the webinar in Zoom as usual. If Zoom opens a practice session, click <strong>Start Webinar</strong> to go live; Zoom will not stream a practice session.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Producer:</strong> click <strong>Open the room / Go live</strong>. The console starts the stream by itself, retrying every 30 seconds for about two and a half minutes while Zoom gets ready. If it has still not started, click <strong>Start stream</strong> in the Waiting Room card.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Check the attendee page: the video appears within about 20 seconds, fills the screen with <strong>Full screen</strong>, and works on a phone.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b"><strong>Questions:</strong> attendees type them under the video. They appear in <strong>Viewer questions</strong> within 10 seconds with the asker&rsquo;s name. Read them to the speakers, then click <strong>Answered</strong> or <strong>Dismiss</strong> (Undo brings one back). Attendees see only their own questions and whether they were answered.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b"><strong>At the end:</strong> the host ends the webinar in Zoom. Attendees see &ldquo;This webinar has ended&rdquo; straight away and the room closes by itself within about 3 minutes. <strong>Close the room</strong> closes it at once.</div></div>
@@ -2011,7 +2011,8 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <table class="st">
           <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
           <tbody>
-            <tr><td>&ldquo;Zoom refused to start the stream: the webinar is not running yet&rdquo;</td><td>Start the webinar as host in Zoom first, then click <strong>Start stream</strong>.</td></tr>
+            <tr><td>&ldquo;Zoom refused to start the stream: the webinar is not live in Zoom yet&rdquo;</td><td>Start the webinar as host in Zoom. If Zoom shows a <strong>practice session</strong>, click <strong>Start Webinar</strong> to go live first; the stream can only start once the webinar is live. Then click <strong>Start stream</strong>.</td></tr>
+            <tr><td>&ldquo;Zoom is still handling the previous start request&rdquo;</td><td>Zoom accepts one start request every 30 seconds. Wait half a minute and check the attendee page; the stream is often already starting.</td></tr>
             <tr><td>&ldquo;Zoom says this webinar no longer exists&rdquo;</td><td>Click <strong>Re-run provisioner</strong> in the console, then <strong>Re-send stream settings to Zoom</strong>.</td></tr>
             <tr><td>Re-send shows an error about live streaming</td><td>Step 1 is not switched on. Check the account setting and the host&rsquo;s own setting.</td></tr>
             <tr><td>The attendee page keeps saying &ldquo;Waiting for stream to start&rdquo;</td><td>Click <strong>Re-send stream settings to Zoom</strong>, then <strong>Start stream</strong>. If it still fails, contact support with a screenshot of the console.</td></tr>

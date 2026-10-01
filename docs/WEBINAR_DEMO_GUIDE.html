@@ -213,7 +213,7 @@
 <h3>On the day</h3>
 <ul class="check">
   <li>Host starts the webinar in Zoom (<span class="ui">Start as Host</span>).</li>
-  <li>Producer opens the room. The console starts the stream by itself, retrying for up to two minutes; otherwise press <span class="ui">Start stream</span> once Zoom shows the webinar running.</li>
+  <li>Producer opens the room. The console starts the stream by itself, retrying every 30 seconds for about two and a half minutes; otherwise press <span class="ui">Start stream</span> once Zoom shows the webinar running.</li>
   <li>Attendees see the video within about 20 seconds: full width on a laptop, filling the screen with <span class="ui">Full screen</span>, and usable on a phone.</li>
   <li>Slides shared in Zoom appear in the stream with the speaker.</li>
   <li>An attendee asks a question; it appears in <span class="ui">Viewer questions</span> within 10 seconds with their name. Marking it <span class="ui">Answered</span> shows "Answered" on their page within 20 seconds.</li>
@@ -223,7 +223,8 @@
   <h4>If the stream never arrives</h4>
   <ul>
     <li>Press <span class="ui">Re-send stream settings to Zoom</span>, then <span class="ui">Start stream</span>.</li>
-    <li>"Zoom refused to start the stream: the webinar is not running yet": start it as host in Zoom first.</li>
+    <li>"Zoom refused to start the stream: the webinar is not live in Zoom yet": start it as host, and if Zoom shows a practice session click Start Webinar first.</li>
+    <li>"Zoom is still handling the previous start request": Zoom takes one start every 30 seconds; wait and check the attendee page.</li>
     <li>"Zoom says this webinar no longer exists": re-run the provisioner.</li>
     <li>Still nothing: check the Zoom live streaming setting above, then the server's stream logs (docs/LIVE_STREAMING.md).</li>
   </ul>

@@ -320,6 +320,13 @@ export default function WebinarConsolePage() {
                 onCopy={handleCopy}
               />
               <LobbyCard
+                // The card copies the saved settings into form state ONCE, on
+                // mount. It used to mount before the console data arrived, so
+                // the dropdown sat on the "Zoom embed" default while the saved
+                // mode was Custom stream (owner screenshot, Oct 1, 2026).
+                // Remount when the data loads and whenever the saved mode
+                // changes, so the form always starts from what is saved.
+                key={`${data ? "loaded" : "loading"}:${data?.webinar?.viewingMode ?? "zoom"}`}
                 eventId={eventId}
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
@@ -480,8 +487,8 @@ function WebinarStatusBar({
 
   // "Start as Host" opens the room a moment after the Zoom tab, before the
   // host has actually started the webinar, so Zoom refuses the custom-stream
-  // start that opening the room attempts. Keep asking every 10 s for up to
-  // two minutes, then hand over to the Start stream button.
+  // start that opening the room attempts. Keep asking every 30 s (Zoom's own
+  // spacing) for about two and a half minutes, then hand over to the button.
   const retryStreamStart = async () => {
     for (let attempt = 0; attempt < STREAM_START_RETRIES; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, STREAM_START_RETRY_MS));
@@ -2174,8 +2181,11 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
   );
 }
 
-const STREAM_START_RETRIES = 12;
-const STREAM_START_RETRY_MS = 10_000;
+// Zoom accepts one custom-stream start request per 30 seconds and answers
+// 429 to anything faster (prod logs, Oct 1, 2026), so retry on that beat:
+// five tries, about two and a half minutes.
+const STREAM_START_RETRIES = 5;
+const STREAM_START_RETRY_MS = 30_000;
 
 /** After a room toggle in custom-stream mode, say what happened to the stream. */
 function announceStreamResult(
@@ -2391,8 +2401,13 @@ function LobbyCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="zoom">Zoom embed — interactive, native Q&amp;A/chat</SelectItem>
-              <SelectItem value="hls">Custom stream — one-way broadcast, scales to thousands</SelectItem>
+              {/* The chosen mode is shaded in the theme colour, not just ticked. */}
+              <SelectItem value="zoom" className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium">
+                Zoom embed — interactive, native Q&amp;A/chat
+              </SelectItem>
+              <SelectItem value="hls" className="data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary data-[state=checked]:font-medium">
+                Custom stream — one-way broadcast, scales to thousands
+              </SelectItem>
             </SelectContent>
           </Select>
           <p className="text-sm text-muted-foreground">

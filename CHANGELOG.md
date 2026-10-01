@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: the custom stream console after the first live try (October 1)
+
+- Prod logs from the owner's test: opening the room started the stream and
+  Zoom answered 429 (it takes one start request per 30 s; the retry asked
+  every 10 s), then "Webinar has not started" (the webinar was not live in
+  Zoom, typically a practice session). The retry now runs every 30 s, five
+  times; both answers get plain messages (wait half a minute; click Start
+  Webinar to leave the practice session); a Stop on a webinar that is not
+  live says there is nothing to stop. User guide and demo guide updated.
+- The "How attendees watch" dropdown showed "Zoom embed" while the saved mode
+  was Custom stream: the Waiting Room card copied the settings into its form
+  once, on a mount that happened before the console data arrived. It now
+  remounts when the data loads and whenever the saved mode changes. The chosen
+  option is shaded in the theme colour.
+
 ### Fixed: switching a webinar to Custom stream no longer dead-ends (October 1)
 
 - Owner hit it on the first try: saving "Custom stream" refused with "needs

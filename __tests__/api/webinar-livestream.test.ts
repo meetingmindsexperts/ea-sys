@@ -85,7 +85,19 @@ describe("controlWebinarLiveStream", () => {
     zoomApiRequestSpy.mockRejectedValue(new Error("Zoom API error: 400 Webinar has not started (code: 3000)"));
     const res = await controlWebinarLiveStream({ ...base, action: "start" });
     expect(res).toMatchObject({ ok: false, code: "ZOOM_API_FAILED" });
-    expect(!res.ok && res.message).toMatch(/not running yet/);
+    expect(!res.ok && res.message).toMatch(/not live in Zoom yet/);
+  });
+
+  it("Zoom 429 (one start per 30 s) and a stop on a webinar that is not live get plain words", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({
+      id: "zm1", zoomMeetingId: "999", meetingType: "WEBINAR", liveStreamEnabled: true, streamKey: KEY,
+    });
+    zoomApiRequestSpy.mockRejectedValueOnce(new Error("Zoom API error: 429 Too many requests submitted to start the live stream (code: 429)"));
+    const a = await controlWebinarLiveStream({ ...base, action: "start" });
+    expect(!a.ok && a.message).toMatch(/30 seconds/);
+    zoomApiRequestSpy.mockRejectedValueOnce(new Error("Zoom API error: 400 Webinar 82,056,527,587 has not started. (code: 200)"));
+    const b = await controlWebinarLiveStream({ ...base, action: "stop" });
+    expect(!b.ok && b.message).toMatch(/no stream to stop/);
   });
 
   it("Zoom 3001 (webinar gone) points at the provisioner, not a retry", async () => {
