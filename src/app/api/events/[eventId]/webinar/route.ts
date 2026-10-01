@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -175,7 +176,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, settings: true },
+      select: { id: true, slug: true, settings: true },
     });
 
     if (!event) {
@@ -191,6 +192,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // permanent "getting the stream ready" screen at go-live. Enforced when
     // the REQUEST sets hls (an already-hls event saving its lobby message
     // isn't retro-blocked; the room-open POST is the final gate).
+    // Switching to custom stream needs the anchor session's live stream set
+    // up, or attendees would be admitted into a permanent "getting the
+    // stream ready" screen. It used to REFUSE and point at a Zoom form; the
+    // console's Re-send button that fixes it only appeared after the mode
+    // was saved, so the producer was stuck (owner, Oct 1, 2026). Now the save
+    // sets the stream up itself (the same sync as Re-send) and refuses only
+    // if Zoom does, with Zoom's reason. Enforced when the REQUEST sets hls;
+    // the room-open POST stays the final gate.
     if (validated.data.viewingMode === "hls") {
       const streamConfig = nextWebinar.sessionId
         ? await db.zoomMeeting.findFirst({
@@ -199,18 +208,44 @@ export async function PUT(req: Request, { params }: RouteParams) {
           })
         : null;
       if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {
-        apiLogger.warn(
-          { eventId, userId: session.user.id },
-          "webinar:hls-mode-without-stream-rejected",
-        );
-        return NextResponse.json(
-          {
-            error:
-              "Custom stream mode needs the live stream enabled on the webinar session first (Session → Zoom → Live Streaming), or switch back to the Zoom embed.",
-            code: "HLS_STREAM_NOT_CONFIGURED",
-          },
-          { status: 400 },
-        );
+        if (!nextWebinar.sessionId || !streamConfig) {
+          apiLogger.warn({ eventId, userId: session.user.id }, "webinar:hls-mode-no-zoom-webinar");
+          return NextResponse.json(
+            {
+              error:
+                "Custom stream needs the event's Zoom webinar. Run the provisioner first, or keep the Zoom embed.",
+              code: "HLS_STREAM_NOT_CONFIGURED",
+            },
+            { status: 400 },
+          );
+        }
+        const anchor = await db.eventSession.findFirst({
+          where: { id: nextWebinar.sessionId, eventId },
+          select: { name: true },
+        });
+        const synced = await controlWebinarLiveStream({
+          organizationId: orgGuard.orgId,
+          eventId,
+          eventSlug: event.slug,
+          sessionId: nextWebinar.sessionId,
+          sessionName: anchor?.name ?? "Webinar",
+          action: "sync",
+          userId: session.user.id,
+        });
+        if (!synced.ok) {
+          apiLogger.warn(
+            { eventId, userId: session.user.id, code: synced.code },
+            "webinar:hls-mode-stream-setup-failed",
+          );
+          return NextResponse.json(
+            {
+              error: `Could not set up the custom stream in Zoom: ${synced.message}`,
+              code: "HLS_STREAM_NOT_CONFIGURED",
+            },
+            { status: 400 },
+          );
+        }
+        apiLogger.info({ eventId, userId: session.user.id }, "webinar:hls-mode-stream-set-up-on-save");
       }
     }
 

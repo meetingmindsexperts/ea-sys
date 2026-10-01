@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: switching a webinar to Custom stream no longer dead-ends (October 1)
+
+- Owner hit it on the first try: saving "Custom stream" refused with "needs
+  the live stream enabled (Session → Zoom → Live Streaming)", while the
+  console's "Re-send stream settings to Zoom" button that fixes exactly that
+  only appears once the mode is saved. Saving now runs that sync itself and
+  saves; it refuses only if Zoom does, with Zoom's reason. The room-open
+  refusal, the console hint and the user guide now say the same, and the
+  guide notes that webinars have their own Zoom live-streaming switch, apart
+  from the meetings one.
+- "Save lobby settings" is a solid button in the theme colour (it was an
+  outlined white button), matching "Save settings" below it.
+
 ### Docs: custom stream set-up in the user guide (October 1)
 
 - `public/user-guide.html` gains "Custom stream: set up and run it" in the

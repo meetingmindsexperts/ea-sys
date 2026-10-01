@@ -44,6 +44,8 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/event-settings", () => ({ updateEventSettings: mockUpdateEventSettings }));
 vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: vi.fn() }));
 vi.mock("@/lib/zoom", () => ({ enableWebinarQA: vi.fn() }));
+const { mockControlLiveStream } = vi.hoisted(() => ({ mockControlLiveStream: vi.fn() }));
+vi.mock("@/lib/webinar/livestream", () => ({ controlWebinarLiveStream: mockControlLiveStream }));
 
 import { PUT as webinarPut } from "@/app/api/events/[eventId]/webinar/route";
 import { POST as roomPost } from "@/app/api/events/[eventId]/webinar/room/route";
@@ -73,15 +75,27 @@ beforeEach(() => {
 });
 
 describe("PUT /webinar — hls mode requires a configured live stream", () => {
-  it("rejects switching to hls when the live stream is not configured", async () => {
+  it("switching to hls sets the stream up itself (the Re-send sync), then saves", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
+    mockControlLiveStream.mockResolvedValue({ ok: true, action: "sync", streamKey: "k" });
+    const res = await callPut({ viewingMode: "hls" });
+    expect(res.status).toBe(200);
+    expect(mockControlLiveStream).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", action: "sync" }));
+    expect(mockUpdateEventSettings).toHaveBeenCalled();
+  });
+
+  it("refuses with Zoom's reason when the stream set-up fails, and saves nothing", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
+    mockControlLiveStream.mockResolvedValue({ ok: false, code: "ZOOM_API_FAILED", message: "Live streaming is disabled" });
     const res = await callPut({ viewingMode: "hls" });
     expect(res.status).toBe(400);
-    expect((await res.json()).code).toBe("HLS_STREAM_NOT_CONFIGURED");
+    const body = await res.json();
+    expect(body.code).toBe("HLS_STREAM_NOT_CONFIGURED");
+    expect(body.error).toContain("Live streaming is disabled");
     expect(mockUpdateEventSettings).not.toHaveBeenCalled();
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ eventId: "ev1" }),
-      "webinar:hls-mode-without-stream-rejected",
+      expect.objectContaining({ eventId: "ev1", code: "ZOOM_API_FAILED" }),
+      "webinar:hls-mode-stream-setup-failed",
     );
   });
 

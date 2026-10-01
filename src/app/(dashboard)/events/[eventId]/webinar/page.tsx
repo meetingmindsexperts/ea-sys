@@ -2398,7 +2398,7 @@ function LobbyCard({
           <p className="text-sm text-muted-foreground">
             {viewingMode === "zoom"
               ? "Counts against your Zoom webinar capacity; supports Q&A moderation."
-              : "Unlimited viewers via the custom stream; no in-page Q&A. Needs the live stream enabled on the session."}
+              : "One full-width video for unlimited viewers; questions come in through the box under the video. Saving sets the stream up in Zoom for you."}
           </p>
         </div>
 
@@ -2476,7 +2476,7 @@ function LobbyCard({
         </div>
 
         <div className="flex justify-end pt-2 border-t">
-          <Button onClick={handleSave} disabled={updateSettings.isPending} variant="outline">
+          <Button onClick={handleSave} disabled={updateSettings.isPending}>
             {updateSettings.isPending ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : null}

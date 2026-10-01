@@ -92,7 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json(
           {
             error:
-              "Can't open the room: viewing mode is Custom stream but the live stream isn't configured on the webinar session. Enable it (Session → Zoom → Live Streaming) or switch the viewing mode to Zoom embed.",
+              "Can't open the room: viewing mode is Custom stream but the stream isn't set up in Zoom yet. Press Re-send stream settings to Zoom in the Waiting Room card, or switch the viewing mode to Zoom embed.",
             code: "HLS_STREAM_NOT_CONFIGURED",
           },
           { status: 400 },
