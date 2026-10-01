@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Video, Maximize2, Minimize2, Volume2, VolumeX, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useFullscreen } from "@/hooks/use-fullscreen";
 
 interface LivePlayerProps {
   hlsUrl: string;
@@ -30,8 +32,10 @@ export function LivePlayer({
   // window.location.reload, which at 5k viewers is a thundering-herd self-DoS).
   const [retryNonce, setRetryNonce] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Shared with the Zoom embed: browser fullscreen with Esc tracked, and the
+  // in-page fallback where the browser has no element fullscreen (iPhone).
+  const { isFullscreen, isFallback, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
   // Latest-value ref for the status callback so the init effect below does NOT
   // list it as a dependency. A caller passing a non-memoized onStreamStatusChange
@@ -186,17 +190,6 @@ export function LivePlayer({
     }
   };
 
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    } else {
-      containerRef.current.requestFullscreen();
-      setIsFullscreen(true);
-    }
-  };
-
   const handleRetry = () => {
     setStatus("loading");
     if (videoRef.current) {
@@ -208,12 +201,41 @@ export function LivePlayer({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full rounded-lg overflow-hidden bg-black">
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative w-full overflow-hidden bg-black",
+        !isFullscreen && "rounded-lg",
+        isFallback && "fixed inset-0 z-50 flex items-center justify-center",
+      )}
+    >
+      {/* The way out while fullscreen and NOT playing. The controls overlay
+          below (with its own toggle) exists only while playing, and in the
+          in-page fallback on a phone there is no Esc key: when the stream
+          dropped mid-fullscreen the viewer was pinned under a fixed overlay
+          with nothing to tap (review, Oct 1, 2026). */}
+      {isFullscreen && status !== "playing" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void toggleFullscreen()}
+          className="absolute top-3 right-3 z-10 h-8 gap-1.5 text-white hover:bg-white/20 hover:text-white"
+          title="Exit full screen (Esc)"
+        >
+          <Minimize2 className="h-4 w-4" />
+          <span className="text-xs">Exit full screen</span>
+        </Button>
+      )}
+
       {/* Video element */}
       <video
         ref={videoRef}
-        className={`w-full ${status === "playing" ? "" : "hidden"}`}
-        style={{ minHeight: "400px" }}
+        className={cn(
+          "w-full",
+          isFullscreen && "h-full object-contain",
+          status === "playing" ? "" : "hidden",
+        )}
+        style={{ minHeight: isFullscreen ? undefined : "400px" }}
         muted={isMuted}
         playsInline
         autoPlay
@@ -270,7 +292,14 @@ export function LivePlayer({
               <span className="text-xs text-white font-medium">LIVE</span>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={toggleFullscreen} className="text-white hover:bg-white/20 h-8 w-8 p-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void toggleFullscreen()}
+            className="text-white hover:bg-white/20 h-8 w-8 p-0"
+            aria-pressed={isFullscreen}
+            title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+          >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </Button>
         </div>

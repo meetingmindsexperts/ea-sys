@@ -102,7 +102,8 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 | [src/lib/zoom/polls-qa.ts](../src/lib/zoom/polls-qa.ts) | `getWebinarPollReport()`, `getWebinarQaReport()` |
 | [src/app/(dashboard)/events/[eventId]/webinar/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/webinar/page.tsx) | **Webinar Console** — sticky status bar + Setup/Analytics/Settings tabs; components: `WebinarStatusBar`, `OverviewCard`, `GlobalRefreshButton`, `PanelistsCard` (with Import from Speakers + optimistic UI), `CardLoading`, `CardEmpty` |
 | [src/app/(dashboard)/events/[eventId]/sponsors/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/sponsors/page.tsx) | Sponsors admin editor — draft-based editing with add/edit dialog (logo upload via `PhotoUpload`), up/down reorder arrows, grouped-by-tier list view |
-| [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) | `ZoomWebEmbed` — dynamic-imported Zoom SDK v6 Component View wrapper. Handles lifecycle (createClient → init → join → leaveMeeting → destroyClient), StrictMode re-mount races via module-level `pendingDestroy` promise, and `connection-change` events for in-meeting Leave |
+| [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) | `ZoomWebEmbed` — dynamic-imported Zoom SDK v6 Component View wrapper. Handles lifecycle (createClient → init → join → leaveMeeting → destroyClient), StrictMode re-mount races via module-level `pendingDestroy` promise, and `connection-change` events for in-meeting Leave. Since Oct 1, 2026 also the bar with the Full screen button, the panel fit (speaker view, sized to the area) and the attendee limits (no drag/resize, meeting info = topic + host) |
+| [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `shrinkToFit`) are pinned by `__tests__/lib/fullscreen.test.ts` |
 | [src/components/zoom/zoom-embed.tsx](../src/components/zoom/zoom-embed.tsx) | Iframe fallback (not imported by default) — kept as belt-and-braces if Component View ever regresses |
 | [src/app/e/[slug]/session/[sessionId]/page.tsx](../src/app/e/%5Bslug%5D/session/%5BsessionId%5D/page.tsx) | **Public session page** — sticky CTA + Live Video / Session Details / Sponsors tabs. Dynamically imports `ZoomWebEmbed` and `LivePlayer` so the ~3 MB SDK bundle never hits first paint |
 | [src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/detail/route.ts) | Public detail route — returns session metadata + topics (with per-topic speakers) + speakers with bios + sponsors |
@@ -412,7 +413,7 @@ mutation-verified.
 
 **Tab 1 — Live Video** (default):
 - `LivePlayer` (HLS) when the webinar has live streaming enabled (RTMP → MediaMTX → HLS flow from the original Phase 4 work)
-- `ZoomWebEmbed` (see below) — only mounts when the user clicks Join in the sticky CTA. This keeps the ~3 MB SDK bundle off the initial paint
+- `ZoomWebEmbed` (see below) — only mounts when the user clicks Join in the sticky CTA. This keeps the ~3 MB SDK bundle off the initial paint. Since Oct 1, 2026 it owns its box: a slim bar above the video with the session name and a **Full screen** button, and Zoom's panel fitted to the area in speaker view (see "Layout and attendee controls" below)
 - Recording replay card when session ended + recording available
 - Recording processing placeholder when session ended + recording pending
 - "Ready to join?" / "Session hasn't started yet" placeholders for the scheduled/upcoming states
@@ -431,6 +432,57 @@ mutation-verified.
 ### ZoomWebEmbed component
 
 [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) wraps the Zoom SDK v6 `@zoom/meetingsdk/embedded` entry.
+
+#### Layout and attendee controls (Oct 1, 2026)
+
+Zoom's Component View is a floating widget. Left alone it draws a 250px ribbon
+at the top-left of its root and leaves the rest of our 16:9 box black (the
+Sep 30 practice screenshot in `WEBINAR_DEMO_GUIDE.html` shows it), and a
+fullscreen button on the wrapper alone would only have made that box bigger.
+The embed now owns the box:
+
+- **A slim bar above the video** carries the one control we add, **Full
+  screen**, plus the session name and a LIVE pill once joined. Zoom's own
+  header and toolbar stay inside its panel, so the two never overlap.
+- **The panel is fitted to the area.** It starts in speaker view (the active
+  speaker, or the shared slides, fills it), pinned at the root's top-left with
+  drag and resize off, and sized through `viewSizes` at init and
+  `updateVideoOptions` afterwards. The SDK keeps its own aspect per view, about
+  0.70 × width in speaker view and about 1.08 × width while a share is being
+  received, and the constant belongs to the SDK version, so we do not hard-code
+  it: the embed asks for the whole area, measures what the SDK drew (the
+  root's scroll extent, read on the next frame after the SDK changes its DOM;
+  the root is sized to the request and is the panel's containing block, so
+  the SDK can only match it or overflow it, however it nests its DOM) and
+  shrinks the request by the overflow (`shrinkToFit` in
+  [src/lib/fullscreen.ts](../src/lib/fullscreen.ts)), then centres the result.
+  Resize calls go to the SDK only after the join: in 6.0.0 `updateVideoOptions`
+  throws until the meeting UI mounts, and the init-time `viewSizes` covers
+  everything before that. A fresh full-area request follows every area
+  resize, the fullscreen toggle, and `peer-share-state-change`. On the page the
+  area is 16:9 (4:5 on phones, where a 16:9 strip is unusable); in fullscreen
+  it is the rest of the screen below the bar. While slides are shared the
+  panel is therefore narrower than a 16:9 screen, centred, with black at the
+  sides: that is Zoom's layout.
+- **Full screen** is the browser Fullscreen API via
+  [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts), shared with
+  the HLS `LivePlayer` (whose icon used to stay on "exit" after Esc, because it
+  set its flag on the click instead of on `fullscreenchange`). Where the
+  browser has no element fullscreen (iPhone Safari) the hook falls back to
+  pinning the stage to the viewport, with Esc and page-scroll lock handled.
+  Unmounting while fullscreen (Zoom's own Leave) leaves fullscreen.
+- **Attendee limits** (owner, Oct 1, 2026: "limit controls for attendees"):
+  no drag, no resize, and Zoom's meeting-info dropdown shows topic and host
+  only. The meeting number, passcode and invite link are left out because the
+  join is gated by registration on our page and those three are the side door
+  around it. Zoom's attendee toolbar (audio, Q&A, chat, raise hand, leave) is
+  untouched; the SDK has no option to remove its standard buttons, and Q&A is
+  the point of the embed.
+
+The fit was designed against the SDK's sizing code (`6.0.0`, the CDN build)
+and the fullscreen paths were checked in headed Chromium on Oct 1, 2026; the
+fit itself needs a real join, so it is on the practice-run checklist in
+`WEBINAR_DEMO_GUIDE.html`.
 
 **Making it work under React 19 — the CDN loader (June 23, 2026).** ⚠️ A prior
 claim here said the `/embedded` UMD "ships its own React 18 internally, isolated

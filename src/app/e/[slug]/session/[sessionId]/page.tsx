@@ -713,6 +713,7 @@ export default function PublicSessionPage() {
                   userName={zoomUserName}
                   userEmail={zoomUserEmail}
                   joinUrl={joinInfo.joinUrl}
+                  sessionName={session?.name || joinInfo.sessionName}
                   onLeave={() => setIsJoining(false)}
                   onJoinError={(detail) => {
                     // The join failed inside the SDK, so the server saw a clean

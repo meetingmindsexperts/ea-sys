@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Loader2, AlertCircle, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MeetingInfoType, SuspensionViewType, VideoOptions } from "@zoom/meetingsdk/embedded";
+import { Loader2, AlertCircle, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { loadZoomMtgEmbedded } from "@/lib/zoom/load-embedded-sdk";
+import { useFullscreen } from "@/hooks/use-fullscreen";
+import { shrinkToFit, type Size } from "@/lib/fullscreen";
 
 /**
  * Zoom Meeting SDK — Component View embed.
@@ -15,6 +19,23 @@ import { loadZoomMtgEmbedded } from "@/lib/zoom/load-embedded-sdk";
  * React 19 and crash on the removed `ReactCurrentOwner` internal. The npm-import
  * path is kept behind `NEXT_PUBLIC_ZOOM_EMBED_LOADER=npm` for an easy flip-back
  * once Zoom ships a React-19-compatible SDK. Client View remains unsupported.
+ *
+ * Layout (Oct 1, 2026). The Component View is a floating widget: left alone it
+ * draws a 250px ribbon at the top-left of its root and leaves the rest of our
+ * 16:9 box black (the Sep 30 practice screenshot in WEBINAR_DEMO_GUIDE shows
+ * it). So the embed now owns the box:
+ * - a slim bar above the video holds the ONE control we add, Full screen;
+ *   Zoom's own header and toolbar stay inside its panel, and the two never
+ *   overlap;
+ * - the panel starts in speaker view, pinned at the root's top-left, with
+ *   drag and resize off (owner: "limit controls for attendees"), and is
+ *   sized to the area through `viewSizes` + `updateVideoOptions`. The SDK
+ *   keeps its own aspect per view, so we ask for the whole area, measure what
+ *   it drew, and shrink the request by the overflow (`shrinkToFit`), then
+ *   centre the result. A fresh full-area request follows every area resize,
+ *   the fullscreen toggle, and a share starting or stopping;
+ * - Full screen is the browser API via `useFullscreen`, with the in-page
+ *   fallback for iPhone Safari.
  *
  * Key lifecycle notes:
  * - `createClient()` returns a module-level singleton. Re-mounting must
@@ -46,6 +67,8 @@ interface ZoomWebEmbedProps {
   userName: string;
   userEmail?: string;
   joinUrl: string;
+  /** Shown on the bar above the video. */
+  sessionName?: string;
   onLeave?: () => void;
   /**
    * Called when the embed fails to mount or join. The failure happens entirely
@@ -67,6 +90,31 @@ const HOST_WAIT_RETRY_MS = 10_000;
 /** One hour of 10-second retries, then the error shows as before. */
 const HOST_WAIT_MAX_ATTEMPTS = 360;
 
+/**
+ * The attendee's panel is boxed, not floating: our box does the sizing, so
+ * Zoom's drag handle and resize corner are off. Pinned at the root's top-left
+ * so the measured box and the drawn box coincide. Repeated on every size
+ * update because `updateVideoOptions` may replace rather than merge.
+ */
+const ATTENDEE_VIDEO_LOCK: Pick<VideoOptions, "isResizable" | "popper"> = {
+  isResizable: false,
+  popper: { disableDraggable: true, anchorPosition: { top: 0, left: 0 } },
+};
+
+/**
+ * Zoom's meeting-info dropdown shows topic and host only. The meeting number,
+ * passcode and invite link are left out: the join is gated by registration on
+ * our page, and those three are the side door around it.
+ */
+const ATTENDEE_MEETING_INFO: MeetingInfoType[] = ["topic", "host"];
+
+/**
+ * How many shrink steps one fit cycle may take. The SDK's height is linear in
+ * the requested width, so the first step lands within a pixel; the cap only
+ * guards against an SDK build that sizes differently.
+ */
+const MAX_FIT_CORRECTIONS = 3;
+
 type LoadState =
   | { phase: "loading" }
   | { phase: "joining" }
@@ -82,15 +130,47 @@ export function ZoomWebEmbed({
   userName,
   userEmail,
   joinUrl,
+  sessionName,
   onLeave,
   onJoinError,
 }: ZoomWebEmbedProps) {
+  // The fullscreen target: bar + video area.
+  const stageRef = useRef<HTMLDivElement>(null);
+  // The video area the SDK panel must fit; measured by a ResizeObserver.
+  const areaRef = useRef<HTMLDivElement>(null);
+  // The SDK's root (`zoomAppRoot`): Zoom renders its panel inside this div.
   const containerRef = useRef<HTMLDivElement>(null);
   // The SDK's module-level client handle. We hold it in a ref so cleanup
   // can call destroyClient() without re-rendering.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clientRef = useRef<any>(null);
   const [state, setState] = useState<LoadState>({ phase: "loading" });
+
+  const areaSizeRef = useRef<Size>({ width: 0, height: 0 });
+  const fitRef = useRef<{ requestedWidth: number; corrections: number }>({
+    requestedWidth: 0,
+    corrections: 0,
+  });
+  // `updateVideoOptions` is wired to the SDK's store only when the meeting UI
+  // mounts on join; before that the 6.0.0 build throws ("w is not a
+  // function", seen Oct 1, 2026 in the local harness on every area resize).
+  // Until the join, the size travels in `customize.video.viewSizes` at init,
+  // and the first refit after joining catches any resize in between (a long
+  // "waiting for the host" spell with a fullscreen toggle, for instance).
+  const joinedRef = useRef(false);
+  // The root's explicit size: the last size requested from the SDK. The SDK
+  // draws the panel at exactly the requested width, so the panel fills the
+  // root and flex centres the root in the area. Null until the first request,
+  // when the root simply fills the area.
+  const [rootSize, setRootSize] = useState<Size | null>(null);
+  const measureFrameRef = useRef<number | null>(null);
+  const measureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest-value refs so the observer effect and the request path can call
+  // each other without a dependency cycle or an effect re-run.
+  const measurePanelRef = useRef<() => void>(() => {});
+  const refitRef = useRef<() => void>(() => {});
+
+  const { isFullscreen, isFallback, toggle: toggleFullscreen } = useFullscreen(stageRef);
 
   // Pin onLeave in a ref so the mount-once effect can read the latest
   // handler without forcing a re-mount when the parent re-renders.
@@ -102,6 +182,109 @@ export function ZoomWebEmbed({
   // of the meeting.
   const onJoinErrorRef = useRef(onJoinError);
   onJoinErrorRef.current = onJoinError;
+
+  /**
+   * Measure on the next frame, never inside an observer callback. The SDK
+   * re-renders in a microtask after a request, and a layout change landing
+   * inside the same observation loop is what raises the "ResizeObserver loop"
+   * window error. Coalesced, so a burst of mutations measures once.
+   */
+  const scheduleMeasure = useCallback(() => {
+    if (measureFrameRef.current !== null) return;
+    measureFrameRef.current = requestAnimationFrame(() => {
+      measureFrameRef.current = null;
+      measurePanelRef.current();
+    });
+  }, []);
+
+  const requestPanelSize = useCallback(
+    (width: number, height: number) => {
+      const client = clientRef.current;
+      if (!client || !joinedRef.current || width <= 0 || height <= 0) return;
+      const size: Size = { width: Math.round(width), height: Math.round(height) };
+      setRootSize((prev) =>
+        prev && prev.width === size.width && prev.height === size.height ? prev : size,
+      );
+      try {
+        client.updateVideoOptions({ ...ATTENDEE_VIDEO_LOCK, viewSizes: { default: size } });
+      } catch (err) {
+        // The panel keeps its last size; the attendee still has a working
+        // player, just not a fitted one.
+        console.warn("zoom-embed:resize-failed", err);
+      }
+      // The SDK applies the size asynchronously. The mutation observer below
+      // normally catches it; this is the belt for an SDK build whose update
+      // touches nothing the observer watches.
+      if (measureTimerRef.current) clearTimeout(measureTimerRef.current);
+      measureTimerRef.current = setTimeout(scheduleMeasure, 400);
+    },
+    [scheduleMeasure],
+  );
+
+  /** Start a fit cycle: ask for the whole area, then let `measurePanel` shrink. */
+  const refit = useCallback(() => {
+    const area = areaSizeRef.current;
+    if (area.width <= 0 || area.height <= 0) return;
+    fitRef.current = { requestedWidth: area.width, corrections: 0 };
+    requestPanelSize(area.width, area.height);
+  }, [requestPanelSize]);
+  refitRef.current = refit;
+
+  /**
+   * Compare what the SDK drew with the area. The panel is absolutely
+   * positioned at the root's top-left and the root is its containing block,
+   * so anything drawn beyond the root shows up in the root's scroll extent
+   * however the SDK nests its DOM (a zero-height wrapper or a popper node in
+   * between changes nothing). The root is sized to the last request, so the
+   * SDK can only match it or overflow it.
+   */
+  const measurePanel = useCallback(() => {
+    const root = containerRef.current;
+    if (!root || !joinedRef.current) return;
+    const drawn: Size = { width: root.scrollWidth, height: root.scrollHeight };
+    const fit = fitRef.current;
+    if (fit.corrections >= MAX_FIT_CORRECTIONS) return;
+    const next = shrinkToFit(fit.requestedWidth, drawn, areaSizeRef.current);
+    if (next === null) return;
+    fit.requestedWidth = next;
+    fit.corrections += 1;
+    requestPanelSize(next, areaSizeRef.current.height);
+  }, [requestPanelSize]);
+  measurePanelRef.current = measurePanel;
+
+  // Watch the area (our box) and the SDK's drawing (the root's subtree).
+  useEffect(() => {
+    const area = areaRef.current;
+    const root = containerRef.current;
+    if (!area || !root) return;
+
+    const areaObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      areaSizeRef.current = { width: rect.width, height: rect.height };
+      // Off the observer's own tick, for the reason given on scheduleMeasure.
+      requestAnimationFrame(() => refitRef.current());
+    });
+    areaObserver.observe(area);
+
+    // The SDK sets its panel's size as inline style, so any style change in
+    // the subtree (and the panel's first appearance) measures on the next
+    // frame. One observer on the root, nothing per child, nothing to unobserve.
+    const sdkObserver = new MutationObserver(() => scheduleMeasure());
+    sdkObserver.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+
+    return () => {
+      areaObserver.disconnect();
+      sdkObserver.disconnect();
+      if (measureFrameRef.current !== null) cancelAnimationFrame(measureFrameRef.current);
+      if (measureTimerRef.current) clearTimeout(measureTimerRef.current);
+    };
+  }, [scheduleMeasure]);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,11 +342,43 @@ export function ZoomWebEmbed({
           // unmount via its own Leave button.
         }
 
+        // A share starting or stopping changes the SDK's panel aspect (the
+        // shared content stacks above the speaker strip), so refit from the
+        // full area either way: shrink on start, grow back on stop.
+        try {
+          client.on("peer-share-state-change", () => refit());
+        } catch {
+          // Best effort: without it the panel still fits, just not maximally
+          // after a share ends.
+        }
+
+        const area = areaSizeRef.current;
+        const video: VideoOptions = {
+          ...ATTENDEE_VIDEO_LOCK,
+          // Speaker view: the active speaker, or the shared slides, fills the
+          // panel. Zoom's own default for an attendee is the 250px ribbon.
+          // The SDK types this as a const enum, which a type-only import
+          // cannot reference at runtime; the string is the enum's value.
+          defaultViewType: "speaker" as unknown as SuspensionViewType,
+          ...(area.width > 0 && area.height > 0
+            ? {
+                viewSizes: {
+                  default: { width: Math.round(area.width), height: Math.round(area.height) },
+                },
+              }
+            : {}),
+        };
+        fitRef.current = { requestedWidth: area.width, corrections: 0 };
+
         await client.init({
           zoomAppRoot: containerRef.current,
           language: "en-US",
           patchJsMedia: true,
           leaveOnPageUnload: true,
+          customize: {
+            meetingInfo: [...ATTENDEE_MEETING_INFO],
+            video,
+          },
           // Asset path defaults to https://source.zoom.us/{version}/lib/av
           // which works in prod. Override via env if we ever self-host the
           // WASM/audio assets.
@@ -203,6 +418,9 @@ export function ZoomWebEmbed({
         if (cancelled) return;
         reachedPhase = "joined";
         setState({ phase: "joined" });
+        // The panel exists now; size it to the area it landed in.
+        joinedRef.current = true;
+        refit();
       } catch (err) {
         if (cancelled) return;
         const message = extractZoomErrorMessage(err);
@@ -232,6 +450,7 @@ export function ZoomWebEmbed({
 
     return () => {
       cancelled = true;
+      joinedRef.current = false;
       // Tell the SDK we're leaving so it closes the AV stream cleanly.
       // Serialized through the module-level pendingDestroy promise so
       // StrictMode's re-mount doesn't race this cleanup.
@@ -264,60 +483,109 @@ export function ZoomWebEmbed({
   // remount anyway (Zoom client can't rejoin a different meeting).
 
   return (
-    <div className="relative w-full bg-black rounded-lg overflow-hidden">
-      {/* Fixed 16:9 container — the SDK mounts its own UI into this div */}
-      <div className="aspect-video w-full">
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-          data-zoom-embed-root="true"
-        />
-      </div>
-
-      {/* Overlay states — rendered above the SDK container */}
-      {state.phase === "loading" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-sm">Loading Zoom…</p>
-        </div>
+    <div
+      ref={stageRef}
+      data-zoom-embed-stage="true"
+      className={cn(
+        "relative w-full bg-black overflow-hidden flex flex-col",
+        !isFullscreen && "rounded-lg",
+        isFallback && "fixed inset-0 z-50",
       )}
-
-      {state.phase === "joining" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-sm">Joining the webinar…</p>
-        </div>
-      )}
-
-      {state.phase === "waiting-host" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white p-6 text-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-sm font-medium">Waiting for the host to start the webinar</p>
-          <p className="text-xs text-gray-300 max-w-md">
-            Keep this page open. You&apos;ll join automatically as soon as it starts.
-          </p>
-        </div>
-      )}
-
-      {state.phase === "error" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 text-white p-6">
-          <AlertCircle className="h-10 w-10 text-red-400" />
-          <p className="text-sm font-medium">Couldn&apos;t load the embedded meeting</p>
-          <p className="text-xs text-gray-300 text-center max-w-md">
-            {state.message}
-          </p>
-          {joinUrl ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => window.open(joinUrl, "_blank", "noopener,noreferrer")}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Open in Zoom app instead
-            </Button>
+    >
+      {/* Our bar. The one place for controls we add, kept clear of Zoom's
+          header and toolbar, which live inside its panel below. */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-zinc-900 px-3 text-white">
+        <div className="flex min-w-0 items-center gap-2">
+          {state.phase === "joined" ? (
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-red-400">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              LIVE
+            </span>
+          ) : null}
+          {sessionName ? (
+            <span className="truncate text-sm text-zinc-200">{sessionName}</span>
           ) : null}
         </div>
-      )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void toggleFullscreen()}
+          className="h-8 gap-1.5 text-white hover:bg-white/15 hover:text-white"
+          aria-pressed={isFullscreen}
+          title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+        >
+          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          <span className="text-xs">{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+        </Button>
+      </div>
+
+      {/* The video area: 16:9 on the page (taller on phones, where a 16:9
+          strip is unusable), the rest of the screen in fullscreen. The SDK's
+          root is sized to the fitted request and centred, so the panel sits
+          in the middle with black at the sides when its aspect is narrower. */}
+      <div
+        ref={areaRef}
+        className={cn(
+          "relative flex w-full items-center justify-center overflow-hidden",
+          isFullscreen ? "min-h-0 flex-1" : "aspect-[4/5] sm:aspect-video",
+        )}
+      >
+        <div
+          ref={containerRef}
+          data-zoom-embed-root="true"
+          className="relative"
+          style={{
+            width: rootSize?.width ?? "100%",
+            height: rootSize?.height ?? "100%",
+          }}
+        />
+
+        {/* Overlay states — rendered above the SDK container */}
+        {state.phase === "loading" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p className="text-sm">Loading Zoom…</p>
+          </div>
+        )}
+
+        {state.phase === "joining" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p className="text-sm">Joining the webinar…</p>
+          </div>
+        )}
+
+        {state.phase === "waiting-host" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white p-6 text-center">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p className="text-sm font-medium">Waiting for the host to start the webinar</p>
+            <p className="text-xs text-gray-300 max-w-md">
+              Keep this page open. You&apos;ll join automatically as soon as it starts.
+            </p>
+          </div>
+        )}
+
+        {state.phase === "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 text-white p-6">
+            <AlertCircle className="h-10 w-10 text-red-400" />
+            <p className="text-sm font-medium">Couldn&apos;t load the embedded meeting</p>
+            <p className="text-xs text-gray-300 text-center max-w-md">
+              {state.message}
+            </p>
+            {joinUrl ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => window.open(joinUrl, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Open in Zoom app instead
+              </Button>
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

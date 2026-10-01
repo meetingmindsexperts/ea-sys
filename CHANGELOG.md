@@ -35,9 +35,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   icon on "exit"), an in-page fallback where the browser has no element
   fullscreen (iPhone Safari) with Esc and scroll lock, and exit on unmount so
   Zoom's own Leave never strands a black screen. Pure helpers in
-  `src/lib/fullscreen.ts`, pinned by `__tests__/lib/fullscreen.test.ts` (13
-  tests: API resolution incl. WebKit prefix and Permissions-Policy, the union
-  measure, and the shrink arithmetic).
+  `src/lib/fullscreen.ts`, pinned by `__tests__/lib/fullscreen.test.ts` (API
+  resolution incl. WebKit prefix and Permissions-Policy, and the shrink
+  arithmetic).
+- Code review (eight angles, Oct 1) before commit. The two HIGHs fixed
+  in-band: the HLS player's only exit while fullscreen lived in the
+  playing-only controls overlay, so on a phone (in-page fallback, no Esc) a
+  dropped stream left the viewer pinned under a fixed overlay; it now has an
+  exit button in every non-playing state. And the panel measurement assumed
+  the SDK's panel is a direct child with its own box; it now reads the root's
+  scroll extent, which sees any overflow however the SDK nests its DOM, and
+  the per-child observers (which also leaked across the session) went with it.
 - Verified in headed Chromium on Oct 1 on a local harness (bar, overlay
   states, native fullscreen, the browser-side exit that Esc triggers, button
   exit, unmount while fullscreen, the in-page fallback with scroll lock, phone
