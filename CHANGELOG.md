@@ -69,6 +69,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Added: custom roles Phase 1, slice 4: `requirePermission()` and the route status matrix (October 1)
+
+- `requirePermission()` is the route-boundary form of `can()`: 401, 403, or
+  the caller plus the event filter for the same permission, and the rule that
+  a create or update under a webinar-only grant must leave a webinar. Nothing
+  calls it yet; Phase 2 moves the routes onto it.
+- The route status matrix (`__tests__/api/route-matrix/`) records what each of
+  14 callers gets from each handler on four fixture events. Events core and
+  registration types and promo codes are recorded; a sweep must leave a
+  domain's matrix unchanged.
+- Found while recording, not fixed: the promo code detail route checks the
+  organisation but not the role, so desk, webinar, CRM and HR accounts can
+  open a promo code they hold the id of, with its recent redemptions.
+
 ### Changed: the session cookie no longer carries permission keys (October 1)
 
 - Custom roles Phase 1 slice 3. The cookie carries the roles a person holds

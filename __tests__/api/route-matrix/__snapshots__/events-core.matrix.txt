@@ -1,0 +1,122 @@
+# events core
+# cell: HTTP status; r = an event read matched (data reached); w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET /api/events
+  caller      -
+  SUPER_ADMIN 200 [conf,assigned,webinar]
+  OPERATOR    200 [conf,assigned,webinar,foreign]
+  ADMIN       200 [conf,assigned,webinar]
+  ORGANIZER   200 [conf,assigned,webinar]
+  MEMBER      200 [conf,assigned,webinar]
+  ONSITE      200 [assigned]
+  WEBINARS    200 [conf,assigned,webinar]
+  CRM_USER    200 []
+  HR_USER     200 []
+  REVIEWER    200 [assigned,foreign]
+  SUBMITTER   200 [assigned,foreign]
+  REGISTRANT  200 [assigned,foreign]
+  API_KEY     200 [conf,assigned,webinar]
+  NONE        401
+
+POST /api/events (CONFERENCE)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST /api/events (WEBINAR)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    500 w
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET /api/events/[eventId]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    200 r       200 r       200 r       200 r
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      200 r       200 r       200 r       404
+  ONSITE      404         200 r       404         404
+  WEBINARS    200 r       200 r       200 r       404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  REVIEWER    404         200 r       404         200 r
+  SUBMITTER   404         200 r       404         200 r
+  REGISTRANT  404         200 r       404         200 r
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PUT /api/events/[eventId] (rename)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PUT /api/events/[eventId] (eventType CONFERENCE)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         403 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+DELETE /api/events/[eventId]?confirm=true
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    403         403         403         403
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401

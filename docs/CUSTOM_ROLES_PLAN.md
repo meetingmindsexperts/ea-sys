@@ -447,6 +447,14 @@ the code won each time, per §7.6):
   org-scoped with no role gate (G5), so ONSITE and WEBINARS read every org
   event's bookings today. The survey reset is `denyReviewer` with no
   allow-list although WEBINARS holds `surveys.manage` at `WEBINAR`.
+- **Found by the route matrix (Oct 1, 2026), not fixed:** `GET
+  /api/events/[eventId]/promo-codes/[promoCodeId]` looks the event up by id
+  and organisation only, with no role gate, so ONSITE, WEBINARS, CRM_USER and
+  HR_USER reach any org event's promo code detail, including up to 50
+  redemptions with attendee names and emails (amounts are redacted for the
+  last two). The list route beside it uses `buildEventAccessWhere` and 404s
+  them, which limits this to a caller who already holds a promo code id. The
+  snapshot records today's behaviour; the fix changes those rows on purpose.
 
 ---
 
@@ -556,7 +564,27 @@ Cut into four slices (Sep 30, 2026), each shippable dark:
    API key and no session, with the event lookup's `where` captured. It proves
    the **routes** check the right keys, which parity cannot (§2.1). Built with
    the first two domains snapshotted; every later domain is snapshotted before
-   it is swept.
+   it is swept. **BUILT Oct 1, 2026.** `src/lib/permissions/require-permission.ts`:
+   `requirePermission(sessionOrPrincipal, key, { route, eventId, resulting })`
+   answers 401 (nobody), 403 `{ error: "Forbidden" }` (the key is not held,
+   the same body `denyReviewer` gives) or passes with the principal and
+   `eventWhere`, which is `eventWhereFor` of the same key, so a route cannot
+   look up events wider than the grant that let it in. `resulting` carries the
+   event's facts after a create or update and must be admitted by a held grant
+   of the key (§3.2): a `WEBINAR`-scoped `events.create` of a conference is a
+   403 `OUT_OF_SCOPE`. Callers are not swept (Phase 2). The harness is
+   `__tests__/api/route-matrix/`: 14 callers (the eight staff roles, the
+   platform operator, the three external roles, an API key, no session)
+   against four fixture events (an unlinked conference, a conference carrying
+   every per-event link, a webinar, another organisation's conference with the
+   same links). The captured `where` is EVALUATED against the fixtures rather
+   than snapshotted as a shape, so a sweep that spells a filter differently
+   and means the same passes, and an unknown filter key throws. A cell is the
+   status plus `r` (an event read matched) and `w` (a write was attempted;
+   writes throw). Snapshotted: events core (7 cases) and registration types,
+   tiers and promo codes (13 handlers), in `__snapshots__/*.matrix.txt`.
+   Mutation-checked: dropping WEBINARS from the tickets POST allow-list fails
+   the matrix on exactly that row.
 
 Nothing in production calls `can()` until Phase 2. **Rollback:** revert; the
 new columns are unused.
