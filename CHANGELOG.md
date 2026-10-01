@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Docs: custom stream set-up in the user guide (October 1)
+
+- `public/user-guide.html` gains "Custom stream: set up and run it" in the
+  webinar chapter (also read by the help chat): the one-time Zoom account
+  setting, the producer's steps the day before, the day-of steps, viewer
+  questions, the automatic close, a manual fallback and a troubleshooting
+  table. The lobby section's Custom stream bullet no longer says "no in-page
+  Q&A" and links to it.
+
 ### Added: webinar rooms close by themselves when the webinar is over (October 1)
 
 - Owner: an ended test webinar still showed the live view. Ending a webinar

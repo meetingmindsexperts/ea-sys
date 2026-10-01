@@ -1964,7 +1964,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <li><strong>How attendees watch</strong> &mdash; pick one per event:
             <ul>
               <li><strong>Zoom embed</strong> &mdash; interactive; attendees get Zoom&rsquo;s native <strong>Q&amp;A and chat</strong> right on the page, which you moderate. Counts against your Zoom webinar capacity. Choose this when you need Q&amp;A.</li>
-              <li><strong>Custom stream</strong> &mdash; a one-way broadcast that scales to very large audiences (thousands) cheaply, but has <strong>no in-page Q&amp;A</strong>. Requires live streaming to be enabled on the session &mdash; and the system <strong>enforces</strong> this: you can&rsquo;t switch to Custom stream (or open the room in it) until the session&rsquo;s live stream is configured. If you see <em>&ldquo;Custom stream mode needs the live stream enabled&hellip;&rdquo;</em>, either enable Live Streaming on the webinar session&rsquo;s Zoom settings or switch back to Zoom embed.</li>
+              <li><strong>Custom stream</strong> &mdash; Zoom sends the webinar to our server as one full-width video that attendees watch on the event page, like a live TV broadcast. It scales to thousands of viewers and uses no Zoom seat per viewer. Attendees are not in Zoom, so there is no Zoom Q&amp;A or chat for them: they type questions in an <strong>Ask a question</strong> box under the video instead, and the picture runs about 10 to 20 seconds behind the room. Set-up and the day-of steps are in <a href="#s11-stream">Custom stream: set up and run it</a>.</li>
             </ul>
           </li>
           <li><strong>Holding video</strong> &mdash; <em>optional.</em> Paste a YouTube or Vimeo link and it loops in the lobby until you open the room. The player is <strong>completely non-interactive</strong> &mdash; attendees can&rsquo;t pause it, and none of YouTube&rsquo;s own buttons (title bar, &ldquo;more videos&rdquo;, copy link) appear or work. It starts <strong>muted</strong> (a browser rule &mdash; autoplaying video may not start with sound anywhere on the web); attendees get a single clean <strong>Unmute</strong> button to turn sound on. Only YouTube / Vimeo links are accepted; any other link is ignored and the image/panel shows instead.</li>
@@ -1974,6 +1974,50 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <li><strong>Live now</strong> &mdash; a real-time roster of who&rsquo;s currently in the lobby vs joined. Registrants who&rsquo;ve joined also get a <strong>&ldquo;Joined&rdquo;</strong> badge on the Registrations list.</li>
         </ul>
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">One-time setup for the Zoom embed mode</div><div class="c-text">For attendees to watch the <strong>Zoom embed</strong> on the live domain, an admin sets the org&rsquo;s Zoom <strong>Active SDK Mode to Production</strong> (Settings &rarr; Zoom) and adds <code>events.meetingmindsgroup.com</code> to the Zoom app&rsquo;s allowed Embed domains. Do this once before your first embedded webinar. <strong>Custom stream</strong> mode doesn&rsquo;t need it.</div></div></div>
+      </div>
+
+      <div class="sub" id="s11-stream">
+        <div class="sub-title">Custom stream: set up and run it</div>
+        <p>In custom stream mode, speakers and the host use Zoom exactly as usual. Zoom turns the webinar into one video and sends it to our server, and attendees watch that video on the event page. EA-SYS tells Zoom where to send the video and with which secret key, so nobody copies addresses into Zoom by hand.</p>
+
+        <p><strong>Step 1 &mdash; In Zoom (a Zoom admin, once, about 2 minutes).</strong> Zoom refuses every stream until this is on.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Sign in at <strong>zoom.us</strong> as the account owner or an admin of the account that hosts your webinars.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Open <strong>Admin &rarr; Account Management &rarr; Account Settings</strong> (direct link: zoom.us/account/setting).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">On the <strong>Meeting</strong> tab, scroll to <strong>In Meeting (Advanced)</strong>. Searching the page for &ldquo;livestream&rdquo; gets you there faster.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Turn on <strong>Allow livestreaming of webinars</strong>, and tick <strong>Custom Live Streaming Service</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Save. Optionally click the padlock so users cannot switch it off.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">If the option is greyed out for the host, sign in as the host, open <strong>Settings &rarr; In Meeting (Advanced)</strong> and turn on the same option there.</div></div>
+        </div>
+
+        <p><strong>Step 2 &mdash; In EA-SYS (the producer, once per webinar, the day before).</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Open the event&rsquo;s <strong>Webinar Console</strong> and find the <strong>Waiting Room</strong> card.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Set <strong>How attendees watch</strong> to <strong>Custom stream</strong> and click <strong>Save</strong>. A <strong>Custom stream</strong> box with three buttons appears.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Re-send stream settings to Zoom</strong>. You should see &ldquo;Stream settings sent to Zoom&rdquo;. This also switches streaming on for a session that was set up without it.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">The <strong>Viewer questions</strong> card appears in the right-hand column of the console.</div></div>
+        </div>
+
+        <p><strong>Step 3 &mdash; On the day.</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Host:</strong> click <strong>Start as Host</strong> and start the webinar in Zoom as usual.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Producer:</strong> click <strong>Open the room / Go live</strong>. The console starts the stream by itself, retrying for up to two minutes while Zoom gets ready. If it has still not started, click <strong>Start stream</strong> in the Waiting Room card.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Check the attendee page: the video appears within about 20 seconds, fills the screen with <strong>Full screen</strong>, and works on a phone.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Questions:</strong> attendees type them under the video. They appear in <strong>Viewer questions</strong> within 10 seconds with the asker&rsquo;s name. Read them to the speakers, then click <strong>Answered</strong> or <strong>Dismiss</strong> (Undo brings one back). Attendees see only their own questions and whether they were answered.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>At the end:</strong> the host ends the webinar in Zoom. Attendees see &ldquo;This webinar has ended&rdquo; straight away and the room closes by itself within about 3 minutes. <strong>Close the room</strong> closes it at once.</div></div>
+        </div>
+        <p><strong>Manual fallback</strong>, only if <strong>Start stream</strong> keeps failing: in the Zoom app during the webinar, the host clicks <strong>More (&hellip;) &rarr; Live on Custom Live Streaming Service</strong>. Zoom uses the settings EA-SYS already saved.</p>
+
+        <table class="st">
+          <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td>&ldquo;Zoom refused to start the stream: the webinar is not running yet&rdquo;</td><td>Start the webinar as host in Zoom first, then click <strong>Start stream</strong>.</td></tr>
+            <tr><td>&ldquo;Zoom says this webinar no longer exists&rdquo;</td><td>Click <strong>Re-run provisioner</strong> in the console, then <strong>Re-send stream settings to Zoom</strong>.</td></tr>
+            <tr><td>Re-send shows an error about live streaming</td><td>Step 1 is not switched on. Check the account setting and the host&rsquo;s own setting.</td></tr>
+            <tr><td>The attendee page keeps saying &ldquo;Waiting for stream to start&rdquo;</td><td>Click <strong>Re-send stream settings to Zoom</strong>, then <strong>Start stream</strong>. If it still fails, contact support with a screenshot of the console.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Which mode to choose</div><div class="c-text">Choose <strong>Custom stream</strong> for broadcast-style webinars with a large audience that mainly watches. Choose <strong>Zoom embed</strong> for smaller interactive sessions where attendees need Zoom&rsquo;s Q&amp;A, chat or to speak, and the delay must stay around a second.</div></div></div>
       </div>
 
       <div class="sub" id="s11-2">
