@@ -319,6 +319,7 @@ model Registration {
   promoRedemption          PromoCodeRedemption?
   zoomAttendances          ZoomAttendance[]
   webinarPresences         WebinarPresence[]
+  webinarViewerQuestions   WebinarViewerQuestion[]
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
   // Speakers imported from this registration (0 or 1 in practice; the link

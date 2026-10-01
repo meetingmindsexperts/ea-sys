@@ -2576,6 +2576,41 @@ export function useWebinarLiveStream(eventId: string) {
   });
 }
 
+export interface WebinarViewerQuestionRow {
+  id: string;
+  askerName: string;
+  question: string;
+  status: "NEW" | "ANSWERED" | "DISMISSED";
+  createdAt: string;
+  answeredAt: string | null;
+}
+
+/** Questions from custom-stream viewers; polled every 10 s while shown. */
+export function useWebinarViewerQuestions(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["webinar-viewer-questions", eventId],
+    queryFn: () =>
+      fetchApi<{ questions: WebinarViewerQuestionRow[] }>(`/api/events/${eventId}/webinar/questions`),
+    enabled: !!eventId && enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useUpdateWebinarViewerQuestion(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; status: "NEW" | "ANSWERED" | "DISMISSED" }) =>
+      fetchApi<{ ok: true }>(`/api/events/${eventId}/webinar/questions`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["webinar-viewer-questions", eventId] });
+    },
+  });
+}
+
 export interface WebinarSequenceRow {
   id: string;
   emailType: string;

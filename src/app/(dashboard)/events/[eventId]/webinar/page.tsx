@@ -66,6 +66,8 @@ import {
   useUpdateWebinarSettings,
   useToggleWebinarRoom,
   useWebinarLiveStream,
+  useWebinarViewerQuestions,
+  useUpdateWebinarViewerQuestion,
   useWebinarPresence,
   useProvisionWebinar,
   useWebinarSequence,
@@ -329,6 +331,7 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
               />
+              {data?.webinar?.viewingMode === "hls" && <ViewerQuestionsCard eventId={eventId} />}
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
             </div>
           </div>
@@ -2091,6 +2094,85 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
 
 /** Grace window after the scheduled end during which the overdue alert still shows. */
 const ROOM_OVERDUE_GRACE_MS = 30 * 60_000;
+
+/**
+ * Questions from custom-stream viewers (Oct 1, 2026). They are not in Zoom,
+ * so Zoom's Q&A cannot reach them; they ask on the session page and the
+ * producer reads them here, newest first, refreshed every 10 seconds.
+ */
+function ViewerQuestionsCard({ eventId }: { eventId: string }) {
+  const { data, isLoading, isError } = useWebinarViewerQuestions(eventId, true);
+  const update = useUpdateWebinarViewerQuestion(eventId);
+  const [showDone, setShowDone] = useState(false);
+  const questions = data?.questions ?? [];
+  const open = questions.filter((q) => q.status === "NEW");
+  const done = questions.filter((q) => q.status !== "NEW");
+  const shown = showDone ? questions : open;
+
+  const mark = async (id: string, status: "NEW" | "ANSWERED" | "DISMISSED") => {
+    try {
+      await update.mutateAsync({ id, status });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the question");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={MessageSquare} tone="violet">
+          Viewer questions
+        </ConsoleTitle>
+        <CardDescription>
+          From people watching the custom stream. {open.length} new
+          {done.length > 0 ? `, ${done.length} handled` : ""}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {isError && <p className="text-sm text-red-600">Could not load questions. Retrying…</p>}
+        {!isLoading && shown.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {showDone ? "No questions yet." : "No new questions."}
+          </p>
+        )}
+        <ul className="space-y-2 max-h-[28rem] overflow-y-auto">
+          {shown.map((q) => (
+            <li key={q.id} className={`rounded-md border p-3 ${q.status === "NEW" ? "" : "opacity-60"}`}>
+              <p className="text-sm whitespace-pre-wrap break-words">{q.question}</p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {q.askerName} · {new Date(q.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <div className="flex gap-1">
+                  {q.status === "NEW" ? (
+                    <>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "ANSWERED")}>
+                        Answered
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "DISMISSED")}>
+                        Dismiss
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "NEW")}>
+                      {q.status === "ANSWERED" ? "Answered" : "Dismissed"} · Undo
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {done.length > 0 && (
+          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setShowDone((v) => !v)}>
+            {showDone ? "Hide handled" : `Show handled (${done.length})`}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 const STREAM_START_RETRIES = 12;
 const STREAM_START_RETRY_MS = 10_000;

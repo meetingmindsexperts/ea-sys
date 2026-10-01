@@ -64,3 +64,12 @@ CREATE POLICY webinarquestion_tenant_isolation ON "WebinarQuestion"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- WebinarViewerQuestion (Oct 1, 2026): questions from custom-stream viewers. Same
+-- flat template; writers stamp organizationId from the event.
+ALTER TABLE "WebinarViewerQuestion" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS webinarviewerquestion_tenant_isolation ON "WebinarViewerQuestion";
+CREATE POLICY webinarviewerquestion_tenant_isolation ON "WebinarViewerQuestion"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

@@ -71,6 +71,7 @@
   <li><a href="#setup"><b>3</b>Setup</a></li>
   <li><a href="#run"><b>4</b>The practice run</a></li>
   <li><a href="#check"><b>5</b>Checklist</a></li>
+  <li><a href="#stream"><b>5b</b>Custom stream run</a></li>
   <li><a href="#cleanup"><b>6</b>Clean-up</a></li>
   <li><a href="#help"><b>7</b>If something goes wrong</a></li>
 </ul>
@@ -195,6 +196,38 @@
   <li>The panelist invitation arrived and its link opened Zoom as a panelist.</li>
   <li>They could share a screen and be seen and heard on the attendees' pages.</li>
 </ul>
+
+<h2 id="stream">5b. Practice run: custom stream (RTMP)</h2>
+<p>Use this when the webinar is set to <span class="ui">Custom stream</span>: attendees watch one full-width video that Zoom sends to our server, and ask questions in a box under it. There is no Zoom Q&amp;A or chat for them, and the picture runs about 10 to 20 seconds behind the room.</p>
+<h3>Once, before the first custom-stream webinar</h3>
+<ul class="check">
+  <li>Zoom admin: in the Zoom web portal, Settings, In Meeting (Advanced), "Allow livestreaming of webinars" is on with <b>Custom Live Streaming Service</b> ticked. Zoom refuses every stream while it is off.</li>
+  <li>Publish protection is switched on (docs/LIVE_STREAMING.md section 11a). Until then anyone who can reach the server can push a stream.</li>
+</ul>
+<h3>Setup, the day before</h3>
+<ul class="check">
+  <li>Webinar Console, Waiting Room card: <span class="ui">How attendees watch</span> set to Custom stream, saved.</li>
+  <li>Press <span class="ui">Re-send stream settings to Zoom</span>. It must say "Stream settings sent to Zoom". This also switches streaming on for a session created without it.</li>
+  <li>The <span class="ui">Viewer questions</span> card appears in the right-hand column.</li>
+</ul>
+<h3>On the day</h3>
+<ul class="check">
+  <li>Host starts the webinar in Zoom (<span class="ui">Start as Host</span>).</li>
+  <li>Producer opens the room. The console starts the stream by itself, retrying for up to two minutes; otherwise press <span class="ui">Start stream</span> once Zoom shows the webinar running.</li>
+  <li>Attendees see the video within about 20 seconds: full width on a laptop, filling the screen with <span class="ui">Full screen</span>, and usable on a phone.</li>
+  <li>Slides shared in Zoom appear in the stream with the speaker.</li>
+  <li>An attendee asks a question; it appears in <span class="ui">Viewer questions</span> within 10 seconds with their name. Marking it <span class="ui">Answered</span> shows "Answered" on their page within 20 seconds.</li>
+  <li>Closing the room stops the stream; attendees see "Waiting for stream to start".</li>
+</ul>
+<div class="panel">
+  <h4>If the stream never arrives</h4>
+  <ul>
+    <li>Press <span class="ui">Re-send stream settings to Zoom</span>, then <span class="ui">Start stream</span>.</li>
+    <li>"Zoom refused to start the stream: the webinar is not running yet": start it as host in Zoom first.</li>
+    <li>"Zoom says this webinar no longer exists": re-run the provisioner.</li>
+    <li>Still nothing: check the Zoom live streaming setting above, then the server's stream logs (docs/LIVE_STREAMING.md).</li>
+  </ul>
+</div>
 
 <h2 id="cleanup">6. Clean-up</h2>
 <ol class="steps">

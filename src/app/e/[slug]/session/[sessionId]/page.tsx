@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
+import { AskQuestionBox } from "@/components/webinar/ask-question-box";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -696,6 +697,12 @@ export default function PublicSessionPage() {
                 sessionId={sessionId}
                 sessionName={session?.name || joinInfo.sessionName}
               />
+            )}
+
+            {/* Custom-stream viewers are not in Zoom, so Zoom's Q&A cannot
+                 reach them; this box sends questions to the producers. */}
+            {joinInfo?.liveStreamEnabled && liveWindowActive && authState.kind === "ok" && (
+              <AskQuestionBox slug={slug} sessionId={sessionId} />
             )}
 
             {/* Embedded Zoom — only mounts after user clicks Join in the

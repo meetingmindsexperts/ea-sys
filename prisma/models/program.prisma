@@ -475,6 +475,7 @@ model EventSession {
   zoomMeeting      ZoomMeeting?
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
+  webinarViewerQuestions WebinarViewerQuestion[]
 
   @@index([eventId])
   @@index([startTime])
@@ -730,6 +731,36 @@ model WebinarPresence {
 
   @@unique([sessionId, registrationId])
   @@index([sessionId, lastSeenAt])
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([registrationId])
+}
+
+/// A question from a custom-stream (HLS) viewer, who has no Zoom Q&A (Oct 1,
+/// 2026). NOT WebinarQuestion, which holds Zoom's post-webinar Q&A report.
+///
+/// 2026). Asked on the public session page, read and marked by producers in
+/// the Webinar Console. `status` is "NEW" | "ANSWERED" | "DISMISSED" as text,
+/// like WebinarPresence.phase, so a new state never needs an enum migration.
+/// `registrationId` is SetNull so deleting a registration keeps the question.
+model WebinarViewerQuestion {
+  id             String    @id @default(cuid())
+  eventId        String
+  organizationId String?
+  sessionId      String
+  registrationId String?
+  askerName      String
+  question       String    @db.Text
+  status         String    @default("NEW")
+  answeredAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
   @@index([eventId])
   @@index([organizationId])
   @@index([registrationId])

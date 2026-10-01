@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: viewer questions for custom-stream webinars; practice-run checklist (October 1)
+
+- Custom stream is now the recommended mode for broadcast webinars, and its
+  viewers are not in Zoom, so Zoom's Q&A cannot reach them. A small "Ask a
+  question" box sits under the stream on the session page (registered
+  attendees and org staff; the name comes from the registration, never the
+  request; 20 questions an hour; up to 1,000 characters; viewers see only
+  their own questions and a status). Producers get a "Viewer questions" card
+  in the Webinar Console (custom-stream mode only), refreshed every 10 s,
+  with Answered, Dismiss and Undo. No upvotes, public wall or replies.
+- New table `WebinarViewerQuestion` (additive, idempotent migration
+  `20261001150000`, RLS policy in `prisma/rls/webinar.sql`). Deliberately
+  not `WebinarQuestion`, which already holds Zoom's post-webinar Q&A report.
+- `docs/WEBINAR_DEMO_GUIDE.html` §5b: the custom-stream practice run,
+  including the one-time Zoom account setting ("Custom Live Streaming
+  Service") without which Zoom refuses every stream.
+
 ### Added: custom stream controls in the Webinar Console; MediaMTX publish authorisation (October 1)
 
 - Zoom never starts a custom live stream by itself and the app never asked
