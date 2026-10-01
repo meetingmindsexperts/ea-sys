@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fitZoomPanel, fitZoomRibbon, lockDocumentScroll, resolveFullscreenApi, scaleSize } from "@/lib/fullscreen";
+import { fitZoomPanel, lockDocumentScroll, resolveFullscreenApi } from "@/lib/fullscreen";
 
 /**
  * The fullscreen helpers behind both webinar players (Oct 1, 2026). The hook
@@ -126,23 +126,5 @@ describe("fitZoomPanel", () => {
 
   it("is null for an unmeasured area", () => {
     expect(fitZoomPanel({ width: 0, height: 500 }, false)).toBeNull();
-  });
-});
-
-describe("fitZoomRibbon", () => {
-  it("two stacked tiles fill the height of a 16:9 area", () => {
-    const size = fitZoomRibbon({ width: 992, height: 558 })!;
-    expect(size.width).toBe(Math.floor(558 / (274 / 250)));
-    expect(size.height).toBe(558);
-  });
-  it("is width-limited on a narrow phone area", () => {
-    expect(fitZoomRibbon({ width: 300, height: 900 })!.width).toBe(300);
-  });
-});
-
-describe("scaleSize", () => {
-  it("scales down with a floor", () => {
-    expect(scaleSize({ width: 800, height: 600 }, 0.5)).toEqual({ width: 400, height: 300 });
-    expect(scaleSize({ width: 300, height: 200 }, 0.1)).toEqual({ width: 200, height: 150 });
   });
 });

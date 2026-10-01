@@ -33,7 +33,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   on an unconfigured session shows its plain-language refusal); the Zoom side
   needs a real webinar.
 
-### Fixed: the webinar Zoom panel sits centred in every layout (October 1)
+### Reverted: the measured centring of the webinar Zoom panel (October 1)
+
+- Live the same day: the measurement found only part of Zoom's panel during
+  a screen share, so the panel was pushed down and cut off at the bottom.
+  Owner: no fitting, just show it in regular and full screen. Reverted to the
+  computed size from the earlier fix (full height, Zoom's own aspect,
+  centred by the box). Kept below as a record of what was tried.
+
+### (Reverted) the webinar Zoom panel sits centred in every layout (October 1)
 
 - Live screenshots: with two panelists Zoom switched to its stacked-tiles
   ribbon, drawn small at the top-left; during a screen share the panel sat
