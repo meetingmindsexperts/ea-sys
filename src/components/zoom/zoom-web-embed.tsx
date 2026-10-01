@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { loadZoomMtgEmbedded } from "@/lib/zoom/load-embedded-sdk";
 import { useFullscreen } from "@/hooks/use-fullscreen";
-import { shrinkToFit, type Size } from "@/lib/fullscreen";
+import { fitZoomPanel, type Size } from "@/lib/fullscreen";
 
 /**
  * Zoom Meeting SDK — Component View embed.
@@ -30,10 +30,11 @@ import { shrinkToFit, type Size } from "@/lib/fullscreen";
  * - the panel starts in speaker view, pinned at the root's top-left, with
  *   drag and resize off (owner: "limit controls for attendees"), and is
  *   sized to the area through `viewSizes` + `updateVideoOptions`. The SDK
- *   keeps its own aspect per view, so we ask for the whole area, measure what
- *   it drew, and shrink the request by the overflow (`shrinkToFit`), then
- *   centre the result. A fresh full-area request follows every area resize,
- *   the fullscreen toggle, and a share starting or stopping;
+ *   keeps a fixed aspect per view (about 0.70 in speaker view, 1.08 while a
+ *   share is received), so the panel is computed as full height with the
+ *   width capped by that aspect (`fitZoomPanel`), then centred. It is never
+ *   full width on a 16:9 box: that is Zoom's layout. Refit on every area
+ *   resize, the fullscreen toggle, and a share starting or stopping;
  * - Full screen is the browser API via `useFullscreen`, with the in-page
  *   fallback for iPhone Safari.
  *
@@ -108,13 +109,6 @@ const ATTENDEE_VIDEO_LOCK: Pick<VideoOptions, "isResizable" | "popper"> = {
  */
 const ATTENDEE_MEETING_INFO: MeetingInfoType[] = ["topic", "host"];
 
-/**
- * How many shrink steps one fit cycle may take. The SDK's height is linear in
- * the requested width, so the first step lands within a pixel; the cap only
- * guards against an SDK build that sizes differently.
- */
-const MAX_FIT_CORRECTIONS = 3;
-
 type LoadState =
   | { phase: "loading" }
   | { phase: "joining" }
@@ -147,10 +141,8 @@ export function ZoomWebEmbed({
   const [state, setState] = useState<LoadState>({ phase: "loading" });
 
   const areaSizeRef = useRef<Size>({ width: 0, height: 0 });
-  const fitRef = useRef<{ requestedWidth: number; corrections: number }>({
-    requestedWidth: 0,
-    corrections: 0,
-  });
+  // Whether a share is being received: it changes the SDK's panel aspect.
+  const sharingRef = useRef(false);
   // `updateVideoOptions` is wired to the SDK's store only when the meeting UI
   // mounts on join; before that the 6.0.0 build throws ("w is not a
   // function", seen Oct 1, 2026 in the local harness on every area resize).
@@ -158,16 +150,9 @@ export function ZoomWebEmbed({
   // and the first refit after joining catches any resize in between (a long
   // "waiting for the host" spell with a fullscreen toggle, for instance).
   const joinedRef = useRef(false);
-  // The root's explicit size: the last size requested from the SDK. The SDK
-  // draws the panel at exactly the requested width, so the panel fills the
-  // root and flex centres the root in the area. Null until the first request,
-  // when the root simply fills the area.
+  // The root's explicit size: the fitted panel size. Null until the area is
+  // measured, when the root simply fills the area.
   const [rootSize, setRootSize] = useState<Size | null>(null);
-  const measureFrameRef = useRef<number | null>(null);
-  const measureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Latest-value refs so the observer effect and the request path can call
-  // each other without a dependency cycle or an effect re-run.
-  const measurePanelRef = useRef<() => void>(() => {});
   const refitRef = useRef<() => void>(() => {});
 
   const { isFullscreen, isFallback, toggle: toggleFullscreen } = useFullscreen(stageRef);
@@ -183,108 +168,40 @@ export function ZoomWebEmbed({
   const onJoinErrorRef = useRef(onJoinError);
   onJoinErrorRef.current = onJoinError;
 
-  /**
-   * Measure on the next frame, never inside an observer callback. The SDK
-   * re-renders in a microtask after a request, and a layout change landing
-   * inside the same observation loop is what raises the "ResizeObserver loop"
-   * window error. Coalesced, so a burst of mutations measures once.
-   */
-  const scheduleMeasure = useCallback(() => {
-    if (measureFrameRef.current !== null) return;
-    measureFrameRef.current = requestAnimationFrame(() => {
-      measureFrameRef.current = null;
-      measurePanelRef.current();
-    });
-  }, []);
-
-  const requestPanelSize = useCallback(
-    (width: number, height: number) => {
-      const client = clientRef.current;
-      if (!client || !joinedRef.current || width <= 0 || height <= 0) return;
-      const size: Size = { width: Math.round(width), height: Math.round(height) };
-      setRootSize((prev) =>
-        prev && prev.width === size.width && prev.height === size.height ? prev : size,
-      );
-      try {
-        client.updateVideoOptions({ ...ATTENDEE_VIDEO_LOCK, viewSizes: { default: size } });
-      } catch (err) {
-        // The panel keeps its last size; the attendee still has a working
-        // player, just not a fitted one.
-        console.warn("zoom-embed:resize-failed", err);
-      }
-      // The SDK applies the size asynchronously. The mutation observer below
-      // normally catches it; this is the belt for an SDK build whose update
-      // touches nothing the observer watches.
-      if (measureTimerRef.current) clearTimeout(measureTimerRef.current);
-      measureTimerRef.current = setTimeout(scheduleMeasure, 400);
-    },
-    [scheduleMeasure],
-  );
-
-  /** Start a fit cycle: ask for the whole area, then let `measurePanel` shrink. */
+  /** Size the panel to the largest box the SDK can draw inside the area. */
   const refit = useCallback(() => {
-    const area = areaSizeRef.current;
-    if (area.width <= 0 || area.height <= 0) return;
-    fitRef.current = { requestedWidth: area.width, corrections: 0 };
-    requestPanelSize(area.width, area.height);
-  }, [requestPanelSize]);
+    const size = fitZoomPanel(areaSizeRef.current, sharingRef.current);
+    if (!size) return;
+    setRootSize((prev) =>
+      prev && prev.width === size.width && prev.height === size.height ? prev : size,
+    );
+    const client = clientRef.current;
+    if (!client || !joinedRef.current) return;
+    try {
+      client.updateVideoOptions({ ...ATTENDEE_VIDEO_LOCK, viewSizes: { default: size } });
+    } catch (err) {
+      // The panel keeps its last size; the attendee still has a working
+      // player, just not a fitted one.
+      console.warn("zoom-embed:resize-failed", err);
+    }
+  }, []);
   refitRef.current = refit;
 
-  /**
-   * Compare what the SDK drew with the area. The panel is absolutely
-   * positioned at the root's top-left and the root is its containing block,
-   * so anything drawn beyond the root shows up in the root's scroll extent
-   * however the SDK nests its DOM (a zero-height wrapper or a popper node in
-   * between changes nothing). The root is sized to the last request, so the
-   * SDK can only match it or overflow it.
-   */
-  const measurePanel = useCallback(() => {
-    const root = containerRef.current;
-    if (!root || !joinedRef.current) return;
-    const drawn: Size = { width: root.scrollWidth, height: root.scrollHeight };
-    const fit = fitRef.current;
-    if (fit.corrections >= MAX_FIT_CORRECTIONS) return;
-    const next = shrinkToFit(fit.requestedWidth, drawn, areaSizeRef.current);
-    if (next === null) return;
-    fit.requestedWidth = next;
-    fit.corrections += 1;
-    requestPanelSize(next, areaSizeRef.current.height);
-  }, [requestPanelSize]);
-  measurePanelRef.current = measurePanel;
-
-  // Watch the area (our box) and the SDK's drawing (the root's subtree).
+  // Refit whenever our box changes size (page resize, fullscreen toggle).
   useEffect(() => {
     const area = areaRef.current;
-    const root = containerRef.current;
-    if (!area || !root) return;
-
-    const areaObserver = new ResizeObserver((entries) => {
+    if (!area) return;
+    const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
       areaSizeRef.current = { width: rect.width, height: rect.height };
-      // Off the observer's own tick, for the reason given on scheduleMeasure.
+      // Off the observer's own tick so the SDK's re-layout cannot land
+      // inside the same observation loop.
       requestAnimationFrame(() => refitRef.current());
     });
-    areaObserver.observe(area);
-
-    // The SDK sets its panel's size as inline style, so any style change in
-    // the subtree (and the panel's first appearance) measures on the next
-    // frame. One observer on the root, nothing per child, nothing to unobserve.
-    const sdkObserver = new MutationObserver(() => scheduleMeasure());
-    sdkObserver.observe(root, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ["style"],
-    });
-
-    return () => {
-      areaObserver.disconnect();
-      sdkObserver.disconnect();
-      if (measureFrameRef.current !== null) cancelAnimationFrame(measureFrameRef.current);
-      if (measureTimerRef.current) clearTimeout(measureTimerRef.current);
-    };
-  }, [scheduleMeasure]);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,17 +259,7 @@ export function ZoomWebEmbed({
           // unmount via its own Leave button.
         }
 
-        // A share starting or stopping changes the SDK's panel aspect (the
-        // shared content stacks above the speaker strip), so refit from the
-        // full area either way: shrink on start, grow back on stop.
-        try {
-          client.on("peer-share-state-change", () => refit());
-        } catch {
-          // Best effort: without it the panel still fits, just not maximally
-          // after a share ends.
-        }
-
-        const area = areaSizeRef.current;
+        const initialSize = fitZoomPanel(areaSizeRef.current, false);
         const video: VideoOptions = {
           ...ATTENDEE_VIDEO_LOCK,
           // Speaker view: the active speaker, or the shared slides, fills the
@@ -360,15 +267,8 @@ export function ZoomWebEmbed({
           // The SDK types this as a const enum, which a type-only import
           // cannot reference at runtime; the string is the enum's value.
           defaultViewType: "speaker" as unknown as SuspensionViewType,
-          ...(area.width > 0 && area.height > 0
-            ? {
-                viewSizes: {
-                  default: { width: Math.round(area.width), height: Math.round(area.height) },
-                },
-              }
-            : {}),
+          ...(initialSize ? { viewSizes: { default: initialSize } } : {}),
         };
-        fitRef.current = { requestedWidth: area.width, corrections: 0 };
 
         await client.init({
           zoomAppRoot: containerRef.current,
@@ -383,6 +283,20 @@ export function ZoomWebEmbed({
           // which works in prod. Override via env if we ever self-host the
           // WASM/audio assets.
         });
+
+        // Subscribed after init: in 6.0.0 this event's `on` throws before
+        // init (the earlier empty catch hid that). A share starting or
+        // stopping changes the SDK's panel aspect (the
+        // shared content stacks above the speaker strip), so refit from the
+        // full area either way: shrink on start, grow back on stop.
+        try {
+          client.on("peer-share-state-change", (payload: { action?: string }) => {
+            sharingRef.current = payload?.action === "Start";
+            refit();
+          });
+        } catch (err) {
+          console.warn("zoom-embed:share-subscribe-failed", err);
+        }
 
         if (cancelled) return;
         reachedPhase = "joining";

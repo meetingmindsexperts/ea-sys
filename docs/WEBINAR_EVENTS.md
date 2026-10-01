@@ -103,7 +103,7 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 | [src/app/(dashboard)/events/[eventId]/webinar/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/webinar/page.tsx) | **Webinar Console** — sticky status bar + Setup/Analytics/Settings tabs; components: `WebinarStatusBar`, `OverviewCard`, `GlobalRefreshButton`, `PanelistsCard` (with Import from Speakers + optimistic UI), `CardLoading`, `CardEmpty` |
 | [src/app/(dashboard)/events/[eventId]/sponsors/page.tsx](../src/app/(dashboard)/events/%5BeventId%5D/sponsors/page.tsx) | Sponsors admin editor — draft-based editing with add/edit dialog (logo upload via `PhotoUpload`), up/down reorder arrows, grouped-by-tier list view |
 | [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) | `ZoomWebEmbed` — dynamic-imported Zoom SDK v6 Component View wrapper. Handles lifecycle (createClient → init → join → leaveMeeting → destroyClient), StrictMode re-mount races via module-level `pendingDestroy` promise, and `connection-change` events for in-meeting Leave. Since Oct 1, 2026 also the bar with the Full screen button, the panel fit (speaker view, sized to the area) and the attendee limits (no drag/resize, meeting info = topic + host) |
-| [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `shrinkToFit`) are pinned by `__tests__/lib/fullscreen.test.ts` |
+| [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts) + [src/lib/fullscreen.ts](../src/lib/fullscreen.ts) | Fullscreen shared by the Zoom embed and the HLS player: browser API with Esc tracked, in-page fallback for iPhone, exit on unmount; the pure helpers (`resolveFullscreenApi`, `fitZoomPanel`, `lockDocumentScroll`) are pinned by `__tests__/lib/fullscreen.test.ts` |
 | [src/components/zoom/zoom-embed.tsx](../src/components/zoom/zoom-embed.tsx) | Iframe fallback (not imported by default) — kept as belt-and-braces if Component View ever regresses |
 | [src/app/e/[slug]/session/[sessionId]/page.tsx](../src/app/e/%5Bslug%5D/session/%5BsessionId%5D/page.tsx) | **Public session page** — sticky CTA + Live Video / Session Details / Sponsors tabs. Dynamically imports `ZoomWebEmbed` and `LivePlayer` so the ~3 MB SDK bundle never hits first paint |
 | [src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/detail/route.ts) | Public detail route — returns session metadata + topics (with per-topic speakers) + speakers with bios + sponsors |
@@ -447,23 +447,22 @@ The embed now owns the box:
 - **The panel is fitted to the area.** It starts in speaker view (the active
   speaker, or the shared slides, fills it), pinned at the root's top-left with
   drag and resize off, and sized through `viewSizes` at init and
-  `updateVideoOptions` afterwards. The SDK keeps its own aspect per view, about
-  0.70 × width in speaker view and about 1.08 × width while a share is being
-  received, and the constant belongs to the SDK version, so we do not hard-code
-  it: the embed asks for the whole area, measures what the SDK drew (the
-  root's scroll extent, read on the next frame after the SDK changes its DOM;
-  the root is sized to the request and is the panel's containing block, so
-  the SDK can only match it or overflow it, however it nests its DOM) and
-  shrinks the request by the overflow (`shrinkToFit` in
-  [src/lib/fullscreen.ts](../src/lib/fullscreen.ts)), then centres the result.
-  Resize calls go to the SDK only after the join: in 6.0.0 `updateVideoOptions`
-  throws until the meeting UI mounts, and the init-time `viewSizes` covers
-  everything before that. A fresh full-area request follows every area
-  resize, the fullscreen toggle, and `peer-share-state-change`. On the page the
-  area is 16:9 (4:5 on phones, where a 16:9 strip is unusable); in fullscreen
-  it is the rest of the screen below the bar. While slides are shared the
-  panel is therefore narrower than a 16:9 screen, centred, with black at the
-  sides: that is Zoom's layout.
+  `updateVideoOptions` afterwards. The SDK draws a requested size as
+  `{width, max(height, ratio × width)}`, where the ratio comes from its own
+  size table: 400/568 (about 0.70) in speaker view, 615/568 (about 1.08)
+  while a share is received. So the panel is **computed**, not measured: full
+  height of the area, width capped at `height / ratio` (`fitZoomPanel` in
+  [src/lib/fullscreen.ts](../src/lib/fullscreen.ts)), then centred. The first
+  build (Oct 1) measured the root's scroll extent instead; Zoom's off-panel
+  popovers inflated it and the shrink loop cut the panel to about 40% of the
+  area on a live webinar, which the owner caught the same day. Resize calls
+  go to the SDK only after the join (6.0.0 throws before the meeting UI
+  mounts; the init-time `viewSizes` covers that). Refit on every area resize,
+  the fullscreen toggle, and `peer-share-state-change` (action Start/Stop
+  switches the ratio). **The panel is never full width on a 16:9 box**: in
+  speaker view it takes about 80% of a 16:9 width, while slides are shared
+  about 52%, with black at the sides. That is Zoom's Component View layout;
+  a full-width picture needs the custom stream (RTMP to HLS) viewing mode.
 - **Full screen** is the browser Fullscreen API via
   [src/hooks/use-fullscreen.ts](../src/hooks/use-fullscreen.ts), shared with
   the HLS `LivePlayer` (whose icon used to stay on "exit" after Esc, because it

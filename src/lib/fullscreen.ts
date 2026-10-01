@@ -109,41 +109,24 @@ export function lockDocumentScroll(doc: Document, win: Window): () => void {
 }
 
 /**
- * Next width to ask the Zoom SDK for, or null when the drawn panel already
- * fits its area. `drawn` is the root's scroll extent: the root is sized to
- * the request and is the panel's containing block, so the SDK can only match
- * it or overflow it, and the overflow is what this corrects.
- *
- * Zoom's Component View sizes its panel as `{ requestedWidth, max(requestedHeight,
- * k × requestedWidth) }`, where `k` is the SDK's own ratio for the current
- * view: about 0.70 in speaker view, about 1.08 while a share is being
- * received, smaller in gallery. It changes with the view and with sharing,
- * and it belongs to the SDK version, so rather than hard-code it we ask for
- * the whole area, measure what was drawn, and scale the request down by the
- * overflow. The height formula is linear in the width, so one step lands
- * within a pixel and the caller caps the loop anyway.
- *
- * Never grows inside a fit cycle: growth comes from a fresh request for the
- * full area (area resize, fullscreen toggle, share start or stop).
+ * Zoom Component View (SDK 6.0.0) panel aspect, height over width, read from
+ * the SDK's own size table: speaker view is 568 x 400, and while a share is
+ * being received the SDK forces the base height to 615. The SDK draws a
+ * requested `{width, height}` as `{width, max(height, ratio * width)}`, so
+ * the panel can never be wider than `height / ratio`.
  */
-export function shrinkToFit(
-  requestedWidth: number,
-  drawn: Size,
-  bounds: Size,
-  opts: { tolerance?: number; minWidth?: number } = {},
-): number | null {
-  const tolerance = opts.tolerance ?? 2;
-  const minWidth = opts.minWidth ?? 200;
-  if (drawn.width <= 0 || drawn.height <= 0) return null;
-  if (bounds.width <= 0 || bounds.height <= 0) return null;
-  if (requestedWidth <= 0) return null;
+export const ZOOM_SPEAKER_RATIO = 400 / 568;
+export const ZOOM_SHARE_RATIO = 615 / 568;
 
-  const fitsWidth = drawn.width <= bounds.width + tolerance;
-  const fitsHeight = drawn.height <= bounds.height + tolerance;
-  if (fitsWidth && fitsHeight) return null;
-
-  const scale = Math.min(bounds.width / drawn.width, bounds.height / drawn.height);
-  const next = Math.max(minWidth, Math.floor(requestedWidth * scale));
-  if (next >= requestedWidth) return null;
-  return next;
+/**
+ * The largest Zoom panel that fits `area`: full height, width capped by the
+ * SDK's aspect. Computed, not measured: the Oct 1, 2026 build measured the
+ * root's scroll extent, which Zoom's off-panel popovers inflated, and the
+ * shrink loop cut the panel to about 40% of the area on a live webinar.
+ */
+export function fitZoomPanel(area: Size, sharing: boolean): Size | null {
+  if (area.width <= 0 || area.height <= 0) return null;
+  const ratio = sharing ? ZOOM_SHARE_RATIO : ZOOM_SPEAKER_RATIO;
+  const width = Math.max(200, Math.floor(Math.min(area.width, area.height / ratio)));
+  return { width, height: Math.floor(width * ratio) };
 }

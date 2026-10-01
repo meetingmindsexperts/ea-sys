@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: the webinar Zoom panel was cut to about 40% width (October 1)
+
+- Owner caught it on a live webinar the same day: the speaker sat in a
+  narrow box in the middle of the video area. The fit measured the root's
+  scroll extent, which Zoom's off-panel popovers inflate, and the shrink loop
+  cut the panel down by up to three steps. The panel is now computed from the
+  SDK's own size table (`fitZoomPanel`): full height, width capped at
+  height / ratio, with ratio 400/568 in speaker view and 615/568 while a share
+  is received. On a 16:9 box that is about 80% of the width (52% during a
+  share); full width is not possible in Zoom's Component View.
+- The share subscription threw before `init` in 6.0.0 and an empty catch hid
+  it, so share refits never ran. It now subscribes after `init` and logs a
+  warning if it fails. Verified in headed Chromium with zero console warnings
+  (992 x 558 area gives a 792 x 557 panel; fullscreen 1408 x 860 gives
+  1221 x 859).
+
 ### Added: full screen on the webinar attendee page, and the Zoom panel fills its box (October 1)
 
 - Owner: "can we make the embed full screen if an attendee or visitor wants",

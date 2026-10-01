@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { lockDocumentScroll, resolveFullscreenApi, shrinkToFit } from "@/lib/fullscreen";
+import { fitZoomPanel, lockDocumentScroll, resolveFullscreenApi } from "@/lib/fullscreen";
 
 /**
  * The fullscreen helpers behind both webinar players (Oct 1, 2026). The hook
@@ -103,40 +103,28 @@ describe("lockDocumentScroll", () => {
   });
 });
 
-describe("shrinkToFit", () => {
-  const bounds = { width: 1024, height: 576 };
-
-  it("is null when the drawn panel fits (within tolerance)", () => {
-    expect(shrinkToFit(1024, { width: 1024, height: 576 }, bounds)).toBeNull();
-    expect(shrinkToFit(1024, { width: 1025, height: 577 }, bounds)).toBeNull();
-    expect(shrinkToFit(1024, { width: 800, height: 400 }, bounds)).toBeNull();
+describe("fitZoomPanel", () => {
+  it("speaker view: full height, width capped by Zoom's 568x400 aspect", () => {
+    // The Oct 1 live screenshot: a 1340 x 628 area got a ~555px panel.
+    const size = fitZoomPanel({ width: 1340, height: 628 }, false)!;
+    expect(size.width).toBe(Math.floor(628 / (400 / 568)));
+    expect(size.height).toBeLessThanOrEqual(628);
+    expect(size.width).toBeGreaterThan(880);
   });
 
-  it("scales the request down by the height overflow (speaker view, 16:9 area)", () => {
-    // Zoom draws speaker view at about 0.70 × width: 1024 wide becomes 721 tall.
-    const next = shrinkToFit(1024, { width: 1024, height: 721 }, bounds);
-    expect(next).toBe(Math.floor(1024 * (576 / 721)));
-    expect(next!).toBeLessThan(1024);
-    // The SDK's height is linear in the width, so the corrected request fits.
-    expect(Math.round(next! * 0.704)).toBeLessThanOrEqual(576);
+  it("a narrow area is width-limited", () => {
+    const size = fitZoomPanel({ width: 358, height: 448 }, false)!;
+    expect(size.width).toBe(358);
+    expect(size.height).toBe(Math.floor(358 * (400 / 568)));
   });
 
-  it("scales by the worse of the two overflows", () => {
-    const next = shrinkToFit(1024, { width: 1200, height: 600 }, bounds);
-    expect(next).toBe(Math.floor(1024 * Math.min(1024 / 1200, 576 / 600)));
+  it("receiving a share uses the taller 615 base height", () => {
+    const size = fitZoomPanel({ width: 1280, height: 760 }, true)!;
+    expect(size.width).toBe(Math.floor(760 / (615 / 568)));
+    expect(size.height).toBeLessThanOrEqual(760);
   });
 
-  it("never grows inside a fit cycle", () => {
-    expect(shrinkToFit(600, { width: 600, height: 700 }, bounds, { minWidth: 700 })).toBeNull();
-  });
-
-  it("keeps a floor so a tiny area cannot ask for a sliver", () => {
-    expect(shrinkToFit(360, { width: 360, height: 900 }, { width: 360, height: 200 })).toBe(200);
-  });
-
-  it("is null on degenerate input", () => {
-    expect(shrinkToFit(0, { width: 1, height: 1 }, bounds)).toBeNull();
-    expect(shrinkToFit(1024, { width: 0, height: 0 }, bounds)).toBeNull();
-    expect(shrinkToFit(1024, { width: 1, height: 1 }, { width: 0, height: 0 })).toBeNull();
+  it("is null for an unmeasured area", () => {
+    expect(fitZoomPanel({ width: 0, height: 500 }, false)).toBeNull();
   });
 });
