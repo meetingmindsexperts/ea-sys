@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canWrite } from "@/lib/can-write";
 import { QUESTION_MAX_LENGTH, publicAskerName } from "@/lib/webinar/questions";
+import { readWebinarSettings } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -49,13 +50,23 @@ async function resolveAsker(
   };
 }
 
-async function loadContext(req: Request, slug: string) {
+/**
+ * The event, if this session takes viewer questions: only the anchor session
+ * of a WEBINAR event, the one session whose questions the producers' console
+ * lists (code review, Oct 1, 2026: questions accepted elsewhere reached
+ * nobody).
+ */
+async function loadContext(req: Request, slug: string, sessionId: string) {
   const event = await db.event.findFirst({
     where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-    select: { id: true, organizationId: true },
+    select: { id: true, organizationId: true, eventType: true, settings: true },
   });
   if (!event) return null;
-  return event;
+  if (event.eventType !== "WEBINAR" || readWebinarSettings(event.settings)?.sessionId !== sessionId) {
+    apiLogger.warn({ slug, sessionId, eventType: event.eventType }, "webinar-question:not-the-webinar-room");
+    return null;
+  }
+  return { id: event.id, organizationId: event.organizationId };
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -91,7 +102,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await loadContext(req, slug);
+    const event = await loadContext(req, slug, sessionId);
     if (!event) {
       apiLogger.warn({ slug, sessionId }, "webinar-question:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -142,7 +153,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!authSession?.user) {
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
-    const event = await loadContext(req, slug);
+    const event = await loadContext(req, slug, sessionId);
     if (!event) {
       apiLogger.warn({ slug, sessionId }, "webinar-question:list-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });

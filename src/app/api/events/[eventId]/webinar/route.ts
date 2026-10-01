@@ -60,7 +60,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true },
+      select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true, timezone: true },
     });
 
     if (!event) {
@@ -120,6 +120,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         // Drives the LobbyCard's DRAFT-auto-open hint: DRAFT events auto-open
         // the public room for testing; PUBLISHED requires the manual click.
         status: event.status,
+        // Every time on the console is shown in the event's timezone.
+        timezone: event.timezone,
       },
       webinar,
       anchorSession,

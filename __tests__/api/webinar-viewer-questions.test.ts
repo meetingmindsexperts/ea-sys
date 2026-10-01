@@ -46,7 +46,7 @@ const req = (body?: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { webinar: { sessionId: "s1" } } });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "WEBINAR", settings: { webinar: { sessionId: "s1" } } });
   mockDb.eventSession.findFirst.mockResolvedValue({ id: "s1" });
   mockDb.webinarViewerQuestion.create.mockResolvedValue({ id: "q1", question: "Why?", status: "NEW", createdAt: new Date() });
 });
@@ -91,6 +91,15 @@ describe("public: ask a question", () => {
     expect(res.status).toBe(201);
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
     expect(mockDb.webinarViewerQuestion.create.mock.calls[0][0].data).toMatchObject({ registrationId: null, askerName: "Org Staff" });
+  });
+
+  it("404 for a session that is not the webinar room, or a non-webinar event: questions there would reach nobody", async () => {
+    mockAuth.mockResolvedValue(attendee);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "ev1", organizationId: "org1", eventType: "WEBINAR", settings: { webinar: { sessionId: "other" } } });
+    expect((await ask(req({ question: "Hello there" }), publicParams)).status).toBe(404);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "ev1", organizationId: "org1", eventType: "CONFERENCE", settings: { webinar: { sessionId: "s1" } } });
+    expect((await ask(req({ question: "Hello there" }), publicParams)).status).toBe(404);
+    expect(mockDb.webinarViewerQuestion.create).not.toHaveBeenCalled();
   });
 
   it("404 when the session is not in this event", async () => {

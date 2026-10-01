@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: review findings on Q&A and auto-close; every console time in the event timezone (October 1)
+
+- Code review of the day's webinar work (`29e982ac..11415d31`), ten
+  findings; the HIGHs fixed: (1) viewer questions are accepted only for the
+  anchor session of a WEBINAR event, the attendee Q&A tab shows only in Custom
+  stream mode, and the console lists questions in any mode while any exist,
+  so no question reaches nobody; (2) auto-close needs a Zoom end that is at
+  least 5 minutes old and no earlier than 15 minutes before the scheduled end,
+  so a crashed host who restarts keeps the room; (3) the safety net counts
+  from the later of the scheduled end and the last re-open; (4) the room-open
+  time is written through the locked `updateEventSettings` merge and can no
+  longer overwrite a concurrent settings save or fail the request. The rest
+  are in `docs/ROADMAP.md`.
+- Owner rule: every time follows the event timezone. The Webinar Console
+  showed times in the viewer's own timezone in nine places (status bar,
+  overview, email sequence, recording, attendance, polls, Zoom Q&A, viewer
+  questions). All now use the event timezone through one context and the new
+  `formatDateTimeInTz`, which falls back to the default zone on a malformed
+  stored timezone. Verified in a New York browser on a Dubai event.
+
 ### Added: a Q&A tab for custom-stream attendees, with organizer-chosen questions shown to everyone (October 1)
 
 - Owner: "we need a tab for Q&A; all attendees should see questions based on

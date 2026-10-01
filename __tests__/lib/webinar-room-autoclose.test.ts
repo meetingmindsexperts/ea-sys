@@ -23,10 +23,32 @@ describe("decideRoomClose", () => {
   const end = new Date("2026-10-01T11:30:00Z");
   const opened = new Date("2026-10-01T10:28:00Z");
 
-  it("closes when Zoom ended after the room opened", () => {
+  it("closes when Zoom ended near or after the scheduled end, after the room opened, 5+ minutes ago", () => {
     expect(
-      decideRoomClose({ now: new Date("2026-10-01T11:00:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: opened, zoomEndedAt: new Date("2026-10-01T10:58:00Z") }),
+      decideRoomClose({ now: new Date("2026-10-01T11:30:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: opened, zoomEndedAt: new Date("2026-10-01T11:20:00Z") }),
     ).toBe("close-zoom-ended");
+  });
+
+  it("keeps the room for a fresh end (the host may be restarting)", () => {
+    expect(
+      decideRoomClose({ now: new Date("2026-10-01T11:22:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: opened, zoomEndedAt: new Date("2026-10-01T11:20:00Z") }),
+    ).toBe("keep");
+  });
+
+  it("keeps the room for an end well before the scheduled end (crash or mistaken End, then restart)", () => {
+    expect(
+      decideRoomClose({ now: new Date("2026-10-01T10:40:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: opened, zoomEndedAt: new Date("2026-10-01T10:20:00Z") }),
+    ).toBe("keep");
+  });
+
+  it("a re-opened old room is not closed by the safety net within minutes", () => {
+    const reopened = new Date(end.getTime() + 5 * 60 * 60 * 1000);
+    expect(
+      decideRoomClose({ now: new Date(reopened.getTime() + 10 * 60 * 1000), scheduledStart: start, scheduledEnd: end, roomOpenedAt: reopened, zoomEndedAt: null }),
+    ).toBe("keep");
+    expect(
+      decideRoomClose({ now: new Date(reopened.getTime() + SAFETY_NET_MS + 60_000), scheduledStart: start, scheduledEnd: end, roomOpenedAt: reopened, zoomEndedAt: null }),
+    ).toBe("close-safety-net");
   });
 
   it("keeps the room when Zoom's last end is an earlier practice run", () => {
@@ -47,10 +69,10 @@ describe("decideRoomClose", () => {
     ).toBe("close-safety-net");
   });
 
-  it("without a recorded open time, an end within the hour before the start still counts as today", () => {
-    const base = { now: new Date("2026-10-01T11:00:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: null };
-    expect(decideRoomClose({ ...base, zoomEndedAt: new Date("2026-10-01T10:50:00Z") })).toBe("close-zoom-ended");
-    expect(decideRoomClose({ ...base, zoomEndedAt: new Date("2026-10-01T09:00:00Z") })).toBe("keep");
+  it("without a recorded open time, yesterday's practice run never counts", () => {
+    const base = { now: new Date("2026-10-01T11:40:00Z"), scheduledStart: start, scheduledEnd: end, roomOpenedAt: null };
+    expect(decideRoomClose({ ...base, zoomEndedAt: new Date("2026-10-01T11:25:00Z") })).toBe("close-zoom-ended");
+    expect(decideRoomClose({ ...base, zoomEndedAt: new Date("2026-09-30T11:25:00Z") })).toBe("keep");
   });
 });
 
@@ -72,8 +94,8 @@ describe("runWebinarRoomAutoCloseTick", () => {
 
   it("closes the anchor room Zoom reports ended, guarded on LIVE", async () => {
     mockDbOperator.eventSession.findMany.mockResolvedValue([room()]);
-    getLastZoomEndTimeSpy.mockResolvedValue(new Date("2026-10-01T10:58:00Z"));
-    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T11:00:00Z"));
+    getLastZoomEndTimeSpy.mockResolvedValue(new Date("2026-10-01T11:25:00Z"));
+    const r = await runWebinarRoomAutoCloseTick(new Date("2026-10-01T11:35:00Z"));
     expect(r).toEqual({ checked: 1, closed: 1, failed: 0 });
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith({
       where: { id: "s1", eventId: "ev1", status: "LIVE" },

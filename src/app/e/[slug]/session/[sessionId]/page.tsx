@@ -407,8 +407,14 @@ export default function PublicSessionPage() {
   // room (review #9). Falls back to plain wall-clock when not a managed room.
   const liveWindowActive = !isPast || (isWebinarEvent && roomOpen);
   // The Q&A tab belongs to custom-stream viewing: a registered viewer (or org
-  // staff testing) on a session that streams. Zoom embed keeps Zoom's Q&A.
-  const showQaTab = Boolean(joinInfo?.liveStreamEnabled) && authState.kind === "ok";
+  // staff testing). Zoom embed keeps Zoom's Q&A.
+  // Only on a webinar in Custom stream mode: the one place the producers'
+  // console lists questions (code review, Oct 1, 2026).
+  const showQaTab =
+    isWebinarEvent &&
+    lobby?.viewingMode === "hls" &&
+    Boolean(joinInfo?.liveStreamEnabled) &&
+    authState.kind === "ok";
 
   if (loading) {
     return (

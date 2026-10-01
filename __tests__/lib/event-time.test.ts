@@ -211,3 +211,21 @@ describe("shiftInstantByCalendarDays", () => {
     expect(shiftInstantByCalendarDays(d, -21, "Asia/Dubai").toISOString()).toBe("2026-10-15T05:00:00.000Z");
   });
 });
+
+describe("formatDateTimeInTz (Oct 1, 2026: every console time in the event timezone)", async () => {
+  const { formatDateTimeInTz } = await import("@/lib/event-time");
+  const instant = new Date("2026-10-01T12:27:00Z");
+
+  it("renders in the event timezone with its label, whatever the runtime timezone", () => {
+    expect(formatDateTimeInTz(instant, "Asia/Dubai")).toBe("Oct 1, 2026, 4:27 PM GMT+4");
+    expect(formatDateTimeInTz(instant, "Europe/London")).toBe("Oct 1, 2026, 1:27 PM GMT+1");
+  });
+
+  it("short form drops the year and the label", () => {
+    expect(formatDateTimeInTz(instant, "Asia/Dubai", { short: true })).toBe("Oct 1, 4:27 PM");
+  });
+
+  it("an unknown timezone falls back to the default instead of throwing", () => {
+    expect(() => formatDateTimeInTz(instant, "Not/AZone")).not.toThrow();
+  });
+});

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -100,13 +101,27 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 
 type AutoRecording = "none" | "local" | "cloud";
 
-function formatDateTime(iso: string | undefined): string {
+/**
+ * Every time on the console is shown in the EVENT's timezone, never the
+ * viewer's (owner rule, Oct 1, 2026). The page provides it once; any card
+ * reads it with useEventTz().
+ */
+const EventTzContext = createContext<string>(DEFAULT_EVENT_TIMEZONE);
+function useEventTz(): string {
+  return useContext(EventTzContext);
+}
+
+/** A timestamp in the event timezone, or "—". */
+function fmtTz(iso: string | null | undefined, tz: string, opts?: { short?: boolean }): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : formatDateTimeInTz(d, tz, opts);
+}
+
+function formatDateTime(iso: string | undefined, tz: string): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+    return fmtTz(iso, tz);
   } catch {
     return iso;
   }
@@ -231,6 +246,7 @@ export default function WebinarConsolePage() {
   const defaultTab = status === "ended" ? "analytics" : "setup";
 
   return (
+    <EventTzContext.Provider value={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -340,7 +356,7 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
               />
-              {data?.webinar?.viewingMode === "hls" && <ViewerQuestionsCard eventId={eventId} />}
+              <ViewerQuestionsCard eventId={eventId} hlsMode={data?.webinar?.viewingMode === "hls"} />
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
             </div>
           </div>
@@ -375,6 +391,7 @@ export default function WebinarConsolePage() {
         </TabsContent>
       </Tabs>
     </div>
+    </EventTzContext.Provider>
   );
 }
 
@@ -428,26 +445,22 @@ function ConsoleTitle({
 function formatSessionWindow(
   start: string | undefined,
   end: string | undefined,
+  tz: string,
 ): string {
   if (!start || !end) return "";
   try {
     const startDate = new Date(start);
     const endDate = new Date(end);
-    const dateLabel = startDate.toLocaleDateString(undefined, {
+    const thisYear = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric" }).format(new Date());
+    const startYear = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric" }).format(startDate);
+    const dateLabel = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
       month: "short",
       day: "numeric",
-      year:
-        startDate.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
-    });
-    const startTime = startDate.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    const endTime = endDate.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    return `${dateLabel} · ${startTime} – ${endTime}`;
+      year: startYear !== thisYear ? "numeric" : undefined,
+    }).format(startDate);
+    const label = tzLabel(startDate, tz);
+    return `${dateLabel} · ${formatTimeInTz(startDate, tz)} – ${formatTimeInTz(endDate, tz)}${label ? ` ${label}` : ""}`;
   } catch {
     return "";
   }
@@ -485,6 +498,7 @@ function WebinarStatusBar({
   const roomOpen = anchor?.status === "LIVE";
   const toggleRoom = useToggleWebinarRoom(eventId);
   const liveStream = useWebinarLiveStream(eventId);
+  const eventTz = useEventTz();
   const [confirmStartOpen, setConfirmStartOpen] = useState(false);
 
   // "Start as Host" opens the room a moment after the Zoom tab, before the
@@ -568,7 +582,7 @@ function WebinarStatusBar({
   }
 
   const hasRecording = zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl;
-  const sessionWindow = formatSessionWindow(anchor?.startTime, anchor?.endTime);
+  const sessionWindow = formatSessionWindow(anchor?.startTime, anchor?.endTime, eventTz);
 
   return (
     <Card
@@ -750,6 +764,7 @@ function OverviewCard({
   onProvision: () => void;
   onCopy: (value: string | null | undefined, label: string) => void;
 }) {
+  const eventTz = useEventTz();
   return (
     <Card>
       <CardHeader>
@@ -783,13 +798,13 @@ function OverviewCard({
               <Label className="text-muted-foreground text-xs uppercase tracking-wide">
                 Starts
               </Label>
-              <p className="font-medium">{formatDateTime(anchor.startTime)}</p>
+              <p className="font-medium">{formatDateTime(anchor.startTime, eventTz)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground text-xs uppercase tracking-wide">
                 Ends
               </Label>
-              <p className="font-medium">{formatDateTime(anchor.endTime)}</p>
+              <p className="font-medium">{formatDateTime(anchor.endTime, eventTz)}</p>
             </div>
           </div>
         ) : (
@@ -1057,6 +1072,7 @@ function EmailSequenceCard({
 }
 
 function SequenceRowView({ row }: { row: WebinarSequenceRow }) {
+  const eventTz = useEventTz();
   const label = (
     {
       "webinar-confirmation": "Confirmation",
@@ -1076,8 +1092,8 @@ function SequenceRowView({ row }: { row: WebinarSequenceRow }) {
           <p className="font-medium text-sm truncate">{label}</p>
           <p className="text-xs text-muted-foreground">
             {row.status === "SENT" && row.sentAt
-              ? `Sent ${new Date(row.sentAt).toLocaleString()}`
-              : `Scheduled for ${new Date(row.scheduledFor).toLocaleString()}`}
+              ? `Sent ${fmtTz(row.sentAt, eventTz)}`
+              : `Scheduled for ${fmtTz(row.scheduledFor, eventTz)}`}
           </p>
         </div>
       </div>
@@ -1151,6 +1167,7 @@ function RecordingCard({
     | null;
   sessionEnded: boolean;
 }) {
+  const eventTz = useEventTz();
   const fetchRecording = useFetchWebinarRecording(eventId);
 
   const handleFetch = async () => {
@@ -1234,7 +1251,7 @@ function RecordingCard({
                   <StatusPill status="SENT" />
                   <span className="ml-2 text-xs text-muted-foreground">
                     {zoom.recordingFetchedAt
-                      ? `Fetched ${new Date(zoom.recordingFetchedAt).toLocaleString()}`
+                      ? `Fetched ${fmtTz(zoom.recordingFetchedAt, eventTz)}`
                       : null}
                   </span>
                 </p>
@@ -1349,6 +1366,7 @@ function AttendanceCard({
   sessionEnded: boolean;
   hasZoom: boolean;
 }) {
+  const eventTz = useEventTz();
   const { data, isLoading, isFetching } = useWebinarAttendance(eventId);
   const sync = useSyncWebinarAttendance(eventId);
 
@@ -1391,7 +1409,7 @@ function AttendanceCard({
             <CardDescription>
               Pulled from Zoom&apos;s participant report. Polled automatically once the session has been over for 30 min.
               {kpis?.lastSyncedAt ? (
-                <> Last synced {new Date(kpis.lastSyncedAt).toLocaleString()}.</>
+                <> Last synced {fmtTz(kpis.lastSyncedAt, eventTz)}.</>
               ) : null}
             </CardDescription>
           </div>
@@ -1507,15 +1525,13 @@ function KpiTile({
 }
 
 function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
+  const eventTz = useEventTz();
   return (
     <tr className="hover:bg-muted/30">
       <td className="px-3 py-2 font-medium">{row.name}</td>
       <td className="px-3 py-2 text-muted-foreground">{row.email ?? "—"}</td>
       <td className="px-3 py-2 text-xs text-muted-foreground">
-        {new Date(row.joinTime).toLocaleString(undefined, {
-          dateStyle: "short",
-          timeStyle: "short",
-        })}
+        {fmtTz(row.joinTime, eventTz, { short: true })}
       </td>
       <td className="px-3 py-2">{formatDuration(row.durationSeconds)}</td>
       <td className="px-3 py-2 text-xs">
@@ -1794,6 +1810,7 @@ function PollsCard({
   sessionEnded: boolean;
   hasZoom: boolean;
 }) {
+  const eventTz = useEventTz();
   const { data, isLoading } = useWebinarEngagement(eventId);
   const sync = useSyncWebinarEngagement(eventId);
 
@@ -1832,7 +1849,7 @@ function PollsCard({
               Results from polls run during the webinar. Pulled from Zoom alongside
               attendance (~30 min after session ends).
               {data?.lastSyncedAt ? (
-                <> Last synced {new Date(data.lastSyncedAt).toLocaleString()}.</>
+                <> Last synced {fmtTz(data.lastSyncedAt, eventTz)}.</>
               ) : null}
             </CardDescription>
           </div>
@@ -1954,6 +1971,7 @@ function QaCard({
   sessionEnded: boolean;
   hasZoom: boolean;
 }) {
+  const eventTz = useEventTz();
   const { data, isLoading } = useWebinarEngagement(eventId);
   const [search, setSearch] = useState("");
 
@@ -2008,10 +2026,7 @@ function QaCard({
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div className="text-sm font-medium">{q.askerName}</div>
                       <div className="text-xs text-muted-foreground shrink-0">
-                        {new Date(q.askedAt).toLocaleString(undefined, {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
+                        {fmtTz(q.askedAt, eventTz, { short: true })}
                       </div>
                     </div>
                     <p className="text-sm">{q.question}</p>
@@ -2109,7 +2124,8 @@ const ROOM_OVERDUE_GRACE_MS = 30 * 60_000;
  * so Zoom's Q&A cannot reach them; they ask on the session page and the
  * producer reads them here, newest first, refreshed every 10 seconds.
  */
-function ViewerQuestionsCard({ eventId }: { eventId: string }) {
+function ViewerQuestionsCard({ eventId, hlsMode }: { eventId: string; hlsMode: boolean }) {
+  const eventTz = useEventTz();
   const { data, isLoading, isError } = useWebinarViewerQuestions(eventId, true);
   const update = useUpdateWebinarViewerQuestion(eventId);
   const [showDone, setShowDone] = useState(false);
@@ -2117,6 +2133,9 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
   const open = questions.filter((q) => q.status === "NEW");
   const done = questions.filter((q) => q.status !== "NEW");
   const shown = showDone ? questions : open;
+  // Shown in Custom stream mode, and in any mode while questions exist, so a
+  // switch back to Zoom embed never strands questions nobody can see.
+  if (!hlsMode && !isLoading && questions.length === 0) return null;
 
   const mark = async (id: string, change: { status?: "NEW" | "ANSWERED" | "DISMISSED"; isPublic?: boolean }) => {
     try {
@@ -2152,7 +2171,7 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
               <p className="text-sm whitespace-pre-wrap break-words">{q.question}</p>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {q.askerName} · {new Date(q.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {q.askerName} · {fmtTz(q.createdAt, eventTz, { short: true })}
                   {q.isPublic ? <span className="ml-1 text-primary font-medium">· Shown to attendees</span> : null}
                 </span>
                 <div className="flex gap-1">

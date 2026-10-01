@@ -2458,7 +2458,7 @@ export function useSyncZoomPanelists(eventId: string, sessionId: string) {
 // ── Webinar Console ─────────────────────────────────────────────────
 
 export interface WebinarConsoleData {
-  event: { id: string; name: string; slug: string; eventType: string | null; status?: string };
+  event: { id: string; name: string; slug: string; eventType: string | null; status?: string; timezone?: string | null };
   webinar: {
     autoCreated?: boolean;
     sessionId?: string;

@@ -184,6 +184,32 @@ export function formatDateInTz(date: Date, timeZone: string): string {
 }
 
 /**
+ * Date and time in the event timezone with its label, for a timestamp shown
+ * on its own, e.g. "Oct 1, 2026, 4:27 PM GMT+4". `short` drops the year and
+ * label for compact rows ("Oct 1, 4:27 PM").
+ */
+export function formatDateTimeInTz(date: Date, timeZone: string, opts: { short?: boolean } = {}): string {
+  let tz = resolveTimezone(timeZone);
+  // A malformed stored timezone must not take a whole page down with a
+  // RangeError: fall back to the default zone for display.
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+  } catch {
+    tz = DEFAULT_EVENT_TIMEZONE;
+  }
+  const text = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    month: "short",
+    day: "numeric",
+    ...(opts.short ? {} : { year: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+  return opts.short ? text : `${text} ${tzLabel(date, tz)}`.trim();
+}
+
+/**
  * Short timezone label for `date` in `timeZone`, e.g. "GMT+4". Returned
  * separately so callers can render it once per row/section rather than on
  * every timestamp.

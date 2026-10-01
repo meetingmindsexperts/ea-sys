@@ -10,6 +10,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import { updateEventSettings } from "@/lib/event-settings";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -113,17 +114,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Record when the room opened: the auto-close job trusts a Zoom "ended"
     // time only if it is later than this (see src/lib/webinar/room-autoclose.ts).
+    // Locked merge of just this key, so a concurrent lobby save or provisioner
+    // write is never overwritten; failure-isolated, because the room is
+    // already open and must not report an error for a bookkeeping write.
     if (validated.data.open) {
-      const current = (event.settings && typeof event.settings === "object" ? event.settings : {}) as Record<string, unknown>;
-      await db.event.update({
-        where: { id: event.id },
-        data: {
-          settings: {
-            ...current,
-            webinar: { ...(webinar as Record<string, unknown>), roomOpenedAt: new Date().toISOString() },
-          },
-        },
-      });
+      const openedAt = new Date().toISOString();
+      try {
+        await updateEventSettings(event.id, (current) => {
+          const currentWebinar =
+            current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
+          return { ...current, webinar: { ...currentWebinar, roomOpenedAt: openedAt } };
+        });
+      } catch (err) {
+        apiLogger.error({ err, eventId }, "webinar:room-opened-at-write-failed");
+      }
     }
 
     apiLogger.info(

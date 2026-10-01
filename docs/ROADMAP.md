@@ -723,6 +723,32 @@ This is a coverage gap underneath it, not an error in it.
 
 ## Deferred review findings
 
+### Webinar Q&A, auto-close and stream fixes review — deferred findings (Oct 1, 2026)
+
+The review of `29e982ac..11415d31` found ten issues; four HIGHs shipped
+in-band (questions only on the webinar room and always visible to producers;
+auto-close waits out restarts and respects a re-open; the room-open time is a
+locked, failure-isolated write). Recorded:
+
+- **Auto-close candidate scan can starve (MED).** It takes 20 LIVE webinar
+  sessions with no order and drops non-anchor ones afterwards, so 20+ stale
+  LIVE non-anchor rows would hide a real room. Fix: order by `updatedAt` and
+  take more, or filter to anchors in the query.
+- **Zoom's header and toolbar may clip (MED, unverified live).** The root is
+  sized to the canvas formula with no correction since the measured fit was
+  reverted; Zoom draws its header and toolbar outside that size. Check on the
+  next live run before changing anything.
+- **The ribbon size is no longer sent (MED).** The revert removed
+  `viewSizes.ribbon`, so Zoom's stacked-tile view falls back to its narrow
+  default. Re-add `fitZoomRibbon` alone (no measuring).
+- **Auto-close never stops the custom stream (MED).** Only the safety net can
+  close a room while Zoom still pushes; call `controlWebinarLiveStream` stop
+  there, failure-isolated.
+- **Staff testing the Q&A tab never see their own questions (LOW).** Staff
+  questions have no registration, so "Your questions" stays empty.
+- **Zoom 429 / "not started" wording assumes Start (LOW).** The messages now
+  also reach `sync` (run on save); give sync its own wording.
+
 ### Custom stream controls review — deferred findings (Oct 1, 2026)
 
 The review of the Start / Stop / Re-send controls found four issues; the two
