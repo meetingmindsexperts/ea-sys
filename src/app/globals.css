@@ -358,3 +358,26 @@
   display: table;
   width: 100%;
 }
+
+/*
+ * Zoom Component View panel: centred in its box, whatever size Zoom draws
+ * (Oct 1, 2026). Zoom positions the panel `absolute` at the root's top-left
+ * (the element its drag library marks `.react-draggable`), and during a
+ * screen share it ignores the size we request (open Zoom issue since 2022),
+ * so in full screen the panel spilled off to the right with empty space
+ * below. Back in normal flow, the root's flex centring places it in the
+ * middle, overflowing evenly when larger. Nothing is measured; if Zoom ever
+ * renames the class the rule simply stops applying and the old layout stays.
+ */
+[data-zoom-embed-root] {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+[data-zoom-embed-root] > .react-draggable,
+[data-zoom-embed-root] > div > .react-draggable {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  flex-shrink: 0;
+}

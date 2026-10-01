@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: the webinar Zoom panel is centred in full screen (October 1)
+
+- Live screenshot: in full screen during a screen share the panel sat to the
+  right with empty space below. Zoom positions its panel `absolute` at the
+  root's top-left and ignores the requested size during a share (open Zoom
+  issue since 2022), so a larger panel spilled off the right. A CSS rule in
+  `globals.css` puts Zoom's `.react-draggable` panel back in normal flow and
+  the root's flex box centres it, overflowing evenly when larger. Nothing is
+  measured (the measured approach was reverted earlier the same day); if Zoom
+  renames the class the rule stops applying and the old layout stays.
+- Verified on a local production build with Zoom-shaped stand-ins (absolute,
+  top-left, larger than the box): equal gaps on every side on the page and in
+  full screen, zero console warnings.
+
 ### Added: viewer questions for custom-stream webinars; practice-run checklist (October 1)
 
 - Custom stream is now the recommended mode for broadcast webinars, and its
