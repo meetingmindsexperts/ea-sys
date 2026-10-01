@@ -743,6 +743,8 @@ model WebinarPresence {
 /// the Webinar Console. `status` is "NEW" | "ANSWERED" | "DISMISSED" as text,
 /// like WebinarPresence.phase, so a new state never needs an enum migration.
 /// `registrationId` is SetNull so deleting a registration keeps the question.
+/// `isPublic` (Oct 1, 2026): the organizer's per-question "Show to attendees";
+/// other attendees see only these, with the asker's first name and initial.
 model WebinarViewerQuestion {
   id             String    @id @default(cuid())
   eventId        String
@@ -753,6 +755,8 @@ model WebinarViewerQuestion {
   question       String    @db.Text
   status         String    @default("NEW")
   answeredAt     DateTime?
+  /// Shown to every attendee in the Q&A tab once the organizer allows it.
+  isPublic       Boolean   @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -760,6 +764,7 @@ model WebinarViewerQuestion {
   session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
 
+  @@index([sessionId, isPublic])
   @@index([sessionId, createdAt])
   @@index([eventId])
   @@index([organizationId])

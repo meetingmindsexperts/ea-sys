@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: a Q&A tab for custom-stream attendees, with organizer-chosen questions shown to everyone (October 1)
+
+- Owner: "we need a tab for Q&A; all attendees should see questions based on
+  what the organizer allows". The attendee page gains a **Q&A** tab (custom
+  stream only; Zoom embed keeps Zoom's Q&A) holding the question box, the
+  viewer's own questions, and "Questions from the audience": the questions
+  the organizer has shown, newest first, "Answered" marked, the asker as first
+  name and initial ("Dana L."), never dismissed ones. Under the stream, a
+  prompt opens the tab. Refreshed every 15 s.
+- Console "Viewer questions": a **Show to attendees** / **Hide** button per
+  question and a "Shown to attendees" marker; dismissing always hides.
+  Nothing is public until the organizer shows it.
+- `WebinarViewerQuestion.isPublic` (default false), additive migration
+  `20261001170000`. Tests for the visibility rules and the name shortening.
+
 ### Fixed: the custom stream console after the first live try (October 1)
 
 - Prod logs from the owner's test: opening the room started the stream and

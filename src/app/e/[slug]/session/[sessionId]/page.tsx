@@ -24,6 +24,7 @@ import {
   LogIn,
   UserPlus,
   CheckCircle2,
+  MessageSquare,
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
@@ -213,6 +214,8 @@ export default function PublicSessionPage() {
   // The host ended the webinar in Zoom (the embed said so). Shown at once,
   // before the auto-close job closes the room a minute or two later.
   const [hostEnded, setHostEnded] = useState(false);
+  // Controlled so the "Ask a question" prompt under the stream can open the Q&A tab.
+  const [activeTab, setActiveTab] = useState("video");
   // B2: the recording URL + passcode are credentials. They're fetched on demand
   // from the registration-gated route, never shipped with the public payload.
   const [recording, setRecording] = useState<{ url: string; password: string | null } | null>(null);
@@ -403,6 +406,9 @@ export default function PublicSessionPage() {
   // scheduled end time — keep the HLS/embed alive until they actually close the
   // room (review #9). Falls back to plain wall-clock when not a managed room.
   const liveWindowActive = !isPast || (isWebinarEvent && roomOpen);
+  // The Q&A tab belongs to custom-stream viewing: a registered viewer (or org
+  // staff testing) on a session that streams. Zoom embed keeps Zoom's Q&A.
+  const showQaTab = Boolean(joinInfo?.liveStreamEnabled) && authState.kind === "ok";
 
   if (loading) {
     return (
@@ -644,12 +650,18 @@ export default function PublicSessionPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="video" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="video" className="gap-2">
               <Video className="h-4 w-4" />
               Live Video
             </TabsTrigger>
+            {showQaTab && (
+              <TabsTrigger value="qa" className="gap-2">
+                <MessageSquare className="h-4 w-4" />
+                Q&amp;A
+              </TabsTrigger>
+            )}
             <TabsTrigger value="details" className="gap-2">
               <ListOrdered className="h-4 w-4" />
               Session Details
@@ -707,9 +719,17 @@ export default function PublicSessionPage() {
             )}
 
             {/* Custom-stream viewers are not in Zoom, so Zoom's Q&A cannot
-                 reach them; this box sends questions to the producers. */}
-            {joinInfo?.liveStreamEnabled && liveWindowActive && authState.kind === "ok" && (
-              <AskQuestionBox slug={slug} sessionId={sessionId} />
+                 reach them; questions live in the Q&A tab. */}
+            {showQaTab && liveWindowActive && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3">
+                <p className="text-sm text-muted-foreground">
+                  Have a question for the speakers? Ask it in the Q&amp;A tab.
+                </p>
+                <Button size="sm" variant="outline" onClick={() => setActiveTab("qa")} className="gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Ask a question
+                </Button>
+              </div>
             )}
 
             {/* Embedded Zoom — only mounts after user clicks Join in the
@@ -1009,6 +1029,13 @@ export default function PublicSessionPage() {
                 </div>
               )}
           </TabsContent>
+
+          {/* Q&A (custom stream only; Zoom embed has Zoom's own Q&A) */}
+          {showQaTab && (
+            <TabsContent value="qa">
+              <AskQuestionBox slug={slug} sessionId={sessionId} />
+            </TabsContent>
+          )}
 
           {/* Tab 3 — Sponsors */}
           <TabsContent value="sponsors">

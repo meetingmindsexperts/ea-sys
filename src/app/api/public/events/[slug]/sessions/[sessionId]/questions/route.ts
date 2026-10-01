@@ -7,7 +7,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canWrite } from "@/lib/can-write";
-import { QUESTION_MAX_LENGTH } from "@/lib/webinar/questions";
+import { QUESTION_MAX_LENGTH, publicAskerName } from "@/lib/webinar/questions";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -131,7 +131,11 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 }
 
-/** The signed-in viewer's own questions for this session, newest first. */
+/**
+ * The Q&A tab: the signed-in viewer's own questions, and the questions the
+ * organizer has shown to everyone (`isPublic`, never dismissed ones), with
+ * the asker reduced to first name and initial. Newest first.
+ */
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [authSession, { slug, sessionId }] = await Promise.all([auth(), params]);
@@ -149,17 +153,27 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ userId: authSession.user.id, eventId: event.id }, "webinar-question:list-not-registered");
         return NextResponse.json({ error: "Not registered", code: "NOT_REGISTERED" }, { status: 403 });
       }
-      if (asker.kind === "staff") return NextResponse.json({ questions: [] });
-      const questions = await db.webinarViewerQuestion.findMany({
-        where: { sessionId, eventId: event.id, registrationId: asker.registrationId },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: { id: true, question: true, status: true, createdAt: true },
-      });
-      return NextResponse.json({ questions });
+      const [mine, shown] = await Promise.all([
+        asker.kind === "staff"
+          ? Promise.resolve([])
+          : db.webinarViewerQuestion.findMany({
+              where: { sessionId, eventId: event.id, registrationId: asker.registrationId },
+              orderBy: { createdAt: "desc" },
+              take: 50,
+              select: { id: true, question: true, status: true, isPublic: true, createdAt: true },
+            }),
+        db.webinarViewerQuestion.findMany({
+          where: { sessionId, eventId: event.id, isPublic: true, status: { not: "DISMISSED" } },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+          select: { id: true, question: true, status: true, askerName: true, createdAt: true },
+        }),
+      ]);
+      const published = shown.map(({ askerName, ...q }) => ({ ...q, askerName: publicAskerName(askerName) }));
+      return NextResponse.json({ questions: mine, published });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-question:list-failed");
-    return NextResponse.json({ error: "Failed to load your questions" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load questions" }, { status: 500 });
   }
 }

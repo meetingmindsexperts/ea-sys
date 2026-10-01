@@ -100,12 +100,20 @@ describe("public: ask a question", () => {
     expect((await ask(req({ question: "Hello there" }), publicParams)).status).toBe(404);
   });
 
-  it("lists only the viewer's own questions", async () => {
+  it("lists the viewer's own questions and the shown ones, with shortened names, never dismissed", async () => {
     mockAuth.mockResolvedValue(attendee);
     mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "D", lastName: "L" } });
-    mockDb.webinarViewerQuestion.findMany.mockResolvedValue([]);
-    expect((await listMine(req(), publicParams)).status).toBe(200);
+    mockDb.webinarViewerQuestion.findMany
+      .mockResolvedValueOnce([{ id: "q1", question: "Mine", status: "NEW", isPublic: false }])
+      .mockResolvedValueOnce([{ id: "q2", question: "Shown", status: "ANSWERED", askerName: "Dana Maria Lee" }]);
+    const res = await listMine(req(), publicParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
     expect(mockDb.webinarViewerQuestion.findMany.mock.calls[0][0].where).toMatchObject({ registrationId: "r1", sessionId: "s1" });
+    expect(mockDb.webinarViewerQuestion.findMany.mock.calls[1][0].where).toEqual({
+      sessionId: "s1", eventId: "ev1", isPublic: true, status: { not: "DISMISSED" },
+    });
+    expect(body.published).toEqual([{ id: "q2", question: "Shown", status: "ANSWERED", askerName: "Dana L." }]);
   });
 });
 
@@ -130,6 +138,18 @@ describe("producer: list and mark", () => {
     expect(call.where).toEqual({ id: "q1", eventId: "ev1" });
     expect(call.data.status).toBe("ANSWERED");
     expect(call.data.answeredAt).toBeInstanceOf(Date);
+  });
+
+  it("shows a question to attendees; dismissing always hides it; an empty change is refused", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.webinarViewerQuestion.updateMany.mockResolvedValue({ count: 1 });
+    const patch = (body: unknown) =>
+      mark(new Request("http://localhost/x", { method: "PATCH", body: JSON.stringify(body) }), staffParams);
+    expect((await patch({ id: "q1", isPublic: true })).status).toBe(200);
+    expect(mockDb.webinarViewerQuestion.updateMany.mock.calls[0][0].data).toEqual({ isPublic: true });
+    expect((await patch({ id: "q1", status: "DISMISSED", isPublic: true })).status).toBe(200);
+    expect(mockDb.webinarViewerQuestion.updateMany.mock.calls[1][0].data).toMatchObject({ status: "DISMISSED", isPublic: false });
+    expect((await patch({ id: "q1" })).status).toBe(400);
   });
 
   it("404 for a question from another event; 400 for a bad status; 403 for a read-only member", async () => {

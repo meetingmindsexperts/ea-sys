@@ -60,6 +60,8 @@ import {
   CircleDot,
   CheckCircle,
   Radio,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   useWebinar,
@@ -2116,9 +2118,9 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
   const done = questions.filter((q) => q.status !== "NEW");
   const shown = showDone ? questions : open;
 
-  const mark = async (id: string, status: "NEW" | "ANSWERED" | "DISMISSED") => {
+  const mark = async (id: string, change: { status?: "NEW" | "ANSWERED" | "DISMISSED"; isPublic?: boolean }) => {
     try {
-      await update.mutateAsync({ id, status });
+      await update.mutateAsync({ id, ...change });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update the question");
     }
@@ -2132,7 +2134,8 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
         </ConsoleTitle>
         <CardDescription>
           From people watching the custom stream. {open.length} new
-          {done.length > 0 ? `, ${done.length} handled` : ""}.
+          {done.length > 0 ? `, ${done.length} handled` : ""}. Only questions you show appear in the
+          attendees&apos; Q&amp;A tab, with first name and initial.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -2150,19 +2153,33 @@ function ViewerQuestionsCard({ eventId }: { eventId: string }) {
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
                   {q.askerName} · {new Date(q.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {q.isPublic ? <span className="ml-1 text-primary font-medium">· Shown to attendees</span> : null}
                 </span>
                 <div className="flex gap-1">
+                  {q.status !== "DISMISSED" && (
+                    <Button
+                      size="sm"
+                      variant={q.isPublic ? "secondary" : "ghost"}
+                      className="h-7 text-xs"
+                      disabled={update.isPending}
+                      onClick={() => void mark(q.id, { isPublic: !q.isPublic })}
+                      title={q.isPublic ? "Hide from the attendees' Q&A tab" : "Show in the attendees' Q&A tab"}
+                    >
+                      {q.isPublic ? <EyeOff className="h-3.5 w-3.5 mr-1" /> : <Eye className="h-3.5 w-3.5 mr-1" />}
+                      {q.isPublic ? "Hide" : "Show to attendees"}
+                    </Button>
+                  )}
                   {q.status === "NEW" ? (
                     <>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "ANSWERED")}>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "ANSWERED" })}>
                         Answered
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "DISMISSED")}>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "DISMISSED" })}>
                         Dismiss
                       </Button>
                     </>
                   ) : (
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, "NEW")}>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "NEW" })}>
                       {q.status === "ANSWERED" ? "Answered" : "Dismissed"} · Undo
                     </Button>
                   )}

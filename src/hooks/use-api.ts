@@ -2581,6 +2581,8 @@ export interface WebinarViewerQuestionRow {
   askerName: string;
   question: string;
   status: "NEW" | "ANSWERED" | "DISMISSED";
+  /** Shown to every attendee in the Q&A tab. */
+  isPublic: boolean;
   createdAt: string;
   answeredAt: string | null;
 }
@@ -2599,7 +2601,7 @@ export function useWebinarViewerQuestions(eventId: string, enabled: boolean) {
 export function useUpdateWebinarViewerQuestion(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; status: "NEW" | "ANSWERED" | "DISMISSED" }) =>
+    mutationFn: (input: { id: string; status?: "NEW" | "ANSWERED" | "DISMISSED"; isPublic?: boolean }) =>
       fetchApi<{ ok: true }>(`/api/events/${eventId}/webinar/questions`, {
         method: "PATCH",
         body: JSON.stringify(input),
