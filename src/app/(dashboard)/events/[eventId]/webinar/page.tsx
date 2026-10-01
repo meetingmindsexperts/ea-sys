@@ -70,6 +70,7 @@ import {
   useToggleWebinarRoom,
   useWebinarLiveStream,
   useWebinarViewerQuestions,
+  type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
   useProvisionWebinar,
@@ -145,6 +146,7 @@ export default function WebinarConsolePage() {
   const eventId = params.eventId as string;
 
   const { data, isLoading, isFetching, error } = useWebinar(eventId);
+  const viewerQuestionsQuery = useWebinarViewerQuestions(eventId, true);
   const showLoader = useDelayedLoading(isLoading, 500);
   const provision = useProvisionWebinar(eventId);
 
@@ -244,6 +246,13 @@ export default function WebinarConsolePage() {
   // Tabs are status-driven: Scheduled/Live → Setup, Ended → Analytics.
   // User can switch at will (local state, no URL pin).
   const defaultTab = status === "ended" ? "analytics" : "setup";
+  // Viewer questions get their own tab (owner, Oct 1, 2026). Polled here so
+  // the tab's badge counts new questions while the producer is on any tab.
+  // Shown in Custom stream mode, and in any mode while questions exist, so a
+  // switch back to Zoom embed never strands questions nobody can see.
+  const viewerQuestions = viewerQuestionsQuery.data?.questions ?? [];
+  const newViewerQuestions = viewerQuestions.filter((q) => q.status === "NEW").length;
+  const showViewerQaTab = data?.webinar?.viewingMode === "hls" || viewerQuestions.length > 0;
 
   return (
     <EventTzContext.Provider value={data?.event?.timezone || DEFAULT_EVENT_TIMEZONE}>
@@ -314,6 +323,20 @@ export default function WebinarConsolePage() {
             <LineChart className="h-4 w-4" />
             Analytics
           </TabsTrigger>
+          {showViewerQaTab && (
+            <TabsTrigger value="qa" className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Q&amp;A
+              {newViewerQuestions > 0 && (
+                <span
+                  className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground"
+                  aria-label={`${newViewerQuestions} new questions`}
+                >
+                  {newViewerQuestions}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
             Settings
@@ -356,7 +379,6 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
               />
-              <ViewerQuestionsCard eventId={eventId} hlsMode={data?.webinar?.viewingMode === "hls"} />
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
             </div>
           </div>
@@ -380,6 +402,12 @@ export default function WebinarConsolePage() {
             <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
           </div>
         </TabsContent>
+
+        {showViewerQaTab && (
+          <TabsContent value="qa" className="mt-4">
+            <ViewerQuestionsPanel eventId={eventId} />
+          </TabsContent>
+        )}
 
         <TabsContent value="settings" className="mt-4">
           {data ? (
@@ -2119,23 +2147,36 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
 /** Grace window after the scheduled end during which the overdue alert still shows. */
 const ROOM_OVERDUE_GRACE_MS = 30 * 60_000;
 
+type ViewerQuestionFilter = "NEW" | "SHOWN" | "ANSWERED" | "DISMISSED" | "ALL";
+
+const VIEWER_QUESTION_FILTERS: { key: ViewerQuestionFilter; label: string }[] = [
+  { key: "NEW", label: "New" },
+  { key: "SHOWN", label: "Shown to attendees" },
+  { key: "ANSWERED", label: "Answered" },
+  { key: "DISMISSED", label: "Dismissed" },
+  { key: "ALL", label: "All" },
+];
+
+function matchesViewerFilter(q: WebinarViewerQuestionRow, filter: ViewerQuestionFilter): boolean {
+  if (filter === "ALL") return true;
+  if (filter === "SHOWN") return q.isPublic && q.status !== "DISMISSED";
+  return q.status === filter;
+}
+
 /**
- * Questions from custom-stream viewers (Oct 1, 2026). They are not in Zoom,
- * so Zoom's Q&A cannot reach them; they ask on the session page and the
- * producer reads them here, newest first, refreshed every 10 seconds.
+ * The console's Q&A tab (owner, Oct 1, 2026): questions from custom-stream
+ * viewers, who are not in Zoom, at full width with filters. Newest first,
+ * refreshed every 10 seconds (the same query the tab badge reads, so React
+ * Query shares one poll). Only questions shown here appear in the attendees'
+ * Q&A tab, with first name and initial.
  */
-function ViewerQuestionsCard({ eventId, hlsMode }: { eventId: string; hlsMode: boolean }) {
+function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
   const eventTz = useEventTz();
   const { data, isLoading, isError } = useWebinarViewerQuestions(eventId, true);
   const update = useUpdateWebinarViewerQuestion(eventId);
-  const [showDone, setShowDone] = useState(false);
+  const [filter, setFilter] = useState<ViewerQuestionFilter>("NEW");
   const questions = data?.questions ?? [];
-  const open = questions.filter((q) => q.status === "NEW");
-  const done = questions.filter((q) => q.status !== "NEW");
-  const shown = showDone ? questions : open;
-  // Shown in Custom stream mode, and in any mode while questions exist, so a
-  // switch back to Zoom embed never strands questions nobody can see.
-  if (!hlsMode && !isLoading && questions.length === 0) return null;
+  const shown = questions.filter((q) => matchesViewerFilter(q, filter));
 
   const mark = async (id: string, change: { status?: "NEW" | "ANSWERED" | "DISMISSED"; isPublic?: boolean }) => {
     try {
@@ -2152,34 +2193,63 @@ function ViewerQuestionsCard({ eventId, hlsMode }: { eventId: string; hlsMode: b
           Viewer questions
         </ConsoleTitle>
         <CardDescription>
-          From people watching the custom stream. {open.length} new
-          {done.length > 0 ? `, ${done.length} handled` : ""}. Only questions you show appear in the
-          attendees&apos; Q&amp;A tab, with first name and initial.
+          From people watching the custom stream, newest first, refreshed every 10 seconds. Only
+          questions you show appear in the attendees&apos; Q&amp;A tab, with first name and initial;
+          dismissing a question also hides it.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter questions">
+          {VIEWER_QUESTION_FILTERS.map((f) => {
+            const count = questions.filter((q) => matchesViewerFilter(q, f.key)).length;
+            const active = filter === f.key;
+            return (
+              <Button
+                key={f.key}
+                size="sm"
+                variant={active ? "default" : "outline"}
+                className="h-8"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilter(f.key)}
+              >
+                {f.label}
+                <span className={`ml-1.5 text-xs ${active ? "opacity-90" : "text-muted-foreground"}`}>{count}</span>
+              </Button>
+            );
+          })}
+        </div>
+
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {isError && <p className="text-sm text-red-600">Could not load questions. Retrying…</p>}
         {!isLoading && shown.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {showDone ? "No questions yet." : "No new questions."}
+          <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            {filter === "NEW" ? "No new questions." : "Nothing here."}
           </p>
         )}
-        <ul className="space-y-2 max-h-[28rem] overflow-y-auto">
+
+        <ul className="space-y-2">
           {shown.map((q) => (
-            <li key={q.id} className={`rounded-md border p-3 ${q.status === "NEW" ? "" : "opacity-60"}`}>
-              <p className="text-sm whitespace-pre-wrap break-words">{q.question}</p>
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <li
+              key={q.id}
+              className={`rounded-md border p-4 ${q.status === "DISMISSED" ? "opacity-60" : ""} ${q.isPublic && q.status !== "DISMISSED" ? "border-primary/40 bg-primary/5" : ""}`}
+            >
+              <p className="whitespace-pre-wrap break-words">{q.question}</p>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
                   {q.askerName} · {fmtTz(q.createdAt, eventTz, { short: true })}
-                  {q.isPublic ? <span className="ml-1 text-primary font-medium">· Shown to attendees</span> : null}
+                  {q.status === "ANSWERED" ? <span className="ml-1 font-medium">· Answered</span> : null}
+                  {q.status === "DISMISSED" ? <span className="ml-1 font-medium">· Dismissed</span> : null}
+                  {q.isPublic && q.status !== "DISMISSED" ? (
+                    <span className="ml-1 font-medium text-primary">· Shown to attendees</span>
+                  ) : null}
                 </span>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                   {q.status !== "DISMISSED" && (
                     <Button
                       size="sm"
-                      variant={q.isPublic ? "secondary" : "ghost"}
-                      className="h-7 text-xs"
+                      variant={q.isPublic ? "secondary" : "outline"}
+                      className="h-8 text-xs"
                       disabled={update.isPending}
                       onClick={() => void mark(q.id, { isPublic: !q.isPublic })}
                       title={q.isPublic ? "Hide from the attendees' Q&A tab" : "Show in the attendees' Q&A tab"}
@@ -2190,16 +2260,16 @@ function ViewerQuestionsCard({ eventId, hlsMode }: { eventId: string; hlsMode: b
                   )}
                   {q.status === "NEW" ? (
                     <>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "ANSWERED" })}>
+                      <Button size="sm" variant="outline" className="h-8 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "ANSWERED" })}>
                         Answered
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "DISMISSED" })}>
+                      <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "DISMISSED" })}>
                         Dismiss
                       </Button>
                     </>
                   ) : (
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "NEW" })}>
-                      {q.status === "ANSWERED" ? "Answered" : "Dismissed"} · Undo
+                    <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={update.isPending} onClick={() => void mark(q.id, { status: "NEW" })}>
+                      Undo
                     </Button>
                   )}
                 </div>
@@ -2207,11 +2277,6 @@ function ViewerQuestionsCard({ eventId, hlsMode }: { eventId: string; hlsMode: b
             </li>
           ))}
         </ul>
-        {done.length > 0 && (
-          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setShowDone((v) => !v)}>
-            {showDone ? "Hide handled" : `Show handled (${done.length})`}
-          </Button>
-        )}
       </CardContent>
     </Card>
   );

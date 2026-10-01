@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: viewer questions get their own Q&A tab in the Webinar Console (October 1)
+
+- Owner: "Viewer questions, maybe give its own tab". The narrow card in the
+  Setup tab's right column becomes a full-width **Q&A** tab beside Setup,
+  Analytics and Settings, with a badge counting new questions (polled every
+  10 s on any tab; the panel shares the same query) and filters with counts:
+  New, Shown to attendees, Answered, Dismissed, All. Shown questions are
+  tinted in the theme colour. The tab appears in Custom stream mode, and in any
+  mode while questions exist. No API or schema change. User guide and demo
+  guide point at the tab.
+
 ### Fixed: review findings on Q&A and auto-close; every console time in the event timezone (October 1)
 
 - Code review of the day's webinar work (`29e982ac..11415d31`), ten
