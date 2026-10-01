@@ -18,31 +18,39 @@ import { findUserByEmail, scopeFromRequestHost } from "@/lib/tenant/user-lookup"
 import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 import { procurementGrantsFromRow } from "@/lib/procurement-visibility";
-import { runWithTenant } from "@/lib/tenant-context";
-import { readUserPermissions } from "@/lib/permissions/permission-set-service";
+import {
+  COOKIE_WARN_BYTES,
+  estimatedCookieBytes,
+  permissionsForHeldSets,
+  readHeldSets,
+  type HeldSet,
+} from "@/lib/permissions/session-permissions";
 
 /**
- * The person's custom-role permission keys, for the JWT.
+ * The person's live custom roles as `[id, version]` pairs, for the JWT (custom
+ * roles Phase 1 slice 3, Oct 1 2026). The KEYS no longer ride the cookie: the
+ * session callback resolves them from these pairs through a per-process cache
+ * keyed on id and version (session-permissions.ts), so the cookie stops growing
+ * with every role a person holds (INC-006).
  *
  * A SECOND READ, deliberately, rather than nesting `permissionSets` into the
  * User selects above. `UserPermissionSet` is policied and `User` is not (it is
  * read to ESTABLISH identity, so it cannot be protected by identity), and the
- * authentication path has no tenant lane yet. A nested include would therefore
- * return zero rows under RLS and read as "holds no custom role" — access
- * silently withheld, with nothing logged. The lane is borrowed from the row we
- * just read.
+ * authentication path has no tenant lane yet; `readHeldSets` borrows the lane
+ * from the organisation on the row we just read.
  *
- * Never throws: a failure here must not stop anyone signing in. An empty set
- * leaves every predicate on its legacy arm, so the worst case is the access the
- * person had before custom roles existed.
+ * Never throws. Null means "could not read": at sign-in that becomes no roles
+ * (every predicate on its legacy arm, the access the person had before custom
+ * roles existed), and on a refresh the pairs already in the token are kept,
+ * the same rule the role itself follows on a pooler blip.
  */
-async function permissionsForToken(userId: string, organizationId: string | null | undefined): Promise<string[]> {
+async function heldSetsForToken(userId: string, organizationId: string | null | undefined): Promise<HeldSet[] | null> {
   if (!organizationId) return [];
   try {
-    return await runWithTenant(organizationId, () => readUserPermissions(organizationId, userId));
+    return await readHeldSets(organizationId, userId);
   } catch (err) {
     authLogger.warn({ err, msg: "auth:permissions-read-failed", userId });
-    return [];
+    return null;
   }
 }
 
@@ -311,7 +319,7 @@ export const {
           tokenVersion: user.tokenVersion,
           hrAccess: user.hrAccess,
           ...procurementGrantsFromRow(user),
-          procurementPermissions: await permissionsForToken(user.id, user.organizationId),
+          heldRoles: (await heldSetsForToken(user.id, user.organizationId)) ?? [],
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
           firstName: user.firstName,
@@ -333,6 +341,11 @@ export const {
       // so existing sessions shrink on their next refresh, not their next login.
       delete token.organizationLogo;
       delete token.organizationPrimaryColor;
+      // The permission KEYS left the cookie on Oct 1, 2026 (Phase 1 slice 3):
+      // the token carries `heldRoles` and the session callback resolves
+      // the keys. `procurementGrantsFromRow` writes the field as undefined, and
+      // cookies issued before carry the full list; both are dropped below,
+      // after every assignment, so the cookie shrinks on its next refresh.
 
       if (user) {
         token.id = user.id;
@@ -344,7 +357,7 @@ export const {
         token.tokenVersion = user.tokenVersion ?? 0;
         token.hrAccess = user.hrAccess ?? false;
         Object.assign(token, procurementGrantsFromRow(user));
-        token.procurementPermissions = user.procurementPermissions ?? [];
+        token.heldRoles = user.heldRoles ?? [];
         token.roleCheckedAt = Date.now();
       }
 
@@ -361,7 +374,8 @@ export const {
           token.role = dbUser.role;
           token.hrAccess = dbUser.hrAccess;
           Object.assign(token, procurementGrantsFromRow(dbUser));
-          token.procurementPermissions = await permissionsForToken(dbUser.id, dbUser.organizationId);
+          const held = await heldSetsForToken(dbUser.id, dbUser.organizationId);
+          if (held) token.heldRoles = held;
           token.roleCheckedAt = Date.now();
         }
       }
@@ -448,7 +462,8 @@ export const {
             // grants: archiving a role takes effect within five minutes here,
             // and immediately at the two decision-time reads where staleness
             // would cost money.
-            token.procurementPermissions = await permissionsForToken(token.id as string, token.organizationId as string | null);
+            const held = await heldSetsForToken(token.id as string, token.organizationId as string | null);
+            if (held) token.heldRoles = held;
           }
           // Only the periodic pass moves the clock. If a staff per-request
           // check refreshed it, `dueForPeriodicCheck` would never come true
@@ -461,10 +476,38 @@ export const {
         }
       }
 
+      delete token.procurementPermissions;
+
+      // ROADMAP "Session cookie size" option 4: see the cookie growing long
+      // before nginx refuses it (INC-006 was a 4k header buffer). Checked on
+      // sign-in and on the five-minute pass only, so a staff member's
+      // per-request refresh never logs it twice a second.
+      if (user || dueForPeriodicCheck) {
+        const bytes = estimatedCookieBytes(token);
+        if (bytes > COOKIE_WARN_BYTES) {
+          authLogger.warn({
+            msg: "auth:session-cookie-large",
+            userId: token.id,
+            estimatedBytes: bytes,
+            heldRoles: Array.isArray(token.heldRoles) ? token.heldRoles.length : 0,
+          });
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
-      return mapTokenToSessionUser(session, token);
+      const mapped = mapTokenToSessionUser(session, token);
+      // Node only (this callback serves the app's `auth()` and
+      // /api/auth/session); the Edge middleware's mapper does not resolve
+      // permissions and nothing there reads them. Cache hits cost no query.
+      if (mapped.user) {
+        mapped.user.procurementPermissions = await permissionsForHeldSets(
+          token?.organizationId as string | null | undefined,
+          token?.heldRoles as HeldSet[] | undefined,
+        );
+      }
+      return mapped;
     },
   },
 });

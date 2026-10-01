@@ -17,7 +17,7 @@ declare module "next-auth" {
       procurementApproveCeilingAed?: number | null;
       procurementApproveUnlimited?: boolean;
       procurementSettle?: boolean;
-      /** Permission keys from this person's custom roles, the union across all of them. */
+      /** Permission keys from this person's custom roles, the union across all of them, resolved per request on the server (never in the cookie). */
       procurementPermissions?: string[];
     } & DefaultSession["user"];
   }
@@ -36,8 +36,8 @@ declare module "next-auth" {
     procurementApproveCeilingAed?: number | null;
     procurementApproveUnlimited?: boolean;
     procurementSettle?: boolean;
-    /** Permission keys from this person's custom roles, read at sign-in. */
-    procurementPermissions?: string[];
+    /** This person's live custom roles as [id, version], read at sign-in (keys are resolved per request). */
+    heldRoles?: ReadonlyArray<readonly [string, number]>;
   }
 }
 
@@ -68,7 +68,13 @@ declare module "next-auth/jwt" {
     procurementApproveCeilingAed?: number | null;
     procurementApproveUnlimited?: boolean;
     procurementSettle?: boolean;
-    /** Permission keys from this person's custom roles, refreshed on the same five-minute cycle as the role. */
+    /**
+     * This person's live custom roles as [id, version], refreshed with the
+     * role. The KEYS are not in the cookie (custom roles Phase 1 slice 3): the
+     * Node session callback resolves them into `session.user.procurementPermissions`.
+     */
+    heldRoles?: ReadonlyArray<readonly [string, number]>;
+    /** Carried by cookies issued before Oct 1, 2026; deleted on the next refresh. */
     procurementPermissions?: string[];
   }
 }

@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: full screen on the webinar attendee page, and the Zoom panel fills its box (October 1)
+
+- Owner: "can we make the embed full screen if an attendee or visitor wants",
+  then "proceed with all, limit controls for attendees". The review found the
+  bigger problem first: the embed passed no sizing to the Zoom SDK, so the
+  Component View drew its default 250px ribbon at the top-left of our 16:9
+  black box (the Sep 30 practice screenshot in the demo guide shows it). A
+  fullscreen button on the wrapper alone would have given a bigger black box.
+- `ZoomWebEmbed` now owns its box: a slim dark bar above the video with the
+  session name, a LIVE pill once joined, and the one control we add, **Full
+  screen**. Zoom's panel starts in speaker view, pinned at the root's
+  top-left with drag and resize off, and is sized to the area: the embed asks
+  for the whole area, measures what the SDK drew and shrinks the request by the
+  overflow (`shrinkToFit`), then centres the result. The SDK keeps its own
+  aspect per view (about 0.70 × width in speaker view, about 1.08 × width
+  while a share is received) and that constant belongs to the SDK version, so
+  it is measured, not hard-coded. A fresh fit follows every area resize, the
+  fullscreen toggle and a share starting or stopping. On the page the area is
+  16:9 (4:5 on phones); in fullscreen it is the rest of the screen.
+- **Attendee limits:** no drag, no resize, and Zoom's meeting-info dropdown
+  shows topic and host only; the meeting number, passcode and invite link are
+  left out because the join is gated by registration on our page. Zoom's
+  attendee toolbar (audio, Q&A, chat, raise hand, leave) is untouched.
+- New `useFullscreen` hook (`src/hooks/use-fullscreen.ts`) shared with the HLS
+  `LivePlayer`: browser Fullscreen API with the state read from
+  `fullscreenchange` (the HLS player set its flag on the click, so Esc left the
+  icon on "exit"), an in-page fallback where the browser has no element
+  fullscreen (iPhone Safari) with Esc and scroll lock, and exit on unmount so
+  Zoom's own Leave never strands a black screen. Pure helpers in
+  `src/lib/fullscreen.ts`, pinned by `__tests__/lib/fullscreen.test.ts` (13
+  tests: API resolution incl. WebKit prefix and Permissions-Policy, the union
+  measure, and the shrink arithmetic).
+- Verified in headed Chromium on Oct 1 on a local harness (bar, overlay
+  states, native fullscreen, the browser-side exit that Esc triggers, button
+  exit, unmount while fullscreen, the in-page fallback with scroll lock, phone
+  viewport), with zero console warnings. The harness also showed that
+  `updateVideoOptions` throws until the meeting UI mounts on join, so resize
+  calls are gated on the joined state. The panel fit needs a real join (the
+  local copy cannot decrypt the Zoom credentials), so it is on the
+  practice-run checklist in `docs/WEBINAR_DEMO_GUIDE.html`. Design notes in
+  `docs/WEBINAR_EVENTS.md` under "Layout and attendee controls".
+- Files: `src/components/zoom/zoom-web-embed.tsx`,
+  `src/components/zoom/live-player.tsx`, `src/hooks/use-fullscreen.ts`,
+  `src/lib/fullscreen.ts`, `src/app/e/[slug]/session/[sessionId]/page.tsx`
+  (passes `sessionName`), `__tests__/lib/fullscreen.test.ts`, docs.
+
 ### Fixed: the in-page webinar join works; it waits for the host instead of erroring (September 30)
 
 - Root cause of "Signature is invalid" on every webinar join: the Meeting SDK
@@ -22,6 +68,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   or newline cannot sign joins wrongly.
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
+
+### Changed: the session cookie no longer carries permission keys (October 1)
+
+- Custom roles Phase 1 slice 3. The cookie carries the roles a person holds
+  as `[id, version]` pairs, about 40 bytes per role however many permissions
+  it grants, instead of every permission key (INC-006: one 12-key role pushed
+  the cookie past nginx's 4k header buffer). The keys are resolved on the
+  server per request from a cache keyed on role and version, so an edit or an
+  archive is seen on the next request. Existing sessions shrink on their next
+  refresh; nobody is signed out.
+- A warning, `auth:session-cookie-large`, is logged when a session cookie
+  passes an estimated 3,000 bytes.
 
 ### Added: custom roles Phase 1, slice 2: a scope on each grant, the system roles as rows (October 1)
 

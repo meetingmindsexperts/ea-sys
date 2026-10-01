@@ -315,7 +315,10 @@ SWEPT_MODULES=(
   # policy (it is read to ESTABLISH identity) but `UserPermissionSet` does, so
   # dropping this wrap returns zero permissions for every custom-role holder
   # under RLS — access silently withheld, nothing logged, nothing failing.
-  "src/lib/auth.ts"                       # permissionsForToken borrows the lane from the user row
+  # Moved with the read on Oct 1, 2026 (custom roles Phase 1 slice 3): auth.ts
+  # no longer queries the policied tables itself; this module does, for both
+  # the token's held roles and the per-request key resolution.
+  "src/lib/permissions/session-permissions.ts"  # readHeldSets + permissionsForHeldSets borrow the lane from the token's org
   "src/analytics/store/prisma-store.ts"   # buffered analytics writer (Aug 20, 2026)
   "src/analytics/store/event-traffic.ts"  # dashboard traffic read (Aug 20, 2026)
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors

@@ -534,12 +534,21 @@ Cut into four slices (Sep 30, 2026), each shippable dark:
    (`SYSTEM_ROLE`), so when a later slice seeds them nothing a user sees
    changes. Every live key is organisation-wide, so the Roles tab's requests
    and storage are byte-for-byte what they were.
-3. **Request-time resolution (§3.5):** the token carries role ids and a
-   composite version; grants are read per request inside the tenant lane with
-   a per-process cache keyed on `id:version`; `procurementPermissions` leaves
-   the cookie. This absorbs ROADMAP §"Session cookie size" options 2 and 4.
-   Touches `auth.ts`: a browser pass per role and the owner's confirmation
-   before it is pushed.
+3. **Request-time resolution (§3.5). BUILT Oct 1, 2026.** The token carries
+   the held custom roles as `heldRoles: [id, version][]` instead of the key
+   list; the Node session callback resolves the keys through
+   `session-permissions.ts`, a per-process cache keyed on `id:version` (an edit
+   or archive bumps the version, so no invalidation is needed; a miss reads
+   only the missing roles, inside the tenant lane). The Edge mapper no longer
+   maps keys (the middleware reads none). Old cookies drop the key list on
+   their next refresh. A warn log `auth:session-cookie-large` fires above an
+   estimated 3,000 bytes. Absorbs ROADMAP §"Session cookie size" options 2
+   and 4. Verified in a headed browser on the standalone build: a MEMBER with
+   no role has no keys (cookie 969 bytes); given PO Author, 10 keys and "New
+   budget" appear on the next request (cookie 1,011 bytes); an edit to the
+   role shows at once; archiving it empties the keys; an admin signs in
+   unchanged. The tenant-ALS guard entry moved from `auth.ts` to the new
+   module with the read (mutation-checked).
 4. **`requirePermission()` (with the §3.2 resulting-object rule), `eventWhereFor`
    at the route boundary, and safety net 2.** The route status matrix harness
    extends the shape of `webinars-role-regression-matrix.test.ts`: per handler,

@@ -43,6 +43,11 @@ Options, cheapest first:
 4. **Warn log when the encoded session cookie passes ~3k**, so growth is seen long
    before nginx refuses it.
 
+**Oct 1, 2026: options 2 and 4 SHIPPED** with custom roles Phase 1 slice 3
+(the cookie carries `heldRoles` pairs; keys resolved server side;
+`auth:session-cookie-large` warns above ~3,000 bytes). Option 3 shipped Sep 30.
+Option 1 is no longer needed.
+
 Suggested set when picked up: 2 + 3 + 4, about a day, reviewed and verified per
 role in a browser (auth is load-bearing). Do it before rolling budget roles out to
 the whole office.
