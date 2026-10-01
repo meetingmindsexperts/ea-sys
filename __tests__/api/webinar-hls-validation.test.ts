@@ -14,7 +14,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUpdateEventSettings } = vi.hoisted(
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   mockUpdateEventSettings: vi.fn(async () => ({})),
   mockDb: {
-    event: { findFirst: vi.fn() },
+    event: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
     eventSession: { findFirst: vi.fn(), updateMany: vi.fn() },
     zoomMeeting: { findFirst: vi.fn() },
   },

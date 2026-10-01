@@ -50,6 +50,7 @@ import * as certIssue from "./jobs/cert-issue";
 import * as scheduledEmails from "./jobs/scheduled-emails";
 import * as webinarRecordings from "./jobs/webinar-recordings";
 import * as webinarAttendance from "./jobs/webinar-attendance";
+import * as webinarRoomAutoclose from "./jobs/webinar-room-autoclose";
 import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
 import * as crmReminders from "./jobs/crm-reminders";
@@ -93,6 +94,7 @@ const JOBS = [
   scheduledEmails,
   webinarRecordings,
   webinarAttendance,
+  webinarRoomAutoclose,
   oauthCleanup,
   invoiceReconciliation,
   contactsCentralSync,

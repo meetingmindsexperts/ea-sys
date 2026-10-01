@@ -70,7 +70,8 @@ interface ZoomWebEmbedProps {
   joinUrl: string;
   /** Shown on the bar above the video. */
   sessionName?: string;
-  onLeave?: () => void;
+  /** The embed closed: the attendee left, or the host ended the webinar. */
+  onLeave?: (detail: { endedByHost: boolean }) => void;
   /**
    * Called when the embed fails to mount or join. The failure happens entirely
    * inside the browser, so without this it reaches no log we can read: the
@@ -249,9 +250,12 @@ export function ZoomWebEmbed({
         // the embed would tear itself down internally while the parent
         // still thought `isJoining === true`, leaving a black box.
         try {
-          client.on("connection-change", (payload: { state?: string }) => {
+          client.on("connection-change", (payload: { state?: string; reason?: string }) => {
             if (payload?.state === "Closed") {
-              onLeaveRef.current?.();
+              // The SDK says "ended by host" (also for an admin end) or "free
+              // meeting ended"; anything else is the attendee leaving.
+              const endedByHost = /ended by host|meeting ended/i.test(payload.reason ?? "");
+              onLeaveRef.current?.({ endedByHost });
             }
           });
         } catch {

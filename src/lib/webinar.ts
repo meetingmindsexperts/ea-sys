@@ -71,6 +71,10 @@ export interface WebinarSettings {
   lobbyImageUrl?: string;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
+  /** ISO time the producer last opened the room. The auto-close job only
+   *  trusts a Zoom "ended" time later than this, so an earlier practice run
+   *  of the same Zoom webinar can never close today's room (Oct 1, 2026). */
+  roomOpenedAt?: string;
 }
 
 export function readWebinarSettings(

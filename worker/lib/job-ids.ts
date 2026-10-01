@@ -38,6 +38,7 @@ export const JOB_IDS = {
   APPROVAL_ESCALATION: 1021,
   AGENT_RUN_PRUNE: 1022,
   QUICKBOOKS_HEALTH: 1023,
+  WEBINAR_ROOM_AUTOCLOSE: 1024,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

@@ -409,6 +409,29 @@ window. Pinned in both directions by
 [zoom-join-window.test.ts](../__tests__/api/zoom-join-window.test.ts),
 mutation-verified.
 
+### When the room closes by itself (Oct 1, 2026)
+
+Ending the webinar in Zoom used to leave our room open: the public page kept
+its live view until a producer clicked "Close the room". That stays the
+manual control (it never cuts off a webinar that overruns its slot), and two
+automatic closes now sit behind it:
+
+- **Zoom ended it.** The `webinar-room-autoclose` worker job (every 3 min)
+  asks Zoom for the webinar's past-webinar record (`getLastZoomEndTime` in
+  `src/lib/zoom/reports.ts`; Zoom's webinar details have no started/ended
+  field). If that run ended AFTER the room was opened
+  (`settings.webinar.roomOpenedAt`, written by the room toggle), the room
+  closes. An earlier practice run of the same Zoom webinar ends before the
+  room opened and is ignored.
+- **Safety net.** A room still open two hours after the scheduled end closes
+  without asking Zoom.
+
+Closing is what the button does: the anchor session becomes COMPLETED, so
+attendees move to the ended / replay view. On the attendee's own page, when
+Zoom's embed reports "ended by host", the top card switches to "This webinar
+has ended" at once and offers no Join button, before the job catches up.
+Logic and its decision table: `src/lib/webinar/room-autoclose.ts`.
+
 ### Tabs
 
 **Tab 1 — Live Video** (default):

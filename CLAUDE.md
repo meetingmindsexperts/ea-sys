@@ -141,7 +141,7 @@ ea-sys/
 │   └── proxy.ts                   # Next.js middleware (role redirects; renamed in 16.1)
 ├── worker/                        # BACKGROUND WORKER TIER — separate Node container
 │   ├── index.ts                   # node-cron scheduler
-│   ├── jobs/                      # 23 jobs: scheduled-emails · cert-issue · webinar-* ·
+│   ├── jobs/                      # 24 jobs: scheduled-emails · cert-issue · webinar-* ·
 │   │                              #   invoice-reconciliation · approval-escalation ·
 │   │                              #   quickbooks-health · hr-year-roll · crm-* · *-prune ·
 │   │                              #   daily-digest · log-archive · mirror-archive · oauth-cleanup

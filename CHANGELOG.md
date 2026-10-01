@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: webinar rooms close by themselves when the webinar is over (October 1)
+
+- Owner: an ended test webinar still showed the live view. Ending a webinar
+  in Zoom never closed our room; only the console's "Close the room" did.
+  New worker job `webinar-room-autoclose` (every 3 min, JOB_ID 1024) closes
+  an open room when Zoom's past-webinar record shows a run that ended after
+  the room opened (so an earlier practice run never triggers it), or two
+  hours after the scheduled end as a safety net. Guarded on LIVE, so a
+  producer's own close or re-open wins.
+- The room toggle records `settings.webinar.roomOpenedAt`.
+- Attendee page: when Zoom's embed reports "ended by host", the top card
+  shows "This webinar has ended" with no Join button straight away.
+- Tests: the decision table, the tick (anchor-only, safety net, per-room
+  failure isolation), and the Zoom end-time helper. Infra roster and cadence
+  guards updated.
+
 ### Fixed: the webinar Zoom panel is centred in full screen (October 1)
 
 - Live screenshot: in full screen during a screen share the panel sat to the

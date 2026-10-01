@@ -39,6 +39,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "webinar-recordings", cadence: "every 5 min", expectedPerDay: 288 },
   { name: "crm-reminders", cadence: "every 5 min", expectedPerDay: 288 },
   { name: "webinar-attendance", cadence: "every 10 min", expectedPerDay: 144 },
+  { name: "webinar-room-autoclose", cadence: "every 3 min", expectedPerDay: 480 },
   { name: "invoice-reconciliation", cadence: "every 10 min", expectedPerDay: 144 },
   { name: "contacts-central-sync", cadence: "twice hourly (:16, :53)", expectedPerDay: 48 },
   { name: "oauth-cleanup", cadence: "hourly (:00)", expectedPerDay: 24 },

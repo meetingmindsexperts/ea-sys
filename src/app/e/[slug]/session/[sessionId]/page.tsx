@@ -23,6 +23,7 @@ import {
   ListOrdered,
   LogIn,
   UserPlus,
+  CheckCircle2,
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
@@ -209,6 +210,9 @@ export default function PublicSessionPage() {
   // We don't auto-mount the embed on page load because we don't want to
   // pull the ~3 MB Zoom bundle for users just looking at session details.
   const [isJoining, setIsJoining] = useState(false);
+  // The host ended the webinar in Zoom (the embed said so). Shown at once,
+  // before the auto-close job closes the room a minute or two later.
+  const [hostEnded, setHostEnded] = useState(false);
   // B2: the recording URL + passcode are credentials. They're fetched on demand
   // from the registration-gated route, never shipped with the public payload.
   const [recording, setRecording] = useState<{ url: string; password: string | null } | null>(null);
@@ -313,6 +317,8 @@ export default function PublicSessionPage() {
       admittedRef.current = false;
       setIsJoining(false);
     }
+    // A re-opened room is a new run: forget an earlier "ended by host".
+    if (!prevRoomOpenRef.current && roomOpen) setHostEnded(false);
     prevRoomOpenRef.current = roomOpen;
   }, [roomOpen]);
 
@@ -630,6 +636,7 @@ export default function PublicSessionPage() {
             recordingLoading={recordingLoading}
             onWatchRecording={handleWatchRecording}
             isJoining={isJoining}
+            hostEnded={hostEnded}
             inWaitingRoom={showWaitingRoom}
             onJoin={() => setIsJoining(true)}
             onLeave={() => setIsJoining(false)}
@@ -721,7 +728,10 @@ export default function PublicSessionPage() {
                   userEmail={zoomUserEmail}
                   joinUrl={joinInfo.joinUrl}
                   sessionName={session?.name || joinInfo.sessionName}
-                  onLeave={() => setIsJoining(false)}
+                  onLeave={({ endedByHost }) => {
+                    setIsJoining(false);
+                    if (endedByHost) setHostEnded(true);
+                  }}
                   onJoinError={(detail) => {
                     // The join failed inside the SDK, so the server saw a clean
                     // 200 and logged nothing. Ship it somewhere readable.
@@ -1027,6 +1037,7 @@ function StickyCta({
   recordingLoading,
   onWatchRecording,
   isJoining,
+  hostEnded,
   inWaitingRoom,
   onJoin,
   onLeave,
@@ -1045,6 +1056,8 @@ function StickyCta({
   recordingLoading: boolean;
   onWatchRecording: () => void;
   isJoining: boolean;
+  /** The host ended the webinar in Zoom; the room closes shortly after. */
+  hostEnded: boolean;
   /** The branded waiting room is showing: the host has not opened the room. */
   inWaitingRoom: boolean;
   onJoin: () => void;
@@ -1189,6 +1202,27 @@ function StickyCta({
             <p className="font-semibold">You&apos;re in the waiting room</p>
             <p className="text-xs text-muted-foreground">
               Keep this page open. You&apos;ll join automatically, right here, when the host opens the session.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // The host ended it in Zoom: no Join button (rejoining would only reach a
+  // closed meeting). The room closes within a couple of minutes and the page
+  // moves to its ended / replay state.
+  if (hostEnded && !hasRecording) {
+    return (
+      <Card className="border-slate-200 bg-slate-50/80 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="h-6 w-6 text-slate-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">This webinar has ended</p>
+            <p className="text-xs text-muted-foreground">
+              Thank you for joining. The recording will appear on this page when it is ready.
             </p>
           </div>
         </CardContent>

@@ -437,6 +437,7 @@ OPERATOR_LANE_ALLOWLIST=(
   "src/lib/invoice-reconciliation-worker.ts" # PAID-without-invoice candidate sweep
   "src/lib/webinar-recordings-worker.ts"     # ZoomMeeting candidate scan
   "src/lib/webinar-attendance-worker.ts"     # ZoomMeeting candidate scan
+  "src/lib/webinar/room-autoclose.ts"        # open webinar rooms candidate scan (writes run in runWithTenant)
   "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
   "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
   "src/procurement/integrations/quickbooks/health-worker.ts" # which orgs hold a QuickBooks connection (the probe itself runs in the org's lane)

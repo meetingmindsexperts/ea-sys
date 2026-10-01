@@ -111,6 +111,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Webinar session not found" }, { status: 404 });
     }
 
+    // Record when the room opened: the auto-close job trusts a Zoom "ended"
+    // time only if it is later than this (see src/lib/webinar/room-autoclose.ts).
+    if (validated.data.open) {
+      const current = (event.settings && typeof event.settings === "object" ? event.settings : {}) as Record<string, unknown>;
+      await db.event.update({
+        where: { id: event.id },
+        data: {
+          settings: {
+            ...current,
+            webinar: { ...(webinar as Record<string, unknown>), roomOpenedAt: new Date().toISOString() },
+          },
+        },
+      });
+    }
+
     apiLogger.info(
       { eventId, sessionId: webinar.sessionId, userId: session.user.id, status: nextStatus },
       validated.data.open ? "webinar:room-opened" : "webinar:room-closed",
