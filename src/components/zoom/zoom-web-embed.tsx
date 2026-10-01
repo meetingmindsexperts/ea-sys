@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { loadZoomMtgEmbedded } from "@/lib/zoom/load-embedded-sdk";
 import { useFullscreen } from "@/hooks/use-fullscreen";
-import { fitZoomPanel, type Size } from "@/lib/fullscreen";
+import { fitZoomPanel, fitZoomRibbon, scaleSize, type Size } from "@/lib/fullscreen";
 
 /**
  * Zoom Meeting SDK — Component View embed.
@@ -29,12 +29,16 @@ import { fitZoomPanel, type Size } from "@/lib/fullscreen";
  *   overlap;
  * - the panel starts in speaker view, pinned at the root's top-left, with
  *   drag and resize off (owner: "limit controls for attendees"), and is
- *   sized to the area through `viewSizes` + `updateVideoOptions`. The SDK
- *   keeps a fixed aspect per view (about 0.70 in speaker view, 1.08 while a
- *   share is received), so the panel is computed as full height with the
- *   width capped by that aspect (`fitZoomPanel`), then centred. It is never
- *   full width on a 16:9 box: that is Zoom's layout. Refit on every area
- *   resize, the fullscreen toggle, and a share starting or stopping;
+ *   sized to the area through `viewSizes` + `updateVideoOptions` for both
+ *   the speaker layout and the ribbon (stacked tiles, which Zoom switches to
+ *   on its own with several panelists on camera). Per Zoom's docs the size
+ *   covers the video canvas only (header and toolbar sit outside it), and
+ *   during a screen share the SDK is known to ignore it (open Zoom forum
+ *   issue since 2022). So the real panel is measured after every DOM change
+ *   and the root translated to centre it, whatever layout Zoom picked; a
+ *   panel that overflows shrinks the requests. Never full width on a 16:9
+ *   box: that is Zoom's layout. Refit on area resize, the fullscreen toggle,
+ *   and a share starting or stopping;
  * - Full screen is the browser API via `useFullscreen`, with the in-page
  *   fallback for iPhone Safari.
  *
@@ -109,6 +113,28 @@ const ATTENDEE_VIDEO_LOCK: Pick<VideoOptions, "isResizable" | "popper"> = {
  */
 const ATTENDEE_MEETING_INFO: MeetingInfoType[] = ["topic", "host"];
 
+/** Shrink steps per refit when the drawn panel still overflows the area. */
+const MAX_CORRECTIONS = 2;
+
+/**
+ * Zoom's panel element. The SDK marks its header bar with
+ * `zoommtg-drag-video`; the panel is that bar's outermost ancestor still
+ * smaller than the root (wrappers above it span the whole root).
+ */
+function findZoomPanel(root: HTMLElement): HTMLElement | null {
+  const bar = root.querySelector<HTMLElement>(".zoommtg-drag-video");
+  if (!bar) return null;
+  const rootRect = root.getBoundingClientRect();
+  let panel: HTMLElement | null = null;
+  for (let el: HTMLElement | null = bar; el && el !== root; el = el.parentElement) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    if (r.width >= rootRect.width - 1 && r.height >= rootRect.height - 1) break;
+    panel = el;
+  }
+  return panel;
+}
+
 type LoadState =
   | { phase: "loading" }
   | { phase: "joining" }
@@ -150,9 +176,14 @@ export function ZoomWebEmbed({
   // and the first refit after joining catches any resize in between (a long
   // "waiting for the host" spell with a fullscreen toggle, for instance).
   const joinedRef = useRef(false);
-  // The root's explicit size: the fitted panel size. Null until the area is
-  // measured, when the root simply fills the area.
-  const [rootSize, setRootSize] = useState<Size | null>(null);
+  // Shrink factor applied to the requested sizes when the measured panel
+  // still overflows the area (more ribbon tiles than the request assumed).
+  // Reset to 1 on every refit; at most MAX_CORRECTIONS steps per refit.
+  const scaleRef = useRef(1);
+  const correctionsRef = useRef(0);
+  const measureFrameRef = useRef<number | null>(null);
+  const measureRef = useRef<() => void>(() => {});
+  const scheduleMeasureRef = useRef<() => void>(() => {});
   const refitRef = useRef<() => void>(() => {});
 
   const { isFullscreen, isFallback, toggle: toggleFullscreen } = useFullscreen(stageRef);
@@ -168,40 +199,101 @@ export function ZoomWebEmbed({
   const onJoinErrorRef = useRef(onJoinError);
   onJoinErrorRef.current = onJoinError;
 
-  /** Size the panel to the largest box the SDK can draw inside the area. */
-  const refit = useCallback(() => {
-    const size = fitZoomPanel(areaSizeRef.current, sharingRef.current);
-    if (!size) return;
-    setRootSize((prev) =>
-      prev && prev.width === size.width && prev.height === size.height ? prev : size,
-    );
+  /** Push the current sizes to the SDK (after the join only). */
+  const applySizes = useCallback(() => {
+    const area = areaSizeRef.current;
+    const speaker = fitZoomPanel(area, sharingRef.current);
+    const ribbon = fitZoomRibbon(area);
+    if (!speaker || !ribbon) return;
     const client = clientRef.current;
     if (!client || !joinedRef.current) return;
     try {
-      client.updateVideoOptions({ ...ATTENDEE_VIDEO_LOCK, viewSizes: { default: size } });
+      client.updateVideoOptions({
+        ...ATTENDEE_VIDEO_LOCK,
+        viewSizes: {
+          default: scaleSize(speaker, scaleRef.current),
+          ribbon: scaleSize(ribbon, scaleRef.current),
+        },
+      });
     } catch (err) {
       // The panel keeps its last size; the attendee still has a working
       // player, just not a fitted one.
       console.warn("zoom-embed:resize-failed", err);
     }
   }, []);
+
+  /** A fresh fit: full-area sizes for every layout, then measure. */
+  const refit = useCallback(() => {
+    scaleRef.current = 1;
+    correctionsRef.current = 0;
+    applySizes();
+    scheduleMeasureRef.current();
+  }, [applySizes]);
   refitRef.current = refit;
 
-  // Refit whenever our box changes size (page resize, fullscreen toggle).
+  /**
+   * Centre whatever Zoom drew, in every layout (speaker, ribbon, slides with
+   * the side strip). Zoom switches layouts on its own, and each draws a
+   * different-sized panel at the root's top-left, so the panel is measured
+   * (the real element, found from Zoom's header bar, never the root's scroll
+   * extent, which off-panel popovers inflate) and the root is translated by
+   * half the leftover space. If the panel overflows, the requests shrink.
+   */
+  const measure = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const panel = findZoomPanel(root);
+    if (!panel) return;
+    const area = areaSizeRef.current;
+    const { width, height } = panel.getBoundingClientRect();
+    const dx = Math.max(0, Math.floor((area.width - width) / 2));
+    const dy = Math.max(0, Math.floor((area.height - height) / 2));
+    root.style.transform = dx || dy ? `translate(${dx}px, ${dy}px)` : "";
+
+    const overflows = width > area.width + 2 || height > area.height + 2;
+    if (!overflows || !joinedRef.current || correctionsRef.current >= MAX_CORRECTIONS) return;
+    correctionsRef.current += 1;
+    scaleRef.current *= Math.min(area.width / width, area.height / height);
+    applySizes();
+  }, [applySizes]);
+  measureRef.current = measure;
+
+  /** Measure on the next frame, coalesced, never inside an observer tick. */
+  const scheduleMeasure = useCallback(() => {
+    if (measureFrameRef.current !== null) return;
+    measureFrameRef.current = requestAnimationFrame(() => {
+      measureFrameRef.current = null;
+      measureRef.current();
+    });
+  }, []);
+  scheduleMeasureRef.current = scheduleMeasure;
+
+  // Refit when our box changes size (page resize, fullscreen toggle), and
+  // re-centre whenever Zoom changes its DOM (layout switch, tiles joining).
   useEffect(() => {
     const area = areaRef.current;
-    if (!area) return;
+    const root = containerRef.current;
+    if (!area || !root) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (!rect) return;
       areaSizeRef.current = { width: rect.width, height: rect.height };
-      // Off the observer's own tick so the SDK's re-layout cannot land
-      // inside the same observation loop.
       requestAnimationFrame(() => refitRef.current());
     });
     observer.observe(area);
-    return () => observer.disconnect();
-  }, []);
+    const sdkObserver = new MutationObserver(() => scheduleMeasure());
+    sdkObserver.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+    return () => {
+      observer.disconnect();
+      sdkObserver.disconnect();
+      if (measureFrameRef.current !== null) cancelAnimationFrame(measureFrameRef.current);
+    };
+  }, [scheduleMeasure]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,6 +352,7 @@ export function ZoomWebEmbed({
         }
 
         const initialSize = fitZoomPanel(areaSizeRef.current, false);
+        const initialRibbon = fitZoomRibbon(areaSizeRef.current);
         const video: VideoOptions = {
           ...ATTENDEE_VIDEO_LOCK,
           // Speaker view: the active speaker, or the shared slides, fills the
@@ -267,7 +360,9 @@ export function ZoomWebEmbed({
           // The SDK types this as a const enum, which a type-only import
           // cannot reference at runtime; the string is the enum's value.
           defaultViewType: "speaker" as unknown as SuspensionViewType,
-          ...(initialSize ? { viewSizes: { default: initialSize } } : {}),
+          ...(initialSize && initialRibbon
+            ? { viewSizes: { default: initialSize, ribbon: initialRibbon } }
+            : {}),
         };
 
         await client.init({
@@ -452,11 +547,10 @@ export function ZoomWebEmbed({
         <div
           ref={containerRef}
           data-zoom-embed-root="true"
-          className="relative"
-          style={{
-            width: rootSize?.width ?? "100%",
-            height: rootSize?.height ?? "100%",
-          }}
+          className="relative self-stretch"
+          // Fills the area; `measure` translates it so the panel Zoom draws
+          // at its top-left sits centred.
+          style={{ width: "100%", height: "100%" }}
         />
 
         {/* Overlay states — rendered above the SDK container */}

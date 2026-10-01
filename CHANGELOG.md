@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: the webinar Zoom panel sits centred in every layout (October 1)
+
+- Live screenshots: with two panelists Zoom switched to its stacked-tiles
+  ribbon, drawn small at the top-left; during a screen share the panel sat
+  right of centre with black space beneath. Zoom's docs say the size we set
+  covers the video canvas only, and its forum has an open issue (since 2022)
+  that the Component View ignores the size during a share. So the embed now
+  measures the real panel (found from Zoom's header bar, not the root's
+  scroll extent) after every DOM change and translates the root to centre it
+  both ways, whatever layout Zoom picked; the ribbon gets its own size; a
+  panel that overflows shrinks the requests (at most two steps per refit).
+- Verified in headed Chromium with stand-in panels (a real one needs a real
+  join): ribbon on the page, slides plus strip in full screen, ribbon in full
+  screen, all centred with equal gaps, zero console warnings.
+
 ### Fixed: the webinar Zoom panel was cut to about 40% width (October 1)
 
 - Owner caught it on a live webinar the same day: the speaker sat in a

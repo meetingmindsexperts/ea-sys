@@ -130,3 +130,26 @@ export function fitZoomPanel(area: Size, sharing: boolean): Size | null {
   const width = Math.max(200, Math.floor(Math.min(area.width, area.height / ratio)));
   return { width, height: Math.floor(width * ratio) };
 }
+
+/**
+ * Ribbon view (Zoom stacks the speakers' tiles in one column, which it
+ * switches to on its own when several panelists are on camera). The SDK's
+ * base is 250 wide and, for two tiles, 274 tall; its height grows with the
+ * tile count, so the request is sized for two and any overflow with more is
+ * corrected by measuring the drawn panel.
+ */
+export const ZOOM_RIBBON_RATIO = 274 / 250;
+
+export function fitZoomRibbon(area: Size): Size | null {
+  if (area.width <= 0 || area.height <= 0) return null;
+  const width = Math.max(200, Math.floor(Math.min(area.width, area.height / ZOOM_RIBBON_RATIO)));
+  return { width, height: Math.floor(area.height) };
+}
+
+/** Scale a size, never below the SDK's practical minimum. */
+export function scaleSize(size: Size, factor: number): Size {
+  return {
+    width: Math.max(200, Math.floor(size.width * factor)),
+    height: Math.max(150, Math.floor(size.height * factor)),
+  };
+}
