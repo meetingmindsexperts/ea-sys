@@ -447,14 +447,14 @@ the code won each time, per §7.6):
   org-scoped with no role gate (G5), so ONSITE and WEBINARS read every org
   event's bookings today. The survey reset is `denyReviewer` with no
   allow-list although WEBINARS holds `surveys.manage` at `WEBINAR`.
-- **Found by the route matrix (Oct 1, 2026), not fixed:** `GET
-  /api/events/[eventId]/promo-codes/[promoCodeId]` looks the event up by id
+- **Found by the route matrix (Oct 1, 2026), FIXED the same day:** `GET
+  /api/events/[eventId]/promo-codes/[promoCodeId]` looked the event up by id
   and organisation only, with no role gate, so ONSITE, WEBINARS, CRM_USER and
-  HR_USER reach any org event's promo code detail, including up to 50
-  redemptions with attendee names and emails (amounts are redacted for the
-  last two). The list route beside it uses `buildEventAccessWhere` and 404s
-  them, which limits this to a caller who already holds a promo code id. The
-  snapshot records today's behaviour; the fix changes those rows on purpose.
+  HR_USER reached any org event's promo code detail, including up to 50
+  redemptions with attendee names and emails (amounts redacted for the last
+  two), given a promo code id the list route would not have shown them. It now
+  resolves the event through `buildEventAccessWhere`, as the list route does;
+  the four matrix rows changed on purpose and now equal the list route's.
 
 ---
 

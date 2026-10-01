@@ -85,6 +85,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Fixed: a promo code's detail page is limited to the events your role can open (October 1)
+
+- The promo code detail route checked the organisation but not the role, so
+  desk, webinar, CRM and HR accounts could open a promo code on an event they
+  cannot see, with its recent redemptions (attendee names and emails), if they
+  had its id. It now finds the event the same way the promo code list does.
+  Admins and organisers are unaffected. Found by the route status matrix.
+
 ### Added: custom roles Phase 1, slice 4: `requirePermission()` and the route status matrix (October 1)
 
 - `requirePermission()` is the route-boundary form of `can()`: 401, 403, or
@@ -95,9 +103,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   14 callers gets from each handler on four fixture events. Events core and
   registration types and promo codes are recorded; a sweep must leave a
   domain's matrix unchanged.
-- Found while recording, not fixed: the promo code detail route checks the
-  organisation but not the role, so desk, webinar, CRM and HR accounts can
-  open a promo code they hold the id of, with its recent redemptions.
+- Found while recording: the promo code detail route checked the
+  organisation but not the role (fixed the same day, entry above).
 
 ### Changed: the session cookie no longer carries permission keys (October 1)
 

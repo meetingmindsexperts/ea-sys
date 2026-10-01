@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
@@ -64,14 +65,18 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/promo-codes/[promoCodeId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    // Org-bind the event before exposing the promo code + its redemption PII
-    // (mirrors the PUT/DELETE handlers). Without this, any authenticated user
-    // could read another org's promo config + attendee names/emails/prices.
+    // Resolve the event through the role's own scope, exactly as the list
+    // route beside this one does, before exposing the promo code and its
+    // redemption PII. It was org-bound only until Oct 1, 2026, which the route
+    // status matrix caught: ONSITE reached unassigned events, WEBINARS
+    // conferences, and CRM_USER and HR_USER (confined to their modules) any
+    // event, each seeing attendee names and emails given a promo code id.
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "events/promo-codes:detail-event-not-found", eventId, role: session.user.role, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
