@@ -13,8 +13,7 @@ import {
   brandingCc,
   eventLocationVars,
 } from "@/lib/email";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import {
   buildPresenterAgreementContext,
@@ -49,8 +48,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/presenter-agreement/email:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.email", { route: "events/[eventId]/abstracts/[abstractId]/presenter-agreement/email:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `presenter-agreement-email:${session.user.id}`,
@@ -85,7 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // abstract read + everything downstream (token mint, send, audit) run
     // INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, slug: true, venue: true, city: true, country: true, organizationId: true },
     });
 

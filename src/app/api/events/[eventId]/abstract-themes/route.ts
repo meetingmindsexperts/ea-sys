@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
 
 /**
  * GET authorizes via buildEventAccessWhere, NOT requireOrgId (fixed Aug 6,
@@ -36,11 +35,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "abstracts.read", { route: "events/[eventId]/abstract-themes:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
+    if (!gate.ok) return gate.response;
+
     // Resource org: event resolved first, un-wrapped, for its org (the
     // session-proposal-themes pattern) — org-null submitters linked to the
     // event pass; a foreign event still 404s.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -88,12 +90,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.themes.manage", { route: "events/[eventId]/abstract-themes:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

@@ -4,7 +4,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 
@@ -37,8 +37,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/resend-confirmation:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/resend-confirmation:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.email", { route: "events/[eventId]/abstracts/[abstractId]/resend-confirmation:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rl = checkRateLimit({ key: `abstract-confirm-resend:${session.user.id}`, limit: 30, windowMs: 60 * 60 * 1000 });
@@ -51,7 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, name: true, slug: true },
     });
     if (!event) {

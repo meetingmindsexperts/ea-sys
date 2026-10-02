@@ -164,10 +164,12 @@ const WRITE_METHODS = new Set(["create", "createMany", "createManyAndReturn", "u
 
 interface Recording {
   eventReadMatched: boolean;
+  /** Another table's read carried an `event: { … }` filter that matched a fixture event. */
+  nestedEventMatched: boolean;
   wrote: boolean;
   listedEventIds: string[] | null;
 }
-let rec: Recording = { eventReadMatched: false, wrote: false, listedEventIds: null };
+let rec: Recording = { eventReadMatched: false, nestedEventMatched: false, wrote: false, listedEventIds: null };
 
 function eventRow(ev: FixtureEvent) {
   return {
@@ -205,6 +207,20 @@ function emptyRead(method: string): unknown {
   return null;
 }
 
+/**
+ * A route can scope through a RELATION instead of reading the event first
+ * (`abstractTheme.findFirst({ where: { id, eventId, event: { organizationId } } })`).
+ * That filter is evaluated too, with the row's `eventId` as the event id, so
+ * the matrix pins the scope of those lookups (`e` in a cell). The row itself
+ * still reads as absent.
+ */
+function noteNestedEventFilter(where: Where | undefined): void {
+  const nested = where?.event;
+  if (!nested || typeof nested !== "object") return;
+  const filter = { ...(nested as Where), ...(typeof where?.eventId === "string" ? { id: where.eventId } : {}) };
+  if (EVENTS.some((ev) => matchesEvent(filter, ev))) rec.nestedEventMatched = true;
+}
+
 function model(name: string) {
   return new Proxy(
     {},
@@ -215,7 +231,9 @@ function model(name: string) {
             rec.wrote = true;
             throw new Error(`route-matrix: write ${name}.${method}`);
           }
-          return name === "event" ? eventModel(method, args) : emptyRead(method);
+          if (name === "event") return eventModel(method, args);
+          noteNestedEventFilter(args?.where);
+          return emptyRead(method);
         };
       },
     },
@@ -327,7 +345,7 @@ export interface HandlerCase {
 
 async function runOnce(c: HandlerCase, caller: Caller, eventId?: string): Promise<string> {
   currentSession = caller.session;
-  rec = { eventReadMatched: false, wrote: false, listedEventIds: null };
+  rec = { eventReadMatched: false, nestedEventMatched: false, wrote: false, listedEventIds: null };
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (caller.apiKey) headers.authorization = `Bearer ${API_KEY}`;
   const req = new Request(`http://localhost/api/matrix${c.query ? `?${c.query}` : ""}`, {
@@ -344,7 +362,7 @@ async function runOnce(c: HandlerCase, caller: Caller, eventId?: string): Promis
     status = 0; // the handler threw past its own catch
   }
   if (rec.listedEventIds) return `${status} [${rec.listedEventIds.join(",")}]`;
-  return `${status}${rec.eventReadMatched ? " r" : ""}${rec.wrote ? " w" : ""}`;
+  return `${status}${rec.eventReadMatched ? " r" : ""}${rec.nestedEventMatched ? " e" : ""}${rec.wrote ? " w" : ""}`;
 }
 
 /** The matrix for one handler as fixed-width text, one caller per line. */
@@ -365,7 +383,7 @@ export async function domainMatrix(title: string, cases: readonly HandlerCase[])
   const blocks: string[] = [];
   for (const c of cases) blocks.push(await matrixFor(c));
   const legend =
-    "# cell: HTTP status; r = an event read matched (data reached); w = a write was attempted (writes throw, so the status after w is the handler's catch)\n" +
+    "# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)\n" +
     "# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)";
   return `# ${title}\n${legend}\n\n${blocks.join("\n\n")}\n`;
 }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { requireOrgId } from "@/lib/require-org";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { unassignReviewer, type UnassignReviewerErrorCode } from "@/services/abstract-service";
 
@@ -40,8 +41,16 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers/[userId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers/[userId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.reviewers.assign", { route: "events/[eventId]/abstracts/[abstractId]/reviewers/[userId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
+
+    // The event must be one the grant reaches: the service below checks only
+    // the organisation, equivalent only while every holder of the key is org-wide.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "events/abstracts/reviewers:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const result = await unassignReviewer({

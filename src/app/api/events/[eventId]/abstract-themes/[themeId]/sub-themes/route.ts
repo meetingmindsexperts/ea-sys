@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -34,8 +34,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.themes.manage", { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json().catch(() => null);
     const parsed = createSubThemeSchema.safeParse(body);
@@ -51,7 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Bind the theme to the event AND the event to the org before writing:
       // a themeId from another org must not become a parent here.
       const theme = await db.abstractTheme.findFirst({
-        where: { id: themeId, eventId, event: { organizationId: orgGuard.orgId } },
+        where: { id: themeId, eventId, event: gate.eventWhere },
         select: { id: true },
       });
       if (!theme) {

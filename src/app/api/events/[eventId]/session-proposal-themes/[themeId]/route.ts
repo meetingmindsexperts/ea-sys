@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -30,13 +30,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.themes.manage", { route: "events/[eventId]/session-proposal-themes/[themeId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     // Event first, un-wrapped (bound to the session org); its org is the lane
     // for the theme read + update (swept).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -89,13 +89,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.themes.manage", { route: "events/[eventId]/session-proposal-themes/[themeId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Event first, un-wrapped (bound to the session org); its org is the lane
     // for the theme read (+ its proposal _count, swept) and delete.
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

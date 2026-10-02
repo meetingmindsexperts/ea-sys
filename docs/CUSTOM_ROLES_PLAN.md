@@ -680,6 +680,29 @@ Domain by domain:
   form, but can act on any tenant's speaker activity, agreement, documents and
   companion registration, which never had `requireOrgId`. Preserved as found;
   part of the same owner call as the agenda.
+- **Abstracts and proposals, staff side SWEPT Oct 2, 2026 (part A)** (16
+  files: abstract themes and sub-themes, proposal themes, review criteria, the
+  reviewer pool, an abstract's reviewer assignment, resend confirmation, the
+  presenter-agreement email, the submission share links). Keys:
+  `abstracts.read` / `proposals.read` (theme lists, attendee-side roles
+  `linked`; review criteria), `abstracts.themes.manage`,
+  `proposals.themes.manage`, `abstracts.criteria.manage`,
+  `reviewers.pool.manage`, `abstracts.reviewers.assign` (with an event check
+  ahead of the org-only services), `abstracts.email`, and a NEW key
+  `submissions.share` for the share links (Admin and Organizer). ONSITE (at
+  `ASSIGNED`) and WEBINARS (at `WEBINAR`) now hold `abstracts.read` and
+  `proposals.read`, keeping what the matrix recorded (and §5 listed), part B
+  included. **One change on purpose:** the review criteria GET was org-scoped
+  with no role check (G3), so CRM_USER, HR_USER, unassigned ONSITE and WEBINARS
+  on conferences read any event's criteria; it now resolves through
+  `abstracts.read`, and those four matrix rows were re-recorded. The harness
+  learned nested `event: { ... }` filters (`e` in a cell) to pin the sub-theme
+  routes; the guard now flags staff role names only, as plan §1 keeps the
+  outside identities' own checks. Verified with the chrome-devtools MCP:
+  ADMIN created, edited and deleted themes, sub-themes, proposal themes and
+  criteria, with clean Abstracts and Reviewers pages; ONSITE (assigned) and
+  CRM_USER answered as the matrix records. **Part B** (the abstract and
+  proposal routes where authors and reviewers write) is next.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

@@ -1,8 +1,9 @@
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -23,13 +24,13 @@ interface RouteParams {
  * sub-theme belonging to another theme (or another org's event) is a 404
  * rather than an editable row.
  */
-async function loadOwned(orgId: string, eventId: string, themeId: string, subThemeId: string) {
+async function loadOwned(eventWhere: Prisma.EventWhereInput, eventId: string, themeId: string, subThemeId: string) {
   return db.abstractSubTheme.findFirst({
     where: {
       id: subThemeId,
       themeId,
       eventId,
-      event: { organizationId: orgId },
+      event: eventWhere,
     },
     select: { id: true, _count: { select: { abstracts: true } } },
   });
@@ -45,8 +46,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.themes.manage", { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json().catch(() => null);
     const parsed = updateSubThemeSchema.safeParse(body);
@@ -59,7 +60,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const existing = await loadOwned(orgGuard.orgId, eventId, themeId, subThemeId);
+      const existing = await loadOwned(gate.eventWhere, eventId, themeId, subThemeId);
       if (!existing) {
         apiLogger.warn({ msg: "abstract-sub-theme:not-found", eventId, themeId, subThemeId, userId: session.user.id });
         return NextResponse.json({ error: "Sub-theme not found" }, { status: 404 });
@@ -101,11 +102,11 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.themes.manage", { route: "events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const existing = await loadOwned(orgGuard.orgId, eventId, themeId, subThemeId);
+      const existing = await loadOwned(gate.eventWhere, eventId, themeId, subThemeId);
       if (!existing) {
         apiLogger.warn({ msg: "abstract-sub-theme:not-found", eventId, themeId, subThemeId, userId: session.user.id });
         return NextResponse.json({ error: "Sub-theme not found" }, { status: 404 });

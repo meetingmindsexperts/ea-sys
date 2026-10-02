@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
@@ -34,8 +34,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/reviewers/[reviewerId]/resend-invitation:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/reviewers/[reviewerId]/resend-invitation:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reviewers.pool.manage", { route: "events/[eventId]/reviewers/[reviewerId]/resend-invitation:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rl = checkRateLimit({ key: `reviewer-invite-resend:${session.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

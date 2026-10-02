@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { findUserByEmail, userEmailScope, isUniqueViolation } from "@/lib/tenant/user-lookup";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
@@ -34,15 +34,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/reviewers:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/reviewers:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reviewers.pool.manage", { route: "events/[eventId]/reviewers:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const [event, speakers] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true, settings: true },
       }),
       db.speaker.findMany({
@@ -144,8 +144,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/reviewers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/reviewers:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reviewers.pool.manage", { route: "events/[eventId]/reviewers:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
@@ -160,7 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true },
     });
 

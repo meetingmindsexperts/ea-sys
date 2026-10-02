@@ -124,6 +124,7 @@ export const PERMISSION_KEYS = [
   "abstracts.themes.manage",
   "abstracts.criteria.manage",
   "reviewers.pool.manage",
+  "submissions.share",
   // Session proposals
   "proposals.read",
   "proposals.decide",
@@ -511,6 +512,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("abstracts.reviewers.assign", "Abstracts", "Assign reviewers", "Assign and unassign reviewers on an abstract.", E),
   app("abstracts.themes.manage", "Abstracts", "Abstract themes", "Manage the themes and sub-themes authors choose from.", E),
   app("abstracts.criteria.manage", "Abstracts", "Review criteria", "Manage the scoring criteria reviewers use.", E),
+  app("submissions.share", "Abstracts", "Share submissions by link", "Turn on, set up and renew the read-only links that show abstracts or session proposals to people without a sign-in.", E),
   app("reviewers.pool.manage", "Abstracts", "Reviewer pool", "Add and remove the event's reviewers.", E),
 
   // ── Session proposals ──

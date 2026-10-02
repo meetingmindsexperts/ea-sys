@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 /**
  * The organiser side of every shared-view route (abstracts, proposals,
  * registrations): after the handler's own auth() + denyReviewer (kept literal
@@ -11,11 +12,17 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { requireOrgId } from "@/lib/require-org";
 
-export async function resolveShareEvent(session: Session, route: string, eventId: string) {
+export async function resolveShareEvent(
+  session: Session,
+  route: string,
+  eventId: string,
+  /** The permission gate's filter, from a route moved onto `requirePermission`. */
+  where: Prisma.EventWhereInput = buildEventAccessWhere(session.user, eventId),
+) {
   const org = requireOrgId(session, { route, eventId });
   if ("error" in org) return { error: org.error } as const;
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(session.user, eventId),
+    where,
     select: { id: true, slug: true, organizationId: true },
   });
   if (!event) {

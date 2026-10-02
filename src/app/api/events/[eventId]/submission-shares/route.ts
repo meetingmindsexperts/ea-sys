@@ -19,7 +19,7 @@ import type { SubmissionShareLink } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveShareEvent, userNames } from "@/lib/share-link-access";
 import { newShareToken } from "@/lib/share-token";
@@ -88,9 +88,9 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
     const { eventId } = await params;
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:GET", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:GET", eventId);
+    const gate = requirePermission(session, "submissions.share", { route: "events/[eventId]/submission-shares:GET", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:GET", eventId, gate.eventWhere);
     if (r.error) return r.error;
     return await runWithTenant(r.event.organizationId, async () => {
       const links = await listViews(r.event.id, r.event.slug);
@@ -107,9 +107,9 @@ export async function PUT(req: Request, { params }: RouteParams): Promise<NextRe
     const [{ eventId }, body] = await Promise.all([params, req.json().catch(() => null)]);
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:PUT", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:PUT", eventId);
+    const gate = requirePermission(session, "submissions.share", { route: "events/[eventId]/submission-shares:PUT", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:PUT", eventId, gate.eventWhere);
     if (r.error) return r.error;
 
     const parsed = putSchema.safeParse(body);
@@ -187,9 +187,9 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
     const [{ eventId }, body] = await Promise.all([params, req.json().catch(() => null)]);
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/submission-shares:POST", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:POST", eventId);
+    const gate = requirePermission(session, "submissions.share", { route: "events/[eventId]/submission-shares:POST", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/submission-shares:POST", eventId, gate.eventWhere);
     if (r.error) return r.error;
 
     const parsed = postSchema.safeParse(body);

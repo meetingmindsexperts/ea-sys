@@ -1,5 +1,5 @@
 # events core
-# cell: HTTP status; r = an event read matched (data reached); w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
 # events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
 
 GET /api/events

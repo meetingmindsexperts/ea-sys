@@ -57,10 +57,32 @@ SWEPT=(
   "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route.ts"
   "src/app/api/events/[eventId]/speakers/[speakerId]/profile-form/route.ts"
+  # abstracts and proposals, staff side (Oct 2, 2026); part B (the author and reviewer routes) follows
+  "src/app/api/events/[eventId]/abstract-themes/route.ts"
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/route.ts"
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/route.ts"
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/sub-themes/[subThemeId]/route.ts"
+  "src/app/api/events/[eventId]/session-proposal-themes/route.ts"
+  "src/app/api/events/[eventId]/session-proposal-themes/[themeId]/route.ts"
+  "src/app/api/events/[eventId]/review-criteria/route.ts"
+  "src/app/api/events/[eventId]/review-criteria/[criterionId]/route.ts"
+  "src/app/api/events/[eventId]/reviewers/route.ts"
+  "src/app/api/events/[eventId]/reviewers/[reviewerId]/route.ts"
+  "src/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route.ts"
+  "src/app/api/events/[eventId]/submission-shares/route.ts"
 )
 
-# What a swept file may no longer contain, once comments are stripped.
-PATTERN='denyReviewer\(|[A-Za-z_]+_ALLOW\b|role[[:space:]]*[!=]==|[!=]==[[:space:]]*session\.user\.role'
+# What a swept file may no longer contain, once comments are stripped: the old
+# guard, an allow-list, a comparison against a STAFF role name (the eight roles
+# the catalogue covers), or any comparison against the caller's own role. The
+# outside identities (REVIEWER, SUBMITTER, REGISTRANT) are not flagged: plan §1
+# keeps their own checks, and a route may test an invitee's account type.
+STAFF='(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER)'
+PATTERN="denyReviewer\\(|[A-Za-z_]+_ALLOW\\b|[!=]==[[:space:]]*\"${STAFF}\"|\"${STAFF}\"[[:space:]]*[!=]==|session\\.user\\.role[[:space:]]*[!=]==|[!=]==[[:space:]]*session\\.user\\.role"
 
 fail=0
 for rel in "${SWEPT[@]}"; do

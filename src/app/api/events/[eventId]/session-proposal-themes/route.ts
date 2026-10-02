@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
 
 /**
  * Session-proposal themes — the event's OWN theme list for session proposals
@@ -36,10 +35,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "proposals.read", { route: "events/[eventId]/session-proposal-themes:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
+    if (!gate.ok) return gate.response;
+
     // Resource org: org-null SUBMITTERs read the theme picker too (the dual-route
     // rule). Event resolved first, un-wrapped, for its org.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -74,11 +76,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/session-proposal-themes:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposal-themes:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.themes.manage", { route: "events/[eventId]/session-proposal-themes:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

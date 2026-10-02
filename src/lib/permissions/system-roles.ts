@@ -132,6 +132,7 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "abstracts.themes.manage",
   "abstracts.criteria.manage",
   "reviewers.pool.manage",
+  "submissions.share",
   "proposals.decide",
   "proposals.themes.manage",
   "sessions.write",
@@ -326,7 +327,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // same way so nobody's access changes; and speakers, which the desk reads
     // to fill in a registration (owner, Oct 2, 2026).
     grants: [
-      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", ...DESK, ...DESK_WITH_CODES),
+      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", "abstracts.read", "proposals.read", ...DESK, ...DESK_WITH_CODES),
       ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
@@ -345,6 +346,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // Reads a webinar's promo codes (no write: promo codes are hidden on
       // webinars); recorded by the route matrix, kept by the owner, Oct 1, 2026.
       ...at("WEBINAR", "promo.read"),
+      // Reads a webinar's abstracts and session proposals (and their themes),
+      // recorded by the route matrix and kept as found, Oct 2, 2026.
+      ...at("WEBINAR", "abstracts.read", "proposals.read"),
       ...org("finance.view", "barcode.view", "zoomHost.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -27,13 +27,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/review-criteria/[criterionId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/review-criteria/[criterionId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.criteria.manage", { route: "events/[eventId]/review-criteria/[criterionId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, criterion] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.reviewCriterion.findFirst({
@@ -76,13 +76,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/review-criteria/[criterionId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/review-criteria/[criterionId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.criteria.manage", { route: "events/[eventId]/review-criteria/[criterionId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, criterion] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.reviewCriterion.findFirst({

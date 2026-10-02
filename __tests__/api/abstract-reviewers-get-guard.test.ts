@@ -57,7 +57,10 @@ describe("GET abstract reviewers — staff-only", () => {
     // The refusal must be traceable, and must name the route it came from.
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        msg: "auth-guard:write-denied",
+        // requirePermission's refusal (custom roles Phase 2, Oct 2, 2026): the
+        // same trace, now naming the permission that was missing.
+        msg: "permissions:denied",
+        permission: "abstracts.reviewers.assign",
         role: "MEMBER",
         route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET",
       }),

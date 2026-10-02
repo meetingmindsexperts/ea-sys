@@ -5,8 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { assignReviewer, type AssignReviewerErrorCode } from "@/services/abstract-service";
 
@@ -59,8 +58,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.reviewers.assign", { route: "events/[eventId]/abstracts/[abstractId]/reviewers:POST", eventId });
+    if (!gate.ok) return gate.response;
+
+    // The event must be one the grant reaches: the service below checks only
+    // the organisation, equivalent only while every holder of the key is org-wide.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "events/abstracts/reviewers:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     return await runWithTenant(orgGuard.orgId, async () => {
     if (!body) {
@@ -163,11 +170,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // `buildEventAccessWhere` gives MEMBER the whole org and the abstract
     // lookup below is not ownership-scoped. Do not remove either guard on the
     // strength of the comment that used to sit below this one.
-    const denied = denyReviewer(session, {
-      route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET",
-      eventId,
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.reviewers.assign", { route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/abstracts/[abstractId]/reviewers:GET" });
     if ("error" in orgGuard) return orgGuard.error;
@@ -179,7 +183,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // this route by design — the guards above admit staff only.
     const [event, abstract] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.abstract.findFirst({

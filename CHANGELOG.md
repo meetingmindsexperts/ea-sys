@@ -379,6 +379,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: abstract and proposal settings check permissions instead of roles (October 2)
+
+- Custom roles Phase 2, fifth domain, staff side: abstract and proposal
+  themes, review criteria, reviewers, reviewer assignment, the author emails
+  and the share links. Sharing abstracts or proposals by link is now its own
+  permission. Nobody's access changes, with one fix: review criteria were
+  readable by every staff account on every event, including CRM and HR; now
+  only by people who can see the event's abstracts.
+
 ### Changed: speakers check permissions instead of roles (October 2)
 
 - Custom roles Phase 2, fourth domain: the speaker list and page, tags,
