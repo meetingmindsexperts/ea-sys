@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -22,8 +21,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/schedule/[id]/retry:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/emails/schedule/[id]/retry:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "communications.schedule", { route: "events/[eventId]/emails/schedule/[id]/retry:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy (Domain #18): swept ScheduledEmail retry rides the org lane.
     return await runWithTenant(orgGuard.orgId, async () => {
@@ -36,7 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Review H-2: the PRIMARY write must carry the role-aware event
         // resolution, not just org scope — for WEBINARS this confines the
         // mutation to webinar events (the fallback read already did).
-        event: buildEventAccessWhere(session.user, eventId),
+        event: gate.eventWhere,
         status: "FAILED",
       },
       data: {
@@ -53,7 +52,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (result.count === 0) {
       const existing = await db.scheduledEmail.findFirst({
-        where: { id, eventId, event: buildEventAccessWhere(session.user, eventId) },
+        where: { id, eventId, event: gate.eventWhere },
         select: { status: true },
       });
       if (!existing) {

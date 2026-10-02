@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import type { Prisma } from "@prisma/client";
 
@@ -42,8 +41,8 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-activity:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "communications.send", { route: "events/[eventId]/email-activity:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId;
     if (!orgId) {
@@ -53,7 +52,7 @@ export async function GET(
     // Event must belong to the caller's org (ADMIN/ORGANIZER are org-scoped to
     // all events; 404 rather than 403 to avoid cross-org existence leaks).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

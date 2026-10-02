@@ -5,8 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
 import { sendEmail, renderTemplate, renderTemplatePlain, templateVariablesFor, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 import { resetEmailTemplateToDefault } from "@/lib/email-template-reset";
@@ -71,12 +70,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "templates.read", { route: "events/[eventId]/email-templates/[templateId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Tenant isolation: bind the event to the caller's org BEFORE touching
     // the template — both eventId and templateId come from the URL, so
     // without this any authenticated user could read another org's
     // templates. 404 (not 403) to avoid existence enumeration.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -122,11 +124,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -222,11 +224,11 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -272,8 +274,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const [template, event, previewUser, realOverrides] = await Promise.all([
       db.emailTemplate.findFirst({
@@ -283,7 +285,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // org (or doesn't exist) — POST renders + can email template content,
       // so this must be tenant-isolated like the other handlers.
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: {
           // Full branding set — must match getEventTemplate so a test/preview
           // renders the SAME header image, footer image, and footer HTML a real
@@ -443,11 +445,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/email-templates/[templateId]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-templates/[templateId]:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "templates.manage", { route: "events/[eventId]/email-templates/[templateId]:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

@@ -22,8 +22,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { BulkEmailError, countAbstractEmailRecipients } from "@/lib/bulk-email";
 
 interface RouteParams {
@@ -40,11 +39,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/emails/audience-count:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, {
-      allow: WEBINAR_STAFF_ALLOW,
-      route: "events/[eventId]/emails/audience-count:GET",
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "communications.send", { route: "events/[eventId]/emails/audience-count:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const url = new URL(req.url);
     const recipientType = url.searchParams.get("recipientType") ?? "";
@@ -65,7 +61,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

@@ -1,0 +1,309 @@
+# communications
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET emails/audience-count
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         200 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST emails/bulk
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+GET emails/schedule
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         200 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST emails/schedule
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PATCH emails/schedule/[id]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 e w     500 e w     500 e w     500 w
+  OPERATOR    403         403         403         403
+  ADMIN       500 e w     500 e w     500 e w     500 w
+  ORGANIZER   500 e w     500 e w     500 e w     500 w
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    500 w       500 w       500 e w     500 w
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+DELETE emails/schedule/[id]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 e w     500 e w     500 e w     500 w
+  OPERATOR    403         403         403         403
+  ADMIN       500 e w     500 e w     500 e w     500 w
+  ORGANIZER   500 e w     500 e w     500 e w     500 w
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    500 w       500 w       500 e w     500 w
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST emails/schedule/[id]/retry
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 e w     500 e w     500 e w     500 w
+  OPERATOR    403         403         403         403
+  ADMIN       500 e w     500 e w     500 e w     500 w
+  ORGANIZER   500 e w     500 e w     500 e w     500 w
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    500 w       500 w       500 e w     500 w
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+GET email-templates
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      500 r w     500 r w     500 r w     404
+  ONSITE      404         404         404         404
+  WEBINARS    404         404         500 r w     404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST email-templates
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+GET email-templates/[templateId]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      404 r       404 r       404 r       404
+  ONSITE      404         404         404         404
+  WEBINARS    404         404         404 r       404
+  CRM_USER    404         404         404         404
+  HR_USER     404         404         404         404
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PUT email-templates/[templateId]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+DELETE email-templates/[templateId]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST email-templates/[templateId] (preview)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404 r
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404 r
+  ORGANIZER   404 r       404 r       404 r       404 r
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404 r       404 r       404 r       404 r
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+PATCH email-templates/[templateId]
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST email-templates/[templateId]/duplicate
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 404 r       404 r       404 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       404 r       404 r       404 r       404
+  ORGANIZER   404 r       404 r       404 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         404 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST email-preview
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    200 r       200 r       200 r       200 r
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         200 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+POST email-attachments (JSON, not multipart)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 500 r       500 r       500 r       404
+  OPERATOR    500 r       500 r       500 r       500 r
+  ADMIN       500 r       500 r       500 r       404
+  ORGANIZER   500 r       500 r       500 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         500 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
+GET email-activity
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r       200 r       200 r       404
+  OPERATOR    403         403         403         403
+  ADMIN       200 r       200 r       200 r       404
+  ORGANIZER   200 r       200 r       200 r       404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         200 r       404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401

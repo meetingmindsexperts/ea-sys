@@ -88,6 +88,18 @@ SWEPT=(
   "src/app/api/events/[eventId]/hotels/[hotelId]/rooms/[roomId]/route.ts"
   "src/app/api/events/[eventId]/accommodations/route.ts"
   "src/app/api/events/[eventId]/accommodations/[accommodationId]/route.ts"
+  # communications (Oct 2, 2026)
+  "src/app/api/events/[eventId]/emails/audience-count/route.ts"
+  "src/app/api/events/[eventId]/emails/bulk/route.ts"
+  "src/app/api/events/[eventId]/emails/schedule/route.ts"
+  "src/app/api/events/[eventId]/emails/schedule/[id]/route.ts"
+  "src/app/api/events/[eventId]/emails/schedule/[id]/retry/route.ts"
+  "src/app/api/events/[eventId]/email-templates/route.ts"
+  "src/app/api/events/[eventId]/email-templates/[templateId]/route.ts"
+  "src/app/api/events/[eventId]/email-templates/[templateId]/duplicate/route.ts"
+  "src/app/api/events/[eventId]/email-preview/route.ts"
+  "src/app/api/events/[eventId]/email-attachments/route.ts"
+  "src/app/api/events/[eventId]/email-activity/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

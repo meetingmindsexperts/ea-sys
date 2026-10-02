@@ -379,6 +379,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: communications check permissions instead of roles (October 2)
+
+- Custom roles Phase 2: bulk email, scheduled emails, email templates,
+  previews, attachments and the email activity feed. Nobody's access changes,
+  except that onsite desk staff no longer read an event's email templates,
+  which no desk screen uses.
+
 ### Fixed: hotel bookings are visible only to staff who can see accommodation (October 2)
 
 - The hotel, room type and booking pages' data could be read by any staff

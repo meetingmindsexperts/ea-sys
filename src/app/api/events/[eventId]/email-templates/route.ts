@@ -5,8 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { DEFAULT_TEMPLATES, allTemplateVariables } from "@/lib/email";
 import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
 import {
@@ -65,6 +64,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "email-templates:list", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "templates.read", { route: "events/[eventId]/email-templates:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Scope by role, not org: reviewers + submitters are org-independent
     // (organizationId = null), so an `organizationId!` filter threw a Prisma
     // validation error ("must not be null") when a reviewer opened the
@@ -72,7 +74,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // useEmailTemplates). For ADMIN/ORGANIZER this returns the identical
     // org-scoped query — no behavior change for staff.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, eventType: true },
     });
 
@@ -154,11 +156,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "email-templates:create", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "email-templates:create", eventId });
-    if (denied) return denied;
+    const gate = requirePermission(session, "templates.manage", { route: "email-templates:create", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 

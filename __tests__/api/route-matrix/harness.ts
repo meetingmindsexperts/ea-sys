@@ -299,6 +299,9 @@ function model(name: string) {
       get(_t, method: string) {
         return async (args?: { where?: Where }) => {
           if (WRITE_METHODS.has(method)) {
+            // A write can carry its own event scope (`updateMany({ where: { id,
+            // event: { ... } } })`, the H-2 shape), so it is evaluated too.
+            noteNestedEventFilter(args?.where);
             rec.wrote = true;
             throw new Error(`route-matrix: write ${name}.${method}`);
           }

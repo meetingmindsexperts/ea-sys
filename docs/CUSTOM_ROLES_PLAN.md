@@ -746,6 +746,24 @@ Domain by domain:
   did not move. Verified with the chrome-devtools MCP: ADMIN created, read,
   edited and deleted a hotel, a room type and a booking with a clean page;
   MEMBER reads 200 and writes 403; ONSITE and CRM_USER 404.
+- **Communications SWEPT Oct 2, 2026** (11 files: bulk email and its audience
+  count, scheduled emails and retry, templates and their duplicate, the email
+  preview, attachments, the email activity feed). Keys: `communications.send`
+  (bulk, audience count, preview, attachments, and the activity feed, kept
+  webinar-only for WEBINARS; `emailLogs.read` would have widened it to every
+  event), `communications.schedule`, `templates.read`, `templates.manage`. The
+  harness now evaluates an `event: { ... }` filter on a WRITE too, which pins
+  the scheduled-email H-2 binding (WEBINARS matches its webinar only). **One
+  change on purpose:** ONSITE read its assigned event's templates (and that GET
+  seeds missing defaults, a write); no ONSITE screen uses templates, so it
+  follows `templates.read` and loses them. Recorded, not changed: the template
+  preview reads the event in parallel with the access check
+  (`buildRealPreviewOverrides`), so a refused caller costs a read whose result
+  is discarded. Verified with the chrome-devtools MCP (no email sent): ADMIN
+  created, read, edited, previewed, duplicated and deleted a template, and
+  created, edited and cancelled a scheduled email, with clean Communications
+  and Email Templates pages; MEMBER reads templates only; ONSITE 404 on
+  templates; WEBINARS on a conference 404.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

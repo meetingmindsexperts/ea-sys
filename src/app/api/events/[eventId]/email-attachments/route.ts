@@ -23,8 +23,7 @@ import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { uploadFile } from "@/lib/storage";
@@ -50,11 +49,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
       apiLogger.warn({ msg: "email-attachments:unauthorized", eventId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: ROUTE });
-    if (denied) return denied;
+    const gate = requirePermission(session, "communications.send", { route: ROUTE, eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

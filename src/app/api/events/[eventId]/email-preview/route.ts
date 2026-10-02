@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -60,8 +59,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/email-preview:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "communications.send", { route: "events/[eventId]/email-preview:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json();
     const parsed = previewSchema.safeParse(body);
@@ -80,7 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // buildEventAccessWhere keeps the historical semantics (org-scoped for
         // team members, unscoped org-null SUPER_ADMIN) AND confines the
         // WEBINARS role to webinar events like every route it's allowed on.
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: {
           id: true, organizationId: true,
           // Real event data so the preview reflects the actual event.
