@@ -12,8 +12,8 @@
  * single Response body. If a 50k-row event ever shows up we'll
  * stream via a ReadableStream chunk-by-chunk.
  *
- * Auth: same shape as the JSON route — auth() → denyReviewer →
- * buildEventAccessWhere. MEMBER allowed (read-only).
+ * Auth: `surveys.export` (admins, organizers, the webinar team on webinars).
+ * MEMBER reads the answers on screen but does not download them.
  */
 
 import { NextResponse } from "next/server";
@@ -22,8 +22,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import {
   surveyConfigSchema,
   type SurveyAnswerValue,
@@ -53,11 +52,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/survey/responses/export:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "surveys.export", { route: "events/[eventId]/survey/responses/export:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, surveyConfig: true, organizationId: true },
     });
 
@@ -87,7 +86,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const config = configParsed.data;
 
     // Tenancy (Domain #16): swept SurveyResponse (+ nested swept
-    // Registration/Attendee) read in the RESOURCE org — buildEventAccessWhere
+    // Registration/Attendee) read in the RESOURCE org — gate.eventWhere
     // serves org-null SUPER_ADMIN, so session-org would fail-close for them.
     const responses = await runWithTenant(event.organizationId, () =>
       db.surveyResponse.findMany({

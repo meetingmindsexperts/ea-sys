@@ -1,6 +1,9 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status: PHASE 0 COMPLETE, PHASE 1 IN BUILD. Revision 4 (Sep 30, 2026).** Owner rulings this
+> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 10 of 17
+> domains swept (122 route files on `requirePermission`, pinned by
+> `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
+> "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
 > (permission, scope) pairs, which reverses revision 2's D3 (§7.3 explains why
 > that section argued for scope-on-the-grant, not for one role); and the build
@@ -351,16 +354,16 @@ Event-bound keys take a scope. **R** = risk tier "sensitive" (editor warns).
 | Events | `events.read` · `events.create` · `events.update` · `events.delete` R · `events.clone` · `events.settings` · `events.staff.assign` |
 | Registrations | `registrations.read` · `.create` · `.update` · `.delete` R · `.import` · `.export` R · `.checkin` (incl. undo) · `.badges.print` · `.bulk` (tags, type) · `.email` · `.promo.apply` · `dtcm.assign` |
 | Money | `payments.record` · `payments.refund` R · `registrations.cancel` R · `creditNotes.issue` R · `invoices.read` · `invoices.write` · `invoices.send` · `invoices.export` R · `invoices.ledger` (org-wide) R · `billingAccounts.manage` |
-| Speakers | `speakers.read` · `.create` · `.update` · `.delete` R · `.import` · `.email` · `speakers.agreements.manage` · `speakers.documents.read` · `speakers.documents.write` · `speakers.companion.grant` |
-| Abstracts | `abstracts.read` · `.update` · `.decide` · `.delete` R · `.import` · `.email` · `abstracts.reviewers.assign` · `abstracts.themes.manage` · `abstracts.criteria.manage` · `reviewers.pool.manage` |
-| Proposals | `proposals.read` · `proposals.decide` · `proposals.themes.manage` |
+| Speakers | `speakers.read` · `.create` · `.update` · `.delete` R · `.import` · `.email` · `speakers.agreements.manage` · `speakers.documents.read` · `speakers.documents.open` R (added Oct 2, 2026) · `speakers.documents.write` · `speakers.companion.grant` |
+| Abstracts | `abstracts.read` · `.update` · `.decide` · `.delete` R · `.import` · `.email` · `abstracts.export` R · `abstracts.reviewers.assign` · `abstracts.themes.manage` · `abstracts.criteria.manage` · `reviewers.pool.manage` · `submissions.share` (added Oct 2, 2026, with `abstracts.export`) |
+| Proposals | `proposals.read` · `proposals.decide` · `proposals.export` R (added Oct 2, 2026) · `proposals.themes.manage` |
 | Program | `sessions.read` · `sessions.write` · `sessions.delete` · `tracks.write` · `zoom.meetings.manage` |
 | Tickets | `tickets.read` · `tickets.write` · `tickets.delete` · `promo.read` · `promo.write` · `promo.delete` |
 | Accommodation | `accommodation.read` · `accommodation.write` · `accommodation.delete` · `hotels.manage` |
 | Communications | `communications.send` · `communications.schedule` · `templates.manage` · `emailLogs.read` |
 | Certificates | `certificates.templates.manage` · `certificates.issue` · `certificates.reissue` |
 | Webinar | `webinar.manage` · `webinar.analytics.read` · `webinar.attendance.export` R · `sponsors.manage` · `media.manage` |
-| Faculty extras | `reimbursements.manage` · `honorarium.manage` · `travelGrants.manage` · `rsvp.manage` · `rsvp.roster.read` R · `surveys.manage` · `surveys.export` R |
+| Faculty extras | `reimbursements.manage` · `honorarium.manage` · `travelGrants.manage` · `rsvp.manage` · `rsvp.roster.read` R · `surveys.read` · `surveys.manage` · `surveys.export` R · `surveys.reset` (added Oct 2, 2026) |
 | Analytics and audit | `analytics.read` · `activity.read` (per event) · `activity.org.read` (org-wide) |
 | Contacts | `contacts.read` · `contacts.write` · `contacts.delete` R · `contacts.import` · `contacts.export` R |
 | CRM | `crm.read` · `crm.write` · `crm.delete` · `crm.export` R · `crm.purge` R · `crm.inbox.read` · `crm.dealValues.view` |
@@ -394,7 +397,7 @@ as data; this table is the reviewable summary.
 | **Admin** | Every event, money, speaker, program, communications, certificates, webinar, faculty-extras, contacts key at `ALL`; `crm.read/write/delete/export/inbox/dealValues`; `procurement.budgets/requests/orders/suppliers.view`, `budgets.create/edit/discard`, `requests.manage`, `catalogue.manage`, `integrations.manage`, `suppliers.transfer`, `suppliers.financials.view`, `orders.send/receive/cancel`; `org.settings`, `org.credentials`, `users.invite`, `users.manage`, `apiKeys.manage`, `loginActivity.read`, `activity.org.read`, `agent.use`, `mcp.connect`; all six field keys | `crm.purge`; `abstracts.delete` (SUPER_ADMIN only today); `hr.*` without `hrAccess`; procurement P keys without person grants |
 | **Organizer** | The same event-domain keys as Admin at `ALL`, incl. refund, cancel, credit notes, certificates, reimbursements, travel grants, supporting documents, registrations export; `activity.read` per event; `contacts.read/write/delete/import/export`; `crm.read/write/inbox/dealValues`; `procurement.*.view`, `budgets.create/edit/discard`, `suppliers.financials.view`; `events.staff.assign` (the Onsite Staff tab, D9); `agent.use`, `mcp.connect`; `finance`, `barcode`, `zoomHost`, `supportingDocs`, `honorarium` field keys | `crm.delete`, `crm.export`, `crm.purge`; `procurement.admin`; `org.settings`, `org.credentials`, `apiKeys.manage`, `users.manage`, `loginActivity.read`, `activity.org.read`; `abstracts.delete`; `hr.*` without `hrAccess` |
 | **Member** | Most `*.read` at `ALL`; the desk at `ALL` (`registrations.create`, `.update`, `.checkin`, `.badges.print`, `payments.record`); `invoices.read`, `invoices.ledger`, `invoices.export`; `finance.view`; `contacts.read`, `contacts.export`; `crm.read`; `procurement.*.view`; `billingAccounts.read`; `agent.use` (read tools only, by consequence of holding no writes) | Every write outside the desk; `barcode.view`, `zoomHost.view`, `supportingDocs.view`, `honorarium.view`; `registrations.export`; `dtcm.assign`; `rsvp.roster.read`; `crm.inbox.read`, `crm.dealValues.view`; `loginActivity.read`, `activity.org.read` |
-| **Onsite** | Desk at `ASSIGNED`: `registrations.read`, `.create`, `.update`, `.checkin`, `.badges.print`, `.export`, `payments.record`, `dtcm.assign`; `finance.view`, `barcode.view` | Everything else, incl. any event it is not assigned to |
+| **Onsite** | Desk at `ASSIGNED`: `registrations.read`, `.create`, `.update`, `.checkin`, `.badges.print`, `.export`, `payments.record`, `dtcm.assign`; `finance.view`, `barcode.view`. Reads at `ASSIGNED` that the Phase 2 matrix found and the owner kept (Oct 1 to 2, 2026): `events.read`, `tickets.read`, `promo.read`, `sessions.read`, `speakers.read`, `abstracts.read`, `proposals.read`, `webinar.analytics.read` | Everything else, incl. any event it is not assigned to |
 | **Webinars** | Desk at `ALL` (as Member, plus `barcode.view`, `dtcm.assign`, `registrations.export`); full event control at `WEBINAR`: `events.create` and `events.update` (resulting type must be WEBINAR, §3.2), sessions, speakers, communications and templates, webinar, sponsors, media, surveys, tickets, registrations incl. import; `finance.view`, `zoomHost.view` | `registrations.delete` (L-4), refunds, cancel, credit notes, certificates, reimbursements, contacts, `invoices.ledger`, `emailLogs.read` beyond the desk, `events.delete`, `events.clone`, promo codes, `agent.use` |
 | **CRM User** | `crm.read`, `crm.write`, `crm.delete`, `crm.inbox.read`, `crm.dealValues.view`; `contacts.read` | Every event key; `crm.export`, `crm.purge`; `contacts.export` |
 | **HR User** | `hr.read`, `hr.write` (no person grant needed) | Everything else |
@@ -806,6 +809,51 @@ Domain by domain:
   settings and downloaded the CSV; MEMBER reads and gets 403 on the CSV, host
   routes and writes; ONSITE reads on its assigned webinar and 404 elsewhere;
   WEBINARS 404 on a conference.
+
+- **Faculty extras SWEPT Oct 2, 2026** (20 files: reimbursements, a
+  reimbursement, its PDF and documents, the send, the settings; a speaker's
+  honorarium and reimbursement types; travel grants and a grant's status; RSVP
+  campaigns, a campaign, items, an item, the guest list, an invite, the invite
+  send; survey answers, their export, and a registration's survey reset).
+  Keys: `reimbursements.manage`, `honorarium.manage`, `travelGrants.manage`,
+  `rsvp.manage`, `rsvp.roster.read` (the guest list and its CSV, which carry
+  each invitee's link token), `surveys.read`, `surveys.export`, and a NEW key
+  `surveys.reset` (ADMIN and ORGANIZER only: the owner's rule on the reset
+  route excludes the webinar team, which holds `surveys.manage` on webinars).
+  `loadRsvpEvent` and the reimbursement row loader now take `gate.eventWhere`.
+  **One change on purpose (owner, Oct 2, 2026):** MEMBER reads survey answers
+  on screen (`surveys.read`); it was refused before, although the route's
+  comment and the catalogue both said it could. The export stays with the
+  hosts. `rsvp-roster-access.test.ts` now pins the lookup to the grant's own
+  filter instead of a `buildEventAccessWhere` call. Verified with the
+  chrome-devtools MCP (nothing sent): ADMIN created, renamed and filled an
+  RSVP, read its guest list and CSV, read and saved reimbursement settings,
+  read reimbursements, travel grants, a speaker's honorarium and claim types,
+  with clean RSVP, Reimbursements and Survey pages; MEMBER loads the Survey
+  page clean and is 403 on the export and every other faculty route;
+  WEBINARS on a conference 404 on the survey and 403 elsewhere.
+
+**Behaviour changes so far.** Everything else in the swept domains answers as
+it did before, byte for byte in the route matrix. These changed on purpose,
+each approved by the owner:
+
+| Domain | Change |
+|---|---|
+| Promo codes | The detail lookup was organisation-only; it is now bound to the URL's event |
+| Abstracts (part A) | Review criteria (G3) no longer readable by CRM, HR, unassigned Onsite, or Webinars on conferences |
+| Abstracts (part B) | SECURITY: registrants can no longer read, edit or create abstracts and proposals; Member, Onsite and Webinars can no longer write them; reviewers send a status only; `managementToken` no longer returned; anonymised reviews no longer readable org-wide |
+| Accommodation | Hotels and bookings (guest names) no longer readable by CRM, HR, Onsite, or Webinars on conferences |
+| Communications | Onsite no longer reads its assigned event's email templates |
+| Certificates | Template and run lookups bound to the URL's event (same statuses) |
+| Webinar | The attendance CSV (attendee emails) downloads only for Admin, Organizer and Webinars; Member and Onsite see attendance on screen only |
+| Faculty extras | Member reads survey answers (a widening) |
+
+Recorded and left as found, each an owner call: the platform operator
+(SUPER_ADMIN with no organisation) can write on routes that never had
+`requireOrgId` (agenda, speaker activity, agreements, documents, companion
+registration); MEMBER's speaker page asks for two things it cannot read (two
+console 403s, Phase 3); Zoom host fields are still redacted by role
+(`canViewZoomHostCredentials`) until field visibility moves in Phase 3.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

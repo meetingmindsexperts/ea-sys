@@ -8,11 +8,11 @@
  *          per speaker; a speaker who already has one is skipped, not
  *          errored — speakerId is unique).
  *
- * ACCESS: every handler (reads included) is `denyReviewer(session)`-gated —
+ * ACCESS: every handler (reads included) needs `reimbursements.manage` —
  * bank details + passport numbers are wire-transfer data, visible ONLY to
  * SUPER_ADMIN / ADMIN / ORGANIZER (owner decision, July 20 2026; see
  * `canManageReimbursements` in src/lib/reimbursement/constants.ts).
- * Event lookup routes through buildEventAccessWhere.
+ * The event lookup is `gate.eventWhere`.
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -21,8 +21,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
 import { generateReimbursementToken } from "@/lib/reimbursement/server";
@@ -84,11 +83,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     // Read-gate too: this payload carries passport numbers, bank details and
     // the impersonation token (the copy-link button needs it).
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
@@ -101,7 +100,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Reimbursement card (same staff gate as the full list).
     const speakerIdFilter = url.searchParams.get("speakerId");
     // Tenancy (Domain #17): swept read in the RESOURCE org —
-    // buildEventAccessWhere serves org-null SUPER_ADMIN, so session-org
+    // gate.eventWhere serves org-null SUPER_ADMIN, so session-org
     // would fail-close for them.
     const reimbursements = await runWithTenant(event.organizationId, () =>
       db.speakerReimbursement.findMany({
@@ -205,8 +204,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `reimbursements-add:${eventId}`,
@@ -228,7 +227,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

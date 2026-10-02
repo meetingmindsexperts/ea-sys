@@ -20,9 +20,8 @@
  *   page     — 1-indexed page number (default 1)
  *   pageSize — 25..200 (default 50)
  *
- * Auth: same shape as other event-scoped admin routes
- * (auth() → denyReviewer → buildEventAccessWhere). No finance
- * implications, but MEMBER is allowed to view (read-only by design).
+ * Auth: `surveys.read`, which MEMBER holds: it reads the answers, read-only
+ * (owner, Oct 2, 2026; it was refused before despite this comment).
  */
 
 import { NextResponse } from "next/server";
@@ -31,8 +30,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import {
   surveyConfigSchema,
   type SurveyConfig,
@@ -60,8 +58,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/survey/responses:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "surveys.read", { route: "events/[eventId]/survey/responses:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const queryParsed = querySchema.safeParse(
       Object.fromEntries(url.searchParams.entries()),
@@ -83,7 +81,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // one go. surveyConfig is needed to render the column header set
     // (question id → label) on the reporting page.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, surveyConfig: true, organizationId: true },
     });
 
@@ -121,7 +119,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const skip = (page - 1) * pageSize;
     // Tenancy (Domain #16): SurveyResponse (+ the nested swept
     // Registration/Attendee selects) read in the RESOURCE org — this route
-    // authorizes via buildEventAccessWhere, so an org-null SUPER_ADMIN
+    // authorizes via gate.eventWhere, so an org-null SUPER_ADMIN
     // legitimately reaches it and a session-org wrap would fail-close.
     const [totalCount, allResponsesForAggregate, pageResponses] = await runWithTenant(event.organizationId, () => Promise.all([
       db.surveyResponse.count({ where: { eventId } }),

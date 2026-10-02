@@ -167,6 +167,9 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "rsvp.roster.read",
   "surveys.manage",
   "surveys.export",
+  // Resetting a submitted survey is ADMIN and ORGANIZER only, not the webinar
+  // team on webinars (owner, the survey reset route).
+  "surveys.reset",
   "activity.read",
 ];
 

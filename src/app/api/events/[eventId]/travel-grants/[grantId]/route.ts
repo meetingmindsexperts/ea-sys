@@ -15,9 +15,8 @@
  * signed. The public form stays locked after the author's own answer; this
  * route is the only way to reopen it.
  *
- * ACCESS: the travel-grant boundary, `denyReviewer(session)` with no
- * allow-list (SUPER_ADMIN / ADMIN / ORGANIZER), event through
- * buildEventAccessWhere, the write bound to { id, eventId }.
+ * ACCESS: the travel-grant boundary, `travelGrants.manage`
+ * (SUPER_ADMIN / ADMIN / ORGANIZER), event through `gate.eventWhere`, the write bound to { id, eventId }.
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -25,8 +24,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { DEFAULT_TRAVEL_GRANT_TERMS_HTML } from "@/lib/travel-grant/constants";
@@ -45,11 +43,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId, grantId }, "travel-grant-status:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/travel-grants/[grantId]:PATCH" });
-    if (denied) {
-      apiLogger.warn({ eventId, grantId, role: session.user.role }, "travel-grant-status:role-refused");
-      return denied;
-    }
+    const gate = requirePermission(session, "travelGrants.manage", { route: "events/[eventId]/travel-grants/[grantId]:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({ key: `travel-grant-status:${session.user.id}`, limit: 60, windowMs: 3600_000 });
     if (!rl.allowed) {
@@ -63,7 +58,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const next = parsed.data.status;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, travelGrantTermsHtml: true },
     });
     if (!event) {

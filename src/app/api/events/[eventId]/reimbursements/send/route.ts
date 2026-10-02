@@ -9,7 +9,7 @@
  *
  * Same branded pipeline as every sender (brandingFrom / renderAndWrap /
  * sendEmail + EmailLog), per-recipient try/catch, batch retry-safety via
- * recent EmailLog rows. Staff-only via denyReviewer; org-scoped; 10/hr/event.
+ * recent EmailLog rows. `reimbursements.manage`; event-scoped; 10/hr/event.
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -17,8 +17,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 import { resolveStoredAttachments } from "@/lib/email-attachments";
@@ -68,8 +67,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/send:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/send:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `reimbursements-send:${eventId}`,
@@ -91,7 +90,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, slug: true, organizationId: true, organization: { select: { name: true } } },
     });
     if (!event) {

@@ -7,8 +7,8 @@
  * reopened for edits, and the console already tells finance not to process a
  * reopened form until it comes back.
  *
- * ACCESS: denyReviewer with no allow-list, the reimbursement boundary
- * (SUPER_ADMIN / ADMIN / ORGANIZER), and the event through buildEventAccessWhere.
+ * ACCESS: `reimbursements.manage`, the reimbursement boundary
+ * (SUPER_ADMIN / ADMIN / ORGANIZER), and the event through `gate.eventWhere`.
  * Every download is recorded as an export, because the document carries a
  * passport number and full bank details.
  */
@@ -17,8 +17,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -34,8 +33,8 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: ROUTE });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: ROUTE, eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `reimbursement-pdf:${session.user.id}`,
@@ -53,7 +52,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: {
         id: true,
         name: true,

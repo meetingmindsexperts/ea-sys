@@ -13,8 +13,8 @@
  *   - the "survey-completed" tag, unless another registration of the same
  *     attendee still carries a completed survey (Attendee rows can be shared).
  *
- * Owner decisions: admins and organizers may reset (denyReviewer with no
- * allow-list, so members, desk staff and the webinar role cannot);
+ * Owner decisions: admins and organizers may reset (`surveys.reset`, which
+ * members, desk staff and the webinar role do not hold);
  * certificates already issued are KEPT (the dialog says so first; revoking a
  * credential is its own deliberate action); the answers are not copied
  * anywhere, the audit row records who, when and how many answers.
@@ -25,8 +25,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -46,8 +45,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: ROUTE });
-    if (denied) return denied;
+    const gate = requirePermission(session, "surveys.reset", { route: ROUTE, eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `survey-reset:${session.user.id}`,
@@ -59,7 +58,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

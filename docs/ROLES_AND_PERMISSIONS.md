@@ -9,6 +9,13 @@
 > table, because it gets quoted (the rule [DATA_EXPORTS.md](DATA_EXPORTS.md)
 > already lives by).
 
+**Custom roles Phase 2 (from Oct 1, 2026).** Swept routes now check a
+permission key with `requirePermission()` instead of the predicates named
+below, with the same role sets except where
+[CUSTOM_ROLES_PLAN.md](CUSTOM_ROLES_PLAN.md) §6 "Behaviour changes so far"
+lists an owner-approved change. The changes that touch this page are folded
+in below (Oct 2, 2026).
+
 This page is the one place that answers "what can a Member do". The older
 summaries in ROADMAP, HANDOVER, ARCHITECTURE and the security posture document
 point here. The user guide's chapter 15 is the same content in operator words.
@@ -24,8 +31,8 @@ Eleven roles on `User.role`, plus two principals that are not roles.
 | **SUPER_ADMIN** | yes (an org-less Super Admin is the platform operator) | every event in the org (every event, when org-less) | Everything an Admin can do, plus the operator surfaces (Logs, ID lookup, Backups, Help queries, Agent messages, Docs, alert silencing), INTERNAL API-key and OAuth tiers, the Roles and System tabs, HR without a grant, CRM purge. |
 | **ADMIN** | yes | every event in the org | Full control of every event and of the organisation: settings, users and invites, integrations, API keys, Activity, sign-in activity, CRM incl. export, budget authoring and the catalogue. |
 | **ORGANIZER** | yes | **every event in the org** (org-wide, never "assigned events only") | Full control of every event: registrations, money movement, speakers, programme, communications, certificates, reimbursements, travel grants. Contacts read, write and export. May create Onsite Staff accounts and assign them. Cannot touch org settings, users, API keys, integrations, the Activity page or sign-in activity. |
-| **MEMBER** | yes | every event in the org | Internal staff who read everything, **money included**, and run the registration desk (add, edit, check in, badges, record a payment). No other write. Never sees entry or DTCM barcodes, cannot export registrations, cannot open supporting documents. CRM read only, no deal values. AI Agent in read-only mode. |
-| **ONSITE** | yes | **only events it is assigned to** (Settings, Onsite Staff) | Temporary desk staff and contractors. On an assigned event: the registrations list, add and edit, check in and undo, badges, record a payment, export the list, entry and DTCM codes, spare DTCM codes. Sees amounts. Nothing else, and unassigned events do not exist for it. |
+| **MEMBER** | yes | every event in the org | Internal staff who read everything, **money included**, and run the registration desk (add, edit, check in, badges, record a payment). No other write. Reads survey answers (since Oct 2, 2026) and lists a speaker's documents without opening the files. Never sees entry or DTCM barcodes, cannot export registrations or webinar attendance, cannot open supporting documents. CRM read only, no deal values. AI Agent in read-only mode. |
+| **ONSITE** | yes | **only events it is assigned to** (Settings, Onsite Staff) | Temporary desk staff and contractors. On an assigned event: the registrations list, add and edit, check in and undo, badges, record a payment, export the list, entry and DTCM codes, spare DTCM codes. Sees amounts. Also reads, on an assigned event, the registration types, promo codes, agenda, speakers, abstracts and proposals, and the webinar console's attendance screens (kept as found by the owner, Oct 1 to 2, 2026). Nothing else, and unassigned events do not exist for it. |
 | **WEBINARS** | yes | WEBINAR-type events for management; every org event for the desk | Organizer-grade control of webinar events, registration desk on every other event (Member parity, no assignment needed). Never: org settings or users, API keys, CRM, contacts, sign-in activity, refunds, credit notes, cancellations, certificates, reimbursements, the AI Agent, event delete or clone, promo codes, the org invoice ledger. |
 | **CRM_USER** | yes | none | The sponsorship pipeline only: deals, companies, CRM contacts, tasks, inbox, deal values, archive. Contact-store read. No events, no CSV export, no purge. |
 | **HR_USER** | yes | none | The HR module only (attendance, leave, holidays). Nothing else. |
@@ -226,10 +233,11 @@ typed URL lands somewhere sensible.
 
 ## 9. Known gaps and deliberate differences
 
-- Two exports are reachable more widely than the boundaries above intend
-  (recorded in [DATA_EXPORTS.md](DATA_EXPORTS.md) §6): the webinar attendance
-  CSV answers any org-bound role, and the analytics CSV with the per-attendee
-  check-in log answers anyone linked to the event, external roles included.
+- One export is reachable more widely than the boundaries above intend
+  (recorded in [DATA_EXPORTS.md](DATA_EXPORTS.md) §6): the analytics CSV with
+  the per-attendee check-in log answers anyone linked to the event, external
+  roles included. The webinar attendance CSV, which answered any org-bound
+  role, needs `webinar.attendance.export` since Oct 2, 2026.
 - Sidebar and API disagree for ORGANIZER on CRM and Budgets, by owner decision
   (§7.1, §7.3): the entries are hidden, the routes answer.
 - WEBINARS still resolves about 59 event GETs (agenda, speakers, tickets,

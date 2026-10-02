@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiErrorResponse } from "@/lib/api-errors";
 import { loadRsvpEvent, loadRsvpCampaign } from "@/lib/rsvp/server";
@@ -21,10 +21,10 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, campaignId, inviteId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites/[inviteId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites/[inviteId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }

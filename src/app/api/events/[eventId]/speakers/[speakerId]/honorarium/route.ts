@@ -13,10 +13,10 @@
  * from the body. Owner decisions, Sep 3 2026.
  *
  * ACCESS: the reimbursement boundary — SUPER_ADMIN / ADMIN / ORGANIZER only.
- * `denyReviewer(session)` with NO allow-list is exactly that set (see
+ * `honorarium.manage` is held by exactly that set (see
  * canManageReimbursements). Deliberately NOT folded into the speaker PUT:
  * that route admits WEBINARS on webinar events, and a payment figure follows
- * the stricter boundary. The event resolves through buildEventAccessWhere
+ * the stricter boundary. The event resolves through `gate.eventWhere`
  * and the speaker is bound to { id, eventId } on the write itself.
  */
 import { NextResponse } from "next/server";
@@ -24,8 +24,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import {
@@ -42,11 +41,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, speakerId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/honorarium:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "honorarium.manage", { route: "events/[eventId]/speakers/[speakerId]/honorarium:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -81,8 +80,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     // The guard-route gate wants the label as a literal on the call itself.
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/honorarium:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "honorarium.manage", { route: "events/[eventId]/speakers/[speakerId]/honorarium:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `speaker-honorarium:${session.user.id}`,
@@ -99,7 +98,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

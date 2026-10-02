@@ -138,6 +138,27 @@ SWEPT=(
   "src/app/api/events/[eventId]/zoom/settings/route.ts"
   "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/route.ts"
   "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/panelists/route.ts"
+  # faculty extras (Oct 2, 2026)
+  "src/app/api/events/[eventId]/reimbursements/route.ts"
+  "src/app/api/events/[eventId]/reimbursements/[reimbursementId]/route.ts"
+  "src/app/api/events/[eventId]/reimbursements/[reimbursementId]/pdf/route.ts"
+  "src/app/api/events/[eventId]/reimbursements/[reimbursementId]/documents/[documentId]/route.ts"
+  "src/app/api/events/[eventId]/reimbursements/send/route.ts"
+  "src/app/api/events/[eventId]/reimbursements/settings/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/reimbursement-types/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/honorarium/route.ts"
+  "src/app/api/events/[eventId]/travel-grants/route.ts"
+  "src/app/api/events/[eventId]/travel-grants/[grantId]/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/items/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/items/[itemId]/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/[inviteId]/route.ts"
+  "src/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/send/route.ts"
+  "src/app/api/events/[eventId]/survey/responses/route.ts"
+  "src/app/api/events/[eventId]/survey/responses/export/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/survey/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

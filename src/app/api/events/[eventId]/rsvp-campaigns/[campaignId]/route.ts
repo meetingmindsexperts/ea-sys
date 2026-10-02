@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse, apiErrorResponse } from "@/lib/api-errors";
@@ -27,10 +27,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]:GET", eventId });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "GET /events/[eventId]/rsvp-campaigns/[campaignId]",
@@ -67,8 +67,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `rsvp-campaigns-write:${eventId}`,
@@ -94,7 +94,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "PUT /events/[eventId]/rsvp-campaigns/[campaignId]",
@@ -203,8 +203,8 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `rsvp-campaigns-write:${eventId}`,
@@ -220,7 +220,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "DELETE /events/[eventId]/rsvp-campaigns/[campaignId]",

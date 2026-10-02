@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, mockBuildEventAccessWhere } = vi.hoisted(() => ({
+const { mockAuth, mockDb } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -27,7 +27,6 @@ const { mockAuth, mockDb, mockBuildEventAccessWhere } = vi.hoisted(() => ({
     rsvpItem: { findMany: vi.fn() },
     rsvpInvite: { findMany: vi.fn(), groupBy: vi.fn() },
   },
-  mockBuildEventAccessWhere: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -44,14 +43,8 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "127.0.0.1", checkRateLimit: () => ({ allowed: true }) }));
-vi.mock("@/lib/event-access", () => ({
-  buildEventAccessWhere: (...a: unknown[]) => mockBuildEventAccessWhere(...a),
-}));
-// The REAL guard — this is the thing under test.
-vi.mock("@/lib/auth-guards", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/auth-guards")>("@/lib/auth-guards");
-  return actual;
-});
+// The REAL guard (`requirePermission` and the system roles) is the thing
+// under test, so nothing in @/lib/permissions is mocked.
 
 import { GET } from "@/app/api/events/[eventId]/rsvp-campaigns/[campaignId]/invites/route";
 import { GET as campaignsGet } from "@/app/api/events/[eventId]/rsvp-campaigns/route";
@@ -82,7 +75,6 @@ function asRole(role: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockBuildEventAccessWhere.mockReturnValue({ id: "ev1", organizationId: "org1" });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
   mockDb.rsvpCampaign.findFirst.mockResolvedValue(CAMPAIGN);
   mockDb.rsvpCampaign.findMany.mockResolvedValue([]);
@@ -112,12 +104,12 @@ describe("H2 — who can read the RSVP roster (and therefore the invite tokens)"
     },
   );
 
-  it("resolves the event through buildEventAccessWhere (assignment-aware), not a hand-rolled org filter", async () => {
+  it("resolves the event through the grant's own filter (gate.eventWhere), not a hand-rolled org filter", async () => {
     asRole("ORGANIZER");
     await GET(req, { params });
-    expect(mockBuildEventAccessWhere).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "u1" }),
-      "ev1",
+    // ORGANIZER holds rsvp.roster.read at ALL: the URL event inside its org.
+    expect(mockDb.event.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "ev1", organizationId: "org1" } }),
     );
   });
 
@@ -159,13 +151,12 @@ describe("R2 M4 — GET /rsvp-campaigns aligns with the roster GET's access mode
     },
   );
 
-  it("ORGANIZER reads via buildEventAccessWhere, not a hand-rolled org filter", async () => {
+  it("ORGANIZER reads via the grant's own filter (gate.eventWhere), not a hand-rolled org filter", async () => {
     asRole("ORGANIZER");
     const res = await campaignsGet(req, { params: listParams });
     expect(res.status).toBe(200);
-    expect(mockBuildEventAccessWhere).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "u1" }),
-      "ev1",
+    expect(mockDb.event.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "ev1", organizationId: "org1" } }),
     );
   });
 });

@@ -10,7 +10,7 @@
  * The de-dup key is the campaign, not the event: that is precisely what lets
  * the same person sit on the dinner list AND the workshop list.
  *
- * Org-scoped; POST is denyReviewer-guarded + rate-limited. The token is the
+ * GET needs `rsvp.roster.read`, POST `rsvp.manage` and is rate-limited. The token is the
  * invitee's link key; it is returned so the UI can copy/send links.
  * Docs: docs/RSVP.md.
  */
@@ -19,7 +19,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse, apiErrorResponse } from "@/lib/api-errors";
@@ -59,15 +59,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER (the read-only sponsor-side observer), ONSITE (org-scoped here, so
     // a desk temp assigned to Event A could pull Event B's roster — the July-7
     // cross-event class), and an internal-domain REGISTRANT (an attendee
-    // account). denyReviewer blocks all three; loadRsvpEvent uses the
-    // assignment-aware lookup the rest of the codebase uses.
+    // account). `rsvp.roster.read` excludes all three; loadRsvpEvent takes the
+    // grant's own event filter.
     //
     // The token stays in the payload — the console's copy-link button needs it —
     // but only the roles that actually run the RSVP can see it.
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.roster.read", { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:GET", eventId });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }
@@ -191,8 +191,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns/[campaignId]/invites:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `rsvp-invites-add:${eventId}`,
@@ -208,7 +208,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return zodErrorResponse(parsed, { route, eventId, campaignId, userId: session.user.id });
     }
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", { route, eventId, userId: session.user.id });
     }

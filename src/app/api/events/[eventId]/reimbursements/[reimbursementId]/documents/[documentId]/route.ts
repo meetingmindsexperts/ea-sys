@@ -3,7 +3,7 @@
  *
  * Reimbursement uploads (passport scans, receipts) are BLOCKED on the
  * public /uploads catch-all; this is the only way to read one. The row is
- * bound document → reimbursement → event (via buildEventAccessWhere), and
+ * bound document → reimbursement → event (via `gate.eventWhere`), and
  * the on-disk path is verified to sit inside
  * public/uploads/reimbursements/ before the read (traversal guard — the
  * DB url is trusted-ish, but defense in depth is free).
@@ -16,8 +16,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 type RouteParams = {
   params: Promise<{ eventId: string; reimbursementId: string; documentId: string }>;
@@ -34,11 +33,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId, documentId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]/documents/[documentId]:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/[reimbursementId]/documents/[documentId]:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

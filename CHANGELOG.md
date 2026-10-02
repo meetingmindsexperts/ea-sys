@@ -379,6 +379,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: reimbursements, honoraria, travel grants, RSVPs and surveys check permissions instead of roles (October 2)
+
+- Custom roles Phase 2: speaker reimbursements (including their PDF,
+  documents, emails and settings), honoraria, travel grants, RSVPs and their
+  guest lists, survey answers and their export, and resetting a person's
+  survey. One change: members can now read survey answers on screen, which
+  the page and the code's own notes always meant them to. The export stays
+  with admins, organizers and the webinar team. Nobody else's access changes.
+
 ### Changed: the webinar console checks permissions instead of roles (October 2)
 
 - Custom roles Phase 2: the Webinar Console (settings, provisioning, waiting

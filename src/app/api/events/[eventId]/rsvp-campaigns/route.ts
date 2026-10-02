@@ -7,14 +7,14 @@
  *          running one dinner never sees the campaign as a separate step
  *          (docs/CUSTOMIZABLE_RSVP_PLAN.md §2a).
  *
- * Org-scoped via session; writes are denyReviewer-guarded + rate-limited.
+ * Every handler needs `rsvp.manage`; writes are rate-limited.
  * Docs: docs/RSVP.md.
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse, apiErrorResponse } from "@/lib/api-errors";
@@ -31,10 +31,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     // Same guard as the roster GET: a campaign list exposes audience sizes,
     // so it is staff-only (R2 M4 alignment).
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns:GET", eventId });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "GET /events/[eventId]/rsvp-campaigns",
@@ -87,8 +87,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/rsvp-campaigns:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "rsvp.manage", { route: "events/[eventId]/rsvp-campaigns:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `rsvp-campaigns-write:${eventId}`,
@@ -112,7 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     }
 
-    const event = await loadRsvpEvent(session.user, eventId);
+    const event = await loadRsvpEvent(gate.eventWhere);
     if (!event) {
       return apiErrorResponse(404, "Event not found", {
         route: "POST /events/[eventId]/rsvp-campaigns",

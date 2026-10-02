@@ -7,12 +7,11 @@
  *   POST → send the link. `{ speakerIds: [...] }` for named authors, or
  *          `{ target: "pending" }` to remind everyone still outstanding (D9).
  *
- * ACCESS: `denyReviewer(session)` on every handler, reads included, so
+ * ACCESS: `travelGrants.manage` on every handler, reads included, so
  * SUPER_ADMIN / ADMIN / ORGANIZER only. MEMBER is excluded deliberately even
  * though MEMBER is internal read-only staff: this is a list of who has asked to
  * have their travel paid for, which is a financial-adjacent decision list
- * rather than an operational one. Event lookup routes through
- * buildEventAccessWhere.
+ * rather than an operational one. The event lookup is `gate.eventWhere`.
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -20,8 +19,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
@@ -54,14 +52,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/travel-grants:GET" });
-    if (denied) {
-      apiLogger.warn({ eventId, role: session.user.role }, "travel-grants:role-refused");
-      return denied;
-    }
+    const gate = requirePermission(session, "travelGrants.manage", { route: "events/[eventId]/travel-grants:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, slug: true, organizationId: true, settings: true, timezone: true },
     });
     if (!event) {
@@ -184,11 +179,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId }, "travel-grants:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/travel-grants:POST" });
-    if (denied) {
-      apiLogger.warn({ eventId, role: session.user.role }, "travel-grants:role-refused");
-      return denied;
-    }
+    const gate = requirePermission(session, "travelGrants.manage", { route: "events/[eventId]/travel-grants:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const limit = checkRateLimit({
       key: `travel-grant-send:${session.user.id}`,
@@ -217,7 +209,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: {
         id: true,
         slug: true,

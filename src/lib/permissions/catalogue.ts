@@ -177,6 +177,7 @@ export const PERMISSION_KEYS = [
   "surveys.read",
   "surveys.manage",
   "surveys.export",
+  "surveys.reset",
   // Analytics and audit
   "analytics.read",
   "activity.read",
@@ -576,6 +577,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("surveys.read", "Faculty extras", "See the survey", "Open the survey's setup and answers.", E),
   app("surveys.manage", "Faculty extras", "Surveys", "Set up the survey.", E),
   app("surveys.export", "Faculty extras", "Export survey answers", "Download survey answers as a spreadsheet.", ES),
+  app("surveys.reset", "Faculty extras", "Reset a survey answer", "Clear a person's submitted survey so they can fill it in again.", E),
 
   // ── Analytics and audit ──
   app("analytics.read", "Analytics and audit", "Event analytics", "Open an event's analytics.", E),

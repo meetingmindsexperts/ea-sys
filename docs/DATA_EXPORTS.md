@@ -34,7 +34,7 @@ Everyone else is either narrower or excluded, with two known gaps in §6.
 | **Survey responses CSV** | `denyReviewer` + Webinars | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS | ✅ | — |
 | **CRM deals / activity CSV** | `requireCrmExport` | **SUPER_ADMIN · ADMIN only** | ✅ | 10/hr |
 | **System log archive** | `denyNonOperator` | Platform operator only | — | — |
-| ⚠ **Webinar attendance CSV** | org membership + event access **only** | any org-bound role — incl. MEMBER, ONSITE | ✅ | — |
+| **Webinar attendance CSV** | `webinar.attendance.export` (since Oct 2, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS (webinar events) | ✅ | — |
 | ⚠ **Analytics CSV + per-attendee check-in log** | event access **only** | anyone linked to the event — **incl. REVIEWER, SUBMITTER, REGISTRANT** | ✅ | — |
 
 Single-record downloads (one invoice PDF, one badge, one uploaded passport) are
@@ -115,9 +115,11 @@ after-the-fact answer exists; neither is **prevented**.
    roles the events they are linked to. So a **reviewer, submitter or registrant
    on an event can download `?export=checkins`**: registration number, name,
    email and door timestamp for every attendee.
-2. **Webinar attendance CSV** has org membership and event access but no export
-   gate, so MEMBER and ONSITE can pull every attendee's name, email and watch
-   times.
+2. **Webinar attendance CSV**: FIXED Oct 2, 2026 (custom roles Phase 2). It
+   had org membership and event access but no export gate, so MEMBER and
+   ONSITE could pull every attendee's name, email and watch times; it now
+   needs `webinar.attendance.export`, which only the webinar's hosts hold.
+   Members and onsite staff still see attendance on screen.
 
 Both are the same shape as the July 2026 contacts finding: the guard sat on the
 **write**, and the read inherited *"you can see this event"* as if it meant

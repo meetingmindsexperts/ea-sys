@@ -9,10 +9,11 @@
  *   DELETE → removes the invite/submission + its uploaded files
  *            (best-effort unlink), audited.
  *
- * ACCESS: staff-only via denyReviewer on every handler (wire-transfer PII —
+ * ACCESS: `reimbursements.manage` on every handler (wire-transfer PII —
  * see the list route header).
  */
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { z } from "zod";
@@ -20,24 +21,23 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 type RouteParams = { params: Promise<{ eventId: string; reimbursementId: string }> };
 
 const patchSchema = z.object({ action: z.literal("reopen") });
 
 async function loadInEvent(
-  user: { id: string; role: string; organizationId?: string | null },
+  eventWhere: Prisma.EventWhereInput,
   eventId: string,
   reimbursementId: string,
 ) {
   // Tenancy (Domain #17): Event is un-swept → resolved first; the swept
-  // reimbursement read runs in the RESOURCE org (buildEventAccessWhere serves
-  // org-null SUPER_ADMIN, so session-org would fail-close). Callers reuse the
-  // returned org for their own swept writes.
+  // reimbursement read runs in the RESOURCE org (the caller's `gate.eventWhere`
+  // serves an org-null SUPER_ADMIN, so session-org would fail-close). Callers
+  // reuse the returned org for their own swept writes.
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(user, eventId),
+    where: eventWhere,
     select: { id: true, organizationId: true },
   });
   if (!event) return null;
@@ -57,11 +57,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/[reimbursementId]:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -104,8 +104,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       req.json().catch(() => null),
     ]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/[reimbursementId]:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
@@ -113,7 +113,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const loaded = await loadInEvent(session.user, eventId, reimbursementId);
+    const loaded = await loadInEvent(gate.eventWhere, eventId, reimbursementId);
     if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:patch-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });
@@ -161,10 +161,10 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, reimbursementId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/[reimbursementId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/[reimbursementId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
-    const loaded = await loadInEvent(session.user, eventId, reimbursementId);
+    const loaded = await loadInEvent(gate.eventWhere, eventId, reimbursementId);
     if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:delete-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });

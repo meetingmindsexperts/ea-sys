@@ -9,8 +9,8 @@
  * form renders only the allowed types and the public POST refuses any other
  * kind, so this is a real control, not a display preference.
  *
- * ACCESS: the reimbursement boundary, `denyReviewer(session)` with NO
- * allow-list (SUPER_ADMIN / ADMIN / ORGANIZER), like the honorarium route and
+ * ACCESS: the reimbursement boundary, `reimbursements.manage`
+ * (SUPER_ADMIN / ADMIN / ORGANIZER), like the honorarium route and
  * deliberately NOT the event PUT, which admits WEBINARS on webinar events.
  */
 import { NextResponse } from "next/server";
@@ -18,8 +18,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -31,11 +30,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/settings:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/settings:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
@@ -58,8 +57,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }, body] = await Promise.all([auth(), params, req.json().catch(() => null)]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/reimbursements/settings:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "reimbursements.manage", { route: "events/[eventId]/reimbursements/settings:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({ key: `reimbursement-settings:${session.user.id}`, limit: 60, windowMs: 3600_000 });
     if (!rl.allowed) {
@@ -72,7 +71,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
