@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: manual CC on speaker emails, single and bulk; review fixes (October 2)
+
+- A CC field beside BCC on the single speaker email (speaker page and detail
+  sheet) and in the bulk email dialog. It is added on top of the speaker's
+  additional email and the event-wide CC; an address in both CC and BCC goes
+  as CC only; at most 10. In bulk, the dialog warns that every recipient sees
+  the CC and that each CC address gets one copy per recipient, including the
+  recipient's personal links (owner: personal links are allowed with CC and
+  BCC). `filters.cc` rides with scheduled sends like `bcc`.
+- Code review of the day's work (no HIGH): (M1) the WEBINARS role gets
+  stream URLs from stream-status only on WEBINAR events; (L1) opening the
+  room checks MediaMTX fresh, not the 3 s cache; (L2) the clock sync falls
+  back to the device clock with a note instead of "Syncing" forever; (L3)
+  Cancel then Measure can no longer run two scans; (L4) the player clears
+  its hls.js reference after destroying it; (L5) the CC form uses the
+  server's address rule and the 10-address cap. Also fixed two dropped
+  spaces in the bulk dialog ("copieseach", "Agreelink").
+
 ### Changed: CSV imports name the rows they skip (October 2)
 
 - Richard imported 30 speakers on MEHF 2027, saw "27 created (3 skipped)"

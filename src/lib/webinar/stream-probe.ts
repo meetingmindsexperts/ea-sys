@@ -13,8 +13,13 @@
 const probeCache = new Map<string, { isLive: boolean; at: number }>();
 const PROBE_TTL_MS = 3000;
 
-export async function isStreamArriving(streamKey: string): Promise<boolean> {
-  const cached = probeCache.get(streamKey);
+export async function isStreamArriving(
+  streamKey: string,
+  opts: { fresh?: boolean } = {},
+): Promise<boolean> {
+  // `fresh` skips the cache: the room toggle acts on the answer, and a result
+  // up to 3 s old could say "live" just after the producer pressed Stop.
+  const cached = opts.fresh ? undefined : probeCache.get(streamKey);
   if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.isLive;
   const mediamtxUrl = process.env.MEDIAMTX_HLS_URL || "http://localhost:8888";
   let isLive = false;

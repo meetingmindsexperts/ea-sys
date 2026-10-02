@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useServerClockOffset } from "@/hooks/use-server-clock";
+import { useServerClock } from "@/hooks/use-server-clock";
 import { encodeClockQr } from "@/lib/stream-latency";
 import { DEFAULT_EVENT_TIMEZONE, tzLabel } from "@/lib/event-time";
 
@@ -37,7 +37,7 @@ function StreamClock() {
     [timezone],
   );
 
-  const offset = useServerClockOffset();
+  const { offsetMs: offset, status: clockStatus } = useServerClock();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [label, setLabel] = useState("");
   const [drawError, setDrawError] = useState<string | null>(null);
@@ -100,6 +100,12 @@ function StreamClock() {
           <p className="font-mono text-6xl font-semibold tabular-nums sm:text-8xl">{label}</p>
           <p className="text-sm text-slate-500">{tzLabel(new Date(), timezone)}</p>
         </>
+      )}
+      {clockStatus === "local" && (
+        <p className="max-w-xl text-center text-sm text-amber-700">
+          Could not reach the server clock, so this uses this computer&apos;s own clock. A
+          measurement is off by however far this clock is from the server&apos;s.
+        </p>
       )}
       {drawError && <p className="text-sm text-red-600">{drawError}</p>}
     </main>

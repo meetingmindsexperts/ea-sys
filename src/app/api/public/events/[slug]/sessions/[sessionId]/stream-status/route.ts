@@ -24,17 +24,16 @@ const VIEWER_AUTH_CACHE_MAX = 20_000;
 
 async function isAuthorizedViewer(
   user: { id: string; role?: string | null; organizationId?: string | null } | undefined,
-  event: { id: string; organizationId: string },
+  event: { id: string; organizationId: string; eventType: string | null },
 ): Promise<boolean> {
   if (!user) return false;
-  // Org writers, plus the Zoom host roles (WEBINARS, the producer role, is
-  // not a general writer), so the console's stream preview gets the URLs.
-  if (
-    (canWrite(user.role) || canViewZoomHostCredentials(user.role)) &&
-    user.organizationId === event.organizationId
-  ) {
-    return true;
-  }
+  const sameOrg = user.organizationId === event.organizationId;
+  if (canWrite(user.role) && sameOrg) return true;
+  // The Zoom host roles that are not general writers (WEBINARS, the producer
+  // role) get the URLs for the console's stream preview, but only on WEBINAR
+  // events: that role's host control stops at webinars, and the URL carries
+  // the stream key (code review, Oct 2, 2026).
+  if (canViewZoomHostCredentials(user.role) && sameOrg && event.eventType === "WEBINAR") return true;
   const cacheKey = `${user.id}:${event.id}`;
   const cachedUntil = viewerAuthCache.get(cacheKey);
   if (cachedUntil && cachedUntil > Date.now()) return true;
@@ -75,7 +74,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // liveness boolean (M5 residual, accepted).
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, eventType: true },
     });
 
     if (!event) {

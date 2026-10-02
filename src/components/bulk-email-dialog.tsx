@@ -28,6 +28,7 @@ import { Calendar, Eye, Loader2, Mail, Send } from "lucide-react";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { uploadEmailAttachments } from "@/lib/email-attachment-client";
 import { toast } from "sonner";
+import { MAX_MANUAL_CC, parseEmailList } from "@/lib/email-address-list";
 import {
   MAX_SURVEY_EXPIRY_DAYS,
   MIN_SURVEY_EXPIRY_DAYS,
@@ -326,6 +327,9 @@ export function BulkEmailDialog({
   // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
   // parity with the CRM email dialog). Copy-to-me defaults ON; on a bulk
   // send the sender receives one BCC copy PER recipient email.
+  // Manual CC (Oct 2, 2026): on EVERY email of the send, visible to each
+  // recipient, one copy per recipient per address; the field warns about both.
+  const [ccInput, setCcInput] = useState("");
   const [bccInput, setBccInput] = useState("");
   const [bccSelf, setBccSelf] = useState(true);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
@@ -591,6 +595,15 @@ export function BulkEmailDialog({
       toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
       return;
     }
+    const parsedCc = parseEmailList(ccInput);
+    if (parsedCc.invalid.length) {
+      toast.error(`Invalid CC address: ${parsedCc.invalid.join(", ")}`);
+      return;
+    }
+    if (parsedCc.valid.length > MAX_MANUAL_CC) {
+      toast.error(`At most ${MAX_MANUAL_CC} CC addresses per email`);
+      return;
+    }
 
     const payload = {
       recipientType,
@@ -667,6 +680,7 @@ export function BulkEmailDialog({
         // from the persisted ScheduledEmail.filters JSON; bccSelf resolves to
         // the triggering organizer at SEND time.
         ...(parsedBcc.length > 0 ? { bcc: parsedBcc } : {}),
+        ...(parsedCc.valid.length > 0 ? { cc: parsedCc.valid } : {}),
         ...(bccSelf ? { bccSelf: true } : {}),
         // RSVP link: the campaign id rides in filters so a scheduled send
         // reconstructs it from the persisted ScheduledEmail.filters JSON.
@@ -710,6 +724,7 @@ export function BulkEmailDialog({
     setScheduledAudience("matching");
     setCertTemplateIds([]);
     setLocalAbstractStatus("all");
+    setCcInput("");
     setBccInput("");
     setBccSelf(true);
   };
@@ -909,7 +924,7 @@ export function BulkEmailDialog({
           {emailType === "invitation" && recipientType === "speakers" && (
             <p className="text-xs text-muted-foreground rounded border bg-muted/40 px-3 py-2">
               If the invitation template includes the agreement block, each unsigned speaker
-              gets a personal <strong>Review &amp; Agree</strong> link (previously sent links stay
+              gets a personal <strong>Review &amp; Agree</strong>{" "}link (previously sent links stay
               valid) and the personalized agreement is attached when the event has agreement
               content configured. Speakers who already signed see an &ldquo;already
               accepted&rdquo; note instead.
@@ -1041,6 +1056,28 @@ export function BulkEmailDialog({
 
           {/* File Attachments (references; uploaded at submit) */}
           <EmailAttachmentPicker files={attachmentFiles} onChange={setAttachmentFiles} label="Attachments" />
+
+          {/* CC (Oct 2, 2026) */}
+          <div className="space-y-1.5">
+            <Label>CC (optional)</Label>
+            <Input
+              value={ccInput}
+              onChange={(e) => setCcInput(e.target.value)}
+              placeholder="coordinator@example.com"
+            />
+            {ccInput.trim() ? (
+              <p className="text-xs text-amber-700">
+                {/* One string, so the build cannot drop a space between expressions. */}
+                {`Every recipient will see the CC address${parseEmailList(ccInput).valid.length === 1 ? "" : "es"}, ` +
+                  `and each one gets a copy of every email: ${displayCount} ${displayCount === 1 ? "copy" : "copies"} each, ` +
+                  "including each recipient's personal links. For a silent copy, use BCC."}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Added to every email in this send and visible to each recipient.
+              </p>
+            )}
+          </div>
 
           {/* BCC + copy-to-me (organizer request July 29, 2026) */}
           <div className="space-y-1.5">

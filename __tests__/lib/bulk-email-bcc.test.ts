@@ -62,6 +62,7 @@ vi.mock("@/lib/certificates/bundle", () => ({ loadCertTemplate: vi.fn() }));
 vi.mock("@/lib/certificates/bulk-issue", () => ({ executeCertificateBulkSend: vi.fn() }));
 
 import { executeBulkEmail, bulkEmailSchema } from "@/lib/bulk-email";
+import { brandingCc } from "@/lib/email";
 
 const EVENT = {
   id: "evt-1",
@@ -173,3 +174,25 @@ describe("bulkEmailSchema — bcc validation", () => {
     expect(bulkEmailSchema.safeParse({ ...base, filters: { bcc: eleven } }).success).toBe(false);
   });
 });
+
+describe("executeBulkEmail: manual CC (Oct 2, 2026)", () => {
+  it("adds filters.cc to every recipient's CC, beside their additional email", async () => {
+    await executeBulkEmail({ ...BASE_INPUT, filters: { cc: ["Coord@Example.com"] } });
+    expect(brandingCc).toHaveBeenCalledWith(expect.anything(), [{ email: "dr@x.com" }], [null, "coord@example.com"]);
+    expect(brandingCc).toHaveBeenCalledWith(expect.anything(), [{ email: "observer@x.com" }], [null, "coord@example.com"]);
+  });
+
+  it("an address in both CC and BCC is sent as CC only", async () => {
+    await executeBulkEmail({ ...BASE_INPUT, filters: { cc: ["both@x.com"], bcc: ["both@x.com", "quiet@x.com"] } });
+    expect(bccOfCallTo("dr@x.com")).toEqual([{ email: "quiet@x.com" }]);
+  });
+
+  it("the schema accepts up to 10 CC addresses and rejects a bad one", () => {
+    const base = { recipientType: "speakers", emailType: "custom", customSubject: "S", customMessage: "M" };
+    expect(bulkEmailSchema.safeParse({ ...base, filters: { cc: ["a@x.com"] } }).success).toBe(true);
+    expect(bulkEmailSchema.safeParse({ ...base, filters: { cc: ["not-an-email"] } }).success).toBe(false);
+    const eleven = Array.from({ length: 11 }, (_, i) => `p${i}@x.com`);
+    expect(bulkEmailSchema.safeParse({ ...base, filters: { cc: eleven } }).success).toBe(false);
+  });
+});
+

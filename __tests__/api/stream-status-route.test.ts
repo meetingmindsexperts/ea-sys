@@ -59,7 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchMock.mockResolvedValue({ ok: true });
   mockAuth.mockResolvedValue(null);
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "WEBINAR" });
   mockDb.zoomMeeting.findFirst.mockResolvedValue({
     streamKey: nextStreamKey(),
     streamStatus: "ACTIVE",
@@ -125,6 +125,14 @@ describe("stream-status — M3 credential gating", () => {
     const body = await (await call()).json();
     expect(body.hlsUrl).toBeTruthy();
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("the WEBINARS role gets NO URLs on a conference event (its host control stops at webinars)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", eventType: "CONFERENCE" });
+    mockAuth.mockResolvedValue({ user: { id: "u-prod-2", role: "WEBINARS", organizationId: "org1" } });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const body = await (await call()).json();
+    expect(body).toEqual({ status: "active" });
   });
 
   it("a read-only MEMBER is still treated as an attendee (no host-role bypass)", async () => {

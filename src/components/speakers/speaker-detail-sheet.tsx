@@ -76,6 +76,7 @@ import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { MAX_MANUAL_CC, parseEmailList } from "@/lib/email-address-list";
 
 const statusColors: Record<string, string> = {
   INVITED: "bg-yellow-100 text-yellow-800",
@@ -206,6 +207,8 @@ export function SpeakerDetailSheet({
   const [invitationFiles, setInvitationFiles] = useState<File[]>([]);
   // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
   // parity with the CRM email dialog). Copy-to-me defaults ON.
+  // Manual CC (Oct 2, 2026): visible to the speaker.
+  const [ccInput, setCcInput] = useState("");
   const [bccInput, setBccInput] = useState("");
   const [bccSelf, setBccSelf] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -484,6 +487,15 @@ export function SpeakerDetailSheet({
       toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
       return;
     }
+    const parsedCc = parseEmailList(ccInput);
+    if (parsedCc.invalid.length) {
+      toast.error(`Invalid CC address: ${parsedCc.invalid.join(", ")}`);
+      return;
+    }
+    if (parsedCc.valid.length > MAX_MANUAL_CC) {
+      toast.error(`At most ${MAX_MANUAL_CC} CC addresses per email`);
+      return;
+    }
     setSendingEmail(true);
     try {
       // Files go to storage first; the send body carries references only
@@ -501,6 +513,7 @@ export function SpeakerDetailSheet({
           customMessage: customEmailMessage || undefined,
           includeAgreementLink: emailType === "agreement",
           attachments: attachments?.length ? attachments : undefined,
+          cc: parsedCc.valid.length ? parsedCc.valid : undefined,
           bcc: parsedBcc.length ? parsedBcc : undefined,
           bccSelf,
         }),
@@ -512,6 +525,7 @@ export function SpeakerDetailSheet({
         setCustomEmailSubject("");
         setCustomEmailMessage("");
         setInvitationFiles([]);
+        setCcInput("");
         setBccInput("");
       } else {
         toast.error(data.error || "Failed to send email");
@@ -1162,6 +1176,17 @@ export function SpeakerDetailSheet({
                 </div>
               )}
               {emailType !== "abstract-confirmation" && (
+              <>
+              <div className="space-y-1.5">
+                <Label>CC (optional)</Label>
+                <Input
+                  value={ccInput}
+                  onChange={(e) => setCcInput(e.target.value)}
+                  placeholder="coordinator@example.com"
+                  disabled={sendingEmail}
+                />
+                <p className="text-xs text-muted-foreground">The speaker sees these addresses. Use BCC for a silent copy.</p>
+              </div>
               <div className="space-y-1.5">
                 <Label>BCC (optional)</Label>
                 <Input
@@ -1181,6 +1206,7 @@ export function SpeakerDetailSheet({
                   Send me a copy (BCC)
                 </label>
               </div>
+              </>
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>

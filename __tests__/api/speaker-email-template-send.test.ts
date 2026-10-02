@@ -246,3 +246,23 @@ describe("speaker single-send — the presenter agreement tokens (Sep 25, 2026)"
     expect((sendEmailSpy.mock.calls[0][0].attachments as { name: string }[]).map((a) => a.name)).toContain("presenter-agreement-ev-slug-doe.pdf");
   });
 });
+
+describe("speaker single-send: manual CC (Oct 2, 2026)", () => {
+  it("adds the typed CC beside the speaker's additional email, and keeps it out of BCC", async () => {
+    const { brandingCc } = await import("@/lib/email");
+    const res = await POST(
+      makeReq({ type: "custom", customSubject: "S", customMessage: "M", cc: ["Coord@X.com"], bcc: ["coord@x.com", "quiet@x.com"], bccSelf: false }),
+      routeParams,
+    );
+    expect(res.status).toBe(200);
+    expect(brandingCc).toHaveBeenCalledWith(expect.anything(), [{ email: "spk@x.com" }], [null, "coord@x.com"]);
+    expect(sendEmailSpy.mock.calls[0][0].bcc).toEqual([{ email: "quiet@x.com" }]);
+  });
+
+  it("refuses a CC that is not an email address", async () => {
+    const res = await POST(makeReq({ type: "custom", customSubject: "S", customMessage: "M", cc: ["nope"] }), routeParams);
+    expect(res.status).toBe(400);
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+  });
+});
+

@@ -1,6 +1,7 @@
 import { AbstractStatus, PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
 import crypto from "crypto";
 import { z } from "zod";
+import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { hashVerificationToken } from "./security";
@@ -245,6 +246,12 @@ export interface BulkEmailFilters {
    * `filters` for the same schedule-compat reason as `templateSlug`.
    */
   bcc?: string[];
+  /**
+   * Manual CC addresses added to EVERY email of this send (Oct 2, 2026).
+   * Visible to each recipient, and each address receives one copy per
+   * recipient; the dialog warns about both. Rides inside `filters` like `bcc`.
+   */
+  cc?: string[];
   /**
    * "Send a copy to me" — BCCs the triggering organizer on every email.
    * Resolved to `organizerEmail` at SEND time (not enqueue), so scheduled
@@ -590,6 +597,7 @@ export const bulkEmailSchema = z.object({
       templateSlug: z.string().min(1).max(100).optional(),
       certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
       bcc: z.array(z.string().email()).max(10).optional(),
+      cc: z.array(z.string().email()).max(MAX_MANUAL_CC).optional(),
       bccSelf: z.boolean().optional(),
       rsvpCampaignId: z.string().min(1).max(100).optional(),
     })
@@ -2144,6 +2152,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     (input.filters?.bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean),
   );
   if (input.filters?.bccSelf && organizerEmail) bccSet.add(organizerEmail.trim().toLowerCase());
+  // Manual CC (Oct 2, 2026): merged into each email's CC with the event-wide
+  // CC and the recipient's additional email (brandingCc dedupes and never CCs
+  // the recipient on their own email). An address in both lists stays CC only.
+  const manualCc = (input.filters?.cc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  for (const e of manualCc) bccSet.delete(e);
 
   let toSend = alreadyEmailed.size
     ? recipients.filter((r) => !alreadyEmailed.has(r.id))
@@ -2306,7 +2319,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             .map((email) => ({ email }));
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
-            cc: brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail]),
+            cc: brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail, ...manualCc]),
             bcc: bccRecipients.length ? bccRecipients : undefined,
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,

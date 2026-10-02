@@ -198,6 +198,7 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
       expect.objectContaining({ data: { status: "LIVE" } }),
     );
     expect(mockControlLiveStream).not.toHaveBeenCalled();
+    expect(mockIsStreamArriving).toHaveBeenCalledWith("sk-1", { fresh: true });
     expect((await res.json()).stream).toEqual({ ok: true, alreadyLive: true });
     expect(mockApiLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: "ev1" }),

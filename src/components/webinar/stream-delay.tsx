@@ -35,6 +35,7 @@ export function StreamDelay({
   latestSampleRef,
   sample,
   offsetMs,
+  clockStatus,
   timezone,
   playing,
 }: {
@@ -45,6 +46,8 @@ export function StreamDelay({
   sample: PlayerTimingSample | null;
   /** Server time minus local time; null until synced. */
   offsetMs: number | null;
+  /** "local" when the server clock could not be reached (offset is then 0). */
+  clockStatus: "syncing" | "synced" | "local";
   timezone: string;
   playing: boolean;
 }) {
@@ -59,17 +62,21 @@ export function StreamDelay({
   }, [sample, offsetMs]);
 
   const [measure, setMeasure] = useState<MeasureState>({ kind: "idle" });
-  const cancelRef = useRef(false);
+  // Each run takes a number; Cancel, unmount or a new run moves it on, and a
+  // loop whose number is no longer current stops. A boolean flag could be
+  // reset by a quick re-run while the old loop slept, leaving two running.
+  const runRef = useRef(0);
   useEffect(
     () => () => {
-      cancelRef.current = true;
+      runRef.current += 1;
     },
     [],
   );
 
   const runMeasure = async () => {
     if (offsetMs === null) return;
-    cancelRef.current = false;
+    const run = ++runRef.current;
+    const stale = () => runRef.current !== run;
     setMeasure({ kind: "running", found: 0 });
     let decoder: { decodeAsync(canvas: HTMLCanvasElement): Promise<{ text: string }> };
     try {
@@ -95,7 +102,7 @@ export function StreamDelay({
     const readings: DelayReading[] = [];
     let lastQr = 0;
     const deadline = Date.now() + MEASURE_TIMEOUT_MS;
-    while (!cancelRef.current && Date.now() < deadline && readings.length < MEASURE_READINGS) {
+    while (!stale() && Date.now() < deadline && readings.length < MEASURE_READINGS) {
       const video = videoBoxRef.current?.querySelector("video");
       if (ctx && video && video.videoWidth > 0) {
         canvas.width = video.videoWidth;
@@ -120,6 +127,7 @@ export function StreamDelay({
         try {
           const decoded = await decoder.decodeAsync(canvas);
           const qr = parseClockQr(decoded.text);
+          if (stale()) return;
           if (qr !== null && qr !== lastQr) {
             lastQr = qr;
             readings.push(readingFromClock(qr, serverNow, playingDate));
@@ -131,7 +139,7 @@ export function StreamDelay({
       }
       await new Promise((resolve) => setTimeout(resolve, SCAN_EVERY_MS));
     }
-    if (cancelRef.current) return;
+    if (stale()) return;
     if (readings.length === 0) {
       console.warn("stream-delay:no-clock-found");
       setMeasure({
@@ -202,10 +210,14 @@ export function StreamDelay({
             {measure.kind === "running" ? `Reading the clock… ${measure.found}/${MEASURE_READINGS}` : "Measure Zoom delay"}
           </Button>
           {measure.kind === "running" && (
-            <Button size="sm" variant="ghost" onClick={() => {
-                cancelRef.current = true;
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                runRef.current += 1;
                 setMeasure({ kind: "idle" });
-              }}>
+              }}
+            >
               Cancel
             </Button>
           )}
@@ -224,6 +236,12 @@ export function StreamDelay({
           </div>
         )}
         {measure.kind === "failed" && <p className="text-sm text-red-600">{measure.message}</p>}
+        {clockStatus === "local" && (
+          <p className="text-xs text-amber-700">
+            Could not reach the server clock, so this uses this computer&apos;s own clock; the
+            figures are off by however far it is from the server&apos;s.
+          </p>
+        )}
       </div>
     </div>
   );

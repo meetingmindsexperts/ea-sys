@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
-import { useServerClockOffset } from "@/hooks/use-server-clock";
+import { useServerClock } from "@/hooks/use-server-clock";
 import {
   useWebinar,
   useUpdateWebinarSettings,
@@ -2368,7 +2368,7 @@ function StreamPreview({
   const timezone = useEventTz();
   // Delay measurement (Oct 2, 2026): the player reports timing about once a
   // second; the clock offset puts both ends on the server's clock.
-  const offsetMs = useServerClockOffset(open);
+  const { offsetMs, status: clockStatus } = useServerClock(open);
   const videoBoxRef = useRef<HTMLDivElement>(null);
   const latestSampleRef = useRef<PlayerTimingSample | null>(null);
   const [sample, setSample] = useState<PlayerTimingSample | null>(null);
@@ -2444,6 +2444,7 @@ function StreamPreview({
                 latestSampleRef={latestSampleRef}
                 sample={sample}
                 offsetMs={offsetMs}
+                clockStatus={clockStatus}
                 timezone={timezone}
                 playing={state === "active"}
               />

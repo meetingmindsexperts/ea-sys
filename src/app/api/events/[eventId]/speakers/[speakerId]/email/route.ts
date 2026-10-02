@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 import { z } from "zod";
+import { MAX_MANUAL_CC } from "@/lib/email-address-list";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
@@ -48,6 +49,9 @@ const sendEmailSchema = z.object({
   // 2026 — parity with the CRM email dialog). Merged + deduped below; the
   // speaker's own address is never BCC'd.
   bcc: z.array(z.string().email()).max(10).optional(),
+  // Manual CC (Oct 2, 2026): visible to the speaker; merged with the
+  // event-wide CC and the speaker's additional email below.
+  cc: z.array(z.string().email()).max(MAX_MANUAL_CC).optional(),
   bccSelf: z.boolean().optional(),
   // Operator-picked file attachments (PDF/DOC/DOCX): REFERENCES to files
   // already uploaded via /email-attachments (Sep 8, 2026; the bytes used to
@@ -134,7 +138,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, templateSlug, customSubject, customMessage, includeAgreementLink, bcc, bccSelf } = validated.data;
+    const { type, templateSlug, customSubject, customMessage, includeAgreementLink, bcc, cc, bccSelf } = validated.data;
 
     if (type === "template" && !templateSlug) {
       apiLogger.warn({ msg: "events/speakers/email:template-slug-missing", eventId, speakerId });
@@ -450,13 +454,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     const bccSet = new Set((bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
     if (bccSelf && session.user.email) bccSet.add(session.user.email.trim().toLowerCase());
     bccSet.delete(speaker.email.trim().toLowerCase());
+    // An address in both lists stays CC only.
+    const manualCc = (cc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+    for (const e of manualCc) bccSet.delete(e);
 
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
       cc: brandingCc(
         branding,
         [{ email: speaker.email }],
-        [speaker.additionalEmail],
+        [speaker.additionalEmail, ...manualCc],
       ),
       bcc: bccSet.size ? [...bccSet].map((email) => ({ email })) : undefined,
       ...rendered,

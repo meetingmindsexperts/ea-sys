@@ -161,7 +161,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // console preview before opening the room (Oct 2, 2026). Asking Zoom to
       // start it again would at best be refused, so skip it when MediaMTX is
       // already receiving the video.
-      if (validated.data.open && meeting?.streamKey && (await isStreamArriving(meeting.streamKey))) {
+      if (validated.data.open && meeting?.streamKey && (await isStreamArriving(meeting.streamKey, { fresh: true }))) {
         apiLogger.info({ eventId, sessionId: webinar.sessionId }, "webinar:room-stream-already-arriving");
         return NextResponse.json({
           open: true,

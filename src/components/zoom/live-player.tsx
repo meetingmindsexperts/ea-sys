@@ -187,6 +187,8 @@ export function LivePlayer({
         hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal?: boolean; type?: string }) => {
           if (data.fatal && mounted) {
             hls.destroy();
+            // Cleared so the preview's timing reader never reads a destroyed instance.
+            if (hlsRef.current === hls) hlsRef.current = null;
             // CDN edge failed → try the box origin once.
             if (tryFallback()) return;
             // Both CDN + origin failed → resume the recovery poll (auto-reconnect
@@ -206,6 +208,7 @@ export function LivePlayer({
       clearInterval(pollInterval);
       if (hlsRef.current && typeof (hlsRef.current as { destroy?: () => void }).destroy === "function") {
         (hlsRef.current as { destroy: () => void }).destroy();
+        hlsRef.current = null;
       }
     };
   }, [hlsUrl, slug, sessionId, pollStreamStatus, retryNonce, measurable]);
