@@ -631,6 +631,27 @@ Domain by domain:
   edit, delete), ONSITE assigned (reads 200, writes 403), MEMBER, WEBINARS on
   a conference and CRM_USER (404s), with no failed request and no console
   message.
+- **Sessions and tracks SWEPT Oct 2, 2026** (`sessions`, `sessions/[sessionId]`,
+  `sessions/bulk-delete`, `tracks`, `tracks/[trackId]`; the session Zoom routes
+  go with the webinar domain): `sessions.read` for every agenda read (list,
+  detail, tracks), `sessions.write`, `sessions.delete` (detail and bulk) and
+  `tracks.write`. Two additions to `requirePermission`: `linkedRoles: "linked"`
+  lets the outside identities (REVIEWER, SUBMITTER, REGISTRANT) keep reading
+  through `buildEventAccessWhere` on the reads that served them (§1), and
+  `principalFromCaller` takes the session, an API key or a mobile token for the
+  session list, which accepts all three. ONSITE reads its assigned event's
+  agenda today, so it now holds `sessions.read` at `ASSIGNED` (same choice as
+  registration types: nobody's access changes; remove it if ONSITE should not
+  see the agenda). Matrix byte for byte; five files added to the guard.
+  Verified in a headed browser with the chrome-devtools MCP on the standalone
+  build: ADMIN created, edited and deleted a track and sessions (single and
+  bulk) with every request 200/201; ONSITE (assigned) and MEMBER read 200 and
+  write 403; WEBINARS on a conference and CRM_USER 404. **Recorded, not
+  changed:** these routes never had `requireOrgId`, so the platform operator
+  (SUPER_ADMIN with no organisation) can create, edit and delete sessions and
+  tracks on ANY organisation's events, where the first two domains refuse it.
+  The sweep keeps that; whether the operator should write tenant agendas is an
+  owner call.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

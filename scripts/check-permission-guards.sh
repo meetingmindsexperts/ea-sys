@@ -36,6 +36,12 @@ SWEPT=(
   "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/[tierId]/route.ts"
   "src/app/api/events/[eventId]/promo-codes/route.ts"
   "src/app/api/events/[eventId]/promo-codes/[promoCodeId]/route.ts"
+  # sessions and tracks (Oct 2, 2026)
+  "src/app/api/events/[eventId]/sessions/route.ts"
+  "src/app/api/events/[eventId]/sessions/[sessionId]/route.ts"
+  "src/app/api/events/[eventId]/sessions/bulk-delete/route.ts"
+  "src/app/api/events/[eventId]/tracks/route.ts"
+  "src/app/api/events/[eventId]/tracks/[trackId]/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped.

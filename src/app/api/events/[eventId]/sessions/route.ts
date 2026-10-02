@@ -4,11 +4,10 @@ import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { createSession, SESSION_SELECT } from "@/services/session-service";
 import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
 import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
-import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -73,15 +72,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
-    // API key → the key's org; a signed-in person → their role scoping. ONE
-    // predicate: this used to be a ternary on `orgCtx`, which reads as "key,
-    // else person" but matches a signed-in person too, so the role rules never
-    // ran and an ONSITE temp could read any org event's agenda. See
-    // `accessUserFrom`.
-    const eventWhere = buildEventAccessWhere(
-      accessUserFrom(orgCtx, session?.user),
+    // A signed-in person is judged on their session (the attendee-side roles
+    // through the events they are linked to); an API key or a mobile token on
+    // what it carries. ONE gate either way: this was once a ternary on
+    // `orgCtx` that matched signed-in people too, so the role rules never ran
+    // and an ONSITE temp could read any org event's agenda.
+    const caller = session?.user ? session : principalFromCaller(null, orgCtx);
+    const gate = requirePermission(caller, "sessions.read", {
+      route: "events/[eventId]/sessions:GET",
       eventId,
-    );
+      onMissing: "hide",
+      linkedRoles: "linked",
+    });
+    if (!gate.ok) return gate.response;
+    const eventWhere = gate.eventWhere;
 
     // Resolve the event FIRST — its org (RESOURCE org, so an org-null caller
     // reaching the event by linkage still resolves) opens the tenant wrap
@@ -180,8 +184,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sessions.write", { route: "events/[eventId]/sessions:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const validated = createSessionSchema.safeParse(body);
 
@@ -201,7 +205,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // (denyReviewer already blocked restricted roles; the hand-rolled filter
     // 404'd an org-null SUPER_ADMIN).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

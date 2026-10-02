@@ -319,9 +319,11 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // The desk on assigned events only; sees amounts and codes. It reads the
     // event's registration types (the desk's add-registration form needs
     // them) and promo codes, which the route matrix recorded on Oct 1, 2026
-    // and the owner kept (plan §6 Phase 2, "Registration types and promo codes").
+    // and the owner kept (plan §6 Phase 2, "Registration types and promo codes");
+    // and the agenda (sessions and tracks), recorded Oct 2, 2026, kept the
+    // same way so nobody's access changes.
     grants: [
-      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", ...DESK, ...DESK_WITH_CODES),
+      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", ...DESK, ...DESK_WITH_CODES),
       ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],

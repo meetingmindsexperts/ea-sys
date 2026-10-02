@@ -379,6 +379,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the agenda (sessions and tracks) checks permissions instead of roles (October 2)
+
+- Custom roles Phase 2, third domain: sessions, bulk session delete and
+  tracks. Nobody's access changes. Onsite staff keep reading their assigned
+  event's agenda, now as a named permission; reviewers, submitters and
+  registrants keep reading the events they are linked to.
+
 ### Changed: registration types and promo codes check permissions instead of roles (October 1)
 
 - Custom roles Phase 2, second domain: registration types, pricing tiers and

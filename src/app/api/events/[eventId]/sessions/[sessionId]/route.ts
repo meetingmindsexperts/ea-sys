@@ -4,12 +4,11 @@ import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { readWebinarSettings } from "@/lib/webinar";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import { updateSession, SESSION_SELECT } from "@/services/session-service";
 import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
@@ -65,8 +64,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/sessions/[sessionId]:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
+    if (!gate.ok) return gate.response;
+
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 
@@ -106,15 +108,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sessions.write", { route: "events/[eventId]/sessions/[sessionId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
     // (denyReviewer already blocked restricted roles). Load the event FIRST/
     // alone — its org opens the tenant wrap around the swept eventSession read
     // + the updateSession service (which touches swept child tables).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, startDate: true, endDate: true, timezone: true },
     });
 
@@ -211,11 +213,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sessions.delete", { route: "events/[eventId]/sessions/[sessionId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       // `settings` carries the webinar anchor pointer we must protect below.
       select: { id: true, organizationId: true, settings: true },
     });

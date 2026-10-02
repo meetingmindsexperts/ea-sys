@@ -27,6 +27,7 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import type { Session } from "next-auth";
 import { apiLogger } from "@/lib/logger";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { describePermission, isLivePermissionKey, type PermissionKey } from "./catalogue";
 import { can, eventWhereFor, systemPrincipal, type EventFacts, type Principal } from "./can";
 import type { Grant } from "./system-roles";
@@ -62,6 +63,30 @@ export function principalFromApiKey(organizationId: string): Principal {
   return systemPrincipal({ role: null, organizationId, fromApiKey: true });
 }
 
+/**
+ * The principal for a route that takes BOTH a session and `getOrgContext()`
+ * (an API key or a mobile token). The session wins when there is one: it
+ * carries the person's grants, and for a signed-in person the org context
+ * names the same organisation. A mobile token carries a role and no custom
+ * keys; an API key is the API_KEY row.
+ */
+export function principalFromCaller(
+  session: Session | null | undefined,
+  orgCtx: { organizationId: string; userId?: string | null; role?: string | null; fromApiKey?: boolean } | null | undefined,
+): Principal | null {
+  if (session?.user) return principalFromSession(session);
+  if (!orgCtx) return null;
+  if (orgCtx.fromApiKey) return principalFromApiKey(orgCtx.organizationId);
+  return systemPrincipal({ role: orgCtx.role, organizationId: orgCtx.organizationId, userId: orgCtx.userId ?? null });
+}
+
+/**
+ * The outside identities (plan §1): not org staff, no role in the catalogue.
+ * Their access comes from being linked to an event (a reviewer pool, a speaker
+ * record, a registration), which `buildEventAccessWhere` already expresses.
+ */
+const LINKED_EVENT_ROLES = new Set(["REVIEWER", "SUBMITTER", "REGISTRANT"]);
+
 export type PermissionGate =
   | {
       ok: true;
@@ -93,6 +118,13 @@ export interface RequirePermissionOptions {
    * event route answers today, and the route matrix holds the sweep to it.
    */
   onMissing?: "forbid" | "hide";
+  /**
+   * "linked" for a READ an outside identity (REVIEWER, SUBMITTER, REGISTRANT)
+   * may make today: they pass with `buildEventAccessWhere`, the events they are
+   * linked to, and no catalogue check (they hold no role). Omitted, they are
+   * refused like any caller without the key. Never on a write.
+   */
+  linkedRoles?: "linked";
 }
 
 const NO_EVENTS: Prisma.EventWhereInput = { id: { in: [] } };
@@ -147,6 +179,10 @@ export function requirePermission(
   }
   const principal = isPrincipal(caller) ? caller : principalFromSession(caller);
   const eventBound = describePermission(permission)?.eventBound === true;
+
+  if (opts.linkedRoles === "linked" && eventBound && !isPrincipal(caller) && LINKED_EVENT_ROLES.has(caller.user.role)) {
+    return { ok: true, principal, eventWhere: buildEventAccessWhere(caller.user, eventId) };
+  }
 
   if (!can(principal, permission)) {
     const who = { route, permission, eventId, role: principal.baseRole, fromApiKey: principal.fromApiKey, userId: principal.userId };

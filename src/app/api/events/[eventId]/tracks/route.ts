@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -31,10 +30,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/tracks:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event FIRST — its org (RESOURCE org) opens the tenant wrap
     // around the swept track read.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 
@@ -83,8 +85,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tracks:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tracks.write", { route: "events/[eventId]/tracks:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const validated = createTrackSchema.safeParse(body);
 
@@ -102,7 +104,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // already blocked restricted roles) — the hand-rolled organizationId
     // filter 404'd a SUPER_ADMIN with no org.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 

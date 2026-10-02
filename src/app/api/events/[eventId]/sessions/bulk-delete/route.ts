@@ -21,8 +21,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -47,11 +46,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, {
-      allow: WEBINAR_STAFF_ALLOW,
-      route: "events/[eventId]/sessions/bulk-delete:POST",
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sessions.delete", { route: "events/[eventId]/sessions/bulk-delete:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // A destructive endpoint that can reach Zoom up to 200 times per call gets
     // its own budget (review, Sep 2 2026). Per user, since the audit row and
@@ -88,7 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const requested = Array.from(new Set(parsed.data.sessionIds));
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {

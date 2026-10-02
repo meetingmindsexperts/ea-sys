@@ -52,6 +52,48 @@ Suggested set when picked up: 2 + 3 + 4, about a day, reviewed and verified per
 role in a browser (auth is load-bearing). Do it before rolling budget roles out to
 the whole office.
 
+## The agenda can show stale data after an edit (found Oct 2, 2026): recorded, not fixed
+
+The session and track list GETs answer with `Cache-Control: private,
+max-age=0, stale-while-revalidate=30`, so the BROWSER may hand the page a
+cached list for up to 30 seconds after an edit. Found while verifying the
+Phase 2 sessions sweep: a session renamed through the API still showed its old
+name on the Agenda page after two reloads, while a `cache: "no-store"` fetch
+returned the new one. The change it came with did not touch these headers, so
+it predates it. Likely fix: `no-store` (or no `stale-while-revalidate`) on the
+dashboard's own list GETs, which React Query already caches; check which other
+dashboard GETs carry the same header before changing one.
+
+## Procurement: order changes, supplier credit notes, supplier approval order (verified Oct 2, 2026): parked
+
+The owner asked how five things behave; verified against the code and prod.
+Parked by the owner the same day, nothing changed.
+
+- **Approved request to order to budget: as expected.** Approval issues the PO
+  in the decision's transaction; the line's committed figures and the budget
+  totals are re-summed. It is COMMITTED, not actual: nothing in the module
+  writes actual, and receiving does not move money there.
+- **Cancel releases the budget: as expected, with limits.** Settle holder or
+  admin, reason required; the amount is released and the request goes back to
+  its approver (`spend-request-reroute.ts`). Refused once anything is received,
+  and on a closed-out budget until an admin reopens it.
+- **Order changes: not supported.** An issued order cannot be edited. The
+  requester amends the REQUEST amount only before its order exists (a rise is
+  re-approved on the new total, a fall applies at once). After the order: cancel
+  and re-raise, which receipt blocks, so a price change after receipt has no path.
+- **Supplier credit notes: not supported.** Procurement has no credit note;
+  the only ones in EA-SYS are registration credit notes. With no actual figure
+  there is nowhere on the budget for one to land.
+- **Supplier approval: one decision by any of three, no order or stand-in.**
+  Propose: the request or settle grant, or `procurement.suppliers.propose`
+  (prod: Mohammad Salah via a custom role, Vivek, Richard, Muthu). Decide
+  (`canDecideSuppliers`): the settle holder, the final approver or a
+  SUPER_ADMIN (prod: Muthu, Medhat, Krishna, as equals). The owner described
+  "Medhat approves, Muthu stands in", which the code does not express. A
+  supplier the settle holder creates is approved on creation. The SUPER_ADMIN
+  arm (Sep 15 ruling) sits against the later house rule that the super admin
+  is never an approver; owner call when picked up.
+
 ## Forward a deleted event's old links (recorded Oct 2, 2026): parked
 
 **What happens today.** Deleting an event leaves its `/e/<slug>/...` links in

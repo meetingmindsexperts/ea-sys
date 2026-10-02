@@ -93,7 +93,7 @@ describe("registrations LIST GET (API-key-aware)", () => {
   });
 
   it("keeps an API-key caller (role null) org-scoped", async () => {
-    mockOrgCtx.mockResolvedValue({ organizationId: "org1", userId: null, role: null });
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", userId: null, role: null, fromApiKey: true, fromMobile: false });
     mockDb.event.findFirst.mockResolvedValue({ id: "evB" });
     await listGET(new Request("http://localhost/api/events/evB/registrations"), { params: eventParams });
     expectOrgScopedOnly();
@@ -180,7 +180,7 @@ describe("sessions + speakers GET — the orgCtx-branch bypass", () => {
   });
 
   it("an API key (role null) stays org-scoped on both — the path that was always correct", async () => {
-    mockOrgCtx.mockResolvedValue({ organizationId: "org1", userId: null, role: null });
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", userId: null, role: null, fromApiKey: true, fromMobile: false });
     mockAuth.mockResolvedValue(null);
     mockDb.event.findFirst.mockResolvedValue({ id: "evB", organizationId: "org1" });
 

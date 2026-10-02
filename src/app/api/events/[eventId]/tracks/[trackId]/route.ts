@@ -1,10 +1,10 @@
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -32,19 +32,19 @@ async function getAuthenticatedUser() {
   return { session, unauthorized: null };
 }
 
-// L4: org-scope via buildEventAccessWhere like the GET (denyReviewer has
-// already blocked restricted roles) — the hand-rolled organizationId filter
-// 404'd an org-null SUPER_ADMIN. Returns the event's org (RESOURCE org) so
-// the caller can open the tenant wrap around its swept track ops.
+// Resolves the event through the permission gate's filter (`gate.eventWhere`),
+// so the lookup can never be wider than the grant that let the caller in.
+// Returns the event's org (RESOURCE org) so the caller can open the tenant
+// wrap around its swept track ops.
 async function validateEventAccess(
   eventId: string,
-  user: { id: string; role: string; organizationId?: string | null },
+  where: Prisma.EventWhereInput,
 ): Promise<
   | { error: NextResponse; organizationId: null }
   | { error: null; organizationId: string }
 > {
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(user, eventId),
+    where,
     select: { id: true, organizationId: true },
   });
 
@@ -68,8 +68,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
+    const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/tracks/[trackId]:GET", eventId, onMissing: "hide", linkedRoles: "linked" });
+    if (!gate.ok) return gate.response;
+
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -133,10 +136,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tracks/[trackId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tracks.write", { route: "events/[eventId]/tracks/[trackId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
-    const access = await validateEventAccess(eventId, session.user);
+    const access = await validateEventAccess(eventId, gate.eventWhere);
     if (access.error) {
       return access.error;
     }
@@ -221,10 +224,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/tracks/[trackId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "tracks.write", { route: "events/[eventId]/tracks/[trackId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
-    const access = await validateEventAccess(eventId, session.user);
+    const access = await validateEventAccess(eventId, gate.eventWhere);
     if (access.error) {
       return access.error;
     }

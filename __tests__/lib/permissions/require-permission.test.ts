@@ -10,7 +10,7 @@ import type { Session } from "next-auth";
 const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: mockWarn, info: vi.fn(), error: vi.fn() } }));
 
-import { principalFromApiKey, principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
+import { principalFromApiKey, principalFromCaller, principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { eventWhereFor, systemPrincipal } from "@/lib/permissions/can";
 
 const session = (role: string, extra: Record<string, unknown> = {}, organizationId: string | null = "org-1") =>
@@ -130,5 +130,35 @@ describe("principals", () => {
     const key = principalFromApiKey("org-1");
     expect(key.fromApiKey).toBe(true);
     expect(await status(requirePermission(key, "events.read", { route: "events:GET" }))).toBe(200);
+  });
+});
+
+describe("linkedRoles: the outside identities (plan §1)", () => {
+  it("a reviewer, submitter or registrant passes a read with their linked events", () => {
+    const gate = requirePermission(session("REVIEWER", {}, null), "sessions.read", { route: "r", eventId: "ev-1", onMissing: "hide", linkedRoles: "linked" });
+    expect(gate.ok && gate.eventWhere).toEqual({ id: "ev-1", settings: { path: ["reviewerUserIds"], array_contains: "user-1" } });
+    const sub = requirePermission(session("SUBMITTER", {}, null), "sessions.read", { route: "r", eventId: "ev-1", linkedRoles: "linked" });
+    expect(sub.ok && sub.eventWhere).toEqual({ id: "ev-1", speakers: { some: { userId: "user-1" } } });
+  });
+
+  it("without the option they are refused like anyone without the key", async () => {
+    expect(await status(requirePermission(session("REGISTRANT", {}, null), "sessions.read", { route: "r", eventId: "ev-1" }))).toBe(403);
+  });
+
+  it("does not apply to staff or unknown roles: they go through the catalogue", () => {
+    const crm = requirePermission(session("CRM_USER"), "sessions.read", { route: "r", eventId: "ev-1", onMissing: "hide", linkedRoles: "linked" });
+    expect(crm.ok && crm.eventWhere).toEqual({ id: { in: [] } });
+    const unknown = requirePermission(session("SOMETHING_NEW"), "sessions.read", { route: "r", eventId: "ev-1", onMissing: "hide", linkedRoles: "linked" });
+    expect(unknown.ok && unknown.eventWhere).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("principalFromCaller", () => {
+  it("prefers the session, then an API key, then a mobile token's role", () => {
+    expect(principalFromCaller(session("ADMIN"), { organizationId: "org-1", fromApiKey: true })?.baseRole).toBe("ADMIN");
+    expect(principalFromCaller(null, { organizationId: "org-1", fromApiKey: true })?.fromApiKey).toBe(true);
+    const mobile = principalFromCaller(null, { organizationId: "org-1", userId: "u-9", role: "ONSITE", fromApiKey: false });
+    expect(mobile).toMatchObject({ baseRole: "ONSITE", userId: "u-9", fromApiKey: false });
+    expect(principalFromCaller(null, null)).toBeNull();
   });
 });
