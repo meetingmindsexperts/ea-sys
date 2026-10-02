@@ -379,6 +379,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: certificates check permissions instead of roles (October 2)
+
+- Custom roles Phase 2: certificate templates, settings, issuing, runs,
+  downloads, reissue and resend. Nobody's access changes; admins and
+  organizers keep all of it.
+
 ### Changed: communications check permissions instead of roles (October 2)
 
 - Custom roles Phase 2: bulk email, scheduled emails, email templates,

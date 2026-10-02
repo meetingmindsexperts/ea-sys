@@ -20,7 +20,7 @@ import type { Prisma, CertificateType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 
@@ -56,8 +56,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [session, p] = await Promise.all([auth(), params]);
     eventId = p.eventId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/bulk-reissue:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.reissue", { route: "events/[eventId]/certificates/bulk-reissue:POST", eventId: eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-bulk-reissue:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -84,7 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // tenancy: swept CertificateTemplate read runs inside the session org.
     const [event, template] = await runWithTenant(orgId, () =>
       Promise.all([
-        db.event.findFirst({ where: { id: eventId, organizationId: orgId }, select: { id: true } }),
+        db.event.findFirst({ where: gate.eventWhere, select: { id: true } }),
         db.certificateTemplate.findFirst({ where: { id: templateId, eventId }, select: { id: true, category: true } }),
       ]),
     );

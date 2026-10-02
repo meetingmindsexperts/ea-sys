@@ -24,7 +24,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 
@@ -42,11 +42,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/auto-issue/analytics:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/auto-issue/analytics:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.read", { route: "events/[eventId]/certificates/auto-issue/analytics:GET", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, cmeHours: true, settings: true },
     });
     if (!event) {

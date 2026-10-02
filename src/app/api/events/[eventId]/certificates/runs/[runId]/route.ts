@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 
 interface RouteParams {
@@ -26,8 +26,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/runs/[runId]:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.read", { route: "events/[eventId]/certificates/runs/[runId]:GET", eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -38,7 +38,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       db.certificateIssueRun.findFirst({
         where: {
           id: runId,
-          event: { organizationId: orgId, id: eventId },
+          event: gate.eventWhere,
         },
         select: {
         id: true, eventId: true, type: true, status: true,

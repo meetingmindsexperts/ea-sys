@@ -14,8 +14,9 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { reRenderAndResendCert } from "@/lib/certificates/deliver";
@@ -32,11 +33,19 @@ export async function POST(_req: Request, { params }: RouteParams) {
     eventId = p.eventId;
     certificateId = p.certificateId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/issued/[certificateId]/reissue:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.reissue", { route: "events/[eventId]/certificates/issued/[certificateId]/reissue:POST", eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-reissue:no-org", userId: session.user.id, eventId, certificateId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // The event must be one the grant reaches: the reissue service checks only
+    // the organisation, equivalent only while every holder of the key is org-wide.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "certificates:reissue-event-not-found", eventId: p.eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const rl = checkRateLimit({ key: `cert-resend:${session.user.id}`, limit: 30, windowMs: 60 * 60 * 1000 });

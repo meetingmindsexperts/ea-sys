@@ -764,6 +764,23 @@ Domain by domain:
   created, edited and cancelled a scheduled email, with clean Communications
   and Email Templates pages; MEMBER reads templates only; ONSITE 404 on
   templates; WEBINARS on a conference 404.
+- **Certificates SWEPT Oct 2, 2026** (21 files: templates, their duplicate and
+  starter, settings, eligibility, preview, issue and single issue, runs and a
+  run's download, cancel, retry and send, issued certificates, reissue, resend
+  and its preview, bulk reissue). Keys: `certificates.read`,
+  `certificates.templates.manage` (templates and settings), `certificates.issue`
+  (issuing, runs, the download), `certificates.reissue`. Only SUPER_ADMIN,
+  ADMIN and ORGANIZER hold any of them, as only they passed `denyReviewer`
+  before, so no role gained or lost access. Every route scoped the event by
+  hand from the organisation in four shapes; all now come from
+  `gate.eventWhere`, which also BINDS the template and run lookups to the URL's
+  event (they matched any event in the organisation, despite their comment),
+  so the other-organisation column lost its `e` with the same status. Reissue
+  gained an event check ahead of its org-only service, placed after the
+  route's no-organisation refusal. Verified with the chrome-devtools MCP (no
+  issue run, nothing sent): ADMIN created, edited, duplicated and deleted a
+  template and read settings, runs, issued, eligibility and analytics with a
+  clean page; MEMBER 403 throughout, as before.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

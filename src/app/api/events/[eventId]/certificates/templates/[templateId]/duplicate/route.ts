@@ -26,7 +26,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { uploadCertificatePdf } from "@/lib/storage";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
@@ -74,8 +74,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/[templateId]/duplicate:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates/[templateId]/duplicate:POST", eventId: eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({
         msg: "cert-templates:duplicate-no-org",
@@ -92,7 +92,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       db.certificateTemplate.findFirst({
         where: {
           id: templateId,
-          event: { organizationId: orgId },
+          event: gate.eventWhere,
         },
       }),
     );

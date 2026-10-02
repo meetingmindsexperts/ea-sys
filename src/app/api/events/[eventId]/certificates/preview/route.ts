@@ -21,7 +21,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "@/lib/certificates/render";
@@ -41,8 +41,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/preview:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.read", { route: "events/[eventId]/certificates/preview:GET", eventId: eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-preview:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -99,7 +99,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.certificateTemplate.findFirst({
         where: {
           id: templateId,
-          event: { organizationId: orgId },
+          event: gate.eventWhere,
         },
         select: {
           id: true,

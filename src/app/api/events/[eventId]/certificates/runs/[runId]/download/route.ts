@@ -27,7 +27,7 @@ import JSZip from "jszip";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
@@ -50,8 +50,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     eventId = p.eventId;
     runId = p.runId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/runs/[runId]/download:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.issue", { route: "events/[eventId]/certificates/runs/[runId]/download:GET", eventId: eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-run-download:no-org", userId: session.user.id, eventId, runId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -80,7 +80,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // tenancy: swept CertificateIssueRun read runs inside the session org.
     const run = await runWithTenant(orgId, () =>
       db.certificateIssueRun.findFirst({
-        where: { id: runId, eventId, event: { organizationId: orgId } },
+        where: { id: runId, eventId, event: gate.eventWhere },
         select: {
           id: true,
           status: true,

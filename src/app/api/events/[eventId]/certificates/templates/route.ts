@@ -17,7 +17,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
@@ -64,11 +64,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.read", { route: "events/[eventId]/certificates/templates:GET", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -108,11 +108,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates:POST", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

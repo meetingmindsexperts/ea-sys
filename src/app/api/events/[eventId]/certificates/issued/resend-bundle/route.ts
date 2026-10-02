@@ -30,7 +30,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import {
@@ -68,8 +68,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/issued/resend-bundle:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.reissue", { route: "events/[eventId]/certificates/issued/resend-bundle:POST", eventId: eventId });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "cert-resend-bundle:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -118,7 +118,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Org binding (404 on cross-tenant — non-enumeration).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+      where: gate.eventWhere,
       select: { organizationId: true },
     });
     if (!event) {

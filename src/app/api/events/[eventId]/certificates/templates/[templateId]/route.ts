@@ -20,7 +20,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
@@ -66,14 +66,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates/[templateId]:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/[templateId]:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates/[templateId]:PATCH", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     // Combined lookup binds event to org + template to event in one query.
     // tenancy: swept CertificateTemplate read runs inside the session org.
     const template = await runWithTenant(orgGuard.orgId, () =>
       db.certificateTemplate.findFirst({
-        where: { id: templateId, event: { organizationId: orgGuard.orgId } },
+        where: { id: templateId, event: gate.eventWhere },
         select: { id: true, eventId: true },
       }),
     );
@@ -151,13 +151,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates/[templateId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/[templateId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates/[templateId]:DELETE", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     // tenancy: swept CertificateTemplate read runs inside the session org.
     const template = await runWithTenant(orgGuard.orgId, () =>
       db.certificateTemplate.findFirst({
-        where: { id: templateId, event: { organizationId: orgGuard.orgId } },
+        where: { id: templateId, event: gate.eventWhere },
         include: {
           _count: { select: { issuedCertificates: true, issueRuns: true } },
         },

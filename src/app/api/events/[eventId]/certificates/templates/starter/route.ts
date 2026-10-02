@@ -33,7 +33,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
@@ -66,8 +66,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/certificates/templates/starter:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/certificates/templates/starter:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "events/[eventId]/certificates/templates/starter:POST", eventId: eventId });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json().catch(() => null);
     const parsed = bodySchema.safeParse(body);
@@ -103,7 +103,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // The starter adapts to what the event actually has configured, so it
     // never ships a label with nothing after it (see StarterEventShape).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: {
         id: true,
         venue: true,

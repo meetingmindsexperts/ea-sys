@@ -100,6 +100,28 @@ SWEPT=(
   "src/app/api/events/[eventId]/email-preview/route.ts"
   "src/app/api/events/[eventId]/email-attachments/route.ts"
   "src/app/api/events/[eventId]/email-activity/route.ts"
+  # certificates (Oct 2, 2026)
+  "src/app/api/events/[eventId]/certificates/auto-issue/analytics/route.ts"
+  "src/app/api/events/[eventId]/certificates/bulk-reissue/route.ts"
+  "src/app/api/events/[eventId]/certificates/eligible/route.ts"
+  "src/app/api/events/[eventId]/certificates/issue-single/route.ts"
+  "src/app/api/events/[eventId]/certificates/issue/route.ts"
+  "src/app/api/events/[eventId]/certificates/issued/[certificateId]/reissue/route.ts"
+  "src/app/api/events/[eventId]/certificates/issued/resend-bundle/route.ts"
+  "src/app/api/events/[eventId]/certificates/issued/resend-preview/route.ts"
+  "src/app/api/events/[eventId]/certificates/issued/route.ts"
+  "src/app/api/events/[eventId]/certificates/preview/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/[runId]/cancel/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/[runId]/download/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/[runId]/retry-failed/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/[runId]/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/[runId]/send/route.ts"
+  "src/app/api/events/[eventId]/certificates/runs/route.ts"
+  "src/app/api/events/[eventId]/certificates/settings/route.ts"
+  "src/app/api/events/[eventId]/certificates/templates/[templateId]/duplicate/route.ts"
+  "src/app/api/events/[eventId]/certificates/templates/[templateId]/route.ts"
+  "src/app/api/events/[eventId]/certificates/templates/route.ts"
+  "src/app/api/events/[eventId]/certificates/templates/starter/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old
