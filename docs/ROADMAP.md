@@ -52,6 +52,36 @@ Suggested set when picked up: 2 + 3 + 4, about a day, reviewed and verified per
 role in a browser (auth is load-bearing). Do it before rolling budget roles out to
 the whole office.
 
+## Forward a deleted event's old links (recorded Oct 2, 2026): parked
+
+**What happens today.** Deleting an event leaves its `/e/<slug>/...` links in
+old emails and search results, and anyone who follows one lands on "event not
+found" with nowhere to go. The public layout still mounts the analytics beacon
+for the URL's slug, so each visit also logs `analytics:track-unresolved-site`
+(the hit is dropped, nothing is stored).
+
+**Found from.** "EHS International Mental Health Conference 2026"
+(`EHSMHC2026`) was deleted on Sep 24, 2026 after the conference moved to
+EventsAir; by Oct 2 its old links had drawn 213 visits from 40 addresses,
+mostly UAE networks. The EventsAir website carries the right links, so these
+are EA-SYS emails and search results from before the delete.
+
+**The idea, if it is ever built.** An optional "forward old links to" URL when
+deleting an event, stored per organisation (old slug, destination), and a
+lookup in the public `/e/[slug]` layout that redirects (temporary, not
+permanent) instead of rendering not-found. Tenant-safe by construction: keyed by
+organisation and resolved through the same host-to-tenant rule as every public
+route. Needs a small table and migration, the delete-dialog field, the lookup,
+and a rule for a slug that is later reused by a new event (the live event wins
+and the forward is dropped). About half a day with tests.
+
+**Why parked (owner, Oct 2, 2026).** A one-off redirect for us alone was
+refused because the system is multi-tenant: it is either for every tenant or
+not at all, and one deleted event drawing about 40 visits a week that fade with
+time does not justify the feature yet. The manual alternative already works:
+keep a moved event published with a banner pointing to its new home instead of
+deleting it. The warning stays as the signal if this recurs.
+
 ## Procurement pilot + e2e + load baseline (Sep 28, 2026): parked, code kept
 
 Parked by the owner on Sep 28 until the multi-level approval chain is settled, because
