@@ -2,15 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream, rtmpIngestUrl } from "@/lib/webinar/livestream";
-import { canViewZoomHostCredentials } from "@/lib/zoom-visibility";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -26,7 +24,7 @@ const STATUS_BY_CODE = {
  * The RTMP address Zoom is told to push to, for the session card. Read from
  * the same function the sync uses, so the card can never show a different
  * address than the one Zoom received. Also the HLS address for the console's
- * stream preview. Host-credential roles only (the HLS path is the stream key).
+ * stream preview. Webinar hosts only (the HLS path is the stream key).
  */
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -34,15 +32,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (!canViewZoomHostCredentials(session.user.role, false)) {
-      apiLogger.warn({ eventId, role: session.user.role }, "webinar-livestream:ingest-url-denied");
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/livestream:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    // The ingest and HLS addresses carry the stream key, a host credential, so
+    // this read needs the key that runs the webinar, refused (not hidden).
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/livestream:GET", eventId });
+    if (!gate.ok) return gate.response;
     return await runWithTenant(orgGuard.orgId, async () => {
       const event = await db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, settings: true },
       });
       if (!event) {
@@ -87,11 +85,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/livestream:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, {
-      allow: WEBINAR_STAFF_ALLOW,
-      route: "events/[eventId]/webinar/livestream:POST",
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/livestream:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-livestream:${eventId}`,
@@ -117,7 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
       const event = await db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, slug: true, settings: true },
       });
       if (!event) {

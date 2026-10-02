@@ -327,9 +327,10 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // and the owner kept (plan §6 Phase 2, "Registration types and promo codes");
     // and the agenda (sessions and tracks), recorded Oct 2, 2026, kept the
     // same way so nobody's access changes; and speakers, which the desk reads
-    // to fill in a registration (owner, Oct 2, 2026).
+    // to fill in a registration (owner, Oct 2, 2026); and the webinar
+    // console's reads, recorded Oct 2, 2026 and kept as found by the owner.
     grants: [
-      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", "abstracts.read", "proposals.read", ...DESK, ...DESK_WITH_CODES),
+      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", "abstracts.read", "proposals.read", "webinar.analytics.read", ...DESK, ...DESK_WITH_CODES),
       ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],

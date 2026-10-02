@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
@@ -63,11 +62,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/sessions/[sessionId]/zoom:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       // eventId in the where binds the session to THIS event — without it a
@@ -114,8 +115,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]/zoom:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "zoom.meetings.manage", { route: "events/[eventId]/sessions/[sessionId]/zoom:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `zoom-create:${eventId}`,
@@ -140,7 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Verify event access and get session details
     const [event, eventSession, existingZoom] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, organizationId: true, timezone: true, slug: true, eventType: true, settings: true },
       }),
       db.eventSession.findFirst({
@@ -365,8 +366,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]/zoom:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "zoom.meetings.manage", { route: "events/[eventId]/sessions/[sessionId]/zoom:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const validated = updateZoomSchema.safeParse(body);
     if (!validated.success) {
@@ -377,7 +378,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns
@@ -439,13 +440,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/sessions/[sessionId]/zoom:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sessions/[sessionId]/zoom:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "zoom.meetings.manage", { route: "events/[eventId]/sessions/[sessionId]/zoom:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns

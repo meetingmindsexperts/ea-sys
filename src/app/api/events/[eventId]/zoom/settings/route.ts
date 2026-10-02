@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
@@ -51,6 +50,9 @@ export async function GET(
       );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // The session's Zoom form reads this, so it is a programme read.
+    const gate = requirePermission(session, "sessions.read", { route: "events/[eventId]/zoom/settings:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     // Fetch the event's per-event Zoom settings AND whether the ORG has Zoom
     // credentials configured. The org-credentials endpoint is ADMIN-only, but
@@ -60,7 +62,7 @@ export async function GET(
     // without depending on the admin-only credentials route.
     const [event, org] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, settings: true, eventType: true },
       }),
       db.organization.findUnique({
@@ -101,8 +103,8 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/zoom/settings:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.settings", { route: "events/[eventId]/zoom/settings:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const organizationId = session.user.organizationId;
     if (!organizationId) {
@@ -120,7 +122,7 @@ export async function PUT(
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true, eventType: true },
     });
 

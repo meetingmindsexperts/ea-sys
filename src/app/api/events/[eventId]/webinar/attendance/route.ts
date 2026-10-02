@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -83,14 +82,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/attendance:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-
-    return await runWithTenant(orgGuard.orgId, async () => {
     const url = new URL(req.url);
     const exportCsv = url.searchParams.get("export") === "csv";
+    // The CSV carries every attendee's email, so it needs its own key: the
+    // webinar's hosts download it, Member and Onsite see the screen only
+    // (owner, Oct 2, 2026).
+    const gate = exportCsv
+      ? requirePermission(session, "webinar.attendance.export", { route: "events/[eventId]/webinar/attendance:GET", eventId })
+      : requirePermission(session, "webinar.analytics.read", { route: "events/[eventId]/webinar/attendance:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     // Verify access + locate anchor session via parallel queries
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, settings: true },
     });
     if (!event) {
@@ -245,8 +251,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/attendance:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/attendance:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/attendance:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-attendance-sync:${eventId}`,
@@ -266,7 +272,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true },
     });
     if (!event) {

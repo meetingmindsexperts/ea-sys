@@ -379,6 +379,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the webinar console checks permissions instead of roles (October 2)
+
+- Custom roles Phase 2: the Webinar Console (settings, provisioning, waiting
+  room, live stream, email sequence, panelists, questions, presence,
+  attendance, engagement, recording) and a session's Zoom meeting and
+  panelists. One change: the webinar attendance CSV, which lists every
+  attendee's email, now downloads only for the people who run the webinar
+  (admins, organizers, and the webinar team on webinars). Members and onsite
+  desk staff still see attendance on screen. Nobody else's access changes.
+
 ### Changed: certificates check permissions instead of roles (October 2)
 
 - Custom roles Phase 2: certificate templates, settings, issuing, runs,

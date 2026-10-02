@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { readWebinarSettings } from "@/lib/webinar";
 import {
   addWebinarPanelists,
@@ -41,15 +41,13 @@ export type ResolvedAnchor =
 
 export async function resolveAnchorZoomMeeting(
   eventId: string,
-  // Was `organizationId: string` with a hand-rolled { id, organizationId }
-  // lookup. WEBINAR_STAFF_ALLOW routes MUST resolve through buildEventAccessWhere
-  // (its invariant): for WEBINARS that matches ONLY webinar events, and for a
-  // future assignment-gated role it honours the gate — a hand-rolled org-scoped
-  // lookup next to this allow-list is the exact anti-pattern the invariant bans.
-  user: Parameters<typeof buildEventAccessWhere>[0],
+  // The caller's `gate.eventWhere` for `webinar.manage`: the event lookup comes
+  // from the same grant that let the caller in, so for a webinar-scoped grant
+  // it matches ONLY webinar events. Never a hand-rolled org-scoped lookup.
+  eventWhere: Prisma.EventWhereInput,
 ): Promise<ResolvedAnchor> {
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(user, eventId),
+    where: eventWhere,
     select: { id: true, organizationId: true, settings: true },
   });
   if (!event) {
@@ -109,13 +107,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // POST/DELETE below, so a read-only MEMBER / unassigned ONSITE / CRM_USER
     // cannot enumerate it. (The write variants were already gated; the GET was
     // the gap.)
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/panelists:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user,
+      gate.eventWhere,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
@@ -149,8 +147,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/panelists:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/panelists:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-panelists-add:${eventId}`,
@@ -183,7 +181,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user,
+      gate.eventWhere,
     );
     if (!resolved.ok) {
       apiLogger.warn(
@@ -267,8 +265,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/panelists:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/panelists:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     const url = new URL(req.url);
     const panelistId = url.searchParams.get("panelistId");
@@ -282,7 +280,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user,
+      gate.eventWhere,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });

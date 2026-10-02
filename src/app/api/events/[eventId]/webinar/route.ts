@@ -3,10 +3,9 @@ import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -56,10 +55,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "webinar.analytics.read", { route: "events/[eventId]/webinar:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true, timezone: true },
     });
 
@@ -108,7 +109,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Zoom HOST credentials (startUrl/streamKey/passcode) grant CONTROL of the
     // webinar, not just attendance. Only the roles that run the event may see
     // them — this GET is session-only (no API-key path), so isApiKey is false.
-    // A MEMBER reaches this event via buildEventAccessWhere (org-wide read), so
+    // A MEMBER reads this event (webinar.analytics.read, org-wide), so
     // without this a read-only MEMBER would receive the host start link and
     // could hijack the webinar. Mirrors the sessions-LIST redaction (B1).
     const payload = {
@@ -150,8 +151,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-settings:${eventId}`,
@@ -177,7 +178,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, slug: true, settings: true },
     });
 
@@ -288,8 +289,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-provision:${eventId}`,
@@ -306,7 +307,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

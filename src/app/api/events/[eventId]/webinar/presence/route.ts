@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -16,8 +16,8 @@ const PRESENT_WINDOW_MS = 60_000;
  * Real-time lobby/live presence for the Webinar Console "Live now" card.
  * Returns registrants currently on the webinar page (heartbeat in the last
  * 60s), split lobby vs joined. This is OUR-page presence, distinct from the
- * authoritative post-event ZoomAttendance. Auth + org-scope (read-only,
- * matches the attendance GET guard — no denyReviewer on GET).
+ * authoritative post-event ZoomAttendance. Read-only: `webinar.analytics.read`,
+ * the same key as the attendance GET.
  */
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -27,10 +27,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/presence:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "webinar.analytics.read", { route: "events/[eventId]/webinar/presence:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true },
     });
     if (!event) {

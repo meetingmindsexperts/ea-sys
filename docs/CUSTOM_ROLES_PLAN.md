@@ -781,6 +781,31 @@ Domain by domain:
   issue run, nothing sent): ADMIN created, edited, duplicated and deleted a
   template and read settings, runs, issued, eligibility and analytics with a
   clean page; MEMBER 403 throughout, as before.
+- **Webinar SWEPT Oct 2, 2026** (15 files: the console's settings, provision,
+  room, live stream, sequence, panelists and their resend and speaker sync,
+  questions, presence, attendance, engagement, recording fetch; the event's
+  Zoom settings; a session's Zoom meeting and panelists). Keys:
+  `webinar.analytics.read` (the console's reads), `webinar.manage` (its writes,
+  the panelist list and the live-stream address, which carries the stream key
+  and so is refused, not hidden), `webinar.attendance.export` (the CSV),
+  `sessions.read` (Zoom settings and a session's meeting and panelists, which
+  the session form reads), `zoom.meetings.manage`, `events.settings` (the Zoom
+  settings PUT). The matrix found ONSITE reading the console on its assigned
+  events; the owner kept it, so ONSITE gained `webinar.analytics.read` at
+  `ASSIGNED`. ONE intended change, re-recorded on purpose: the attendance CSV
+  (every attendee's email) moved to `webinar.attendance.export`, so MEMBER and
+  ONSITE get 403 where they downloaded it before (owner, Oct 2, 2026; MEMBER
+  could not export registrations either). `requireOrgId` stays ahead of each
+  gate, so the outside identities keep their 403. The Zoom host-field
+  redaction (`canViewZoomHostCredentials`) stays as it is in the sessions
+  routes: field visibility is Phase 3. The live-stream GET's role check is
+  gone; `webinar.manage` holders are exactly the host-credential roles.
+  Verified with the chrome-devtools MCP on a temporary webinar (nothing reached
+  Zoom): ADMIN and WEBINARS consoles render, with only the panelists 400 a
+  webinar without a Zoom meeting always gives; ADMIN and WEBINARS saved
+  settings and downloaded the CSV; MEMBER reads and gets 403 on the CSV, host
+  routes and writes; ONSITE reads on its assigned webinar and 404 elsewhere;
+  WEBINARS 404 on a conference.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

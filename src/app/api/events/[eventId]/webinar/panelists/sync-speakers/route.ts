@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { addWebinarPanelists, listWebinarPanelists } from "@/lib/zoom";
@@ -23,8 +23,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/panelists/sync-speakers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/panelists/sync-speakers:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/panelists/sync-speakers:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Share the existing panelist-add rate-limit bucket so a user can't
     // combine single-adds + bulk-syncs to exceed 30/hr.
@@ -47,7 +47,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user,
+      gate.eventWhere,
     );
     if (!resolved.ok) {
       apiLogger.warn(

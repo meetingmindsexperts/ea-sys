@@ -2,14 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
-import type { Session } from "next-auth";
+import type { Prisma } from "@prisma/client";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -28,12 +27,13 @@ const updateSchema = z
  * Producer side of the custom-stream question box (Oct 1, 2026): GET lists
  * the anchor session's questions, newest first; PATCH marks one answered,
  * dismissed, or back to new, and shows or hides it in the attendees' Q&A tab
- * (dismissing also hides it). Event scope through buildEventAccessWhere; the
- * write is opted in for the webinar team like the room toggle.
+ * (dismissing also hides it). The event lookup is the handler's
+ * `gate.eventWhere`: reading needs `webinar.analytics.read`, changing a
+ * question `webinar.manage`, like the room toggle.
  */
-async function anchorFor(session: Session, eventId: string) {
+async function anchorFor(eventWhere: Prisma.EventWhereInput) {
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(session.user, eventId),
+    where: eventWhere,
     select: { id: true, settings: true },
   });
   if (!event) return null;
@@ -48,9 +48,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/questions:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "webinar.analytics.read", { route: "events/[eventId]/webinar/questions:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await anchorFor(session, eventId);
+      const ctx = await anchorFor(gate.eventWhere);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-questions:event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -78,8 +80,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/webinar/questions:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/webinar/questions:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "webinar.manage", { route: "events/[eventId]/webinar/questions:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `webinar-questions-update:${session.user.id}`,
@@ -101,7 +103,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     return await runWithTenant(orgGuard.orgId, async () => {
-      const ctx = await anchorFor(session, eventId);
+      const ctx = await anchorFor(gate.eventWhere);
       if (!ctx) {
         apiLogger.warn({ eventId, userId: session.user.id }, "webinar-questions:update-event-not-found");
         return NextResponse.json({ error: "Event not found" }, { status: 404 });

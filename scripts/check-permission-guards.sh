@@ -122,6 +122,22 @@ SWEPT=(
   "src/app/api/events/[eventId]/certificates/templates/[templateId]/route.ts"
   "src/app/api/events/[eventId]/certificates/templates/route.ts"
   "src/app/api/events/[eventId]/certificates/templates/starter/route.ts"
+  # webinar console and Zoom (Oct 2, 2026)
+  "src/app/api/events/[eventId]/webinar/route.ts"
+  "src/app/api/events/[eventId]/webinar/attendance/route.ts"
+  "src/app/api/events/[eventId]/webinar/engagement/route.ts"
+  "src/app/api/events/[eventId]/webinar/livestream/route.ts"
+  "src/app/api/events/[eventId]/webinar/panelists/route.ts"
+  "src/app/api/events/[eventId]/webinar/panelists/[panelistId]/resend/route.ts"
+  "src/app/api/events/[eventId]/webinar/panelists/sync-speakers/route.ts"
+  "src/app/api/events/[eventId]/webinar/presence/route.ts"
+  "src/app/api/events/[eventId]/webinar/questions/route.ts"
+  "src/app/api/events/[eventId]/webinar/recording/fetch/route.ts"
+  "src/app/api/events/[eventId]/webinar/room/route.ts"
+  "src/app/api/events/[eventId]/webinar/sequence/route.ts"
+  "src/app/api/events/[eventId]/zoom/settings/route.ts"
+  "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/route.ts"
+  "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/panelists/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old
