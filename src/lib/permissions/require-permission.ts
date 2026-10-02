@@ -85,7 +85,8 @@ export function principalFromCaller(
  * Their access comes from being linked to an event (a reviewer pool, a speaker
  * record, a registration), which `buildEventAccessWhere` already expresses.
  */
-const LINKED_EVENT_ROLES = new Set(["REVIEWER", "SUBMITTER", "REGISTRANT"]);
+const LINKED_EVENT_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
+export type LinkedRole = (typeof LINKED_EVENT_ROLES)[number];
 
 export type PermissionGate =
   | {
@@ -119,12 +120,15 @@ export interface RequirePermissionOptions {
    */
   onMissing?: "forbid" | "hide";
   /**
-   * "linked" for a READ an outside identity (REVIEWER, SUBMITTER, REGISTRANT)
-   * may make today: they pass with `buildEventAccessWhere`, the events they are
-   * linked to, and no catalogue check (they hold no role). Omitted, they are
-   * refused like any caller without the key. Never on a write.
+   * The outside identities (REVIEWER, SUBMITTER, REGISTRANT) hold no role in
+   * the catalogue; their access is the events they are linked to. "linked"
+   * passes all three with `buildEventAccessWhere` (a read they make today); a
+   * list names which of them a route serves, so a registrant is not let into a
+   * route that only authors and reviewers use. A route that passes them on a
+   * WRITE keeps its own ownership rule (an author edits only their own row).
+   * Omitted, they are refused like any caller without the key.
    */
-  linkedRoles?: "linked";
+  linkedRoles?: "linked" | readonly LinkedRole[];
 }
 
 const NO_EVENTS: Prisma.EventWhereInput = { id: { in: [] } };
@@ -180,7 +184,8 @@ export function requirePermission(
   const principal = isPrincipal(caller) ? caller : principalFromSession(caller);
   const eventBound = describePermission(permission)?.eventBound === true;
 
-  if (opts.linkedRoles === "linked" && eventBound && !isPrincipal(caller) && LINKED_EVENT_ROLES.has(caller.user.role)) {
+  const linked: readonly string[] = opts.linkedRoles === "linked" ? LINKED_EVENT_ROLES : (opts.linkedRoles ?? []);
+  if (eventBound && !isPrincipal(caller) && linked.includes(caller.user.role)) {
     return { ok: true, principal, eventWhere: buildEventAccessWhere(caller.user, eventId) };
   }
 

@@ -379,6 +379,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Security: registrants can no longer read or change abstracts and session proposals (October 2)
+
+- A delegate's registration account could read every abstract and session
+  proposal on an event they had registered for, including unpublished content
+  and the author's email, and could change another author's abstract or
+  submit one under another speaker's name. This went through the API, not the
+  screens. Registrants now have no access to abstracts or proposals.
+- Read-only staff (Member, onsite desk, webinar team) can still read abstracts
+  but can no longer create or edit them. Reviewers can set the review status
+  and score, but no longer edit an abstract's content. Anonymised reviews are
+  readable only by people who can see the event's abstracts.
+- Exporting abstracts or proposals is now its own permission (admins and
+  organizers, as before).
+
 ### Changed: abstract and proposal settings check permissions instead of roles (October 2)
 
 - Custom roles Phase 2, fifth domain, staff side: abstract and proposal

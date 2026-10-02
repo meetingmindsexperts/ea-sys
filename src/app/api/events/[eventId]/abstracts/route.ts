@@ -7,8 +7,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEntriesDocx, DOCX_CONTENT_TYPE } from "@/lib/docx-export";
 import { abstractToDocxEntry, exportSubtitle } from "@/lib/submission-docx-export";
@@ -243,15 +242,28 @@ export async function GET(req: Request, { params }: RouteParams) {
     const wantsDocx = exportParam === "docx";
     const wantsExport = wantsCsv || wantsDocx;
     if (wantsExport) {
-      const denied = denyReviewer(session, { route: "events/[eventId]/abstracts:GET" });
-      if (denied) {
+      const exportGate = requirePermission(session, "abstracts.export", { route: "events/[eventId]/abstracts:GET", eventId });
+      if (!exportGate.ok) {
         apiLogger.warn(
           { eventId, userId: session.user.id, role: session.user.role, format: exportParam },
           "abstracts:export-refused",
         );
-        return denied;
+        return exportGate.response;
       }
     }
+
+    // Who may list: staff holding `abstracts.read` on this event, and the two
+    // outside identities the abstracts flow serves, reviewers (their pool's
+    // events) and authors (their own, filtered below). NOT registrants: until
+    // Oct 2, 2026 any delegate with an account could list, read and edit every
+    // abstract on an event they had registered for.
+    const gate = requirePermission(session, "abstracts.read", {
+      route: "events/[eventId]/abstracts:GET",
+      eventId,
+      onMissing: "hide",
+      linkedRoles: ["REVIEWER", "SUBMITTER"],
+    });
+    if (!gate.ok) return gate.response;
 
     // For SUBMITTER, restrict to their own abstracts via speaker.userId
     const submitterFilter = session.user.role === "SUBMITTER"
@@ -270,7 +282,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // scopes by role (a SUBMITTER → their own linked event), so event.organizationId
     // is the RESOURCE org even for an org-null submitter/reviewer caller.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, organizationId: true },
     });
 
@@ -323,8 +335,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const enriched = abstracts.map((a) => {
-      const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
+      const rest: Omit<typeof a, "submissions" | "managementToken"> & { submissions?: typeof a.submissions; managementToken?: string | null } = { ...a };
       delete rest.submissions;
+      // A secret minted per abstract; no reader of this list needs it.
+      delete rest.managementToken;
       return {
         ...rest,
         reviewCount: a.submissions.length,
@@ -361,9 +375,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Staff who may edit abstracts create them on an author's behalf; an
+    // author (SUBMITTER) creates their own, bound to their own speaker row
+    // below. Reviewers, registrants and read-only staff are refused.
+    const gate = requirePermission(session, "abstracts.update", {
+      route: "events/[eventId]/abstracts:POST",
+      eventId,
+      linkedRoles: ["SUBMITTER"],
+    });
+    if (!gate.ok) return gate.response;
 
     const validated = createAbstractSchema.safeParse(body);
 
@@ -387,7 +407,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // SUBMITTER creating their own abstract works even though their session org is
     // null). The theme lookup below reads a swept table, so it must run INSIDE.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true, organizationId: true },
     });
 

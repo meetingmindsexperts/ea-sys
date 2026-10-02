@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
@@ -114,12 +114,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "abstracts.read", { route: "events/[eventId]/abstracts/my-profile:GET", eventId, onMissing: "hide", linkedRoles: ["REVIEWER", "SUBMITTER"] });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
     // an org-null SUBMITTER caller works). This also adds an eventId-scoped
     // existence check the handler previously lacked. The speaker read's nested
     // `abstracts` select reads a swept table, so it runs INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {
@@ -155,6 +158,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "abstracts.read", { route: "events/[eventId]/abstracts/my-profile:PATCH", eventId, onMissing: "hide", linkedRoles: ["REVIEWER", "SUBMITTER"] });
+    if (!gate.ok) return gate.response;
+
     const rl = checkRateLimit({ key: `my-profile-edit:${session.user.id}`, limit: 30, windowMs: 3600_000 });
     if (!rl.allowed) {
       apiLogger.warn({ msg: "my-profile:rate-limited", userId: session.user.id, eventId });
@@ -172,7 +178,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const data = parsed.data;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

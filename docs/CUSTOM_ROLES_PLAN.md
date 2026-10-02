@@ -703,6 +703,36 @@ Domain by domain:
   criteria, with clean Abstracts and Reviewers pages; ONSITE (assigned) and
   CRM_USER answered as the matrix records. **Part B** (the abstract and
   proposal routes where authors and reviewers write) is next.
+- **Abstracts and proposals, author and reviewer side SWEPT Oct 2, 2026 (part
+  B), with a SECURITY FIX** (abstracts list and create, an abstract, its
+  review submissions, the author profile, session proposals list and create,
+  a proposal). The matrix harness gained opt-in fixture rows (an abstract and
+  a proposal on every event owned by the submitter, a reviewer assignment) so
+  the rules after the event lookup show. That exposed, and a headed browser
+  reproduction confirmed on the unswept code: **any REGISTRANT (an ordinary
+  delegate account) could list and read every abstract and proposal on an
+  event they had registered for, including content, author email and the
+  abstract's `managementToken`, and could edit another author's abstract and
+  create abstracts under another speaker**; MEMBER, ONSITE and WEBINARS could
+  create and edit abstracts; reviewers could edit any field; and any org
+  account (CRM, HR, a desk temp elsewhere) read the anonymised reviews of any
+  abstract by id. **Fixed (owner, Oct 2, 2026):** reads gate on
+  `abstracts.read` / `proposals.read` with only REVIEWER and SUBMITTER passed
+  through their linked events (registrants refused); create and edit on
+  `abstracts.update` / `proposals.decide` with authors passed (their own-row
+  rules kept); a reviewer may send a review status only
+  (`REVIEWER_STATUS_ONLY`); scoring on `abstracts.decide`, reviewers through the
+  service's pool-or-assigned rule; delete on `abstracts.delete`; exports on two
+  new keys, `abstracts.export` and `proposals.export`; `managementToken` is no
+  longer returned. `requirePermission`'s `linkedRoles` now takes a list of the
+  outside identities a route serves. The guard flags the caller's role
+  compared with a staff name or a variable, not with an outside-identity
+  literal (plan §1). Verified with the chrome-devtools MCP: the registrant gets
+  404 on reads and 403 on writes at the same URLs that leaked; the author,
+  the pool reviewer (status 200, content 403, score 201), MEMBER (reads only)
+  and ADMIN (exports, page) work. `managementToken` is minted but read by no
+  route today, so its exposure granted nothing yet. Whether the hole was ever
+  used on production is unknown: success is not logged.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

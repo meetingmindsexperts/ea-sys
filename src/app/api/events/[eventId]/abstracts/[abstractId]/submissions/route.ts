@@ -11,6 +11,7 @@ import {
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
 import { canWrite } from "@/lib/can-write";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -50,11 +51,24 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Who may read an abstract's reviews: staff holding `abstracts.read` on
+    // this event, reviewers (their pool) and the author (their own, below).
+    // Until Oct 2, 2026 this lookup was by id alone, so any account in the
+    // organisation (CRM, HR, a desk temp on another event) read the
+    // anonymised reviews of any abstract whose id it held.
+    const gate = requirePermission(session, "abstracts.read", {
+      route: "events/[eventId]/abstracts/[abstractId]/submissions:GET",
+      eventId,
+      onMissing: "hide",
+      linkedRoles: ["REVIEWER", "SUBMITTER"],
+    });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
     // an org-null reviewer/submitter caller works). The swept abstract read +
     // computeSubmissionAggregates run INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: { id: eventId },
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -164,6 +178,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Staff score with `abstracts.decide`; reviewers through the service's own
+    // rule (in the event's pool OR assigned to this abstract alone), which is
+    // wider than the pool `linked` resolves to, so their lookup stays by id.
+    const gate = requirePermission(session, "abstracts.decide", {
+      route: "events/[eventId]/abstracts/[abstractId]/submissions:POST",
+      eventId,
+      linkedRoles: ["REVIEWER"],
+    });
+    if (!gate.ok) return gate.response;
+    const eventWhere = session.user.role === "REVIEWER" ? { id: eventId } : gate.eventWhere;
+
     if (!body) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
@@ -181,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // an org-null reviewer caller works). submitAbstractReview reads/writes
     // swept tables, so the service call runs INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: { id: eventId },
+      where: eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

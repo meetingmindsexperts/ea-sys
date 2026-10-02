@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
@@ -75,11 +75,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Staff holding `abstracts.read`, reviewers (their pool) and authors (their
+    // own, checked below). Not registrants.
+    const gate = requirePermission(session, "abstracts.read", {
+      route: "events/[eventId]/abstracts/[abstractId]:GET",
+      eventId,
+      onMissing: "hide",
+      linkedRoles: ["REVIEWER", "SUBMITTER"],
+    });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
     // so an org-null SUBMITTER caller works). The swept abstract read runs
     // INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 
@@ -122,7 +132,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
     }
 
-    return NextResponse.json(abstract);
+    // A secret minted per abstract; no reader of this page needs it.
+    const payload: Partial<typeof abstract> = { ...abstract };
+    delete payload.managementToken;
+    return NextResponse.json(payload);
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching abstract" });
@@ -141,11 +154,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Staff who may edit abstracts; reviewers (review status only, below) and
+    // authors (their own, below). Not registrants, not read-only staff.
+    const gate = requirePermission(session, "abstracts.update", {
+      route: "events/[eventId]/abstracts/[abstractId]:PUT",
+      eventId,
+      linkedRoles: ["REVIEWER", "SUBMITTER"],
+    });
+    if (!gate.ok) return gate.response;
+
     // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
     // so an org-null REVIEWER/SUBMITTER caller works). The swept abstract read +
     // all downstream swept writes run INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, name: true, settings: true },
     });
 
@@ -179,6 +201,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+
+    // A reviewer decides; they do not rewrite the author's work. Until Oct 2,
+    // 2026 a reviewer could change any field of an abstract in their pool.
+    if (session.user.role === "REVIEWER") {
+      const contentFields = Object.keys(data).filter((k) => k !== "status" && k !== "expectedUpdatedAt");
+      if (contentFields.length > 0) {
+        apiLogger.warn({ msg: "abstracts:reviewer-content-edit-refused", eventId, abstractId, userId: session.user.id, fields: contentFields });
+        return NextResponse.json({ error: "Reviewers can change the review status only", code: "REVIEWER_STATUS_ONLY" }, { status: 403 });
+      }
+    }
 
     const isAdmin = canWrite(session.user.role);
     const isReviewer = session.user.role === "REVIEWER";
@@ -658,17 +690,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "SUPER_ADMIN") {
-      return NextResponse.json(
-        { error: "Only super admins can delete abstracts" },
-        { status: 403 }
-      );
-    }
+    // `abstracts.delete` is held by the super admin alone among the system roles.
+    const gate = requirePermission(session, "abstracts.delete", {
+      route: "events/[eventId]/abstracts/[abstractId]:DELETE",
+      eventId,
+    });
+    if (!gate.ok) return gate.response;
 
     // Resolve the event FIRST — its org opens the tenant wrap. The swept
     // abstract read + delete run INSIDE the wrap.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 

@@ -133,6 +133,8 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "abstracts.criteria.manage",
   "reviewers.pool.manage",
   "submissions.share",
+  "abstracts.export",
+  "proposals.export",
   "proposals.decide",
   "proposals.themes.manage",
   "sessions.write",

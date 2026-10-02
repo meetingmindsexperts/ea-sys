@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
@@ -80,10 +79,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "proposals.read", { route: "events/[eventId]/session-proposals/[proposalId]:GET", eventId, onMissing: "hide", linkedRoles: ["REVIEWER", "SUBMITTER"] });
+    if (!gate.ok) return gate.response;
+
     // Event (+ resource org) first, un-wrapped; its org is the lane for the
     // SessionProposal read (whose nested `speaker` include is swept too).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     const proposal = event
@@ -121,8 +123,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: ["SUBMITTER"], route: "events/[eventId]/session-proposals/[proposalId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.decide", { route: "events/[eventId]/session-proposals/[proposalId]:PUT", eventId, linkedRoles: ["SUBMITTER"] });
+    if (!gate.ok) return gate.response;
 
     const validated = updateProposalSchema.safeParse(body);
     if (!validated.success) {
@@ -135,7 +137,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Event (+ resource org) first, un-wrapped; its org is the tenant lane for
     // the existing-proposal read, the theme read, and the update (all swept).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
@@ -292,13 +294,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Delete is organizer-only — a submitter withdraws by asking the
     // organizer (their edit lock already applies after submit).
-    const denied = denyReviewer(session, { route: "events/[eventId]/session-proposals/[proposalId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.decide", { route: "events/[eventId]/session-proposals/[proposalId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Event (+ resource org) first, un-wrapped; its org is the lane for the
     // existing-proposal read + delete (swept).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

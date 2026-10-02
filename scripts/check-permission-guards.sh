@@ -74,15 +74,24 @@ SWEPT=(
   "src/app/api/events/[eventId]/abstracts/[abstractId]/resend-confirmation/route.ts"
   "src/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route.ts"
   "src/app/api/events/[eventId]/submission-shares/route.ts"
+  # abstracts and proposals, author and reviewer side (Oct 2, 2026)
+  "src/app/api/events/[eventId]/abstracts/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts"
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/submissions/route.ts"
+  "src/app/api/events/[eventId]/abstracts/my-profile/route.ts"
+  "src/app/api/events/[eventId]/session-proposals/route.ts"
+  "src/app/api/events/[eventId]/session-proposals/[proposalId]/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old
 # guard, an allow-list, a comparison against a STAFF role name (the eight roles
-# the catalogue covers), or any comparison against the caller's own role. The
-# outside identities (REVIEWER, SUBMITTER, REGISTRANT) are not flagged: plan §1
-# keeps their own checks, and a route may test an invitee's account type.
+# the catalogue covers), or the caller's own role compared with a VARIABLE
+# (it could hold a staff name). The outside identities (REVIEWER, SUBMITTER,
+# REGISTRANT) are not flagged as literals: plan §1 keeps their own checks (an
+# author edits only their own abstract), and a route may test an invitee's
+# account type.
 STAFF='(SUPER_ADMIN|ADMIN|ORGANIZER|MEMBER|ONSITE|WEBINARS|CRM_USER|HR_USER)'
-PATTERN="denyReviewer\\(|[A-Za-z_]+_ALLOW\\b|[!=]==[[:space:]]*\"${STAFF}\"|\"${STAFF}\"[[:space:]]*[!=]==|session\\.user\\.role[[:space:]]*[!=]==|[!=]==[[:space:]]*session\\.user\\.role"
+PATTERN="denyReviewer\\(|[A-Za-z_]+_ALLOW\\b|[!=]==[[:space:]]*\"${STAFF}\"|\"${STAFF}\"[[:space:]]*[!=]==|session\\.user\\.role[[:space:]]*[!=]==[[:space:]]*[^\"[:space:]]|[^\"[:space:]][[:space:]]*[!=]==[[:space:]]*session\\.user\\.role"
 
 fail=0
 for rel in "${SWEPT[@]}"; do

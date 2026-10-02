@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
@@ -6,8 +7,6 @@ import { db, tenantTransaction } from "@/lib/db";
 import { getNextSessionProposalSerialId, formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { formatPersonName } from "@/lib/utils";
@@ -91,6 +90,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const gate = requirePermission(session, "proposals.read", { route: "events/[eventId]/session-proposals:GET", eventId, onMissing: "hide", linkedRoles: ["REVIEWER", "SUBMITTER"] });
+    if (!gate.ok) return gate.response;
+
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get("status");
     const parsedStatus = statusParam ? proposalStatusSchema.safeParse(statusParam) : null;
@@ -129,19 +131,19 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (wantsExport) {
       // Export is a NARROWER boundary than read (house rule): org staff only.
-      const denied = denyReviewer(session, { route: "events/[eventId]/session-proposals:GET" });
-      if (denied) {
+      const exportGate = requirePermission(session, "proposals.export", { route: "events/[eventId]/session-proposals:GET", eventId });
+      if (!exportGate.ok) {
         apiLogger.warn(
           { msg: "session-proposals:export-refused", eventId, userId: session.user.id, role: session.user.role, format: exportParam },
         );
-        return denied;
+        return exportGate.response;
       }
     }
 
     // Resolve the event (+ resource org) FIRST, un-wrapped — Event is not yet a
     // swept table, and its org is the tenant lane for the SessionProposal read.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, name: true, organizationId: true },
     });
 
@@ -246,8 +248,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Org staff + SUBMITTER may propose; every other restricted role
     // (REVIEWER / REGISTRANT / MEMBER / ONSITE / CRM_USER) is refused.
-    const denied = denyReviewer(session, { allow: ["SUBMITTER"], route: "events/[eventId]/session-proposals:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "proposals.decide", { route: "events/[eventId]/session-proposals:POST", eventId, linkedRoles: ["SUBMITTER"] });
+    if (!gate.ok) return gate.response;
 
     const validated = createProposalSchema.safeParse(body);
     if (!validated.success) {
@@ -267,7 +269,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Event (+ resource org) FIRST, un-wrapped (Event is not swept); its org is
     // the tenant lane for the Speaker (swept #9), theme, and proposal writes.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, settings: true },
     });
 

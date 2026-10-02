@@ -221,6 +221,77 @@ function noteNestedEventFilter(where: Where | undefined): void {
   if (EVENTS.some((ev) => matchesEvent(filter, ev))) rec.nestedEventMatched = true;
 }
 
+// ── Opt-in rows ─────────────────────────────────────────────────────────────
+//
+// By default every non-event read is empty, which pins who reaches an event.
+// Routes whose real rules come AFTER the event (an author may edit only their
+// own abstract, a reviewer scores only one assigned to them) need rows to get
+// that far. A test file opts in with `useFixtureRows()`; the files that did
+// not opt in keep their recorded matrices.
+//
+// The rows exist on every fixture event, all owned by the SUBMITTER caller's
+// speaker row, and match a lookup only when its id, event, owner and author
+// filters agree. Other filter keys are ignored, which is fine for a snapshot
+// that compares the same queries before and after a sweep.
+
+const SUBMITTER_ID = "u-submitter";
+const REVIEWER_ID = "u-reviewer";
+let fixtureRowsOn = false;
+export function useFixtureRows(on = true): void {
+  fixtureRowsOn = on;
+}
+
+type Row = Record<string, unknown>;
+const speakerRow = (eventId: string): Row => ({
+  id: "sp1", eventId, userId: SUBMITTER_ID, email: "submitter@test.local", firstName: "Sam", lastName: "Submitter", status: "CONFIRMED", tags: [],
+  submitterSource: "ABSTRACT", _count: { abstracts: 1, sessionProposals: 1 },
+});
+const ROW_FACTORIES: Record<string, (eventId: string) => Row> = {
+  speaker: speakerRow,
+  abstract: (eventId) => ({
+    id: "ab1", eventId, speakerId: "sp1", speaker: speakerRow(eventId), title: "A study", content: "Body", status: "SUBMITTED",
+    presentationType: "ORAL", version: 0, updatedAt: new Date("2027-01-01T00:00:00Z"), createdAt: new Date("2027-01-01T00:00:00Z"),
+    themeId: null, subThemeId: null, trackId: null, coAuthors: [], reviewSubmissions: [], reviewers: [], submissions: [],
+    _count: { reviewers: 1, submissions: 0 },
+  }),
+  sessionProposal: (eventId) => ({
+    id: "pr1", eventId, speakerId: "sp1", speaker: speakerRow(eventId), title: "A workshop", description: "Body", status: "SUBMITTED",
+    version: 0, updatedAt: new Date("2027-01-01T00:00:00Z"), createdAt: new Date("2027-01-01T00:00:00Z"), themeId: null,
+  }),
+  abstractReviewer: (eventId) => ({ abstractId: "ab1", userId: REVIEWER_ID, eventId, role: "PRIMARY", conflictFlag: false }),
+};
+
+function rowMatches(row: Row, where: Where | undefined): boolean {
+  if (!where) return true;
+  if (typeof where.id === "string" && where.id !== row.id) return false;
+  if (typeof where.eventId === "string" && where.eventId !== row.eventId) return false;
+  if (typeof where.userId === "string" && where.userId !== row.userId) return false;
+  if (typeof where.speakerId === "string" && where.speakerId !== row.speakerId) return false;
+  const sp = where.speaker as { userId?: unknown } | undefined;
+  if (sp && typeof sp.userId === "string" && sp.userId !== (row.speaker as Row | undefined)?.userId) return false;
+  const pair = where.abstractId_userId as { abstractId?: string; userId?: string } | undefined;
+  if (pair && (pair.abstractId !== row.abstractId || pair.userId !== row.userId)) return false;
+  if (where.event && typeof where.event === "object") {
+    const ev = EVENTS.find((e) => e.id === row.eventId);
+    if (!ev || !matchesEvent({ ...(where.event as Where), id: row.eventId as string }, ev)) return false;
+  }
+  return true;
+}
+
+function fixtureRead(name: string, method: string, where: Where | undefined): { hit: true; value: unknown } | null {
+  const make = ROW_FACTORIES[name];
+  if (name === "user" && (method === "findUnique" || method === "findFirst") && typeof where?.id === "string") {
+    const caller = CALLERS.find((c) => c.session?.user.id === where.id);
+    return { hit: true, value: caller?.session ? { ...caller.session.user, email: `${where.id}@test.local` } : null };
+  }
+  if (!make) return null;
+  const rows = EVENTS.map((e) => make(e.id)).filter((r) => rowMatches(r, where));
+  if (method === "findMany") return { hit: true, value: rows };
+  if (method === "count") return { hit: true, value: rows.length };
+  if (method === "findFirst" || method === "findUnique" || method === "findFirstOrThrow" || method === "findUniqueOrThrow") return { hit: true, value: rows[0] ?? null };
+  return null;
+}
+
 function model(name: string) {
   return new Proxy(
     {},
@@ -233,6 +304,10 @@ function model(name: string) {
           }
           if (name === "event") return eventModel(method, args);
           noteNestedEventFilter(args?.where);
+          if (fixtureRowsOn) {
+            const hit = fixtureRead(name, method, args?.where);
+            if (hit) return hit.value;
+          }
           return emptyRead(method);
         };
       },
