@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: CSV imports name the rows they skip (October 2)
+
+- Richard imported 30 speakers on MEHF 2027, saw "27 created (3 skipped)"
+  and could not tell which three. The speaker and registration CSV imports
+  now return `skippedRows` ("Row 14: x@y.com is already a speaker on this
+  event", "Row 20: x@y.com appears earlier in this file (row 5)"), log them,
+  and the import dialog lists them under the counts. Errors stay separate.
+  Sessions, abstracts and contacts imports still give a count only.
+
 ### Changed: full-width attendee page; always-visible player controls (October 2)
 
 - Owner: the attendee page is full width (capped at 1920px) so the video is

@@ -275,3 +275,22 @@ describe("CSV import — registration type resolution", () => {
     expect(data.status).toBe("CONFIRMED");
   });
 });
+
+describe("CSV import: skipped rows are named (Oct 2, 2026)", () => {
+  it("says which rows were skipped and why", async () => {
+    // Row 2 is new; row 3 is already registered; row 4 repeats row 2.
+    mockDb.registration.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "reg-existing" })
+      .mockResolvedValueOnce({ id: "reg-1" });
+    const csv = `${HEADER}\nAna,One,ana@example.com,Physician\nBen,Two,ben@example.com,Physician\nAna,Again,ANA@example.com,Physician`;
+    const body = await (await POST(csvRequest(csv), params)).json();
+    expect(body.created).toBe(1);
+    expect(body.skipped).toBe(2);
+    expect(body.skippedRows).toEqual([
+      "Row 3: ben@example.com is already registered for this event",
+      "Row 4: ana@example.com appears earlier in this file (row 2)",
+    ]);
+  });
+});
+

@@ -145,7 +145,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
-  const [result, setResult] = useState<{ created: number; skipped?: number; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped?: number; skippedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
   const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: string[] } | null>(null);
   const [defaultTicketTypeId, setDefaultTicketTypeId] = useState<string>(NO_DEFAULT_TICKET_TYPE);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -418,6 +418,23 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                   </span>
                 )}
               </div>
+              {/* Which rows were skipped and why (Oct 2, 2026): a count alone
+                  left organisers unable to tell who was left out. */}
+              {result.skippedRows && result.skippedRows.length > 0 && (
+                <div className="border rounded-md p-3 bg-amber-50 max-h-40 overflow-auto">
+                  <p className="text-sm font-medium text-amber-800 mb-1">
+                    {result.skippedRows.length} skipped (nothing was changed for these)
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    {result.skippedRows.slice(0, 50).map((row, i) => (
+                      <li key={i}>{row}</li>
+                    ))}
+                    {result.skippedRows.length > 50 && (
+                      <li>...and {result.skippedRows.length - 50} more</li>
+                    )}
+                  </ul>
+                </div>
+              )}
               {result.errors.length > 0 && (
                 <div className="border rounded-md p-3 bg-destructive/5 max-h-32 overflow-auto">
                   <div className="flex items-center gap-1 text-sm text-destructive mb-1">

@@ -172,6 +172,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const createdIds: string[] = [];
     let created = 0;
     let skipped = 0;
+    // Which rows were skipped and why (Oct 2, 2026), not just how many.
+    const skippedRows: string[] = [];
+    const firstRowByEmail = new Map<string, number>();
 
     // Registration type resolution. Two independent inputs, in precedence order:
     //   1. the row's own `registrationType` cell (explicit — always wins)
@@ -454,6 +457,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           return registration.id;
         });
         createdIds.push(newRegId);
+        if (!firstRowByEmail.has(email)) firstRowByEmail.set(email, rowNum);
         created++;
 
         // Sync to contact store (awaited — errors caught internally)
@@ -481,6 +485,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;
+          const earlierRow = firstRowByEmail.get(email);
+          skippedRows.push(
+            earlierRow !== undefined
+              ? `Row ${rowNum}: ${email} appears earlier in this file (row ${earlierRow})`
+              : `Row ${rowNum}: ${email} is already registered for this event`,
+          );
         } else if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
           errors.push(`Row ${rowNum}: registration type is at full capacity`);
         } else {
@@ -515,7 +525,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "csv",
     });
 
-    return NextResponse.json({ created, skipped, uncategorised, errors, registrationIds: createdIds });
+    if (skippedRows.length > 0) {
+      apiLogger.info({ msg: "Import skipped rows", importType: "registrations", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
+    }
+
+    return NextResponse.json({ created, skipped, uncategorised, errors, skippedRows, registrationIds: createdIds });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing registrations" });

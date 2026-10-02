@@ -110,6 +110,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Import started", importType: "speakers", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
     const errors: string[] = [];
+    // Which rows were skipped and why (Oct 2, 2026): the result used to give
+    // only a count, so an organiser could not tell which people were left out.
+    const skippedRows: string[] = [];
+    const firstRowByEmail = new Map<string, number>();
 
     // Unrecognized enum cells are non-fatal (the fields are optional) but must
 
@@ -140,8 +144,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
 
+      const earlierRow = firstRowByEmail.get(email);
+      if (earlierRow !== undefined) {
+        skippedRows.push(`Row ${rowNum}: ${email} appears earlier in this file (row ${earlierRow})`);
+        continue;
+      }
       if (existingEmails.has(email)) {
-        continue; // Skip duplicate silently — counted as skipped
+        skippedRows.push(`Row ${rowNum}: ${email} is already a speaker on this event`);
+        continue;
       }
       const titleCell = getField(fields, idx.title);
       const title = parseTitle(titleCell);
@@ -152,7 +162,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
       const status = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : "INVITED";
 
-      existingEmails.add(email); // Prevent duplicate within the same CSV
+      firstRowByEmail.set(email, rowNum); // Later rows with this email are skipped
 
       speakers.push({
         eventId,
@@ -187,7 +197,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (errors.length > 0) {
         apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
       }
-      return NextResponse.json({ created: 0, skipped, errors });
+      if (skippedRows.length > 0) {
+        apiLogger.info({ msg: "Import skipped rows", importType: "speakers", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
+      }
+      return NextResponse.json({ created: 0, skipped, errors, skippedRows });
     }
 
     const result = await db.speaker.createMany({
@@ -270,7 +283,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "csv",
     });
 
-    return NextResponse.json({ created, skipped, errors });
+    if (skippedRows.length > 0) {
+      apiLogger.info({ msg: "Import skipped rows", importType: "speakers", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
+    }
+
+    return NextResponse.json({ created, skipped, errors, skippedRows });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing speakers" });
