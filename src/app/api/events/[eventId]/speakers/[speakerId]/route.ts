@@ -6,8 +6,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { canManageReimbursements, stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -81,12 +80,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "speakers.read", { route: "events/[eventId]/speakers/[speakerId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.speaker.findFirst({
@@ -185,8 +187,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/[speakerId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers/[speakerId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
@@ -195,7 +197,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // binds the speaker to {id, eventId} — it does not re-check that the event
     // belongs to the caller's org). 404, not 403, to avoid existence leaks.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 
@@ -313,15 +315,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/[speakerId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.delete", { route: "events/[eventId]/speakers/[speakerId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.speaker.findFirst({

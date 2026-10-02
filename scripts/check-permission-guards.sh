@@ -42,6 +42,21 @@ SWEPT=(
   "src/app/api/events/[eventId]/sessions/bulk-delete/route.ts"
   "src/app/api/events/[eventId]/tracks/route.ts"
   "src/app/api/events/[eventId]/tracks/[trackId]/route.ts"
+  # speakers (Oct 2, 2026); honorarium and reimbursement types go with faculty extras
+  "src/app/api/events/[eventId]/speakers/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/route.ts"
+  "src/app/api/events/[eventId]/speakers/bulk-tags/route.ts"
+  "src/app/api/events/[eventId]/speakers/tags/route.ts"
+  "src/app/api/events/[eventId]/speakers/import-contacts/route.ts"
+  "src/app/api/events/[eventId]/speakers/import-registrations/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/activity/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/agreement/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/documents/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/documents/[documentId]/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/documents/[documentId]/file/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/email/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route.ts"
+  "src/app/api/events/[eventId]/speakers/[speakerId]/profile-form/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped.

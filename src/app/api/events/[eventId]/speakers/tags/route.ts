@@ -19,8 +19,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -33,14 +32,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/tags:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers/tags:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:tags", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

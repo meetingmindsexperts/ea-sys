@@ -379,6 +379,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: speakers check permissions instead of roles (October 2)
+
+- Custom roles Phase 2, fourth domain: the speaker list and page, tags,
+  imports, activity, agreements, documents, email, faculty registration and
+  the profile form. Nobody's access changes. Onsite staff keep reading
+  speakers on their assigned events, which the desk needs to fill in a
+  registration. Members keep seeing the list of a speaker's documents but
+  cannot open the files; opening a speaker's files is now its own permission,
+  held by admins and organizers.
+
 ### Changed: the agenda (sessions and tracks) checks permissions instead of roles (October 2)
 
 - Custom roles Phase 2, third domain: sessions, bulk session delete and

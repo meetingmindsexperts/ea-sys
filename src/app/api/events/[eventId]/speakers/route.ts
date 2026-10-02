@@ -6,10 +6,10 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { isTeamRole } from "@/lib/auth-guards";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
-import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { canManageReimbursements, stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -90,18 +90,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: dateRange.message, code: "INVALID_DATE_FILTER" }, { status: 400 });
     }
 
-    // Fetch event validation and speakers in parallel.
-    //
-    // ONE predicate. This was a ternary on `orgCtx` — "API key, else a person" —
-    // which also matched a signed-in person, so the role scoping below never ran
-    // for anyone org-bound. That let an ONSITE temp assigned to one conference
-    // pull ANY org event's full faculty roster: names, emails, phones, bios. The
-    // registrations route beside it 404'd correctly, which is what made the
-    // difference visible. See `accessUserFrom`.
-    const eventWhere = buildEventAccessWhere(
-      accessUserFrom(orgCtx, session?.user),
+    // ONE gate. This was once a ternary on `orgCtx`, "API key, else a person",
+    // which also matched a signed-in person, so the role scoping never ran for
+    // anyone org-bound and an ONSITE temp assigned to one conference could pull
+    // ANY org event's faculty roster. A signed-in person is judged on their
+    // session (the attendee-side roles through their linked events), an API
+    // key or a mobile token on what it carries.
+    const caller = session?.user ? session : principalFromCaller(null, orgCtx);
+    const gate = requirePermission(caller, "speakers.read", {
+      route: "events/[eventId]/speakers:GET",
       eventId,
-    );
+      onMissing: "hide",
+      linkedRoles: "linked",
+    });
+    if (!gate.ok) return gate.response;
+    const eventWhere = gate.eventWhere;
 
     // An org-null role (SUBMITTER / REVIEWER / REGISTRANT) reaches this list for
     // exactly one reason: the abstract and proposal forms look up the caller's
@@ -221,8 +224,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.create", { route: "events/[eventId]/speakers:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
@@ -232,7 +235,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // let the WEBINARS role (allowed above) create speakers on a CONFERENCE.
     // buildEventAccessWhere confines it to webinar events.
     const accessibleEvent = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!accessibleEvent) {

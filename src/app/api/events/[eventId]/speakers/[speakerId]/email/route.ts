@@ -10,8 +10,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, renderTemplatePlain, brandingFrom, brandingCc , eventLocationVars } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 import {
@@ -86,8 +85,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]/email:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/[speakerId]/email:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.email", { route: "events/[eventId]/speakers/[speakerId]/email:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
@@ -107,7 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const [event, speaker, user] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
       }),
       db.speaker.findFirst({
         where: { id: speakerId, eventId },
@@ -555,8 +554,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]/email:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/[speakerId]/email:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers/[speakerId]/email:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
@@ -591,7 +590,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, organizationId: true },
       }),
       db.speaker.findFirst({

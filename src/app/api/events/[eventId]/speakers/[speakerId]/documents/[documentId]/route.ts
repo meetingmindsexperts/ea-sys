@@ -5,8 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -20,14 +19,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/documents/[documentId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/documents/[documentId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:documents", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

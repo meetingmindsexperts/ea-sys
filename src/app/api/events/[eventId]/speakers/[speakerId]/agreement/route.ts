@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 
@@ -24,8 +24,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/agreement:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/speakers/[speakerId]/agreement:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
@@ -52,10 +52,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
-        },
+        where: gate.eventWhere,
         select: { id: true, speakerAgreementHtml: true },
       }),
       db.speaker.findFirst({

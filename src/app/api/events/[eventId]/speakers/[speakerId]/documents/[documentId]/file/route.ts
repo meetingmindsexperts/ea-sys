@@ -16,8 +16,7 @@ import { apiLogger } from "@/lib/logger";
 import { storageErrorResponse } from "@/lib/api-errors";
 import { readStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 type RouteParams = {
   params: Promise<{ eventId: string; speakerId: string; documentId: string }>;
@@ -36,11 +35,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, speakerId, documentId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/documents/[documentId]/file:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.open", { route: "events/[eventId]/speakers/[speakerId]/documents/[documentId]/file:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

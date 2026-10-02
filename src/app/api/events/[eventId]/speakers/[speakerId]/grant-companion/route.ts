@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
@@ -89,8 +88,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Granting free entry is an organizer decision — ADMIN/ORGANIZER only
     // (default denyReviewer set: no MEMBER/ONSITE/REVIEWER/SUBMITTER/REGISTRANT).
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/grant-companion:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.companion.grant", { route: "events/[eventId]/speakers/[speakerId]/grant-companion:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
@@ -109,7 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

@@ -4,8 +4,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { getClientIp } from "@/lib/security";
@@ -34,14 +33,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
 
     // Restricted roles must not rewrite tags (drive email cohorts + cert eligibility).
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/speakers/bulk-tags:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers/bulk-tags:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 

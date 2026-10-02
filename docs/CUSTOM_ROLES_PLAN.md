@@ -652,6 +652,34 @@ Domain by domain:
   tracks on ANY organisation's events, where the first two domains refuse it.
   The sweep keeps that; whether the operator should write tenant agendas is an
   owner call.
+- **Speakers SWEPT Oct 2, 2026** (14 route files: the list, detail, tags,
+  bulk tags, both imports, activity, agreement, documents and their files,
+  email, companion registration, profile form; honorarium and reimbursement
+  types go with faculty extras). Keys: `speakers.read` (list, detail,
+  activity), `.create`, `.update` (edit, bulk tags, the tags list, the email
+  change), `.delete`, `.import`, `.email`, `.agreements.manage`,
+  `.documents.read` (the document LIST), `.documents.write` (upload, remove,
+  and the profile form, which collects documents), `.companion.grant`, and a
+  NEW key `speakers.documents.open` for the FILES. **Owner rulings, Oct 2,
+  2026:** ONSITE keeps reading speakers on its assigned events ("they need all
+  the fields to add a registration"), so it holds `speakers.read` at
+  `ASSIGNED`; MEMBER keeps seeing a speaker's document list but never the
+  files (passport copies among them), so it holds `speakers.documents.read`
+  and only ADMIN, ORGANIZER and SUPER_ADMIN hold `.documents.open`. The tags
+  list maps to `speakers.update` because MEMBER and ONSITE were refused it
+  (403) before. Matrix byte for byte (21 cases); 14 files added to the guard.
+  Verified with the chrome-devtools MCP on the standalone build: ADMIN read,
+  edited, tagged, uploaded a document, opened it and deleted it; ONSITE
+  (assigned) reads speakers and activity, 403 on tags, documents and writes;
+  MEMBER also lists documents and is 403 on opening one; WEBINARS on a
+  conference and CRM_USER 404 or 403 as recorded. **Recorded, not changed:**
+  (1) MEMBER's speaker page requests the tags list and issued certificates and
+  gets 403 for both, two console errors that predate the sweep (Phase 3: the UI
+  should not ask for what the role cannot read); (2) the platform operator is
+  refused (no organisation) on the list writes, detail, email, tags and profile
+  form, but can act on any tenant's speaker activity, agreement, documents and
+  companion registration, which never had `requireOrgId`. Preserved as found;
+  part of the same owner call as the agenda.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

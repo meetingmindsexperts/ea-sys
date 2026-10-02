@@ -12,8 +12,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canManageReimbursements } from "@/lib/reimbursement/constants";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
   params: Promise<{ eventId: string; speakerId: string }>;
@@ -31,24 +30,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // team-only (MEMBER/ONSITE included; REVIEWER/SUBMITTER/REGISTRANT are
     // org-null, so an org ternary here would drop the org filter entirely
     // and open a cross-tenant read).
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/speakers/[speakerId]/activity:GET" });
-    if (denied) {
-      apiLogger.warn({
-        msg: "speaker-activity:role-denied",
-        eventId,
-        speakerId,
-        userId: session.user.id,
-        role: session.user.role,
-      });
-      return denied;
-    }
+    const gate = requirePermission(session, "speakers.read", { route: "events/[eventId]/speakers/[speakerId]/activity:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:activity", userId: session.user.id }, async () => {
     // Role-scoped event access (404 to avoid existence leak).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

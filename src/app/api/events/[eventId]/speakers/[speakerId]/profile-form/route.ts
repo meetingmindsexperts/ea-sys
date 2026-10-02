@@ -19,8 +19,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   sendEmail,
@@ -53,11 +52,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/profile-form:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, slug: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -91,8 +90,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/profile-form:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({ key: `speaker-profile-form-send:${session.user.id}`, limit: 30, windowMs: 3600_000 });
     if (!rl.allowed) {
@@ -111,7 +110,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, slug: true, name: true, organizationId: true, organization: { select: { name: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -254,8 +253,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/profile-form:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/profile-form:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json().catch(() => ({}));
     if (body?.reopen !== true) {
@@ -264,7 +263,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });

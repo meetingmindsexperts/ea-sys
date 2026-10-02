@@ -111,6 +111,7 @@ export const PERMISSION_KEYS = [
   "speakers.agreements.manage",
   "speakers.documents.read",
   "speakers.documents.write",
+  "speakers.documents.open",
   "speakers.companion.grant",
   // Abstracts
   "abstracts.read",
@@ -494,6 +495,10 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("speakers.agreements.manage", "Speakers", "Speaker agreements", "Upload the agreement template and send agreements.", E),
   app("speakers.documents.read", "Speakers", "See speaker documents", "Open a speaker's uploaded documents.", E),
   app("speakers.documents.write", "Speakers", "Manage speaker documents", "Upload and remove a speaker's documents.", E),
+  // Separate from `.read` on purpose (owner, Oct 2, 2026): the LIST of a
+  // speaker's documents is one thing, the FILES (passport copies among them)
+  // another. MEMBER holds the list and not the files, as before the sweep.
+  app("speakers.documents.open", "Speakers", "Open speaker document files", "Download a speaker's uploaded files, passport copies included.", ES),
   app("speakers.companion.grant", "Speakers", "Faculty registrations", "Give a speaker the companion registration that carries their badge.", E),
 
   // ── Abstracts ──

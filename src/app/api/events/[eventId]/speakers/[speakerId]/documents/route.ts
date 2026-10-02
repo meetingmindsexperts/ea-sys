@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { uploadFile, deleteStoredFile } from "@/lib/storage";
@@ -6,8 +7,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 /**
@@ -63,13 +63,15 @@ const DOCUMENT_SELECT = {
   uploadedBy: { select: { firstName: true, lastName: true } },
 } as const;
 
+// The event filter comes from the permission gate, so the lookup can never be
+// wider than the grant that let the caller in.
 async function loadSpeakerInEvent(
-  user: { id: string; role: string; organizationId?: string | null },
+  eventWhere: Prisma.EventWhereInput,
   eventId: string,
   speakerId: string,
 ) {
   const event = await db.event.findFirst({
-    where: buildEventAccessWhere(user, eventId),
+    where: eventWhere,
     select: { id: true },
   });
   if (!event) return null;
@@ -90,13 +92,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // surface; MEMBER — the org-bound read-only viewer — may read. The
     // org-null attendee roles (SUBMITTER could reach the event via their own
     // speaker linkage) must not browse other speakers' files.
-    const denied = denyReviewer(session, { allow: ["MEMBER"], route: "events/[eventId]/speakers/[speakerId]/documents:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.read", { route: "events/[eventId]/speakers/[speakerId]/documents:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
     return await runWithTenantLane(orgId, { route: "speakers:documents", userId: session.user.id }, async () => {
-    const speaker = await loadSpeakerInEvent(session.user, eventId, speakerId);
+    const speaker = await loadSpeakerInEvent(gate.eventWhere, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found", eventId, speakerId, userId: session.user.id });
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
@@ -122,8 +124,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/speakers/[speakerId]/documents:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.documents.write", { route: "events/[eventId]/speakers/[speakerId]/documents:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = session.user.organizationId;
@@ -141,7 +143,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const speaker = await loadSpeakerInEvent(session.user, eventId, speakerId);
+    const speaker = await loadSpeakerInEvent(gate.eventWhere, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found-on-upload", eventId, speakerId, userId: session.user.id });
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });

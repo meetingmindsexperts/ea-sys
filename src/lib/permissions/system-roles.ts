@@ -122,6 +122,7 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "speakers.agreements.manage",
   "speakers.documents.read",
   "speakers.documents.write",
+  "speakers.documents.open",
   "speakers.companion.grant",
   "abstracts.update",
   "abstracts.decide",
@@ -305,9 +306,10 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "MEMBER",
     // Internal read-everything staff, money included (June 17 2026), with the
     // desk. No codes, no export, no supporting documents, no per-event
-    // activity (`canWrite`), no RSVP roster.
+    // activity (`canWrite`), no RSVP roster. Lists a speaker's documents but
+    // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
-      ...at("ALL", ...EVENT_READ, ...DESK),
+      ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
       ...org("invoices.ledger", "billingAccounts.read", "contacts.read", "contacts.export", "crm.read", ...PROCUREMENT_VIEW, "agent.use", "finance.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
@@ -321,9 +323,10 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // them) and promo codes, which the route matrix recorded on Oct 1, 2026
     // and the owner kept (plan §6 Phase 2, "Registration types and promo codes");
     // and the agenda (sessions and tracks), recorded Oct 2, 2026, kept the
-    // same way so nobody's access changes.
+    // same way so nobody's access changes; and speakers, which the desk reads
+    // to fill in a registration (owner, Oct 2, 2026).
     grants: [
-      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", ...DESK, ...DESK_WITH_CODES),
+      ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", ...DESK, ...DESK_WITH_CODES),
       ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
