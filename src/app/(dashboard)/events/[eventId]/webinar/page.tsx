@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -533,15 +533,40 @@ function WebinarStatusBar({
   // host has actually started the webinar, so Zoom refuses the custom-stream
   // start that opening the room attempts. Keep asking every 30 s (Zoom's own
   // spacing) for about two and a half minutes, then hand over to the button.
+  // Stops at once (final review, Oct 2, 2026) when the room is closed or the
+  // console unmounts, so Zoom never starts pushing into a closed room, and
+  // when Zoom gives an answer no retry can fix (e.g. the webinar is gone).
+  const roomOpenRef = useRef(roomOpen);
+  useEffect(() => {
+    roomOpenRef.current = roomOpen;
+  }, [roomOpen]);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const retryStreamStart = async () => {
     for (let attempt = 0; attempt < STREAM_START_RETRIES; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, STREAM_START_RETRY_MS));
+      if (!mountedRef.current || !roomOpenRef.current) {
+        console.info("webinar-console:stream-start-retry-stopped", { attempt, roomOpen: roomOpenRef.current });
+        return;
+      }
       try {
         await liveStream.mutateAsync("start");
         toast.success("Custom stream started");
         return;
       } catch (err) {
-        console.warn("webinar-console:stream-start-retry", attempt + 1, err);
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn("webinar-console:stream-start-retry", attempt + 1, message);
+        // Retry only the two answers that time can fix: not live yet, and
+        // Zoom's one-start-per-30-seconds limit.
+        if (!/not live in Zoom yet|still handling the previous start/i.test(message)) {
+          toast.error(message);
+          return;
+        }
       }
     }
     toast.warning("The stream still has not started. Check that the webinar is running in Zoom, then press Start stream in the Waiting Room card.");

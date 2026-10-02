@@ -63,6 +63,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true, slug: true, settings: true },
     });
     if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "webinar:room-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -101,22 +102,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    const nextStatus = validated.data.open ? "LIVE" : "COMPLETED";
-
-    // Scope the update by eventId too so it can't touch another event's session.
-    const updated = await db.eventSession.updateMany({
-      where: { id: webinar.sessionId, eventId },
-      data: { status: nextStatus },
-    });
-    if (updated.count === 0) {
-      return NextResponse.json({ error: "Webinar session not found" }, { status: 404 });
-    }
-
     // Record when the room opened: the auto-close job trusts a Zoom "ended"
     // time only if it is later than this (see src/lib/webinar/room-autoclose.ts).
+    // Written BEFORE the status flips to LIVE (final review, Oct 2, 2026): an
+    // auto-close tick between the two would otherwise judge the re-opened
+    // room against the previous open time and could close it at once.
     // Locked merge of just this key, so a concurrent lobby save or provisioner
-    // write is never overwritten; failure-isolated, because the room is
-    // already open and must not report an error for a bookkeeping write.
+    // write is never overwritten; failure-isolated, because a bookkeeping
+    // write must never stop the room from opening.
     if (validated.data.open) {
       const openedAt = new Date().toISOString();
       try {
@@ -128,6 +121,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       } catch (err) {
         apiLogger.error({ err, eventId }, "webinar:room-opened-at-write-failed");
       }
+    }
+
+    const nextStatus = validated.data.open ? "LIVE" : "COMPLETED";
+
+    // Scope the update by eventId too so it can't touch another event's session.
+    const updated = await db.eventSession.updateMany({
+      where: { id: webinar.sessionId, eventId },
+      data: { status: nextStatus },
+    });
+    if (updated.count === 0) {
+      apiLogger.warn({ eventId, sessionId: webinar.sessionId }, "webinar:room-session-not-found");
+      return NextResponse.json({ error: "Webinar session not found" }, { status: 404 });
     }
 
     apiLogger.info(

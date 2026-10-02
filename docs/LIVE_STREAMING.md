@@ -305,6 +305,20 @@ starts it when absent), so this is an owner step:
    docker logs --tail 50 ea-sys-mediamtx
    ```
 
+**Publish credentials (Oct 2, 2026).** The bare stream key is also the HLS
+read path that every registered viewer receives, so the webhook does not
+trust it alone. Zoom is sent `key?user=publisher&pass=<password>`, where the
+password is an HMAC of the key (`streamPublishPassword` in
+`src/lib/webinar/livestream.ts`, signed with `STREAM_PUBLISH_SECRET`, or
+`NEXTAUTH_SECRET` when that is unset). Viewers never see it; the webhook
+refuses a publish without it. Before auth is switched on, MediaMTX ignores the
+query and the path is unchanged, so streams work as before.
+
+5. **After switching auth on, press "Re-send stream settings to Zoom" once on
+   every custom-stream webinar** set up before Oct 2, 2026. Those were given
+   the bare key and would be refused. Re-send keeps the key and adds the
+   credentials.
+
 On the platform instance the tenant-less key lookup is hidden by RLS, so a
 publish there is refused until the lookup moves to the operator lane.
 

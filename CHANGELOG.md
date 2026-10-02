@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed: webinar module final review (October 2)
+
+- Whole-module review plus 24 h of production logs; fixed in-band: (1) the
+  MediaMTX publish check no longer trusts the stream key alone (it is the
+  HLS path every viewer receives): Zoom is sent `key?user=publisher&pass=…`,
+  an HMAC of the key, and the webhook requires it. After switching publish
+  auth on, press Re-send once on webinars set up before today; (2) the
+  attendee's "This webinar has ended" card has **Rejoin** while the room is
+  still open, for a host who ended by mistake and restarted; (3) saving lobby
+  settings merges only the changed fields into the current settings, so a
+  room-open time written meanwhile survives; (4) the room-open time is
+  recorded before the room goes LIVE; (5) a Zoom 400 on the past-webinar
+  check now throws and logs instead of silently disabling auto-close; (6)
+  the console's stream-start retry stops when the room closes, on unmount,
+  and on answers no retry can fix; (7) the room route's two 404s are logged.
+- Deferred findings in `docs/ROADMAP.md`.
+
 ### Changed: viewer questions get their own Q&A tab in the Webinar Console (October 1)
 
 - Owner: "Viewer questions, maybe give its own tab". The narrow card in the

@@ -75,6 +75,28 @@ beforeEach(() => {
 });
 
 describe("PUT /webinar — hls mode requires a configured live stream", () => {
+  it("merges only the changed fields into the CURRENT settings, so a roomOpenedAt written meanwhile survives", async () => {
+    const res = await callPut({ lobbyMessage: "Starting soon" });
+    expect(res.status).toBe(200);
+    const patch = (mockUpdateEventSettings.mock.calls[0] as unknown[])[1] as (c: Record<string, unknown>) => Record<string, unknown>;
+    expect(typeof patch).toBe("function");
+    const current = { other: 1, webinar: { sessionId: "anchor1", roomOpenedAt: "2026-10-02T09:00:00.000Z", viewingMode: "hls" } };
+    expect(patch(current)).toEqual({
+      other: 1,
+      webinar: { sessionId: "anchor1", roomOpenedAt: "2026-10-02T09:00:00.000Z", viewingMode: "hls", lobbyMessage: "Starting soon" },
+    });
+  });
+
+  it("room open records roomOpenedAt BEFORE the session goes LIVE", async () => {
+    const order: string[] = [];
+    mockUpdateEventSettings.mockImplementation(async () => { order.push("openedAt"); return {}; });
+    mockDb.eventSession.updateMany.mockImplementation(async () => { order.push("live"); return { count: 1 }; });
+    mockControlLiveStream.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
+    const res = await callRoom({ open: true });
+    expect(res.status).toBe(200);
+    expect(order.slice(0, 2)).toEqual(["openedAt", "live"]);
+  });
+
   it("switching to hls sets the stream up itself (the Re-send sync), then saves", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     mockControlLiveStream.mockResolvedValue({ ok: true, action: "sync", streamKey: "k" });

@@ -1,4 +1,4 @@
-import { newStreamKey, rtmpIngestUrl } from "@/lib/webinar/livestream";
+import { newStreamKey, rtmpIngestUrl, zoomPublishKey } from "@/lib/webinar/livestream";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -329,9 +329,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       try {
         if (meetingType === "MEETING") {
-          await enableZoomLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, streamKey, pageUrl);
+          await enableZoomLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, zoomPublishKey(streamKey), pageUrl);
         } else {
-          await enableWebinarLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, streamKey, pageUrl);
+          await enableWebinarLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, zoomPublishKey(streamKey), pageUrl);
         }
         apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, streamKey }, "zoom:live-stream-configured");
       } catch (streamErr) {

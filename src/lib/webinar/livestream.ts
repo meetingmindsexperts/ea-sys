@@ -13,6 +13,7 @@
  *
  * Errors are values; this never imports next/server.
  */
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zoomApiRequest } from "@/lib/zoom/client";
@@ -42,6 +43,36 @@ export function rtmpIngestUrl(): string {
 
 export function newStreamKey(): string {
   return crypto.randomUUID().replace(/-/g, "");
+}
+
+/**
+ * The publish password for a stream key (final review, Oct 2, 2026). The bare
+ * key is also the HLS read path that every registered viewer receives, so on
+ * its own it cannot authorise a publish: a viewer could push their own video
+ * over Zoom's. Zoom is given `key?user=publisher&pass=<this>` (MediaMTX's
+ * standard way to pass publish credentials on RTMP); the auth webhook checks
+ * it; viewers never see it. Derived, not stored, so there is no new column
+ * and no key to rotate separately.
+ */
+export const STREAM_PUBLISH_USER = "publisher";
+
+export function streamPublishPassword(streamKey: string): string {
+  const secret = process.env.STREAM_PUBLISH_SECRET || process.env.NEXTAUTH_SECRET;
+  if (!secret) throw new Error("STREAM_PUBLISH_SECRET or NEXTAUTH_SECRET must be set to sign stream publishes");
+  return createHmac("sha256", secret).update(`stream-publish:${streamKey}`).digest("hex").slice(0, 40);
+}
+
+/** What Zoom is told to push to after the RTMP address: key plus credentials. */
+export function zoomPublishKey(streamKey: string): string {
+  return `${streamKey}?user=${STREAM_PUBLISH_USER}&pass=${streamPublishPassword(streamKey)}`;
+}
+
+/** Constant-time check of a publish password presented to MediaMTX. */
+export function isValidPublishPassword(streamKey: string, presented: string | undefined | null): boolean {
+  if (!presented) return false;
+  const expected = Buffer.from(streamPublishPassword(streamKey));
+  const given = Buffer.from(presented);
+  return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
 function zoomPath(meetingType: string, zoomMeetingId: string): string {
@@ -100,9 +131,9 @@ export async function controlWebinarLiveStream(input: {
     const pageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/e/${eventSlug}/session/${sessionId}`;
     try {
       if (meeting.meetingType === "MEETING") {
-        await enableZoomLiveStreaming(organizationId, meeting.zoomMeetingId, rtmpIngestUrl(), streamKey, pageUrl);
+        await enableZoomLiveStreaming(organizationId, meeting.zoomMeetingId, rtmpIngestUrl(), zoomPublishKey(streamKey), pageUrl);
       } else {
-        await enableWebinarLiveStreaming(organizationId, meeting.zoomMeetingId, rtmpIngestUrl(), streamKey, pageUrl);
+        await enableWebinarLiveStreaming(organizationId, meeting.zoomMeetingId, rtmpIngestUrl(), zoomPublishKey(streamKey), pageUrl);
       }
     } catch (err) {
       apiLogger.error({ err, eventId, sessionId }, "webinar-livestream:sync-failed");

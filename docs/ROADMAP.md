@@ -753,6 +753,27 @@ This is a coverage gap underneath it, not an error in it.
 
 ## Deferred review findings
 
+### Webinar module final review — deferred findings (Oct 2, 2026)
+
+Whole-module review (lib, Zoom, components, console, public page, routes,
+worker jobs). Shipped in-band: publish credentials separate from the viewing
+key; Rejoin on the "ended" card; merge-only lobby saves; open time recorded
+before LIVE; a Zoom 400 on the past-webinar check now throws; the stream-start
+retry stops on a closed room, an unmount or an unfixable answer; the room
+route's two 404s are logged. Still open (the earlier entry below lists the
+auto-close scan, the ribbon size and staff questions, all re-confirmed):
+
+- **Q&A polling cost at scale (MED).** Every Q&A-tab viewer polls every 15 s
+  through auth, an event lookup, a registration lookup and two queries; the
+  shown-questions list is the same for everyone. At 3,000 viewers that is
+  about 1,000 queries a second. Fix: cache `published` per session for a few
+  seconds, as the stream-status route does.
+- **"Duplicated join operation" (Zoom 5012) seen twice in prod (MED, cause
+  unproven).** Oct 1 09:38 and 08:34 UTC, both in the SDK join step on test
+  webinars. Likely a second `join()` while one is in flight (a re-mount, or
+  the Join button plus the room-open auto-admit). Reproduce on the next live
+  test before changing the join path.
+
 ### Webinar Q&A, auto-close and stream fixes review — deferred findings (Oct 1, 2026)
 
 The review of `29e982ac..11415d31` found ten issues; four HIGHs shipped

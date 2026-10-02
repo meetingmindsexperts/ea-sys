@@ -29,7 +29,8 @@ vi.mock("@/lib/zoom/meetings", () => ({
   enableZoomLiveStreaming: enableMeetingSpy,
 }));
 
-import { controlWebinarLiveStream, rtmpIngestUrl } from "@/lib/webinar/livestream";
+process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
+import { controlWebinarLiveStream, rtmpIngestUrl, streamPublishPassword, zoomPublishKey } from "@/lib/webinar/livestream";
 import { POST as mediamtxAuth } from "@/app/api/webhooks/mediamtx-auth/route";
 
 const KEY = "0123456789abcdef0123456789abcdef";
@@ -115,7 +116,12 @@ describe("controlWebinarLiveStream", () => {
     });
     const res = await controlWebinarLiveStream({ ...base, action: "sync" });
     expect(res.ok).toBe(true);
-    expect(enableWebinarSpy).toHaveBeenCalledWith("org1", "999", rtmpIngestUrl(), expect.stringMatching(/^[a-f0-9]{32}$/), expect.stringContaining("/e/test-webinar/session/s1"));
+    // Zoom gets the key plus publish credentials; the database keeps the bare key.
+    expect(enableWebinarSpy).toHaveBeenCalledWith(
+      "org1", "999", rtmpIngestUrl(),
+      expect.stringMatching(/^[a-f0-9]{32}\?user=publisher&pass=[a-f0-9]{40}$/),
+      expect.stringContaining("/e/test-webinar/session/s1"),
+    );
     expect(mockDb.zoomMeeting.update).toHaveBeenCalledWith({
       where: { id: "zm1" },
       data: { liveStreamEnabled: true, streamKey: expect.stringMatching(/^[a-f0-9]{32}$/) },
@@ -127,7 +133,7 @@ describe("controlWebinarLiveStream", () => {
       id: "zm1", zoomMeetingId: "999", meetingType: "WEBINAR", liveStreamEnabled: true, streamKey: KEY,
     });
     await controlWebinarLiveStream({ ...base, action: "sync" });
-    expect(enableWebinarSpy.mock.calls[0][3]).toBe(KEY);
+    expect(enableWebinarSpy.mock.calls[0][3]).toBe(zoomPublishKey(KEY));
   });
 
   it("sync does not save when Zoom refuses", async () => {
@@ -157,13 +163,23 @@ describe("MediaMTX publish authorisation webhook", () => {
       }),
     );
 
-  it("allows a publish on a known, enabled key", async () => {
+  it("allows a publish on a known, enabled key with the derived password", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue({ id: "zm1", eventId: "ev1" });
-    const res = await call({ action: "publish", path: `live/${KEY}`, protocol: "rtmp" });
+    const res = await call({ action: "publish", path: `live/${KEY}`, protocol: "rtmp", user: "publisher", password: streamPublishPassword(KEY) });
     expect(res.status).toBe(200);
+    // The password may also arrive only in the raw query.
+    const viaQuery = await call({ action: "publish", path: `live/${KEY}`, query: `user=publisher&pass=${streamPublishPassword(KEY)}` });
+    expect(viaQuery.status).toBe(200);
     expect(mockDb.zoomMeeting.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { streamKey: KEY, liveStreamEnabled: true } }),
     );
+  });
+
+  it("refuses a publish that knows the key but not the password (a viewer who copied the HLS path)", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({ id: "zm1", eventId: "ev1" });
+    expect((await call({ action: "publish", path: `live/${KEY}` })).status).toBe(403);
+    expect((await call({ action: "publish", path: `live/${KEY}`, user: "publisher", password: "wrong" })).status).toBe(403);
+    expect((await call({ action: "publish", path: `live/${KEY}`, password: streamPublishPassword("f".repeat(32)) })).status).toBe(403);
   });
 
   it("refuses a publish on an unknown key", async () => {

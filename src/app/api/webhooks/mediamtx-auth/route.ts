@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { isValidPublishPassword } from "@/lib/webinar/livestream";
 
 /**
  * MediaMTX publish authorisation (Oct 1, 2026).
@@ -32,7 +33,17 @@ const bodySchema = z.object({
   path: z.string().default(""),
   protocol: z.string().optional(),
   ip: z.string().optional(),
+  user: z.string().optional(),
+  password: z.string().optional(),
+  query: z.string().optional(),
 });
+
+/** MediaMTX passes `?user=&pass=` as user/password; fall back to the raw query. */
+function presentedPassword(body: { password?: string; query?: string }): string | null {
+  if (body.password) return body.password;
+  if (!body.query) return null;
+  return new URLSearchParams(body.query).get("pass");
+}
 
 const READ_ACTIONS = new Set(["read", "playback"]);
 const STREAM_KEY = /^live\/([a-f0-9]{32})$/;
@@ -80,6 +91,13 @@ export async function POST(req: Request) {
     });
     if (!meeting) {
       apiLogger.warn({ ip, publisherIp: parsed.ip }, "mediamtx-auth:publish-unknown-key");
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (!isValidPublishPassword(match[1], presentedPassword(parsed))) {
+      apiLogger.warn(
+        { ip, publisherIp: parsed.ip, eventId: meeting.eventId },
+        "mediamtx-auth:publish-bad-credentials",
+      );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     apiLogger.info({ eventId: meeting.eventId, publisherIp: parsed.ip }, "mediamtx-auth:publish-allowed");

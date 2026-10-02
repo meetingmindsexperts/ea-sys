@@ -649,6 +649,14 @@ export default function PublicSessionPage() {
             onWatchRecording={handleWatchRecording}
             isJoining={isJoining}
             hostEnded={hostEnded}
+            onRejoin={
+              roomOpen
+                ? () => {
+                    setHostEnded(false);
+                    setIsJoining(true);
+                  }
+                : undefined
+            }
             inWaitingRoom={showWaitingRoom}
             onJoin={() => setIsJoining(true)}
             onLeave={() => setIsJoining(false)}
@@ -1071,6 +1079,7 @@ function StickyCta({
   onWatchRecording,
   isJoining,
   hostEnded,
+  onRejoin,
   inWaitingRoom,
   onJoin,
   onLeave,
@@ -1091,6 +1100,8 @@ function StickyCta({
   isJoining: boolean;
   /** The host ended the webinar in Zoom; the room closes shortly after. */
   hostEnded: boolean;
+  /** Back into the room after "ended by host", for a host who restarted. */
+  onRejoin?: () => void;
   /** The branded waiting room is showing: the host has not opened the room. */
   inWaitingRoom: boolean;
   onJoin: () => void;
@@ -1258,6 +1269,14 @@ function StickyCta({
               Thank you for joining. The recording will appear on this page when it is ready.
             </p>
           </div>
+          {/* A host who ends by mistake (or whose Zoom crashes) and restarts
+              keeps the room open on purpose; without this the attendee had no
+              way back in short of reloading (final review, Oct 2, 2026). */}
+          {onRejoin && (
+            <Button size="sm" variant="outline" onClick={onRejoin} title="If the host has restarted the webinar">
+              Rejoin
+            </Button>
+          )}
         </CardContent>
       </Card>
     );

@@ -144,8 +144,8 @@ export async function getZoomParticipants(
  * When the most recent run of a webinar (or meeting) ended, from Zoom's
  * past-webinar record; null while it has never ended or is unknown to Zoom.
  * Zoom's GET /webinars/{id} has no started/ended field, so this is the
- * supported way to learn that a host ended it (Oct 1, 2026). 400 and 404 are
- * the expected "not ended / not found" answers and log at debug.
+ * supported way to learn that a host ended it (Oct 1, 2026). 404 is the
+ * expected "not ended" answer and logs at debug; any other error throws.
  */
 export async function getLastZoomEndTime(
   organizationId: string,
@@ -159,14 +159,18 @@ export async function getLastZoomEndTime(
       "GET",
       `/${endpoint}/${encodeURIComponent(zoomId)}`,
       undefined,
-      { expectedStatuses: [400, 404] },
+      { expectedStatuses: [404] },
     );
     if (!res?.end_time) return null;
     const ended = new Date(res.end_time);
     return Number.isNaN(ended.getTime()) ? null : ended;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (/Zoom API error: (400|404)\b/.test(message)) return null;
+    // 404: the webinar has not ended (or Zoom does not know it): expected.
+    if (/Zoom API error: 404\b/.test(message)) return null;
+    // Anything else, a 400 included (a missing past_webinar scope answers
+    // 400), would otherwise leave auto-close silently dead: throw, so the
+    // job logs it at error on every tick (final review, Oct 2, 2026).
     throw err;
   }
 }

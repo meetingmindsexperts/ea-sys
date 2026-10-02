@@ -251,10 +251,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // JSON round-trip strips undefined values (Prisma's Json type rejects
-    // them) before the atomic merge.
-    const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar));
-    await updateEventSettings(eventId, { webinar: cleanWebinar });
+    // Merge ONLY the fields this request changed into the CURRENT webinar
+    // settings, read under the lock. It wrote the whole object from a copy
+    // taken before the Zoom sync above, which could undo a room toggle's
+    // roomOpenedAt (or a provisioner write) landing meanwhile (final review,
+    // Oct 2, 2026). The JSON round-trip strips undefined values, which
+    // Prisma's Json type rejects and which must not overwrite stored ones.
+    const patch = JSON.parse(JSON.stringify(validated.data)) as Record<string, unknown>;
+    await updateEventSettings(eventId, (current) => {
+      const currentWebinar =
+        current.webinar && typeof current.webinar === "object" ? (current.webinar as Record<string, unknown>) : {};
+      return { ...current, webinar: { ...currentWebinar, ...patch } };
+    });
 
     apiLogger.info(
       { eventId, userId: session.user.id, webinar: nextWebinar },

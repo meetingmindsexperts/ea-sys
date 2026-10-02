@@ -204,7 +204,7 @@ export async function enableZoomLiveStreaming(
   streamKey: string,
   pageUrl?: string,
 ): Promise<void> {
-  apiLogger.info({ orgId: organizationId, meetingId, streamKey }, "zoom:enabling-live-stream");
+  apiLogger.info({ orgId: organizationId, meetingId, streamKey: streamKey.split("?")[0] }, "zoom:enabling-live-stream");
   await zoomApiRequest<void>(organizationId, "PATCH", `/meetings/${meetingId}/livestream`, {
     stream_url: rtmpUrl,
     stream_key: streamKey,
@@ -219,7 +219,7 @@ export async function enableWebinarLiveStreaming(
   streamKey: string,
   pageUrl?: string,
 ): Promise<void> {
-  apiLogger.info({ orgId: organizationId, webinarId, streamKey }, "zoom:enabling-webinar-live-stream");
+  apiLogger.info({ orgId: organizationId, webinarId, streamKey: streamKey.split("?")[0] }, "zoom:enabling-webinar-live-stream");
   await zoomApiRequest<void>(organizationId, "PATCH", `/webinars/${webinarId}/livestream`, {
     stream_url: rtmpUrl,
     stream_key: streamKey,
