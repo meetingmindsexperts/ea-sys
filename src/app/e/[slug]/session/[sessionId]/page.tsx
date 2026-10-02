@@ -537,7 +537,7 @@ export default function PublicSessionPage() {
             name={event.name}
           />
         )}
-        <div className="max-w-5xl mx-auto px-4 py-4">
+        <div className="mx-auto max-w-[1920px] px-4 py-4 lg:px-6">
           <div className="flex items-center gap-3">
             <Link
               href={`/e/${slug}/agenda`}
@@ -552,8 +552,10 @@ export default function PublicSessionPage() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Main content: full width so the video can be large with Q&A on its
+          right (owner, Oct 2, 2026), capped so an ultra-wide monitor does not
+          stretch it. Reading tabs (details, sponsors) keep a text width. */}
+      <div className="mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6">
         {/* Session title + metadata */}
         <div>
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -687,7 +689,9 @@ export default function PublicSessionPage() {
                  Zoom's own Q&A cannot reach them. */}
             <div
               className={
-                showQa ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]" : undefined
+                showQa
+                  ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]"
+                  : undefined
               }
             >
             <div className="min-w-0 space-y-4">
@@ -880,7 +884,7 @@ export default function PublicSessionPage() {
           </TabsContent>
 
           {/* Tab 2 — Session Details */}
-          <TabsContent value="details" className="space-y-6">
+          <TabsContent value="details" className="max-w-5xl space-y-6">
             {session?.description && (
               <section>
                 <h2 className="text-lg font-semibold mb-2">About this session</h2>
@@ -1041,7 +1045,7 @@ export default function PublicSessionPage() {
           </TabsContent>
 
           {/* Tab 3 — Sponsors */}
-          <TabsContent value="sponsors">
+          <TabsContent value="sponsors" className="max-w-5xl">
             <SponsorsTab sponsors={sponsors} />
           </TabsContent>
         </Tabs>

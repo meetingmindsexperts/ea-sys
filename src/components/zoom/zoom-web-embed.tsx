@@ -450,7 +450,8 @@ export function ZoomWebEmbed({
         ref={areaRef}
         className={cn(
           "relative flex w-full items-center justify-center overflow-hidden",
-          isFullscreen ? "min-h-0 flex-1" : "aspect-[4/5] sm:aspect-video",
+          // Capped to the window on the full-width page (Oct 2, 2026).
+          isFullscreen ? "min-h-0 flex-1" : "aspect-[4/5] sm:aspect-video sm:max-h-[calc(100vh-8rem)]",
         )}
       >
         <div

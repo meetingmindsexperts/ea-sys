@@ -263,41 +263,72 @@ export function LivePlayer({
     <div
       ref={containerRef}
       className={cn(
-        "relative w-full overflow-hidden bg-black",
+        "relative flex w-full flex-col overflow-hidden bg-black",
         !isFullscreen && "rounded-lg",
-        isFallback && "fixed inset-0 z-50 flex items-center justify-center",
+        isFallback && "fixed inset-0 z-50",
       )}
       // Same as the Zoom embed: a pinned box keeps the parent's `space-y-*`
       // sibling margin, which would leave a strip of page showing below it.
       style={isFallback ? { margin: 0 } : undefined}
     >
-      {/* The way out while fullscreen and NOT playing. The controls overlay
-          below (with its own toggle) exists only while playing, and in the
-          in-page fallback on a phone there is no Esc key: when the stream
-          dropped mid-fullscreen the viewer was pinned under a fixed overlay
-          with nothing to tap (review, Oct 1, 2026). */}
-      {isFullscreen && status !== "playing" && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void toggleFullscreen()}
-          className="absolute top-3 right-3 z-10 h-8 gap-1.5 text-white hover:bg-white/20 hover:text-white"
-          title="Exit full screen (Esc)"
-        >
-          <Minimize2 className="h-4 w-4" />
-          <span className="text-xs">Exit full screen</span>
-        </Button>
-      )}
+      {/* Always-visible bar, matching the Zoom embed's (owner, Oct 2, 2026).
+          The controls used to appear only on mouse hover, so on a phone the
+          viewer could neither unmute (the stream starts muted) nor go full
+          screen. Inside the fullscreen box, so the way out is always there. */}
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 bg-zinc-900 px-3 text-white">
+        <div className="flex min-w-0 items-center gap-2">
+          {status === "playing" && (
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-red-400">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              LIVE
+            </span>
+          )}
+          {sessionName ? <span className="truncate text-sm text-zinc-200">{sessionName}</span> : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {status === "playing" && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={toggleMute}
+              className={cn(
+                "h-8 gap-1.5",
+                isMuted
+                  ? "bg-white text-zinc-900 hover:bg-zinc-200"
+                  : "bg-white/10 text-white hover:bg-white/20",
+              )}
+              aria-pressed={!isMuted}
+              title={isMuted ? "Turn the sound on" : "Mute"}
+            >
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              <span className="text-xs font-medium">{isMuted ? "Unmute" : "Mute"}</span>
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void toggleFullscreen()}
+            className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
+            aria-pressed={isFullscreen}
+            title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            <span className="text-xs font-medium">{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+          </Button>
+        </div>
+      </div>
 
       {/* Video element */}
       <video
         ref={videoRef}
         className={cn(
-          "w-full",
-          isFullscreen && "h-full object-contain",
+          "w-full object-contain",
+          isFullscreen && "min-h-0 flex-1",
           status === "playing" ? "" : "hidden",
         )}
-        style={{ minHeight: isFullscreen ? undefined : "400px" }}
+        // On the full-width page a 16:9 picture would be taller than a laptop
+        // screen; cap it to the window so the whole picture stays in view.
+        style={isFullscreen ? undefined : { minHeight: "400px", maxHeight: "calc(100vh - 8rem)" }}
         muted={isMuted}
         playsInline
         autoPlay
@@ -306,7 +337,7 @@ export function LivePlayer({
 
       {/* Loading state */}
       {status === "loading" && (
-        <div className="flex flex-col items-center justify-center min-h-[400px] text-white gap-3">
+        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-3", isFullscreen && "flex-1")}>
           <div className="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin" />
           <p className="text-sm text-white/70">Connecting to stream...</p>
         </div>
@@ -314,7 +345,7 @@ export function LivePlayer({
 
       {/* Offline / waiting state */}
       {status === "offline" && (
-        <div className="flex flex-col items-center justify-center min-h-[400px] text-white gap-4">
+        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-4", isFullscreen && "flex-1")}>
           <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
             <Video className="h-8 w-8 text-white/60" />
           </div>
@@ -333,7 +364,7 @@ export function LivePlayer({
 
       {/* Error state */}
       {status === "error" && (
-        <div className="flex flex-col items-center justify-center min-h-[400px] text-white gap-4">
+        <div className={cn("flex flex-col items-center justify-center min-h-[400px] text-white gap-4", isFullscreen && "flex-1")}>
           <Video className="h-10 w-10 text-white/50" />
           <p className="text-sm text-white/70">Unable to play the stream</p>
           <Button variant="secondary" size="sm" onClick={handleRetry} className="gap-1.5">
@@ -343,30 +374,6 @@ export function LivePlayer({
         </div>
       )}
 
-      {/* Controls overlay (when playing) */}
-      {status === "playing" && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 flex items-center justify-between opacity-0 hover:opacity-100 transition-opacity">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={toggleMute} className="text-white hover:bg-white/20 h-8 w-8 p-0">
-              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-            </Button>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-xs text-white font-medium">LIVE</span>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void toggleFullscreen()}
-            className="text-white hover:bg-white/20 h-8 w-8 p-0"
-            aria-pressed={isFullscreen}
-            title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
-          >
-            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

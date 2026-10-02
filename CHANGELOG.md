@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: full-width attendee page; always-visible player controls (October 2)
+
+- Owner: the attendee page is full width (capped at 1920px) so the video is
+  large with Q&A on its right (26rem on wide screens); Session Details and
+  Sponsors keep a 1024px reading width. The video is capped to the window
+  height so the whole picture stays in view, for the Zoom embed too.
+- The custom-stream player's controls appeared only on mouse hover, so on a
+  phone a viewer could neither unmute (the stream starts muted) nor go full
+  screen. It now has the same always-visible bar as the Zoom embed: LIVE and
+  the session name, a labelled **Unmute** button (highlighted while muted)
+  and a labelled **Full screen** button.
+
 ### Added: stream delay meter in the Webinar Console (October 2)
 
 - Under **Preview the stream**: **Our delay** (server receiving the video to
