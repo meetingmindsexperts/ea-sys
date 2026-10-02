@@ -166,7 +166,9 @@ Notes:
   publishes to and the player reads from. **There is no per-stream auth at the
   MediaMTX layer** — the `streamKey` (a server-generated value on the
   `ZoomMeeting` row) is the only thing gating playback, and it's effectively a
-  bearer secret. Treat stream keys as secrets.
+  bearer secret. Treat stream keys as secrets. (Publishing is no longer gated
+  by the key alone: see §11a, publish authorisation.)
+- Low latency: see §14 before changing `hlsVariant` or the segment settings.
 
 ---
 
@@ -329,7 +331,7 @@ publish there is refused until the lookup moves to the operator lane.
 - Per-stream auth at the MediaMTX layer (publish/read tokens) instead of
   relying on the stream key alone.
 - Implement the WebRTC (`:8889`) low-latency path for interactive-ish
-  broadcasts.
+  broadcasts. Low-latency HLS is the nearer step: see §14.
 - Recording the HLS output to S3 as a fallback when Zoom cloud recording isn't
   used (today recordings come from Zoom — see `WEBINAR_EVENTS.md`).
 
@@ -389,3 +391,130 @@ per object per few seconds instead of 5k.
 > All of §13's AWS steps are operator-run (per the project's "instruct, don't
 > execute" rule for infra). The app is CDN-ready today; nothing here is required
 > for the embed (Zoom) viewing mode or for small streamed events.
+
+---
+
+## 14. Latency: standard HLS or low-latency HLS (decision record, Oct 2, 2026)
+
+**Status: PROPOSED, NOT APPLIED.** Production runs standard HLS (`hlsVariant:
+mpegts`). Nothing below has been changed on the box. This section records the
+trade-off and the plan, so the decision is made on measurements rather than
+memory.
+
+### 14.1 Why this came up
+
+The first custom-stream test (Vivek, Oct 2, 2026) showed the attendee picture
+running about 10 to 20 seconds behind the room. For a broadcast that is
+normal; for a webinar with live Q&A it is noticeable, because a speaker
+answers a question that viewers hear asked long after they typed it.
+
+### 14.2 Where the delay comes from
+
+Two parts add up, and only the second is ours:
+
+1. **Zoom's own delay** between the room and the RTMP stream it pushes to us.
+   No setting on our side changes it. Not measured yet.
+2. **Our HLS buffer.** MediaMTX cuts the stream into segments (2 s minimum,
+   and a segment can only end on a keyframe, so Zoom's keyframe interval can
+   make them longer). The player holds about three segments before it plays.
+
+Low-latency HLS shrinks part 2 only. An honest expectation is a few seconds
+saved (for example 15 s down to 6 to 9 s), not "near real time". **Measure
+before deciding:** put a clock on screen in the Zoom webinar during a practice
+run and compare it with the attendee page.
+
+### 14.3 The options
+
+| | Delay (estimate) | Viewer scale | Notes |
+|---|---|---|---|
+| **Standard HLS (today)** | 10 to 20 s | Thousands with a CDN | Proven on our setup |
+| **Low-latency HLS** | about 3 to 6 s of our own on top of Zoom's | Thousands, but the CDN helps less | One config line + MediaMTX restart; the player needs no code change (hls.js `lowLatencyMode: true` is already set and has no effect on mpegts) |
+| **WebRTC** | under 1 s | Low hundreds per box, no CDN | UDP port + TURN relay for office firewalls; MediaMTX supports it (`:8889`, reserved). Not proposed. |
+| **Zoom embed** | real time, two-way | the Zoom webinar seat limit | Already built: the other viewing mode |
+
+### 14.4 Repercussions of low-latency HLS
+
+1. **Request volume.** A standard player fetches the playlist about every 2 s.
+   A low-latency player fetches several times a second, and each request is
+   held open until the next part exists (blocking playlist reload). Several
+   times the requests per viewer, all on one t3.large when there is no CDN,
+   which can run into the CPU-credit throttle (AWS_OPERATIONS.md).
+2. **The CDN caches less.** Low-latency requests carry `_HLS_msn` /
+   `_HLS_part` query strings that must be forwarded and keyed in CloudFront,
+   which §13's cache policy currently excludes, and very short objects cache
+   poorly.
+3. **More stalling on weak connections.** A smaller buffer leaves a phone on
+   4G or a hotel connection less margin. Our audiences are international and
+   often mobile.
+4. **The fMP4 warning.** Low-latency HLS requires fMP4 segments. §6 records
+   that "the fmp4 variant had known 404 issues serving init segments through
+   the proxy". That must be re-tested, not assumed fixed.
+5. **The MediaMTX image is unpinned** (`bluenviron/mediamtx:latest`). Pin the
+   version before tuning, so a pull cannot change behaviour under us.
+6. **One mode for every stream.** `hlsVariant` is a server-wide setting. The
+   server cannot serve low latency to one webinar and standard to another.
+7. **Switching drops live streams.** Changing the variant needs a MediaMTX
+   restart, which `scripts/deploy.sh` does not do; it is run by hand with no
+   webinar live.
+
+What is safe: rollback is the same one line and a restart, and no app code or
+database change is involved.
+
+### 14.5 Bandwidth decides more than latency does
+
+Every viewer downloads the full video, so the box's outbound bandwidth is a
+hard ceiling whichever HLS mode is used. Assuming about 2.5 Mbit/s per viewer
+(to be measured on a practice run):
+
+| Viewers | Outbound from the box with no CDN |
+|---|---|
+| 150 | about 0.4 Gbit/s |
+| 1,000 | about 2.5 Gbit/s |
+
+AWS's published baseline for a t3.large is roughly 0.5 Gbit/s (bursting
+higher for short periods), and the same box serves the whole app. So **a
+1,000-viewer stream needs CloudFront in front (§13), whatever the latency
+mode**, and 150 viewers is already near the box's baseline. Each 1,000-viewer
+hour is also roughly 1 TB of data transfer, which AWS bills.
+
+### 14.6 Recommendation for our mix (50 to 150 attendees, a few over 1,000)
+
+- **Small webinars (50 to 150).** First ask whether they need the custom
+  stream at all: the **Zoom embed** gives real-time video and Zoom's own Q&A,
+  and 150 attendees fits inside a normal Zoom webinar licence. Where the
+  custom stream is wanted, low latency is affordable at this size: a few
+  hundred requests a second is light work.
+- **Large webinars (over 1,000).** Standard playback through **CloudFront**,
+  with the larger buffer. Here stability and bandwidth matter more than a few
+  seconds, and §13's CDN plan already assumes standard playback.
+- **How to have both on one server.** Run MediaMTX in the low-latency variant
+  permanently, and choose the *player* behaviour per webinar. A low-latency
+  playlist still lists full segments, and hls.js with `lowLatencyMode: false`
+  plays it like standard HLS (normal buffer, one playlist fetch per segment,
+  no query strings, so §13's CDN cache policy still works). This would be a
+  per-webinar **Latency: Low / Standard** setting in the Waiting Room card.
+  Two caveats to confirm in testing: iPhone Safari plays HLS natively and
+  turns low latency on by itself whenever the playlist offers it, so Standard
+  on iPhones would mean switching the player to hls.js there (supported on
+  iOS 17.1 and later); and whether MediaMTX's low-latency output behaves well
+  through nginx (point 4 above).
+- **Not recommended:** flipping the server between modes around each big
+  event. It means a manual restart before and after, it breaks any stream
+  running at the time, and it is easy to forget.
+
+### 14.7 Plan
+
+1. **Measure** the real delay and the stream bitrate on the next practice run
+   (clock on screen; browser network panel for the bitrate).
+2. **Pin MediaMTX** to the version currently running
+   (`docker exec ea-sys-mediamtx /mediamtx --version`, run by the owner).
+3. **Confirm CloudFront** is set up (`HLS_CDN_BASE` in the prod `.env`)
+   before any 1,000-viewer custom-stream webinar, independent of this
+   decision.
+4. **Trial low latency** on a practice webinar with nothing else live:
+   `hlsVariant: lowLatency` in `mediamtx.yml` on the box, restart MediaMTX,
+   then test Chrome, iPhone Safari and a phone on 4G, and watch CPU and the
+   request rate. Revert on 404s or stalls.
+5. **If the trial holds,** build the per-webinar Latency setting (§14.6) and
+   keep MediaMTX on the low-latency variant. If it does not, stay on standard
+   HLS and steer small webinars that need real time to the Zoom embed.

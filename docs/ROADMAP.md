@@ -800,6 +800,16 @@ locked, failure-isolated write). Recorded:
 - **Zoom 429 / "not started" wording assumes Start (LOW).** The messages now
   also reach `sync` (run on save); give sync its own wording.
 
+### Custom stream latency: low-latency HLS trial (Oct 2, 2026)
+
+Proposed, not applied. Decision record and plan in `docs/LIVE_STREAMING.md`
+§14. In order: measure the real delay and bitrate on a practice run; pin the
+MediaMTX image (owner runs `docker exec ea-sys-mediamtx /mediamtx --version`);
+confirm CloudFront before any 1,000-viewer custom stream (bandwidth, not
+latency, is the binding limit there); trial `hlsVariant: lowLatency` on a
+practice webinar; if it holds, build a per-webinar Latency: Low / Standard
+setting (player-side), keeping MediaMTX on the low-latency variant.
+
 ### Custom stream controls review — deferred findings (Oct 1, 2026)
 
 The review of the Start / Stop / Re-send controls found four issues; the two
