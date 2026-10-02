@@ -1176,7 +1176,7 @@ export function SpeakerDetailSheet({
                 </div>
               )}
               {emailType !== "abstract-confirmation" && (
-              <>
+              <div className="grid items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>CC (optional)</Label>
                 <Input
@@ -1206,7 +1206,7 @@ export function SpeakerDetailSheet({
                   Send me a copy (BCC)
                 </label>
               </div>
-              </>
+              </div>
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>

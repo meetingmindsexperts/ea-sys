@@ -1057,7 +1057,8 @@ export function BulkEmailDialog({
           {/* File Attachments (references; uploaded at submit) */}
           <EmailAttachmentPicker files={attachmentFiles} onChange={setAttachmentFiles} label="Attachments" />
 
-          {/* CC (Oct 2, 2026) */}
+          {/* CC and BCC side by side (owner, Oct 2, 2026); stacked on a phone. */}
+          <div className="grid items-start gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>CC (optional)</Label>
             <Input
@@ -1078,7 +1079,6 @@ export function BulkEmailDialog({
               </p>
             )}
           </div>
-
           {/* BCC + copy-to-me (organizer request July 29, 2026) */}
           <div className="space-y-1.5">
             <Label>BCC (optional)</Label>
@@ -1096,6 +1096,7 @@ export function BulkEmailDialog({
               />
               Send me a copy (BCC) — you&#39;ll receive one copy per recipient
             </label>
+          </div>
           </div>
 
           {/* Audience filters (registrations only) — collapsed by default so the
