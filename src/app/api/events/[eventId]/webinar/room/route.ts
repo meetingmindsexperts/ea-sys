@@ -10,6 +10,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
+import { isStreamArriving } from "@/lib/webinar/stream-probe";
 import { updateEventSettings } from "@/lib/event-settings";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -144,12 +145,31 @@ export async function POST(req: Request, { params }: RouteParams) {
     // to stop when it closes. Failure-isolated: the room state is already
     // saved, and the usual failure (the host has not started the webinar in
     // Zoom yet) is fixed by the console's Start stream button.
-    let stream: { ok: true } | { ok: false; error: string } | undefined;
+    let stream: { ok: true; alreadyLive?: true } | { ok: false; error: string } | undefined;
     if (webinar.viewingMode === "hls") {
-      const anchor = await db.eventSession.findFirst({
-        where: { id: webinar.sessionId, eventId },
-        select: { name: true },
-      });
+      const [anchor, meeting] = await Promise.all([
+        db.eventSession.findFirst({
+          where: { id: webinar.sessionId, eventId },
+          select: { name: true },
+        }),
+        db.zoomMeeting.findFirst({
+          where: { sessionId: webinar.sessionId, eventId },
+          select: { streamKey: true },
+        }),
+      ]);
+      // The producer may have started the stream and checked it in the
+      // console preview before opening the room (Oct 2, 2026). Asking Zoom to
+      // start it again would at best be refused, so skip it when MediaMTX is
+      // already receiving the video.
+      if (validated.data.open && meeting?.streamKey && (await isStreamArriving(meeting.streamKey))) {
+        apiLogger.info({ eventId, sessionId: webinar.sessionId }, "webinar:room-stream-already-arriving");
+        return NextResponse.json({
+          open: true,
+          sessionId: webinar.sessionId,
+          status: nextStatus,
+          stream: { ok: true, alreadyLive: true },
+        });
+      }
       const result = await controlWebinarLiveStream({
         organizationId: orgGuard.orgId,
         eventId,

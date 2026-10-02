@@ -6,32 +6,10 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canWrite } from "@/lib/can-write";
+import { canViewZoomHostCredentials } from "@/lib/zoom-visibility";
+import { isStreamArriving } from "@/lib/webinar/stream-probe";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
-
-// In-process cache of the MediaMTX liveness probe, keyed by streamKey. At 5k
-// viewers all LivePlayers poll this ~every 10s; without the cache each request
-// fires an outbound probe at the single MediaMTX container (a self-DoS). A 3s
-// TTL collapses the fan-out to ~1 probe / 3s per box. Per-container (resets on
-// deploy) — fine for a liveness flag.
-const probeCache = new Map<string, { isLive: boolean; at: number }>();
-const PROBE_TTL_MS = 3000;
-
-async function probeStreamLive(mediamtxUrl: string, streamKey: string): Promise<boolean> {
-  const cached = probeCache.get(streamKey);
-  if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.isLive;
-  let isLive = false;
-  try {
-    const res = await fetch(`${mediamtxUrl}/live/${streamKey}/index.m3u8`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    isLive = res.ok;
-  } catch {
-    // MediaMTX unreachable or stream not active → treat as not live.
-  }
-  probeCache.set(streamKey, { isLive, at: Date.now() });
-  return isLive;
-}
 
 // M3 (program/agenda review): the HLS playback URL embeds the streamKey, which
 // doubles as the RTMP PUBLISH credential on MediaMTX — so handing the URL to
@@ -49,7 +27,12 @@ async function isAuthorizedViewer(
   event: { id: string; organizationId: string },
 ): Promise<boolean> {
   if (!user) return false;
-  if (canWrite(user.role) && user.organizationId === event.organizationId) {
+  // Org writers, plus the Zoom host roles (WEBINARS, the producer role, is
+  // not a general writer), so the console's stream preview gets the URLs.
+  if (
+    (canWrite(user.role) || canViewZoomHostCredentials(user.role)) &&
+    user.organizationId === event.organizationId
+  ) {
     return true;
   }
   const cacheKey = `${user.id}:${event.id}`;
@@ -114,9 +97,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Check if MediaMTX is actually serving the stream (cached probe — shared
-    // across all pollers for this streamKey, see probeStreamLive above).
-    const mediamtxUrl = process.env.MEDIAMTX_HLS_URL || "http://localhost:8888";
-    const isLive = await probeStreamLive(mediamtxUrl, zoomMeeting.streamKey);
+    // across all pollers for this streamKey, see src/lib/webinar/stream-probe.ts).
+    const isLive = await isStreamArriving(zoomMeeting.streamKey);
 
     // Reflect the probed reality into ZoomMeeting.streamStatus. A write on a
     // GET is deliberate here (M3-reviewed): it only fires on a REAL state

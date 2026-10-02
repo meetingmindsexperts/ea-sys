@@ -30,7 +30,7 @@ const MY_STATUS_LABEL: Record<ViewerQuestionStatus, string> = {
 };
 
 /**
- * The Q&A tab for custom-stream viewers (Oct 1, 2026). They watch a one-way
+ * The Q&A panel for custom-stream viewers (Oct 1, 2026; beside the video since Oct 2). They watch a one-way
  * stream, so Zoom's Q&A cannot reach them. Three parts: the box to ask, the
  * viewer's own questions with a status, and the questions the organizer has
  * chosen to show everyone (asker shown as first name and initial). Refreshed

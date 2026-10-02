@@ -5,6 +5,7 @@ import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } f
 import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Card,
   CardContent,
@@ -69,6 +70,7 @@ import {
   useUpdateWebinarSettings,
   useToggleWebinarRoom,
   useWebinarLiveStream,
+  useWebinarStreamPreview,
   useWebinarViewerQuestions,
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
@@ -369,6 +371,7 @@ export default function WebinarConsolePage() {
                 // changes, so the form always starts from what is saved.
                 key={`${data ? "loaded" : "loading"}:${data?.webinar?.viewingMode ?? "zoom"}`}
                 eventId={eventId}
+                eventSlug={data?.event?.slug ?? null}
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
                 eventStatus={data?.event?.status}
@@ -436,6 +439,13 @@ type WebinarStatus = "scheduled" | "live" | "ended";
 
 // ── Section-title system: one colored icon chip per card so each section has a
 // consistent, scannable anchor (hierarchy via size + contrast, not text alone).
+// The attendee HLS player, reused for the console's stream preview. Loaded on
+// demand: hls.js is heavy and only needed once the preview is opened.
+const LivePlayer = dynamic(
+  () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
+  { ssr: false },
+);
+
 // Static class strings per tone — Tailwind can't see dynamically-built names.
 const TITLE_TONES = {
   sky: "bg-sky-100 text-sky-700",
@@ -2193,7 +2203,7 @@ function matchesViewerFilter(q: WebinarViewerQuestionRow, filter: ViewerQuestion
  * viewers, who are not in Zoom, at full width with filters. Newest first,
  * refreshed every 10 seconds (the same query the tab badge reads, so React
  * Query shares one poll). Only questions shown here appear in the attendees'
- * Q&A tab, with first name and initial.
+ * Q&A panel beside the video, with first name and initial.
  */
 function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
   const eventTz = useEventTz();
@@ -2219,7 +2229,7 @@ function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
         </ConsoleTitle>
         <CardDescription>
           From people watching the custom stream, newest first, refreshed every 10 seconds. Only
-          questions you show appear in the attendees&apos; Q&amp;A tab, with first name and initial;
+          questions you show appear in the Q&amp;A panel beside the attendees&apos; video, with first name and initial;
           dismissing a question also hides it.
         </CardDescription>
       </CardHeader>
@@ -2277,7 +2287,7 @@ function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
                       className="h-8 text-xs"
                       disabled={update.isPending}
                       onClick={() => void mark(q.id, { isPublic: !q.isPublic })}
-                      title={q.isPublic ? "Hide from the attendees' Q&A tab" : "Show in the attendees' Q&A tab"}
+                      title={q.isPublic ? "Hide from the attendees' Q&A panel" : "Show in the attendees' Q&A panel"}
                     >
                       {q.isPublic ? <EyeOff className="h-3.5 w-3.5 mr-1" /> : <Eye className="h-3.5 w-3.5 mr-1" />}
                       {q.isPublic ? "Hide" : "Show to attendees"}
@@ -2315,12 +2325,14 @@ const STREAM_START_RETRY_MS = 30_000;
 
 /** After a room toggle in custom-stream mode, say what happened to the stream. */
 function announceStreamResult(
-  stream: { ok: true } | { ok: false; error: string } | undefined,
+  stream: { ok: true; alreadyLive?: true } | { ok: false; error: string } | undefined,
   open: boolean,
 ) {
   if (!stream) return;
   if (stream.ok) {
-    toast.success(open ? "Custom stream started" : "Custom stream stopped");
+    toast.success(
+      stream.alreadyLive ? "The stream was already running" : open ? "Custom stream started" : "Custom stream stopped",
+    );
     return;
   }
   toast.warning(
@@ -2330,13 +2342,102 @@ function announceStreamResult(
   );
 }
 
+/**
+ * The producer's stream check (owner feedback, Oct 2, 2026): the same player
+ * attendees get, inside the console, so the team sees whether the video is
+ * arriving before opening the room instead of testing on the public page.
+ * Closed by default so the console does not load hls.js or poll the stream
+ * until someone asks. Starts muted, like the attendee player.
+ */
+function StreamPreview({
+  eventId,
+  eventSlug,
+  sessionId,
+}: {
+  eventId: string;
+  eventSlug: string;
+  sessionId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<"checking" | "active" | "idle" | "ended">("checking");
+  const preview = useWebinarStreamPreview(eventId, open);
+  const hlsUrl = preview.data?.hlsPreviewUrl ?? null;
+
+  const label =
+    state === "active"
+      ? { text: "Stream is arriving", tone: "bg-green-100 text-green-800" }
+      : state === "checking"
+        ? { text: "Checking…", tone: "bg-slate-100 text-slate-700" }
+        : { text: "No stream yet", tone: "bg-amber-100 text-amber-800" };
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium">Preview</p>
+          {open && hlsUrl && (
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${label.tone}`}>{label.text}</span>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setState("checking");
+            setOpen((v) => !v);
+          }}
+          className="gap-2"
+        >
+          {open ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {open ? "Hide preview" : "Preview the stream"}
+        </Button>
+      </div>
+      {open && (
+        <>
+          {preview.isLoading && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading the preview…
+            </p>
+          )}
+          {preview.isError && (
+            <p className="text-sm text-red-600">
+              {preview.error instanceof Error ? preview.error.message : "Could not load the preview"}
+            </p>
+          )}
+          {preview.data && !hlsUrl && (
+            <p className="text-sm text-muted-foreground">
+              The stream is not set up for this session yet. Press Re-send stream settings to Zoom.
+            </p>
+          )}
+          {hlsUrl && (
+            <>
+              <LivePlayer
+                hlsUrl={hlsUrl}
+                slug={eventSlug}
+                sessionId={sessionId}
+                onStreamStatusChange={setState}
+              />
+              <p className="text-xs text-muted-foreground">
+                What attendees will see once the room is open, about 10 to 20 seconds behind Zoom.
+                It checks again every 10 seconds, so leave it open after pressing Start stream.
+              </p>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function LobbyCard({
   eventId,
+  eventSlug,
   webinar,
   anchor,
   eventStatus,
 }: {
   eventId: string;
+  eventSlug: string | null;
   webinar: WebinarConsoleData["webinar"];
   anchor: WebinarConsoleData["anchorSession"];
   eventStatus?: string;
@@ -2551,9 +2652,11 @@ function LobbyCard({
             <div>
               <p className="font-medium">Custom stream</p>
               <p className="text-sm text-muted-foreground">
-                Start the webinar as host in Zoom first, then press Start stream. Opening the room
-                also tries to start it. Re-send the settings if the session was set up before
-                streaming was on, or if the stream never arrives.
+                Start the webinar as host in Zoom first, then press Start stream and check the
+                preview below before you open the room; attendees stay in the waiting room until
+                then. Opening the room also starts the stream if it is not running yet. Re-send
+                the settings if the session was set up before streaming was on, or if the stream
+                never arrives.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2573,6 +2676,9 @@ function LobbyCard({
                 Re-send stream settings to Zoom
               </Button>
             </div>
+            {eventSlug && anchor && (
+              <StreamPreview eventId={eventId} eventSlug={eventSlug} sessionId={anchor.id} />
+            )}
           </div>
         )}
 

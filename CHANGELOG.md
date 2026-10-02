@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: custom-stream preview in the console; Q&A beside the video (October 2)
+
+- From the first custom-stream test (Vivek): (1) the Waiting Room card's
+  Custom stream box has **Preview the stream**, the attendee player inside
+  the console with a "Stream is arriving / No stream yet" label, so the team
+  checks the video before opening the room instead of on the public page.
+  The preview address comes from the livestream GET (Zoom host roles only),
+  and stream-status now hands URLs to the Zoom host roles too, so the
+  WEBINARS producer role can preview; (2) opening the room no longer asks
+  Zoom to start a stream that is already arriving (shared MediaMTX probe in
+  `src/lib/webinar/stream-probe.ts`); (3) attendees' Q&A moves from its own
+  tab to a panel beside the video (under it on a phone), so nobody leaves
+  the stream to ask.
+
 ### Fixed: webinar module final review (October 2)
 
 - Whole-module review plus 24 h of production logs; fixed in-band: (1) the

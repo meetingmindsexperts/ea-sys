@@ -120,6 +120,20 @@ describe("stream-status — M3 credential gating", () => {
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
   });
 
+  it("the WEBINARS producer role gets URLs too, for the console's stream preview", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-prod-1", role: "WEBINARS", organizationId: "org1" } });
+    const body = await (await call()).json();
+    expect(body.hlsUrl).toBeTruthy();
+    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("a read-only MEMBER is still treated as an attendee (no host-role bypass)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u-mem-1", role: "MEMBER", organizationId: "org1" } });
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const body = await (await call()).json();
+    expect(body).toEqual({ status: "active" });
+  });
+
   it("staff of a DIFFERENT org are treated as attendees (no cross-org staff bypass)", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u-staff-2", role: "ADMIN", organizationId: "orgB" } });
     mockDb.registration.findFirst.mockResolvedValue(null);

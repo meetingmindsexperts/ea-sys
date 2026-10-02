@@ -2549,7 +2549,7 @@ export function useToggleWebinarRoom(eventId: string) {
         open: boolean;
         sessionId: string;
         status: string;
-        stream?: { ok: true } | { ok: false; error: string };
+        stream?: { ok: true; alreadyLive?: true } | { ok: false; error: string };
       }>(
         `/api/events/${eventId}/webinar/room`,
         { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
@@ -2557,6 +2557,21 @@ export function useToggleWebinarRoom(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },
+  });
+}
+
+/**
+ * The HLS address for the console's stream preview. Fetched only while the
+ * preview is open; null until the anchor session has a stream set up.
+ */
+export function useWebinarStreamPreview(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.webinar(eventId), "stream-preview"] as const,
+    queryFn: () =>
+      fetchApi<{ rtmpIngestUrl: string; hlsPreviewUrl: string | null }>(
+        `/api/events/${eventId}/webinar/livestream`,
+      ),
+    enabled,
   });
 }
 
@@ -2581,7 +2596,7 @@ export interface WebinarViewerQuestionRow {
   askerName: string;
   question: string;
   status: "NEW" | "ANSWERED" | "DISMISSED";
-  /** Shown to every attendee in the Q&A tab. */
+  /** Shown to every attendee in the Q&A panel beside the video. */
   isPublic: boolean;
   createdAt: string;
   answeredAt: string | null;

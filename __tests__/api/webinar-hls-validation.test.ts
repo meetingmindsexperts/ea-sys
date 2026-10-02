@@ -46,6 +46,8 @@ vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: vi.fn() }));
 vi.mock("@/lib/zoom", () => ({ enableWebinarQA: vi.fn() }));
 const { mockControlLiveStream } = vi.hoisted(() => ({ mockControlLiveStream: vi.fn() }));
 vi.mock("@/lib/webinar/livestream", () => ({ controlWebinarLiveStream: mockControlLiveStream }));
+const { mockIsStreamArriving } = vi.hoisted(() => ({ mockIsStreamArriving: vi.fn(async () => false) }));
+vi.mock("@/lib/webinar/stream-probe", () => ({ isStreamArriving: mockIsStreamArriving }));
 
 import { PUT as webinarPut } from "@/app/api/events/[eventId]/webinar/route";
 import { POST as roomPost } from "@/app/api/events/[eventId]/webinar/room/route";
@@ -72,6 +74,8 @@ beforeEach(() => {
   });
   mockDb.eventSession.updateMany.mockResolvedValue({ count: 1 });
   mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OK);
+  mockIsStreamArriving.mockResolvedValue(false);
+  mockControlLiveStream.mockResolvedValue({ ok: true, action: "start", streamKey: "sk-1" });
 });
 
 describe("PUT /webinar — hls mode requires a configured live stream", () => {
@@ -177,6 +181,34 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: "COMPLETED" } }),
     );
+  });
+
+  it("asks Zoom to start the stream when it is not arriving yet", async () => {
+    const res = await callRoom({ open: true });
+    expect(res.status).toBe(200);
+    expect(mockControlLiveStream).toHaveBeenCalledWith(expect.objectContaining({ action: "start" }));
+    expect((await res.json()).stream).toEqual({ ok: true });
+  });
+
+  it("leaves a stream that is already arriving alone (started and previewed before opening)", async () => {
+    mockIsStreamArriving.mockResolvedValue(true);
+    const res = await callRoom({ open: true });
+    expect(res.status).toBe(200);
+    expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "LIVE" } }),
+    );
+    expect(mockControlLiveStream).not.toHaveBeenCalled();
+    expect((await res.json()).stream).toEqual({ ok: true, alreadyLive: true });
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "ev1" }),
+      "webinar:room-stream-already-arriving",
+    );
+  });
+
+  it("closing still stops the stream, whatever the probe says", async () => {
+    mockIsStreamArriving.mockResolvedValue(true);
+    await callRoom({ open: false });
+    expect(mockControlLiveStream).toHaveBeenCalledWith(expect.objectContaining({ action: "stop" }));
   });
 
   it("zoom viewing mode opens without a stream check", async () => {
