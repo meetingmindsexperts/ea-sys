@@ -529,6 +529,9 @@ export interface UpdateSpeakerFields {
   website?: string | null;
   photo?: string | null;
   city?: string | null;
+  /** State / zip: set by the CSV import's update-or-create (Oct 2, 2026). */
+  state?: string | null;
+  zipCode?: string | null;
   country?: string | null;
   specialty?: string | null;
   registrationType?: string | null;
@@ -622,6 +625,8 @@ export async function updateSpeaker(
       ...(fields.website !== undefined && { website: fields.website || null }),
       ...(fields.photo !== undefined && { photo: fields.photo || null }),
       ...(fields.city !== undefined && { city: fields.city || null }),
+      ...(fields.state !== undefined && { state: fields.state || null }),
+      ...(fields.zipCode !== undefined && { zipCode: fields.zipCode || null }),
       ...(fields.country !== undefined && { country: fields.country || null }),
       ...(fields.specialty !== undefined && { specialty: fields.specialty || null }),
       ...(fields.registrationType !== undefined && {

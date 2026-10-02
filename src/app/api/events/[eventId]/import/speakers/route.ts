@@ -13,9 +13,34 @@ import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { updateSpeaker } from "@/services/speaker-service";
+import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
 
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The fields a re-import may update on an existing speaker, with the labels
+// the result shows ("Row 7: x@y.com updated (job title, bio)").
+const SPEAKER_UPDATE_LABELS = {
+  firstName: "first name",
+  lastName: "last name",
+  title: "title",
+  role: "role",
+  organization: "organisation",
+  jobTitle: "job title",
+  phone: "phone",
+  bio: "bio",
+  city: "city",
+  state: "state",
+  zipCode: "zip code",
+  country: "country",
+  specialty: "specialty",
+  registrationType: "registration type",
+  website: "website",
+  additionalEmail: "additional email",
+  status: "status",
+} as const;
+type SpeakerUpdateKey = keyof typeof SPEAKER_UPDATE_LABELS;
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -52,6 +77,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    // Update-or-create (Oct 2, 2026): the dialog sends "true" by default; any
+    // other caller keeps the old skip-existing behaviour unless it opts in.
+    const updateExisting = formData.get("updateExisting") === "true";
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
@@ -100,12 +128,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Get existing speaker emails to detect duplicates
+    // Existing speakers by email: skipped, or updated when updateExisting.
     const existingSpeakers = await db.speaker.findMany({
       where: { eventId },
-      select: { email: true },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, title: true, role: true,
+        organization: true, jobTitle: true, phone: true, bio: true, city: true, state: true,
+        zipCode: true, country: true, specialty: true, registrationType: true, website: true,
+        additionalEmail: true, status: true, tags: true,
+      },
     });
-    const existingEmails = new Set(existingSpeakers.map((s) => s.email.toLowerCase()));
+    const existingByEmail = new Map(existingSpeakers.map((sp) => [sp.email.toLowerCase(), sp]));
 
     apiLogger.info({ msg: "Import started", importType: "speakers", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
@@ -125,6 +158,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     let unrecognizedTitle = 0;
     const speakers: Prisma.SpeakerCreateManyInput[] = [];
+    const pendingUpdates: Array<{
+      rowNum: number;
+      email: string;
+      existing: (typeof existingSpeakers)[number];
+      incoming: Partial<Record<SpeakerUpdateKey, string>> & { tags: string[] };
+    }> = [];
 
     for (let i = 0; i < rows.length; i++) {
       const fields = rows[i];
@@ -149,10 +188,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         skippedRows.push(`Row ${rowNum}: ${email} appears earlier in this file (row ${earlierRow})`);
         continue;
       }
-      if (existingEmails.has(email)) {
-        skippedRows.push(`Row ${rowNum}: ${email} is already a speaker on this event`);
-        continue;
-      }
       const titleCell = getField(fields, idx.title);
       const title = parseTitle(titleCell);
       if (titleCell && !title) unrecognizedTitle++;
@@ -160,9 +195,42 @@ export async function POST(req: Request, { params }: RouteParams) {
       const role = parseAttendeeRole(roleCell);
       if (roleCell && !role) unrecognizedRole++;
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
-      const status = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : "INVITED";
+      const statusCell = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : undefined;
+
+      // The row's values, shared by the create and the update paths. Empty
+      // cells are undefined, so an update never clears a field.
+      const incoming = {
+        firstName,
+        lastName,
+        title: title ?? undefined,
+        role: role ?? undefined,
+        organization: getField(fields, idx.organization),
+        jobTitle: getField(fields, idx.jobTitle),
+        phone: getField(fields, idx.phone),
+        bio: getField(fields, idx.bio),
+        city: getField(fields, idx.city),
+        state: getField(fields, idx.state),
+        zipCode: getField(fields, idx.zipCode),
+        country: getField(fields, idx.country),
+        specialty: getField(fields, idx.specialty),
+        registrationType: getField(fields, idx.registrationType),
+        website: getField(fields, idx.website),
+        additionalEmail: getField(fields, idx.additionalEmail)?.toLowerCase(),
+        status: statusCell,
+        tags: parseTags(getField(fields, idx.tags)),
+      };
 
       firstRowByEmail.set(email, rowNum); // Later rows with this email are skipped
+
+      const existing = existingByEmail.get(email);
+      if (existing) {
+        if (!updateExisting) {
+          skippedRows.push(`Row ${rowNum}: ${email} is already a speaker on this event`);
+          continue;
+        }
+        pendingUpdates.push({ rowNum, email, existing, incoming });
+        continue;
+      }
 
       speakers.push({
         eventId,
@@ -171,36 +239,84 @@ export async function POST(req: Request, { params }: RouteParams) {
         firstName,
         lastName,
         title,
-        organization: getField(fields, idx.organization) || null,
-        jobTitle: getField(fields, idx.jobTitle) || null,
-        phone: getField(fields, idx.phone) || null,
-        bio: getField(fields, idx.bio) || null,
-        city: getField(fields, idx.city) || null,
-        state: getField(fields, idx.state) || null,
-        zipCode: getField(fields, idx.zipCode) || null,
-        country: getField(fields, idx.country) || null,
-        specialty: getField(fields, idx.specialty) || null,
+        organization: incoming.organization || null,
+        jobTitle: incoming.jobTitle || null,
+        phone: incoming.phone || null,
+        bio: incoming.bio || null,
+        city: incoming.city || null,
+        state: incoming.state || null,
+        zipCode: incoming.zipCode || null,
+        country: incoming.country || null,
+        specialty: incoming.specialty || null,
         // Profession category (Physician, Allied Health, …) — same shared
         // parser + acceptance rules as the registrations/contacts imports.
         role,
-        registrationType: getField(fields, idx.registrationType) || null,
-        tags: parseTags(getField(fields, idx.tags)),
-        website: getField(fields, idx.website) || null,
+        registrationType: incoming.registrationType || null,
+        tags: incoming.tags,
+        website: incoming.website || null,
         additionalEmail: getField(fields, idx.additionalEmail) || null,
-        status: status as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED",
+        status: (statusCell ?? "INVITED") as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED",
       });
     }
 
+    // Existing speakers named in the file: apply only the filled cells that
+    // differ, through the same service a manual edit uses (contact sync, the
+    // linked registration, tag mirroring, decline cascade and audit included).
+    let updated = 0;
+    let unchanged = 0;
+    const updatedRows: string[] = [];
+    for (const u of pendingUpdates) {
+      const { patch, changed } = buildImportPatch<SpeakerUpdateKey>(u.existing, u.incoming, SPEAKER_UPDATE_LABELS);
+      if (changed.length === 0) {
+        unchanged++;
+        continue;
+      }
+      const result = await updateSpeaker({
+        speakerId: u.existing.id,
+        eventId,
+        organizationId: orgGuard.orgId,
+        fields: patch as Parameters<typeof updateSpeaker>[0]["fields"],
+        source: "rest",
+        actorUserId: session.user.id,
+        requestIp: getClientIp(req),
+      });
+      if (!result.ok) {
+        apiLogger.warn({ msg: "Import update failed", importType: "speakers", eventId, rowNum: u.rowNum, code: result.code });
+        errors.push(`Row ${u.rowNum}: could not update ${u.email} (${result.message})`);
+        continue;
+      }
+      updated++;
+      updatedRows.push(updatedRowMessage(u.rowNum, u.email, changed));
+    }
+    if (updatedRows.length > 0) {
+      apiLogger.info({ msg: "Import updated rows", importType: "speakers", source: "csv", eventId, updatedRows: updatedRows.slice(0, 50) });
+    }
+
     if (speakers.length === 0) {
-      const skipped = rows.length - errors.length;
-      apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created: 0, skipped, errorCount: errors.length });
+      const skipped = rows.length - updated - unchanged - errors.length;
+      apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created: 0, updated, unchanged, skipped, errorCount: errors.length });
       if (errors.length > 0) {
         apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
       }
       if (skippedRows.length > 0) {
         apiLogger.info({ msg: "Import skipped rows", importType: "speakers", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
       }
-      return NextResponse.json({ created: 0, skipped, errors, skippedRows });
+      if (updated > 0 || unchanged > 0) {
+        recordImport(req, {
+          entityType: "Speaker",
+          eventId,
+          organizationId: orgGuard.orgId,
+          userId: session.user.id,
+          role: session.user.role,
+          totalProcessed: rows.length,
+          created: 0,
+          updated,
+          skipped,
+          errors: errors.length,
+          format: "csv",
+        });
+      }
+      return NextResponse.json({ created: 0, updated, unchanged, skipped, errors, skippedRows, updatedRows });
     }
 
     const result = await db.speaker.createMany({
@@ -221,7 +337,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             bulk: true,
             source: "csv-import",
             created: result.count,
-            skipped: rows.length - result.count - errors.length,
+            updated,
+            skipped: rows.length - result.count - updated - unchanged - errors.length,
             errorCount: errors.length,
             ip: getClientIp(req),
           },
@@ -259,9 +376,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     await ensureCompanionsForSpeakerEmails(eventId, speakers.map((s) => s.email));
 
     const created = result.count;
-    const skipped = rows.length - created - errors.length;
+    const skipped = rows.length - created - updated - unchanged - errors.length;
 
-    apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
+    apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created, updated, unchanged, skipped, errorCount: errors.length });
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
@@ -278,6 +395,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       role: session.user.role,
       totalProcessed: rows.length,
       created,
+      updated,
       skipped,
       errors: errors.length,
       format: "csv",
@@ -287,7 +405,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.info({ msg: "Import skipped rows", importType: "speakers", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
     }
 
-    return NextResponse.json({ created, skipped, errors, skippedRows });
+    return NextResponse.json({ created, updated, unchanged, skipped, errors, skippedRows, updatedRows });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing speakers" });

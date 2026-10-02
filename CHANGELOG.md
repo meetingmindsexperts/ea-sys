@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: CSV import updates existing speakers and registrations (October 2)
+
+- Owner: make the import idempotent, upserting fields. Speaker and
+  registration CSV imports take `updateExisting` (the dialog's "Update
+  existing ... with this file's values", ticked by default; other callers
+  keep skip-existing unless they opt in). Matched by email; only filled cells
+  that differ are written (an empty cell keeps the value), tags are added
+  never removed, and an unchanged row writes nothing, so re-importing the
+  same file is a no-op. Updates go through `updateSpeaker` /
+  `updateRegistration` (contact sync, the speaker/registration facet copy,
+  audit, optimistic lock), never a second write path. Registrations: only
+  attendee details; ticket type, payment, status and attendance mode are
+  never touched. The result returns `updated`, `unchanged` and `updatedRows`
+  ("Row 7: x@y.com updated (job title, bio)"). Both services gained `state`
+  and `zipCode`. Shared comparison in `src/lib/import-upsert.ts`.
+
 ### Added: manual CC on speaker emails, single and bulk; review fixes (October 2)
 
 - A CC field beside BCC on the single speaker email (speaker page and detail

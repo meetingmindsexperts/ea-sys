@@ -1149,6 +1149,9 @@ export interface UpdateRegistrationAttendeeInput {
   phone?: string;
   photo?: string | null;
   city?: string;
+  /** State / zip: set by the CSV import's update-or-create (Oct 2, 2026). */
+  state?: string;
+  zipCode?: string;
   country?: string;
   bio?: string;
   specialty?: string;
@@ -1372,6 +1375,8 @@ export async function updateRegistration(
           ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
           ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
           ...(attendee.city !== undefined && { city: attendee.city || null }),
+          ...(attendee.state !== undefined && { state: attendee.state || null }),
+          ...(attendee.zipCode !== undefined && { zipCode: attendee.zipCode || null }),
           ...(attendee.country !== undefined && { country: attendee.country || null }),
           ...(attendee.bio !== undefined && { bio: attendee.bio || null }),
           ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),

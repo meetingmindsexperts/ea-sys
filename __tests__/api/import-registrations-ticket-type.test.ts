@@ -23,7 +23,7 @@ const { mockDb, mockAuth, mockApiLogger, mockIncrementEventSeats, mockSerial } =
       count: vi.fn(),
     },
     event: { findFirst: vi.fn() },
-    registration: { findFirst: vi.fn(), create: vi.fn() },
+    registration: { findFirst: vi.fn(), create: vi.fn(), findMany: vi.fn() },
     attendee: { create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -71,6 +71,8 @@ vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/webinar", () => ({ readSponsors: () => [] }));
 vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
+const { mockUpdateRegistration } = vi.hoisted(() => ({ mockUpdateRegistration: vi.fn() }));
+vi.mock("@/services/registration-service", () => ({ updateRegistration: (...a: unknown[]) => mockUpdateRegistration(...a) }));
 
 import { POST } from "@/app/api/events/[eventId]/import/registrations/route";
 import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
@@ -79,9 +81,10 @@ const params = { params: Promise.resolve({ eventId: "ev1" }) };
 
 const HEADER = "firstName,lastName,email,registrationType";
 
-function csvRequest(csv: string, defaultTicketTypeId?: string): Request {
+function csvRequest(csv: string, defaultTicketTypeId?: string, updateExisting = false): Request {
   const fd = new FormData();
   fd.append("file", new File([csv], "registrations.csv", { type: "text/csv" }));
+  if (updateExisting) fd.append("updateExisting", "true");
   if (defaultTicketTypeId) fd.append("defaultTicketTypeId", defaultTicketTypeId);
   return new Request("http://localhost/api/events/ev1/import/registrations", {
     method: "POST",
@@ -291,6 +294,57 @@ describe("CSV import: skipped rows are named (Oct 2, 2026)", () => {
       "Row 3: ben@example.com is already registered for this event",
       "Row 4: ana@example.com appears earlier in this file (row 2)",
     ]);
+  });
+});
+
+describe("CSV import: update-or-create for registrations (Oct 2, 2026)", () => {
+  const EXISTING_REG = {
+    id: "reg-old",
+    updatedAt: new Date("2026-10-01T10:00:00Z"),
+    attendee: {
+      email: "ana@example.com", firstName: "Ana", lastName: "One", title: null, role: null,
+      organization: "Old Org", jobTitle: null, phone: null, city: null, state: null, zipCode: null,
+      country: null, bio: null, specialty: null, associationName: null, memberId: null, studentId: null,
+      dietaryReqs: null, tags: [],
+    },
+  };
+
+  beforeEach(() => {
+    mockDb.registration.findMany.mockResolvedValue([EXISTING_REG]);
+    mockUpdateRegistration.mockResolvedValue({ ok: true, registration: {}, qrCodeMinted: false });
+  });
+
+  it("updates the attendee details only, never the registration type, and creates nothing", async () => {
+    const csv = "firstName,lastName,email,registrationType,organization\nAna,One,ana@example.com,Physician,New Org";
+    const body = await (await POST(csvRequest(csv, undefined, true), params)).json();
+    expect(mockUpdateRegistration).toHaveBeenCalledTimes(1);
+    const arg = mockUpdateRegistration.mock.calls[0][0];
+    expect(arg).toEqual(expect.objectContaining({
+      registrationId: "reg-old",
+      expectedUpdatedAt: "2026-10-01T10:00:00.000Z",
+      attendee: { organization: "New Org" },
+    }));
+    expect(arg.ticketTypeId).toBeUndefined();
+    expect(arg.paymentStatus).toBeUndefined();
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+    expect(body).toEqual(expect.objectContaining({ created: 0, updated: 1, unchanged: 0 }));
+    expect(body.updatedRows).toEqual(["Row 2: ana@example.com updated (organisation)"]);
+  });
+
+  it("an unchanged row writes nothing", async () => {
+    const csv = "firstName,lastName,email,organization\nAna,One,ana@example.com,Old Org";
+    const body = await (await POST(csvRequest(csv, undefined, true), params)).json();
+    expect(mockUpdateRegistration).not.toHaveBeenCalled();
+    expect(body).toEqual(expect.objectContaining({ updated: 0, unchanged: 1 }));
+  });
+
+  it("with the option off, nothing is looked up for update and existing rows skip as before", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-old" });
+    const csv = "firstName,lastName,email,organization\nAna,One,ana@example.com,New Org";
+    const body = await (await POST(csvRequest(csv), params)).json();
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+    expect(mockUpdateRegistration).not.toHaveBeenCalled();
+    expect(body.skippedRows).toEqual(["Row 2: ana@example.com is already registered for this event"]);
   });
 });
 

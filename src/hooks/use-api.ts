@@ -1501,16 +1501,19 @@ export function useRetryScheduledEmail(eventId: string) {
 export function useCSVImport(eventId: string, entityType: "registrations" | "speakers" | "sessions" | "abstracts") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, defaultTicketTypeId }: { file: File; defaultTicketTypeId?: string | null }) => {
+    mutationFn: ({ file, defaultTicketTypeId, updateExisting }: { file: File; defaultTicketTypeId?: string | null; updateExisting?: boolean }) => {
       const formData = new FormData();
       formData.append("file", file);
+      // Speakers and registrations: update people already on the event with
+      // the file's filled cells instead of skipping them (Oct 2, 2026).
+      if (updateExisting) formData.append("updateExisting", "true");
       // Registrations only: the organizer's fallback registration type for rows
       // whose `registrationType` cell is blank. Omitted ⇒ those rows import
       // uncategorised (the server never picks one for them).
       if (defaultTicketTypeId) formData.append("defaultTicketTypeId", defaultTicketTypeId);
       // `uncategorised` = rows imported with no registration type (registrations
       // entity only) — the dialog surfaces it as the cue to send completion forms.
-      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] }>(
+      return fetchApi<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] }>(
         `/api/events/${eventId}/import/${entityType}`,
         { method: "POST", body: formData }
       );

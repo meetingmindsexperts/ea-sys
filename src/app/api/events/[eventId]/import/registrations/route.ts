@@ -7,7 +7,9 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
+import { updateRegistration } from "@/services/registration-service";
+import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
@@ -49,6 +51,30 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+// The attendee details a re-import may update on an existing registration,
+// with the labels the result shows. Ticket type, payment, status and
+// attendance mode are deliberately absent: they move money and seats.
+const REGISTRATION_UPDATE_LABELS = {
+  firstName: "first name",
+  lastName: "last name",
+  title: "title",
+  role: "role",
+  organization: "organisation",
+  jobTitle: "job title",
+  phone: "phone",
+  city: "city",
+  state: "state",
+  zipCode: "zip code",
+  country: "country",
+  bio: "bio",
+  specialty: "specialty",
+  associationName: "association",
+  memberId: "member ID",
+  studentId: "student ID",
+  dietaryReqs: "dietary requirements",
+} as const;
+type RegistrationUpdateKey = keyof typeof REGISTRATION_UPDATE_LABELS;
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -86,6 +112,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const defaultTicketTypeIdRaw = formData.get("defaultTicketTypeId");
     const defaultTicketTypeId =
       typeof defaultTicketTypeIdRaw === "string" ? defaultTicketTypeIdRaw : null;
+    // Update-or-create (Oct 2, 2026): the dialog sends "true" by default; any
+    // other caller keeps the old skip-existing behaviour unless it opts in.
+    const updateExisting = formData.get("updateExisting") === "true";
 
     const text = await file.text();
     const { headers, rows, error: parseError } = parseCSV(text);
@@ -175,6 +204,41 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Which rows were skipped and why (Oct 2, 2026), not just how many.
     const skippedRows: string[] = [];
     const firstRowByEmail = new Map<string, number>();
+    let updated = 0;
+    let unchanged = 0;
+    const updatedRows: string[] = [];
+
+    // Existing (not cancelled) registrations for the emails in this file, so a
+    // re-import can update their attendee details. Only the person's details
+    // ever change; ticket type, payment, status and attendance mode never do,
+    // because those move money and seats. Oldest first when an email has more
+    // than one registration.
+    const fileEmails = [
+      ...new Set(rows.map((r) => getField(r, idx.email)?.toLowerCase()).filter((e): e is string => Boolean(e))),
+    ];
+    const existingRegs = updateExisting && fileEmails.length
+      ? await db.registration.findMany({
+          where: { eventId, status: { notIn: ["CANCELLED"] }, attendee: { email: { in: fileEmails } } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            updatedAt: true,
+            attendee: {
+              select: {
+                email: true, firstName: true, lastName: true, title: true, role: true,
+                organization: true, jobTitle: true, phone: true, city: true, state: true,
+                zipCode: true, country: true, bio: true, specialty: true, associationName: true,
+                memberId: true, studentId: true, dietaryReqs: true, tags: true,
+              },
+            },
+          },
+        })
+      : [];
+    const existingRegByEmail = new Map<string, (typeof existingRegs)[number]>();
+    for (const r of existingRegs) {
+      const key = r.attendee.email.toLowerCase();
+      if (!existingRegByEmail.has(key)) existingRegByEmail.set(key, r);
+    }
 
     // Registration type resolution. Two independent inputs, in precedence order:
     //   1. the row's own `registrationType` cell (explicit — always wins)
@@ -244,6 +308,68 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (roleCell && !role) unrecognizedRole++;
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
+
+      const earlierRow = firstRowByEmail.get(email);
+      if (earlierRow !== undefined) {
+        skipped++;
+        skippedRows.push(`Row ${rowNum}: ${email} appears earlier in this file (row ${earlierRow})`);
+        continue;
+      }
+
+      // Already registered and the organiser chose to update: apply the
+      // filled cells that differ to the person's details, through the same
+      // service a manual edit uses (contact sync, speaker facet, audit).
+      const existingReg = existingRegByEmail.get(email);
+      if (existingReg) {
+        firstRowByEmail.set(email, rowNum);
+        const incoming = {
+          firstName,
+          lastName,
+          title: title ?? undefined,
+          role: role ?? undefined,
+          organization: getField(fields, idx.organization),
+          jobTitle: getField(fields, idx.jobTitle),
+          phone: getField(fields, idx.phone),
+          city: getField(fields, idx.city),
+          state: getField(fields, idx.state),
+          zipCode: getField(fields, idx.zipCode),
+          country: getField(fields, idx.country),
+          bio: getField(fields, idx.bio),
+          specialty: getField(fields, idx.specialty),
+          associationName: getField(fields, idx.associationName),
+          memberId: getField(fields, idx.memberId),
+          studentId: getField(fields, idx.studentId),
+          dietaryReqs: getField(fields, idx.dietaryReqs),
+          tags,
+        };
+        const { patch, changed } = buildImportPatch<RegistrationUpdateKey>(
+          existingReg.attendee,
+          incoming,
+          REGISTRATION_UPDATE_LABELS,
+        );
+        if (changed.length === 0) {
+          unchanged++;
+          continue;
+        }
+        const result = await updateRegistration({
+          eventId,
+          registrationId: existingReg.id,
+          organizationId: orgGuard.orgId,
+          actorUserId: session.user.id,
+          source: "rest",
+          requestIp: getClientIp(req),
+          expectedUpdatedAt: existingReg.updatedAt.toISOString(),
+          attendee: patch,
+        });
+        if (!result.ok) {
+          apiLogger.warn({ msg: "Import update failed", importType: "registrations", eventId, rowNum, code: result.code });
+          errors.push(`Row ${rowNum}: could not update ${email} (${result.message})`);
+          continue;
+        }
+        updated++;
+        updatedRows.push(updatedRowMessage(rowNum, email, changed));
+        continue;
+      }
 
       // Per-row registrationStatus + paymentStatus + sponsor. Each cell is
       // optional; defaults match the prior behavior so existing CSV
@@ -503,7 +629,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
 
-    apiLogger.info({ msg: "Import complete", importType: "registrations", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
+    apiLogger.info({ msg: "Import complete", importType: "registrations", source: "csv", eventId, userId: session.user.id, created, updated, unchanged, skipped, errorCount: errors.length });
+    if (updatedRows.length > 0) {
+      apiLogger.info({ msg: "Import updated rows", importType: "registrations", source: "csv", eventId, updatedRows: updatedRows.slice(0, 50) });
+    }
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "registrations", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
@@ -518,8 +647,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       organizationId: session.user.organizationId,
       userId: session.user.id,
       role: session.user.role,
-      totalProcessed: created + skipped + errors.length,
+      totalProcessed: created + updated + unchanged + skipped + errors.length,
       created,
+      updated,
       skipped,
       errors: errors.length,
       format: "csv",
@@ -529,7 +659,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.info({ msg: "Import skipped rows", importType: "registrations", source: "csv", eventId, skippedRows: skippedRows.slice(0, 50) });
     }
 
-    return NextResponse.json({ created, skipped, uncategorised, errors, skippedRows, registrationIds: createdIds });
+    return NextResponse.json({ created, updated, unchanged, skipped, uncategorised, errors, skippedRows, updatedRows, registrationIds: createdIds });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing registrations" });

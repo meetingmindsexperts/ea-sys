@@ -145,7 +145,11 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
-  const [result, setResult] = useState<{ created: number; skipped?: number; skippedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated?: number; unchanged?: number; skipped?: number; skippedRows?: string[]; updatedRows?: string[]; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  // Update-or-create (Oct 2, 2026): speakers and registrations only, on by
+  // default; unticked keeps the old skip-existing behaviour.
+  const supportsUpdate = entityType === "speakers" || entityType === "registrations";
+  const [updateExisting, setUpdateExisting] = useState(true);
   const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: string[] } | null>(null);
   const [defaultTicketTypeId, setDefaultTicketTypeId] = useState<string>(NO_DEFAULT_TICKET_TYPE);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,9 +214,14 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
           isRegistrations && defaultTicketTypeId !== NO_DEFAULT_TICKET_TYPE
             ? defaultTicketTypeId
             : null,
+        updateExisting: supportsUpdate && updateExisting,
       });
       setResult(data);
-      toast.success(`Imported ${data.created} ${config.label.toLowerCase()}`);
+      toast.success(
+        data.updated
+          ? `Imported ${data.created} new, updated ${data.updated} ${config.label.toLowerCase()}`
+          : `Imported ${data.created} ${config.label.toLowerCase()}`,
+      );
       onSuccess?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -226,6 +235,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     setResult(null);
     setSendResult(null);
     setDefaultTicketTypeId(NO_DEFAULT_TICKET_TYPE);
+    setUpdateExisting(true);
     if (fileInputRef.current) fileInputRef.current.value = "";
     onOpenChange(false);
   };
@@ -319,6 +329,27 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
           </div>
 
           {/* Fallback registration type (registrations only) */}
+          {supportsUpdate && !result && (
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={updateExisting}
+                  onChange={(e) => setUpdateExisting(e.target.checked)}
+                  className="cursor-pointer"
+                />
+                Update existing {config.label.toLowerCase()} with this file&apos;s values
+              </label>
+              <p className="text-xs text-muted-foreground pl-6">
+                Matched by email. Only filled cells are applied; empty cells keep what is there, and
+                tags are added, never removed.
+                {isRegistrations &&
+                  " Registration type, payment, status and attendance mode are never changed for existing registrations."}
+                {" "}Unticked, people already on the event are skipped.
+              </p>
+            </div>
+          )}
+
           {isRegistrations && !result && (
             <div className="space-y-1.5">
               <Label className="text-xs">Registration type for rows without one</Label>
@@ -406,6 +437,12 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
                 <span><strong>{result.created}</strong> created</span>
+                {result.updated !== undefined && result.updated > 0 && (
+                  <span><strong>{result.updated}</strong> updated</span>
+                )}
+                {result.unchanged !== undefined && result.unchanged > 0 && (
+                  <span className="text-muted-foreground">({result.unchanged} already up to date)</span>
+                )}
                 {result.skipped !== undefined && result.skipped > 0 && (
                   <span className="text-muted-foreground">({result.skipped} skipped)</span>
                 )}
@@ -418,6 +455,19 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                   </span>
                 )}
               </div>
+              {result.updatedRows && result.updatedRows.length > 0 && (
+                <div className="border rounded-md p-3 bg-green-50 max-h-40 overflow-auto">
+                  <p className="text-sm font-medium text-green-800 mb-1">
+                    {result.updatedRows.length} updated
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    {result.updatedRows.slice(0, 50).map((row, i) => (
+                      <li key={i}>{row}</li>
+                    ))}
+                    {result.updatedRows.length > 50 && <li>...and {result.updatedRows.length - 50} more</li>}
+                  </ul>
+                </div>
+              )}
               {/* Which rows were skipped and why (Oct 2, 2026): a count alone
                   left organisers unable to tell who was left out. */}
               {result.skippedRows && result.skippedRows.length > 0 && (
