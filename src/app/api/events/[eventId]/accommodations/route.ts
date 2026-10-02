@@ -6,7 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import {
@@ -59,6 +59,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/accommodations:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "accommodation.read", { route: "events/[eventId]/accommodations:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get("status");
@@ -69,10 +72,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Parallelize event validation and accommodations fetch
     const [event, accommodations] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: orgGuard.orgId,
-        },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.accommodation.findMany({
@@ -161,8 +161,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/accommodations:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/accommodations:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "accommodation.write", { route: "events/[eventId]/accommodations:POST", eventId });
+    if (!gate.ok) return gate.response;
+
+    // The event must be one the grant reaches: the booking service checks only
+    // the organisation, equivalent only while every holder of the key is org-wide.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "accommodations:create-event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const validated = createAccommodationSchema.safeParse(body);

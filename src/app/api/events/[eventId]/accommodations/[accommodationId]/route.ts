@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { planRoomTransition, applyRoomTransition, releaseRoom } from "@/lib/accommodation-rooms";
@@ -84,10 +84,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/accommodations/[accommodationId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "accommodation.read", { route: "events/[eventId]/accommodations/[accommodationId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, accommodation] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.accommodation.findFirst({
@@ -130,13 +133,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/accommodations/[accommodationId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/accommodations/[accommodationId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "accommodation.write", { route: "events/[eventId]/accommodations/[accommodationId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existingAccommodation, body] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.accommodation.findFirst({
@@ -339,13 +342,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/accommodations/[accommodationId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/accommodations/[accommodationId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "accommodation.delete", { route: "events/[eventId]/accommodations/[accommodationId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, accommodation] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.accommodation.findFirst({

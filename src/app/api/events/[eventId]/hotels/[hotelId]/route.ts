@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 
 const updateHotelSchema = z.object({
@@ -34,12 +34,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "accommodation.read", { route: "events/[eventId]/hotels/[hotelId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 
@@ -89,15 +89,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/hotels/[hotelId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "hotels.manage", { route: "events/[eventId]/hotels/[hotelId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 
@@ -190,15 +187,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/hotels/[hotelId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "hotels.manage", { route: "events/[eventId]/hotels/[hotelId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 

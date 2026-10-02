@@ -379,6 +379,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Fixed: hotel bookings are visible only to staff who can see accommodation (October 2)
+
+- The hotel, room type and booking pages' data could be read by any staff
+  account on any event in the organisation, including CRM, HR, onsite desk
+  staff on events they are not assigned to, and the webinar team on
+  conferences. Bookings carry guest names. They are now readable by super
+  admins, admins, organizers and members, as the Accommodation page intends;
+  nothing changes for those four, and no other role had a screen for it.
+
 ### Security: registrants can no longer read or change abstracts and session proposals (October 2)
 
 - A delegate's registration account could read every abstract and session

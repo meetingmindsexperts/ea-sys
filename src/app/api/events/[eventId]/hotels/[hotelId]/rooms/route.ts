@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 
 const createRoomTypeSchema = z.object({
@@ -35,12 +35,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]/rooms:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "accommodation.read", { route: "events/[eventId]/hotels/[hotelId]/rooms:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 
@@ -91,15 +91,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels/[hotelId]/rooms:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/hotels/[hotelId]/rooms:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "hotels.manage", { route: "events/[eventId]/hotels/[hotelId]/rooms:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 

@@ -733,6 +733,19 @@ Domain by domain:
   and ADMIN (exports, page) work. `managementToken` is minted but read by no
   route today, so its exposure granted nothing yet. Whether the hole was ever
   used on production is unknown: success is not logged.
+- **Accommodation SWEPT Oct 2, 2026, with the G5 fix** (hotels, a hotel, room
+  types, a room type, bookings, a booking): reads on `accommodation.read`,
+  hotels and rooms on `hotels.manage`, bookings on `accommodation.write` /
+  `.delete` (with an event check ahead of the org-only booking service). Every
+  GET checked only the organisation (G5), so CRM_USER, HR_USER, ONSITE on any
+  event and WEBINARS on conferences read every event's hotels and bookings,
+  guest names included. No screen gives ONSITE or WEBINARS accommodation (the
+  middleware confines ONSITE to the desk; webinars hide the module), so nothing
+  was granted: reads now follow the catalogue (SUPER_ADMIN, ADMIN, ORGANIZER,
+  MEMBER) and those four roles' read rows were re-recorded on purpose. Writes
+  did not move. Verified with the chrome-devtools MCP: ADMIN created, read,
+  edited and deleted a hotel, a room type and a booking with a clean page;
+  MEMBER reads 200 and writes 403; ONSITE and CRM_USER 404.
 
 Order, lowest risk first: events core · tickets and promo · sessions and
 program · speakers · abstracts and proposals · accommodation · communications ·

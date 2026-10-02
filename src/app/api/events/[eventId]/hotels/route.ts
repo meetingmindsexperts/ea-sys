@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 
@@ -35,14 +35,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
+    const gate = requirePermission(session, "accommodation.read", { route: "events/[eventId]/hotels:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event validation and hotels fetch
     const [event, hotels] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: orgGuard.orgId,
-        },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.hotel.findMany({
@@ -103,16 +103,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/hotels:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/hotels:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "hotels.manage", { route: "events/[eventId]/hotels:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Use select for minimal data fetch
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: gate.eventWhere,
       select: { id: true },
     });
 
