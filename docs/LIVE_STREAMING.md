@@ -493,19 +493,23 @@ hour is also roughly 1 TB of data transfer, which AWS bills.
   plays it like standard HLS (normal buffer, one playlist fetch per segment,
   no query strings, so §13's CDN cache policy still works). This would be a
   per-webinar **Latency: Low / Standard** setting in the Waiting Room card.
-  Two caveats to confirm in testing: iPhone Safari plays HLS natively and
-  turns low latency on by itself whenever the playlist offers it, so Standard
-  on iPhones would mean switching the player to hls.js there (supported on
-  iOS 17.1 and later); and whether MediaMTX's low-latency output behaves well
-  through nginx (point 4 above).
+  Two caveats to confirm in testing: browsers that play HLS natively choose
+  low latency by themselves whenever the playlist offers it. That is iPhone
+  Safari, and **also Chrome since 2025** (found Oct 2, 2026: Chrome 147 and
+  154 answer "maybe" to `canPlayType("application/vnd.apple.mpegurl")`, so
+  our player hands Chrome viewers to Chrome's own player and hls.js never
+  runs for them). A Standard setting would therefore mean preferring hls.js
+  on Chrome too, and on iPhones from iOS 17.1. Second, whether MediaMTX's
+  low-latency output behaves well through nginx (point 4 above).
 - **Not recommended:** flipping the server between modes around each big
   event. It means a manual restart before and after, it breaks any stream
   running at the time, and it is easy to forget.
 
 ### 14.7 Plan
 
-1. **Measure** the real delay and the stream bitrate on the next practice run
-   (clock on screen; browser network panel for the bitrate).
+1. **Measure** the real delay and the stream bitrate on the next practice run,
+   with the console's delay meter (§14.8); browser network panel for the
+   bitrate.
 2. **Pin MediaMTX** to the version currently running
    (`docker exec ea-sys-mediamtx /mediamtx --version`, run by the owner).
 3. **Confirm CloudFront** is set up (`HLS_CDN_BASE` in the prod `.env`)
@@ -518,3 +522,36 @@ hour is also roughly 1 TB of data transfer, which AWS bills.
 5. **If the trial holds,** build the per-webinar Latency setting (§14.6) and
    keep MediaMTX on the low-latency variant. If it does not, stay on standard
    HLS and steer small webinars that need real time to the Zoom embed.
+
+### 14.8 The delay meter in the Webinar Console (built Oct 2, 2026)
+
+Under **Preview the stream** in the Waiting Room card:
+
+- **Our delay** (always on while the preview plays): the server time now
+  minus the arrival time of the frame on screen. MediaMTX stamps each chunk
+  with the time it arrived (`EXT-X-PROGRAM-DATE-TIME`); hls.js reports it as
+  `playingDate`. If a stream carries no stamps, the readout falls back to
+  "about N s behind the newest chunk", labelled as an estimate.
+- **Zoom's delay (clock test)**: **Open the clock page** opens
+  `/stream-clock` (public, no data, no login), which shows a QR code of the
+  server time refreshed ten times a second plus the time in the event's
+  timezone. The host shares that window in Zoom; **Measure Zoom delay** reads
+  the QR code out of the preview for up to a minute, takes 10 readings and
+  shows the medians: total = Zoom + ours.
+- Both browsers correct their clocks to the server's (`GET /api/public/time`,
+  shortest of five round trips), so a laptop clock that is off does not skew
+  the result.
+- The preview prefers hls.js wherever the browser supports it, because
+  Chrome's and Safari's built-in players do not expose the arrival times.
+  Attendees' players are unchanged.
+
+**Not yet verified on production:** that our MediaMTX version writes the
+arrival stamps. The first live practice run shows it: if "Our delay" reads
+"about N s … estimate", it does not, and only the total is measurable.
+
+Verified locally (Oct 2, 2026) with a stand-in for Zoom and MediaMTX: the
+clock page captured into a live HLS stream, chunks stamped on arrival.
+Result: total 8.1 s = 0.3 s (stand-in for Zoom) + 7.8 s (ours), and the
+always-on readout agreed at 7.8 s. Code: `src/lib/stream-latency.ts`,
+`src/components/webinar/stream-delay.tsx`, `src/app/stream-clock/`,
+`src/hooks/use-server-clock.ts`, `LivePlayer`'s `onTimingSample`.

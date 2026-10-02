@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: stream delay meter in the Webinar Console (October 2)
+
+- Under **Preview the stream**: **Our delay** (server receiving the video to
+  the screen, from MediaMTX's chunk arrival stamps, live), and a clock test:
+  the host shares the new `/stream-clock` page (a QR code of the server time)
+  in Zoom and **Measure Zoom delay** reads it out of the preview, giving the
+  total split into Zoom's share and ours. Clocks are corrected to the
+  server's via the new `GET /api/public/time`. The preview prefers hls.js,
+  because Chrome now plays HLS natively (found while testing) and its
+  built-in player hides the arrival times; attendees are unchanged. Details
+  in `docs/LIVE_STREAMING.md` §14.8.
+
 ### Changed: custom-stream preview in the console; Q&A beside the video (October 2)
 
 - From the first custom-stream test (Vivek): (1) the Waiting Room card's

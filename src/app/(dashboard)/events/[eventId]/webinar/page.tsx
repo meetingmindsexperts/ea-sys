@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -65,6 +65,9 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { StreamDelay } from "@/components/webinar/stream-delay";
+import type { PlayerTimingSample } from "@/components/zoom/live-player";
+import { useServerClockOffset } from "@/hooks/use-server-clock";
 import {
   useWebinar,
   useUpdateWebinarSettings,
@@ -2362,6 +2365,17 @@ function StreamPreview({
   const [state, setState] = useState<"checking" | "active" | "idle" | "ended">("checking");
   const preview = useWebinarStreamPreview(eventId, open);
   const hlsUrl = preview.data?.hlsPreviewUrl ?? null;
+  const timezone = useEventTz();
+  // Delay measurement (Oct 2, 2026): the player reports timing about once a
+  // second; the clock offset puts both ends on the server's clock.
+  const offsetMs = useServerClockOffset(open);
+  const videoBoxRef = useRef<HTMLDivElement>(null);
+  const latestSampleRef = useRef<PlayerTimingSample | null>(null);
+  const [sample, setSample] = useState<PlayerTimingSample | null>(null);
+  const onTimingSample = useCallback((s: PlayerTimingSample) => {
+    latestSampleRef.current = s;
+    setSample(s);
+  }, []);
 
   const label =
     state === "active"
@@ -2411,16 +2425,28 @@ function StreamPreview({
           )}
           {hlsUrl && (
             <>
-              <LivePlayer
-                hlsUrl={hlsUrl}
-                slug={eventSlug}
-                sessionId={sessionId}
-                onStreamStatusChange={setState}
-              />
+              <div ref={videoBoxRef}>
+                <LivePlayer
+                  hlsUrl={hlsUrl}
+                  slug={eventSlug}
+                  sessionId={sessionId}
+                  onStreamStatusChange={setState}
+                  onTimingSample={onTimingSample}
+                  measurable
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
-                What attendees will see once the room is open, about 10 to 20 seconds behind Zoom.
-                It checks again every 10 seconds, so leave it open after pressing Start stream.
+                What attendees will see once the room is open. It checks again every 10 seconds, so
+                leave it open after pressing Start stream.
               </p>
+              <StreamDelay
+                videoBoxRef={videoBoxRef}
+                latestSampleRef={latestSampleRef}
+                sample={sample}
+                offsetMs={offsetMs}
+                timezone={timezone}
+                playing={state === "active"}
+              />
             </>
           )}
         </>

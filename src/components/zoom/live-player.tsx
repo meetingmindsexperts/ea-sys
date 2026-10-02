@@ -13,6 +13,28 @@ interface LivePlayerProps {
   posterImage?: string;
   sessionName?: string;
   onStreamStatusChange?: (status: "active" | "idle" | "ended") => void;
+  /**
+   * Console stream preview only (Oct 2, 2026): called about once a second
+   * while playing with the arrival time of the frame on screen (from the
+   * chunk's EXT-X-PROGRAM-DATE-TIME stamp; null when the stream has none) and
+   * how far playback sits behind the newest chunk. Attendees never pass it.
+   */
+  onTimingSample?: (sample: PlayerTimingSample) => void;
+  /**
+   * Request the video with CORS so the console can read frames for the clock
+   * test (a canvas refuses frames from another origin without it). Off for
+   * attendees: a CDN that dropped the CORS header would stop their playback.
+   */
+  measurable?: boolean;
+}
+
+export interface PlayerTimingSample {
+  /** Local time the sample was taken (ms, Date.now()). */
+  at: number;
+  /** Arrival time of the frame on screen, on the server clock (ms), or null. */
+  playingDateMs: number | null;
+  /** Seconds behind the newest chunk, or null when unknown. */
+  behindEdgeS: number | null;
 }
 
 export function LivePlayer({
@@ -21,6 +43,8 @@ export function LivePlayer({
   sessionId,
   sessionName,
   onStreamStatusChange,
+  onTimingSample,
+  measurable = false,
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<unknown>(null);
@@ -112,8 +136,11 @@ export function LivePlayer({
         return false;
       };
 
-      // Safari has native HLS support
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS: Safari, and Chrome too since 2025. The console preview
+      // (`measurable`) prefers hls.js where it can run, because only hls.js
+      // exposes the chunk arrival times the delay readout needs (Oct 2, 2026).
+      const hlsJsUsable = measurable && typeof window !== "undefined" && "MediaSource" in window;
+      if (video.canPlayType("application/vnd.apple.mpegurl") && !hlsJsUsable) {
         video.src = url;
         video.onloadedmetadata = () => {
           if (mounted) {
@@ -181,7 +208,39 @@ export function LivePlayer({
         (hlsRef.current as { destroy: () => void }).destroy();
       }
     };
-  }, [hlsUrl, slug, sessionId, pollStreamStatus, retryNonce]);
+  }, [hlsUrl, slug, sessionId, pollStreamStatus, retryNonce, measurable]);
+
+  // Timing samples for the console preview (see onTimingSample). Only runs
+  // when a caller asks, so attendees pay nothing.
+  const onTimingSampleRef = useRef(onTimingSample);
+  useEffect(() => {
+    onTimingSampleRef.current = onTimingSample;
+  }, [onTimingSample]);
+  const wantsTiming = Boolean(onTimingSample);
+  useEffect(() => {
+    if (!wantsTiming || status !== "playing") return;
+    const id = setInterval(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      const hls = hlsRef.current as { playingDate?: Date | null; latency?: number } | null;
+      let playingDateMs: number | null = null;
+      let behindEdgeS: number | null = null;
+      if (hls) {
+        playingDateMs = hls.playingDate ? hls.playingDate.getTime() : null;
+        behindEdgeS = Number.isFinite(hls.latency) ? (hls.latency ?? null) : null;
+      } else {
+        // Safari plays HLS natively: the stamp comes through getStartDate().
+        const start = (video as HTMLVideoElement & { getStartDate?: () => Date }).getStartDate?.();
+        const startMs = start ? start.getTime() : NaN;
+        playingDateMs = Number.isFinite(startMs) ? startMs + video.currentTime * 1000 : null;
+        if (video.seekable.length > 0) {
+          behindEdgeS = video.seekable.end(video.seekable.length - 1) - video.currentTime;
+        }
+      }
+      onTimingSampleRef.current?.({ at: Date.now(), playingDateMs, behindEdgeS });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [wantsTiming, status]);
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -242,6 +301,7 @@ export function LivePlayer({
         muted={isMuted}
         playsInline
         autoPlay
+        crossOrigin={measurable ? "anonymous" : undefined}
       />
 
       {/* Loading state */}
