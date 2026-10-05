@@ -1001,10 +1001,19 @@ export function useApiKeys() {
   });
 }
 
+/** The roles an API key may act with (custom roles Phase 5); `usable` is false for a role wider than you. */
+export function useApiKeyRoles(enabled = true) {
+  return useQuery({
+    queryKey: [...queryKeys.apiKeys, "roles"] as const,
+    queryFn: () => fetchApi<{ id: string; name: string; description: string | null; usable: boolean }[]>("/api/organization/api-keys/roles"),
+    enabled,
+  });
+}
+
 export function useCreateApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; expiresAt?: string; rateLimitTier?: "NORMAL" | "INTERNAL" }) =>
+    mutationFn: (data: { name: string; expiresAt?: string; rateLimitTier?: "NORMAL" | "INTERNAL"; permissionSetId?: string | null }) =>
       fetchApi<{ key: string; prefix: string; rateLimitTier: "NORMAL" | "INTERNAL" }>(
         "/api/organization/api-keys",
         {

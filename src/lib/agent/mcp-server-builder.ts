@@ -6,6 +6,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAllMcpTools } from "./register-mcp-tools";
 import pkg from "../../../package.json";
+import { gateMcpServerForKey } from "./mcp-key-gate";
+import type { Principal } from "@/lib/permissions/can";
 
 // Re-export so existing callers don't break
 export type { AgentContext } from "./tools/_shared";
@@ -29,8 +31,11 @@ const MCP_SERVER_VERSION = pkg.version;
 export function buildMcpServer(
   organizationId: string,
   actor?: { role: string | null; fromApiKey: boolean },
+  /** An API key that acts with a role (Phase 5): its tools are gated by it. */
+  keyPrincipal?: Principal | null,
 ): McpServer {
   const server = new McpServer({ name: "ea-sys", version: MCP_SERVER_VERSION });
-  registerAllMcpTools(server, organizationId, actor ? { actor } : undefined);
+  const target = keyPrincipal ? gateMcpServerForKey(server, keyPrincipal, organizationId) : server;
+  registerAllMcpTools(target, organizationId, actor ? { actor } : undefined);
   return server;
 }

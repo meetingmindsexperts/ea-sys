@@ -3,6 +3,9 @@ import { ApiKeyRateLimitTier } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { isGrantableKey, type PermissionKey } from "@/lib/permissions/catalogue";
+import type { Grant, GrantScope } from "@/lib/permissions/system-roles";
+import { isCustomRolesEnabled } from "@/lib/module-flags";
 
 const PREFIX = "mmg_";
 
@@ -76,6 +79,12 @@ export interface ValidatedApiKey {
   apiKeyName: string;
   /** The STORED display prefix (`mmg_` + 8 chars), what Settings → API Keys shows. Never the credential. */
   keyPrefix: string;
+  /**
+   * The grants of the role this key acts with (custom roles Phase 5), or null
+   * for a key with no role: the full "API key" system role, as before. An
+   * archived role grants the key nothing ([]).
+   */
+  grants: Grant[] | null;
 }
 
 /**
@@ -124,6 +133,7 @@ export async function validateApiKey(
       isActive: true,
       expiresAt: true,
       rateLimitTier: true,
+      permissionSet: { select: { archivedAt: true, permissions: { select: { permission: true, scope: true } } } },
     },
   });
 
@@ -178,5 +188,16 @@ export async function validateApiKey(
     apiKeyId: apiKey.id,
     apiKeyName: apiKey.name,
     keyPrefix: apiKey.prefix,
+    grants: keyGrants(apiKey.permissionSet),
   };
+}
+
+/** A key's role as grants: null without a role; only what the flag makes grantable; nothing when archived. */
+function keyGrants(set: { archivedAt: Date | null; permissions: { permission: string; scope: GrantScope | null }[] } | null): Grant[] | null {
+  if (!set) return null;
+  if (set.archivedAt) return [];
+  const enabled = isCustomRolesEnabled();
+  return set.permissions
+    .filter((p) => isGrantableKey(p.permission, enabled))
+    .map((p) => (p.scope ? { permission: p.permission as PermissionKey, scope: p.scope } : { permission: p.permission as PermissionKey }));
 }

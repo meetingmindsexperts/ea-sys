@@ -1347,8 +1347,19 @@ directory (§7.1).
   role may hold up to 200 keys. Verified on the local build with the flag on:
   created a role with two scoped keys (stored as chosen), assigned it,
   console clean.
-- *Next:* slice 3: API keys per role, the two warnings that need the
-  database, audit-row names, "View as role".
+- *Slice 3a, a role per API key (built Oct 5; owner: "REST and MCP both").*
+  `ApiKey.permissionSetId` (migration `20261005150000`, nullable, RESTRICT:
+  emptying it would widen the key). Null keeps the full API key row, so every
+  existing key is unchanged. With a role the key holds exactly its grants
+  (`principalFromApiKey(org, grants)`), on REST through `getOrgContext` and on
+  MCP through `gateMcpServerForKey`, which registers only the tools and
+  resources the role holds and judges each call on its event. OAuth keeps
+  its tool set (parked). Settings → API Keys gets "What this key can do"
+  (roles wider than the creator are disabled; the route refuses them too).
+  Verified locally: a Desk lead key answered 200 on registrations and 404 on
+  speakers and sessions, and its MCP tool list was the two desk tools.
+- *Next:* the two warnings that need the database, audit-row names, "View as
+  role".
 
 ### Phase 6: Retire the old model (1 to 2 weeks)
 

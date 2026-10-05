@@ -78,6 +78,8 @@ describe("validateApiKey usage log", () => {
       apiKeyId: "key-usage-1",
       apiKeyName: "n8n Webflow sync",
       keyPrefix: "mmg_ffffffff",
+      // No role on the key: the full API key row (custom roles Phase 5).
+      grants: null,
     });
     expect(mockLogger.info).toHaveBeenCalledTimes(1);
     expect(mockLogger.info.mock.calls[0][0]).toEqual({

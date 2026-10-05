@@ -103,7 +103,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const gate = requirePermission(principalFromApiKey(result.organizationId), "events.read", {
+    const gate = requirePermission(principalFromApiKey(result.organizationId, result.grants), "events.read", {
       route: "events:GET",
       onMissing: "hide",
     });

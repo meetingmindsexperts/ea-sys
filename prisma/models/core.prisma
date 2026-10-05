@@ -630,11 +630,19 @@ model ApiKey {
   expiresAt      DateTime?
   isActive       Boolean             @default(true)
   rateLimitTier  ApiKeyRateLimitTier @default(NORMAL)
+  /// The role this key acts with (custom roles Phase 5, plan §8.1). Null: the
+  /// full "API key" system role, as every key had before. Set: the key can do
+  /// only what that role grants, on REST and MCP alike. Restrict, never
+  /// SetNull: emptying it would silently widen the key back to full. An
+  /// archived role grants a key nothing.
+  permissionSetId String?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissionSet PermissionSet? @relation(fields: [permissionSetId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([isActive])
+  @@index([permissionSetId])
 }
 
 enum ApiKeyRateLimitTier {
@@ -769,6 +777,8 @@ model PermissionSet {
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions  PermissionSetGrant[]
   holders      UserPermissionSet[]
+  /// API keys acting with this role (Phase 5).
+  apiKeys      ApiKey[]
 
   @@unique([organizationId, name])
   @@unique([organizationId, key])

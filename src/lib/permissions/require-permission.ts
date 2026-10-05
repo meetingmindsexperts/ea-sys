@@ -30,6 +30,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { describePermission, type PermissionKey } from "./catalogue";
 import { can, eventWhereFor, principalFromUser, systemPrincipal, type EventFacts, type Principal } from "./can";
+import type { Grant } from "./system-roles";
 
 /**
  * The principal for a signed-in person. Custom-role keys arrive resolved on
@@ -43,8 +44,15 @@ export function principalFromSession(session: Session): Principal {
 }
 
 /** The principal for an organisation API key: the API_KEY system row, no person grants. */
-export function principalFromApiKey(organizationId: string): Principal {
-  return systemPrincipal({ role: null, organizationId, fromApiKey: true });
+/**
+ * An API key. Without a role it is the full "API key" system role, as every
+ * key was before Phase 5. With one (`grants`), it holds exactly that role's
+ * grants and nothing of the system row, on REST and MCP alike (plan §8.1).
+ */
+export function principalFromApiKey(organizationId: string, grants?: readonly Grant[] | null): Principal {
+  const full = systemPrincipal({ role: null, organizationId, fromApiKey: true });
+  if (!grants) return full;
+  return { ...full, grants: [...grants] };
 }
 
 /**
@@ -56,11 +64,11 @@ export function principalFromApiKey(organizationId: string): Principal {
  */
 export function principalFromCaller(
   session: Session | null | undefined,
-  orgCtx: { organizationId: string; userId?: string | null; role?: string | null; fromApiKey?: boolean } | null | undefined,
+  orgCtx: { organizationId: string; userId?: string | null; role?: string | null; fromApiKey?: boolean; apiKeyGrants?: readonly Grant[] | null } | null | undefined,
 ): Principal | null {
   if (session?.user) return principalFromSession(session);
   if (!orgCtx) return null;
-  if (orgCtx.fromApiKey) return principalFromApiKey(orgCtx.organizationId);
+  if (orgCtx.fromApiKey) return principalFromApiKey(orgCtx.organizationId, orgCtx.apiKeyGrants);
   return systemPrincipal({ role: orgCtx.role, organizationId: orgCtx.organizationId, userId: orgCtx.userId ?? null });
 }
 

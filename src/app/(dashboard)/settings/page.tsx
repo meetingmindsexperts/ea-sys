@@ -69,6 +69,7 @@ import {
 import {
   useApiKeys,
   useCreateApiKey,
+  useApiKeyRoles,
   useRevokeApiKey,
   useEventsAirConfig,
   useSaveEventsAirCredentials,
@@ -1609,6 +1610,8 @@ function EventsAirCard() {
 }
 
 // ── API Keys sub-component ────────────────────────────────────────────────────
+/** The key form's "no role" choice: the full API key system role. */
+const FULL_ACCESS = "__full__";
 function ApiKeysCard() {
   const { data: session } = useSession();
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
@@ -1620,6 +1623,9 @@ function ApiKeysCard() {
   const [internalTier, setInternalTier] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
+  // The roles a key may act with, fetched when the form opens (Phase 5).
+  const { data: keyRoles = [] } = useApiKeyRoles(dialogOpen);
+  const [roleId, setRoleId] = useState<string>(FULL_ACCESS);
   const [copied, setCopied] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null);
 
@@ -1630,10 +1636,12 @@ function ApiKeysCard() {
       const result = await createKey.mutateAsync({
         name: name.trim(),
         rateLimitTier: isSuperAdmin && internalTier ? "INTERNAL" : "NORMAL",
+        permissionSetId: roleId === FULL_ACCESS ? null : roleId,
       });
       setNewKey(result.key);
       setName("");
       setInternalTier(false);
+      setRoleId(FULL_ACCESS);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to create API key");
     }
@@ -1694,6 +1702,7 @@ function ApiKeysCard() {
                   <TableHead>Name</TableHead>
                   <TableHead>Key prefix</TableHead>
                   <TableHead>Tier</TableHead>
+                  <TableHead>Acts as</TableHead>
                   <TableHead>Last used</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead />
@@ -1711,6 +1720,13 @@ function ApiKeysCard() {
                         <Badge variant="destructive">INTERNAL</Badge>
                       ) : (
                         <Badge variant="outline">NORMAL</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {k.permissionSet ? (
+                        <Badge variant="secondary">{k.permissionSet.name}{k.permissionSet.archivedAt ? " (archived: no access)" : ""}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">Full access</span>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{formatLastUsed(k.lastUsedAt)}</TableCell>
@@ -1782,6 +1798,28 @@ function ApiKeysCard() {
                   required
                 />
               </div>
+              {keyRoles.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="key-role">What this key can do</Label>
+                  <Select value={roleId} onValueChange={setRoleId}>
+                    <SelectTrigger id="key-role">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FULL_ACCESS}>Everything (full access)</SelectItem>
+                      {keyRoles.map((r) => (
+                        <SelectItem key={r.id} value={r.id} disabled={!r.usable}>
+                          {r.name}
+                          {r.usable ? "" : " (wider than your access)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    A key with a role can do only what the role grants, through the API and through AI assistants alike.
+                  </p>
+                </div>
+              )}
               {isSuperAdmin && (
                 <div className="flex items-start justify-between gap-4 rounded-md border border-amber-300 bg-amber-50 p-3">
                   <div className="space-y-1">
@@ -1954,4 +1992,6 @@ interface ApiKeyRow {
   lastUsedAt: string | null;
   expiresAt: string | null;
   rateLimitTier: "NORMAL" | "INTERNAL";
+  /** The role the key acts with; null means full access. */
+  permissionSet: { id: string; name: string; archivedAt: string | null } | null;
 }

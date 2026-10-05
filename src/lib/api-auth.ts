@@ -12,6 +12,8 @@ export interface OrgContext {
   fromApiKey: boolean;
   /** true when authenticated via mobile JWT */
   fromMobile: boolean;
+  /** An API key's role as grants (Phase 5); null or absent for a key with no role (full). */
+  apiKeyGrants?: import("@/lib/permissions/system-roles").Grant[] | null;
 }
 
 /**
@@ -96,6 +98,7 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
         role: null,
         fromApiKey: true,
         fromMobile: false,
+        apiKeyGrants: result.grants,
       };
     }
   }

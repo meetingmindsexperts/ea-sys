@@ -6,6 +6,8 @@ import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { buildMcpServer } from "@/lib/agent/mcp-server-builder";
+import { principalFromApiKey } from "@/lib/permissions/require-permission";
+import type { Grant } from "@/lib/permissions/system-roles";
 
 // ── Session store for stateful MCP clients (like n8n) ──────────────────────
 const sessions = new Map<string, { transport: WebStandardStreamableHTTPServerTransport; orgId: string; createdAt: number }>();
@@ -35,6 +37,8 @@ type AuthResult = {
   /** ApiKey row id + the organiser's label; null on the OAuth path. What a human reads in /logs. */
   apiKeyId: string | null;
   apiKeyName: string | null;
+  /** The key's role as grants (Phase 5); null for a key with no role (full) and on the OAuth path. */
+  apiKeyGrants: Grant[] | null;
 };
 
 async function authenticate(req: Request): Promise<AuthResult | null> {
@@ -56,6 +60,7 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
       fromApiKey: true,
       apiKeyId: apiKey.apiKeyId,
       apiKeyName: apiKey.apiKeyName,
+      apiKeyGrants: apiKey.grants,
     };
   }
 
@@ -100,6 +105,8 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
       fromApiKey: false,
       apiKeyId: null,
       apiKeyName: null,
+      // The OAuth door keeps its tool set (MCP-door parity parked, Sep 22).
+      apiKeyGrants: null,
     };
   }
 
@@ -257,10 +264,12 @@ async function handleMcp(req: Request): Promise<Response> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
   });
-  const mcpServer = buildMcpServer(authResult.organizationId, {
-    role: authResult.actorRole,
-    fromApiKey: authResult.fromApiKey,
-  });
+  const mcpServer = buildMcpServer(
+    authResult.organizationId,
+    { role: authResult.actorRole, fromApiKey: authResult.fromApiKey },
+    // A key with a role is gated by it (owner Oct 5, 2026: REST and MCP both).
+    authResult.apiKeyGrants ? principalFromApiKey(authResult.organizationId, authResult.apiKeyGrants) : null,
+  );
 
   await mcpServer.connect(transport);
 
