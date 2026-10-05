@@ -1,0 +1,7 @@
+MEMBER list_media (media.library.manage): ran -> refused
+MEMBER list_reviewers (reviewers.pool.manage): ran -> refused
+MEMBER list_scheduled_emails (communications.schedule): ran -> refused
+MEMBER list_certificate_templates (certificates.read): ran -> refused
+MEMBER create_registration (registrations.create): refused -> runs
+MEMBER check_in_registration (registrations.checkin): refused -> runs
+MEMBER update_registration (registrations.update): refused -> runs

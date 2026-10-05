@@ -13,6 +13,11 @@ vi.mock("@/lib/db", () => ({ db: {}, dbOperator: {} }));
 import { collectToolsForActor } from "@/lib/agent/tool-registry";
 import { isReadOnlyTool, isWriteTool, NON_MUTATING_NON_READ_TOOLS } from "@/lib/agent/tools/_shared";
 import { gateToolCall, MAX_WRITES_PER_REQUEST } from "@/lib/agent/tool-gate";
+import { toolPermission } from "@/lib/agent/tool-permissions";
+import { ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
+import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS } from "@/lib/finance-visibility";
+import { principalFromUser } from "@/lib/permissions/can";
+import { describePermission } from "@/lib/permissions/catalogue";
 
 const NAMES = collectToolsForActor({
   organizationId: "org1",
@@ -90,7 +95,7 @@ describe("isWriteTool over the tools an admin is given", () => {
 });
 
 describe("gateToolCall", () => {
-  const open = { readOnly: false, blockFinance: false };
+  const open = { principal: principalFromUser({ id: "u1", role: "ADMIN", organizationId: "org1" }) };
 
   it("lets reads through without counting them", () => {
     expect(gateToolCall("list_speakers", { ...open, writesSoFar: MAX_WRITES_PER_REQUEST })).toEqual({
@@ -123,22 +128,48 @@ describe("gateToolCall", () => {
     });
   });
 
-  it("refuses every non-read for a read-only role before the cap is considered", () => {
-    for (const name of NAMES.filter((n) => !isReadOnlyTool(n))) {
-      const d = gateToolCall(name, { readOnly: true, blockFinance: false, writesSoFar: 0 });
-      expect(d.kind, name).toBe("refuse");
-      if (d.kind === "refuse") expect(d.result.code).toBe("READ_ONLY_ROLE");
-    }
+  it("maps every tool to a permission key, and refuses a tool with none", () => {
+    expect(NAMES.filter((n) => !toolPermission(n))).toEqual([]);
+    const d = gateToolCall("frobnicate_widgets", { ...open, writesSoFar: 0 });
+    expect(d.kind === "refuse" && d.result.code).toBe("NO_PERMISSION_KEY");
   });
 
-  it("refuses the RSVP roster and the finance-only reads when the role lacks them", () => {
-    const roster = gateToolCall("list_rsvps", { readOnly: true, blockFinance: false, writesSoFar: 0 });
-    expect(roster.kind === "refuse" && roster.result.code).toBe("ROSTER_FORBIDDEN");
-    const finance = gateToolCall("list_invoices", { readOnly: false, blockFinance: true, writesSoFar: 0 });
-    expect(finance.kind === "refuse" && finance.result.code).toBe("FINANCE_FORBIDDEN");
-    expect(gateToolCall("list_invoices", { readOnly: true, blockFinance: false, writesSoFar: 0 })).toEqual({
-      kind: "run",
-      write: false,
-    });
+  it("judges an event-bound key on the call's event", () => {
+    const webinars = principalFromUser({ id: "u1", role: "WEBINARS", organizationId: "org1" });
+    const webinar = { organizationId: "org1", eventType: "WEBINAR", staffUserIds: [] };
+    const conference = { organizationId: "org1", eventType: "CONFERENCE", staffUserIds: [] };
+    expect(gateToolCall("list_speakers", { principal: webinars, event: webinar, writesSoFar: 0 }).kind).toBe("run");
+    const d = gateToolCall("list_speakers", { principal: webinars, event: conference, writesSoFar: 0 });
+    expect(d.kind === "refuse" && d.result.code).toBe("PERMISSION_DENIED");
+    const missing = gateToolCall("list_speakers", { ...open, event: null, writesSoFar: 0 });
+    expect(missing.kind === "refuse" && missing.result.code).toBe("PERMISSION_DENIED");
+  });
+
+  /**
+   * Against the role rules it replaced (read-only Member, the roster and the
+   * finance reads), for every role the agent admits, on a conference in the
+   * person's organisation. Every difference is listed and was reviewed
+   * (owner-approved Phase 3 scope, Oct 5, 2026): the agent now refuses what
+   * the matching REST route refuses.
+   */
+  it("differs from the old role rules only where recorded", async () => {
+    const event = { organizationId: "org1", eventType: "CONFERENCE", staffUserIds: [] };
+    const lines: string[] = [];
+    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]) {
+      const p = principalFromUser({ id: "u1", role, organizationId: "org1" });
+      for (const name of NAMES) {
+        const readOnly = role === "MEMBER";
+        const oldRefused =
+          (readOnly && !isReadOnlyTool(name)) ||
+          (readOnly && ROSTER_PII_AGENT_TOOLS.has(name)) ||
+          (!canViewFinance(role) && FINANCE_ONLY_AGENT_TOOLS.has(name));
+        const key = toolPermission(name);
+        const bound = key ? describePermission(key)?.eventBound : false;
+        const d = gateToolCall(name, { principal: p, event: bound ? event : undefined, writesSoFar: 0 });
+        const newRefused = d.kind === "refuse";
+        if (oldRefused !== newRefused) lines.push(`${role} ${name} (${key}): ${oldRefused ? "refused" : "ran"} -> ${newRefused ? "refused" : "runs"}`);
+      }
+    }
+    await expect(lines.join("\n") + "\n").toMatchFileSnapshot("./__snapshots__/agent-tool-gate-parity.txt");
   });
 });

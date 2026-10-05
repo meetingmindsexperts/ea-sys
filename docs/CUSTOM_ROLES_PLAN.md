@@ -1206,7 +1206,39 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
     `contacts.import` but not `org.credentials`, which listing EventsAir events
     needs, so the EventsAir import never worked for an Organizer. The button is
     now offered only to who holds both (Admin, Super Admin).
-- *Next:* middleware, then MCP and the agent.
+  - Owner, Oct 5: Organizers stay without the EventsAir import.
+- *Write buttons* (Oct 5). A crawl as Member listed every action button it
+  could see; each now asks `useCan` for the exact key its route asks (traced
+  handler, hook, route). Re-crawled: Member keeps only its desk actions,
+  Admin keeps every button. Found, not changed: `surveys.manage` and
+  `events.settings` are in the catalogue but no route asks for them (the
+  survey builder and every settings Save use `events.update`); bulk
+  certificate and survey sends ask only `communications.send`; contact delete
+  is still offered to Admin only although Organizer holds `contacts.delete`.
+- *Middleware* (Oct 5). `confinementRedirect` (`src/lib/route-confinement.ts`)
+  replaces the per-role branches in `src/proxy.ts`: staff are confined by
+  their role's areas, the desk keeps an event's Registrations and Check-In,
+  and an unrecognised role (and CUSTOM before Phase 5) keeps the events list
+  only. Pinned role by path; diffed against the old branches, the changes are
+  /logs for Admin, Organizer and Member, /invoices and /analytics for Onsite,
+  /analytics for Webinars, own profile and registrations for CRM User and HR
+  User, and the unrecognised role. No JWT change: the Edge derives areas from
+  the role.
+- *Agent* (Oct 5). The door asks `agent.use`; every tool call asks the key
+  its REST route asks (`src/lib/agent/tool-permissions.ts`), judged on the
+  call's `eventId` (else the page's event); a tool with no key is refused and
+  a test fails when a registered tool lacks one. The model is offered only
+  tools the person can use somewhere. The read-only banner and money
+  redaction now follow `events.update` and `finance.view`. Against the old
+  role rules (pinned in `agent-tool-gate-parity.txt`), only Member moved: it
+  loses the reviewers list, media library, scheduled emails and certificate
+  templates (its screens already refused them) and gains add, edit and check
+  in a registration (its desk). Admin, Organizer and Super Admin unchanged.
+- *MCP door: not changed.* The owner parked MCP-door parity (Sep 22: MCP
+  keeps writes, an API key stays admin-equivalent). Gating it the same way is
+  `tool-permissions.ts` plus a registration filter, when the owner decides.
+- *Phase 3 remaining:* field visibility (Zoom host fields are still redacted by
+  role), then Phase 4.
 
 ### Phase 4: Event staff assignment (1 week)
 

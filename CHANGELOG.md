@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: buttons, middleware and the AI agent follow permissions (October 5)
+
+- Write buttons appear only for who may use them: about 20 pages offered a
+  read-only Member actions the server refused (Create Event, Edit Event,
+  speaker Edit/Delete/Send Email, saves, template and promo edits, imports).
+- The middleware confines staff by their role's areas instead of per-role
+  branches. Changes: /logs sends Admin, Organizer and Member to the dashboard;
+  Onsite leaves /invoices and /analytics; CRM User and HR User may open their
+  own profile; an unrecognised role keeps the events list only.
+- The AI agent asks the same permission as the screens for every tool call.
+  Member loses four lists its screens never showed it and can now add, edit
+  and check in registrations, as on the desk. The MCP door is unchanged.
+
 ### Changed: pages stop asking for what the role cannot read (October 5)
 
 - A crawl of every dashboard page as Member, Onsite and Webinars found pages a

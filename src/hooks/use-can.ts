@@ -3,7 +3,8 @@
 import { useSession } from "next-auth/react";
 import { useEvent } from "@/hooks/use-api";
 import { httpStatusOf } from "@/lib/session-expiry";
-import { can, principalFromUser, type EventFacts } from "@/lib/permissions/can";
+import { can, principalFromUser } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import type { PermissionKey } from "@/lib/permissions/catalogue";
 
 export type CanStatus = "loading" | "allowed" | "denied";
@@ -38,12 +39,4 @@ export function useCan(permission: PermissionKey, eventId?: string): CanStatus {
   return can(p, permission, { event: eventFactsOf(event.data) }) ? "allowed" : "denied";
 }
 
-/** The facts `can()` judges a scope by, from the event GET's staff shape. */
-export function eventFactsOf(event: unknown): EventFacts | null {
-  if (!event || typeof event !== "object") return null;
-  const e = event as { organizationId?: unknown; eventType?: unknown; settings?: unknown };
-  if (typeof e.organizationId !== "string") return null;
-  const settings = (e.settings && typeof e.settings === "object" ? e.settings : {}) as { onsiteUserIds?: unknown };
-  const staff = Array.isArray(settings.onsiteUserIds) ? settings.onsiteUserIds.filter((x): x is string => typeof x === "string") : [];
-  return { organizationId: e.organizationId, eventType: typeof e.eventType === "string" ? e.eventType : "", staffUserIds: staff };
-}
+export { eventFactsOf } from "@/lib/permissions/event-facts";

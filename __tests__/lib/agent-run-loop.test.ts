@@ -18,6 +18,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), war
 vi.mock("@/lib/ai/credentials", () => ({ resolveAnthropicApiKey: vi.fn(async () => "key") }));
 
 import { runAgentRequest, MAX_TURNS, type AgentSseEvent, type ModelStream, type ModelStreamParams } from "@/lib/agent/run-agent";
+import { principalFromUser } from "@/lib/permissions/can";
 import { MAX_WRITES_PER_REQUEST } from "@/lib/agent/tool-gate";
 import type { RegisteredTool } from "@/lib/agent/tool-registry";
 
@@ -70,9 +71,13 @@ function baseReq(over: Partial<Parameters<typeof runAgentRequest>[0]> = {}) {
       blockFinance: false,
       send: (e: AgentSseEvent) => events.push(e),
       ...over,
+      principal: over.principal ?? principalFromUser({ id: "u1", role: over.actor?.role ?? "ADMIN", organizationId: "org1" }),
     },
   };
 }
+
+/** Every event in these tests is a conference in the caller's organisation. */
+const eventFacts = async () => ({ organizationId: "org1", eventType: "CONFERENCE", staffUserIds: [] as string[] });
 
 describe("runAgentRequest", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -85,7 +90,7 @@ describe("runAgentRequest", () => {
       { blocks: [{ type: "text", text: "Done." } as Block], stop: "end_turn", text: "Done." },
     ]);
     const { req, events } = baseReq();
-    await runAgentRequest(req, { createStream, tools: [listEvents, createEvent] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [listEvents, createEvent] });
 
     expect(createEvent.run).toHaveBeenCalledWith({ name: "Summit" });
     expect(events.map((e) => e.type)).toEqual(["tool_start", "tool_result", "text_delta"]);
@@ -120,10 +125,10 @@ describe("runAgentRequest", () => {
       { blocks: [], stop: "end_turn" },
     ]);
     const { req, events } = baseReq({ readOnly: true, actor: { userId: "m1", role: "MEMBER", fromApiKey: false } });
-    await runAgentRequest(req, { createStream, tools: [createEvent] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [createEvent] });
     expect(createEvent.run).not.toHaveBeenCalled();
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
-    expect(result.result).toMatchObject({ code: "READ_ONLY_ROLE" });
+    expect(result.result).toMatchObject({ code: "PERMISSION_DENIED" });
     const block = (calls[1].messages.at(-1)!.content as Array<{ is_error?: boolean }>)[0];
     expect(block.is_error).toBe(true);
     expect((calls[0].system as Array<{ text: string }>)[0].text).toContain("READ-ONLY SESSION");
@@ -136,7 +141,7 @@ describe("runAgentRequest", () => {
     );
     const { createStream } = scripted([{ blocks, stop: "tool_use" }, { blocks: [], stop: "end_turn" }]);
     const { req, events } = baseReq();
-    await runAgentRequest(req, { createStream, tools: [createTrack] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [createTrack] });
     expect(createTrack.run).toHaveBeenCalledTimes(MAX_WRITES_PER_REQUEST);
     const results = events.filter((e) => e.type === "tool_result") as Array<Extract<AgentSseEvent, { type: "tool_result" }>>;
     expect(results).toHaveLength(MAX_WRITES_PER_REQUEST + 1);
@@ -150,7 +155,7 @@ describe("runAgentRequest", () => {
       { blocks: [], stop: "end_turn" },
     ]);
     const { req, events } = baseReq({ blockFinance: true });
-    await runAgentRequest(req, { createStream, tools: [list] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [list] });
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
     expect(JSON.stringify(result.result)).not.toContain("financials");
     expect(JSON.stringify(result.result)).toContain("PAID");
@@ -164,7 +169,7 @@ describe("runAgentRequest", () => {
       { blocks: [], stop: "end_turn" },
     ]);
     const { req, events } = baseReq();
-    await runAgentRequest(req, { createStream, tools: [] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [] });
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
     expect(result.result).toMatchObject({ code: "UNKNOWN_TOOL" });
   });
@@ -177,7 +182,7 @@ describe("runAgentRequest", () => {
       { blocks: [{ type: "text", text: "I'll now create all three." } as Block, toolUse("create_email_template", { name: "a" })], stop: "max_tokens" },
     ]);
     const { req, events } = baseReq();
-    const ended = await runAgentRequest(req, { createStream, tools: [t] });
+    const ended = await runAgentRequest(req, { eventFacts, createStream, tools: [t] });
     expect(ended).toBe("output_limit");
     expect(calls).toHaveLength(1);
     expect(t.run).not.toHaveBeenCalled();
@@ -190,7 +195,7 @@ describe("runAgentRequest", () => {
     const t = fakeTool("list_events", []);
     const { createStream, calls } = scripted([{ blocks: [toolUse("list_events", {})], stop: "tool_use" }]);
     const { req, events } = baseReq();
-    await runAgentRequest(req, { createStream, tools: [t] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [t] });
     expect(calls).toHaveLength(MAX_TURNS);
     expect(events.at(-1)).toMatchObject({ type: "error" });
   });
@@ -208,7 +213,7 @@ describe("runAgentRequest approvals", () => {
       { blocks: [], stop: "end_turn" },
     ]);
     const { req, events } = baseReq({ eventId: "ev1" });
-    await runAgentRequest(req, { createStream, tools: [send] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [send] });
 
     expect(send.run).not.toHaveBeenCalled();
     const ask = events.find((e) => e.type === "needs_approval") as Extract<AgentSseEvent, { type: "needs_approval" }>;
@@ -232,7 +237,7 @@ describe("runAgentRequest approvals", () => {
       message: "Approved: Send a bulk email.",
       approvedCall: { toolName: "send_bulk_email", input: { eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "x" } },
     });
-    await runAgentRequest(req, { createStream, tools: [send] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [send] });
 
     expect(send.run).toHaveBeenCalledTimes(1);
     expect(send.run).toHaveBeenCalledWith({ eventId: "ev1", recipientType: "speakers", subject: "Hi", message: "x", confirm: true });
@@ -252,10 +257,10 @@ describe("runAgentRequest approvals", () => {
       actor: { userId: "m1", role: "MEMBER", fromApiKey: false },
       approvedCall: { toolName: "send_bulk_email", input: { eventId: "ev1" } },
     });
-    await runAgentRequest(req, { createStream, tools: [send] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [send] });
     expect(send.run).not.toHaveBeenCalled();
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
-    expect(result.result).toMatchObject({ code: "READ_ONLY_ROLE" });
+    expect(result.result).toMatchObject({ code: "PERMISSION_DENIED" });
   });
 
   it("does not pause an ordinary write", async () => {
@@ -265,7 +270,7 @@ describe("runAgentRequest approvals", () => {
       { blocks: [], stop: "end_turn" },
     ]);
     const { req, events } = baseReq();
-    await runAgentRequest(req, { createStream, tools: [track] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [track] });
     expect(track.run).toHaveBeenCalledTimes(1);
     expect(events.some((e) => e.type === "needs_approval")).toBe(false);
   });
@@ -299,7 +304,7 @@ describe("runAgentRequest stored-run recording", () => {
     const run = recorder();
     const { req } = baseReq({ run });
     process.env.NEXTAUTH_SECRET ??= "test-secret-for-approval-tokens";
-    const ended = await runAgentRequest(req, { createStream, tools: [list, create, failing, fakeTool("send_bulk_email", {})] });
+    const ended = await runAgentRequest(req, { eventFacts, createStream, tools: [list, create, failing, fakeTool("send_bulk_email", {})] });
 
     expect(ended).toBe("completed");
     const steps = run.step.mock.calls.map((c) => c[0]);
@@ -337,11 +342,11 @@ describe("runAgentRequest stored-run recording", () => {
       actor: { userId: "m1", role: "MEMBER", fromApiKey: false },
       approvedCall: { toolName: "send_bulk_email", input: { eventId: "e1" } },
     });
-    await runAgentRequest(req, { createStream, tools: [send, create] });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [send, create] });
     const steps = run.step.mock.calls.map((c) => c[0]);
     // The approved call runs first; a MEMBER's approved write is still refused by the gate.
-    expect(steps[0]).toMatchObject({ tool: "send_bulk_email", outcome: "REFUSED", code: "READ_ONLY_ROLE", approved: true });
-    expect(steps[1]).toMatchObject({ tool: "create_event", outcome: "REFUSED", code: "READ_ONLY_ROLE", approved: false });
+    expect(steps[0]).toMatchObject({ tool: "send_bulk_email", outcome: "REFUSED", code: "PERMISSION_DENIED", approved: true });
+    expect(steps[1]).toMatchObject({ tool: "create_event", outcome: "REFUSED", code: "PERMISSION_DENIED", approved: false });
   });
 
   it("reports the step limit as its own ending and hands each turn's usage to the recorder", async () => {
@@ -349,7 +354,7 @@ describe("runAgentRequest stored-run recording", () => {
     const { createStream } = scripted([{ blocks: [toolUse("list_events", {})], stop: "tool_use" }]);
     const run = recorder();
     const { req } = baseReq({ run });
-    const ended = await runAgentRequest(req, { createStream, tools: [t] });
+    const ended = await runAgentRequest(req, { eventFacts, createStream, tools: [t] });
     expect(ended).toBe("turn_limit");
     expect(run.turn).toHaveBeenCalledTimes(MAX_TURNS);
     expect(run.step).toHaveBeenCalledTimes(MAX_TURNS);

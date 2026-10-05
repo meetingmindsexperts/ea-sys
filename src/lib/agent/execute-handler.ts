@@ -12,15 +12,17 @@ import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { db } from "@/lib/db";
-import { canViewFinance } from "@/lib/finance-visibility";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { getModelConfig } from "@/lib/ai/config";
 import { runAgentRequest, type AgentSseEvent } from "./run-agent";
 import { verifyApprovalToken } from "./approval-token";
 import { MAX_STORED_REPLY_LENGTH, startAgentRun } from "./run-store";
 
-import { AGENT_ROLES } from "./agent-roles";
 
-export { AGENT_ROLES };
+// Kept for callers that list the roles holding `agent.use` (pinned equal by
+// system-roles-parity.test.ts); the door itself asks `can()`.
+export { AGENT_ROLES } from "./agent-roles";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_PAIRS = 20;
@@ -57,12 +59,17 @@ export async function executeAgentRequest(
   opts: ExecuteAgentOptions,
 ): Promise<Response> {
   const role = session.user.role;
-  if (!(AGENT_ROLES as readonly string[]).includes(role)) {
+  // The door asks `agent.use`; every tool call is then judged on its own key
+  // (custom roles Phase 3, Oct 5, 2026).
+  const principal = principalFromSession(session);
+  if (!can(principal, "agent.use")) {
     apiLogger.warn({ msg: "agent:role-refused", route: opts.route, userId: session.user.id, role });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const readOnly = role === "MEMBER";
-  const blockFinance = !canViewFinance(role);
+  // The prompt's read-only banner, for a person who edits no event.
+  const readOnly = !can(principal, "events.update");
+  // Money is redacted from tool results for a person without finance.view.
+  const blockFinance = !can(principal, "finance.view");
 
   // 20 agent requests per user per hour, shared by both routes.
   const rl = checkRateLimit({ key: `agent-${session.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
@@ -158,6 +165,7 @@ export async function executeAgentRequest(
           organizationId: orgId,
           eventId,
           actor: { userId: session.user.id, role, fromApiKey: false },
+          principal,
           message: parsed.data.message,
           history,
           readOnly,

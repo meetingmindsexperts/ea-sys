@@ -8,18 +8,19 @@
 // decision can be reused by the MCP door when both doors share a guardrail
 // layer (agent architecture review, §4.5).
 
-import { isReadOnlyTool, isWriteTool, ROSTER_PII_AGENT_TOOLS } from "./tools/_shared";
-import { FINANCE_ONLY_AGENT_TOOLS } from "@/lib/finance-visibility";
+import { isWriteTool } from "./tools/_shared";
+import { toolPermission } from "./tool-permissions";
+import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
 
 /** Writes one request may perform. A request is one user message and the
  *  tool loop that answers it; the person sends another message to continue. */
 export const MAX_WRITES_PER_REQUEST = 20;
 
 export interface ToolGatePolicy {
-  /** MEMBER: every tool that is not a read is refused. */
-  readOnly: boolean;
-  /** Roles outside canViewFinance: wholly financial tools are refused. */
-  blockFinance: boolean;
+  /** The person, as the routes see them (custom roles Phase 3, Oct 5, 2026). */
+  principal: Principal;
+  /** The event the call acts on; undefined when the call names none. */
+  event?: EventFacts | null;
   /** Write tool calls already run in this request. */
   writesSoFar: number;
   /** Test seam; production uses MAX_WRITES_PER_REQUEST. */
@@ -31,45 +32,22 @@ export type ToolGateDecision =
   | { kind: "refuse"; result: { error: string; code: string } };
 
 export function gateToolCall(toolName: string, policy: ToolGatePolicy): ToolGateDecision {
-  // Read-only gate for the MEMBER role. isReadOnlyTool fails closed: only
-  // list_/get_/search_ pass. The model sees a refusal as an ordinary tool
-  // error and relays it.
-  if (policy.readOnly && !isReadOnlyTool(toolName)) {
-    return {
-      kind: "refuse",
-      result: {
-        error:
-          `Read-only access — the Member role cannot perform write operations. ` +
-          `"${toolName}" modifies data and was refused. Ask an Organizer or Admin to make this change.`,
-        code: "READ_ONLY_ROLE",
-      },
-    };
+  // Each tool needs the key its REST route asks (`tool-permissions.ts`), so
+  // the agent does exactly what the person could do on the screens. A tool
+  // with no key is refused: a tool added tomorrow is closed until mapped.
+  const key = toolPermission(toolName);
+  if (!key) {
+    return { kind: "refuse", result: { error: `"${toolName}" has no permission mapped and was refused.`, code: "NO_PERMISSION_KEY" } };
   }
-  // The dinner-RSVP roster (names, emails, dietary notes) is blocked for
-  // MEMBER on the REST roster GET; the agent surface agrees even though the
-  // tool is list_-prefixed (review R2 M5).
-  if (policy.readOnly && ROSTER_PII_AGENT_TOOLS.has(toolName)) {
+  const allowed = policy.event === undefined ? can(policy.principal, key) : can(policy.principal, key, { event: policy.event });
+  if (!allowed) {
     return {
       kind: "refuse",
       result: {
         error:
-          `The dinner guest list (names, emails, dietary notes) is not available ` +
-          `to the Member role — the same policy as the RSVP roster page. Ask an ` +
-          `Organizer or Admin for headcounts.`,
-        code: "ROSTER_FORBIDDEN",
-      },
-    };
-  }
-  // Wholly financial tools have nothing non-financial to salvage, so they
-  // are refused outright rather than redacted to an empty husk.
-  if (policy.blockFinance && FINANCE_ONLY_AGENT_TOOLS.has(toolName)) {
-    return {
-      kind: "refuse",
-      result: {
-        error:
-          `Financial data is not available to your role. "${toolName}" returns ` +
-          `invoice / payment data, which the Member (read-only viewer) role cannot access.`,
-        code: "FINANCE_FORBIDDEN",
+          `Your access does not include "${toolName}"${policy.event === undefined ? "" : " on this event"}. ` +
+          `Ask an organisation admin if you need it.`,
+        code: "PERMISSION_DENIED",
       },
     };
   }

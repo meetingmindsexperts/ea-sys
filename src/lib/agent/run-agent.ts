@@ -18,6 +18,10 @@ import { collectToolsForActor, toAnthropicTool, type AgentActor, type Registered
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, approvalLabel, requiresApproval } from "./approvals";
 import { mintApprovalToken } from "./approval-token";
 import { isWriteTool } from "./tools/_shared";
+import { toolPermission } from "./tool-permissions";
+import { loadEventFacts } from "./event-facts-loader";
+import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
+import { describePermission } from "@/lib/permissions/catalogue";
 import { stepCodeFromResult, type AgentRunRecorder } from "./run-store";
 import type { AgentStepOutcome } from "@prisma/client";
 
@@ -59,6 +63,8 @@ export interface AgentRequest {
   /** The event the page was opened from, or null for the org-level door. */
   eventId: string | null;
   actor: AgentActor;
+  /** The person as the routes see them: every tool call is judged on it. */
+  principal: Principal;
   message: string;
   history: MessageParam[];
   /** MEMBER: every non-read tool is refused. */
@@ -87,6 +93,8 @@ export interface AgentDeps {
   createStream?: (params: ModelStreamParams) => ModelStream;
   /** Test seam: replaces the registry for this actor. */
   tools?: RegisteredTool[];
+  /** Test seam: replaces the database lookup of an event's facts. */
+  eventFacts?: (eventId: string) => Promise<EventFacts | null>;
 }
 
 /** A JSON tool result is redacted like any other payload; text stays text. */
@@ -115,8 +123,31 @@ export function approvalRequiredResult(toolName: string): string {
 }
 
 export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): Promise<AgentLoopEnd> {
-  const tools = deps.tools ?? collectToolsForActor({ organizationId: req.organizationId, actor: req.actor, source: "agent" });
-  const byName = new Map(tools.map((t) => [t.name, t]));
+  // The model is offered only the tools this person could use somewhere; the
+  // gate still judges each call on its event.
+  const registered = deps.tools ?? collectToolsForActor({ organizationId: req.organizationId, actor: req.actor, source: "agent" });
+  const tools = registered.filter((t) => {
+    const key = toolPermission(t.name);
+    return key !== null && can(req.principal, key);
+  });
+  const factsCache = new Map<string, Promise<EventFacts | null>>();
+  const factsFor = (eventId: string) => {
+    const cached = factsCache.get(eventId);
+    if (cached) return cached;
+    const loading = deps.eventFacts ? deps.eventFacts(eventId) : loadEventFacts(eventId, req.organizationId);
+    factsCache.set(eventId, loading);
+    return loading;
+  };
+  /** The event a call acts on, for an event-bound key: its own eventId, else the page's event. */
+  const eventOfCall = async (toolName: string, input: Record<string, unknown>): Promise<EventFacts | null | undefined> => {
+    const key = toolPermission(toolName);
+    if (!key || !describePermission(key)?.eventBound) return undefined;
+    const eventId = typeof input.eventId === "string" && input.eventId ? input.eventId : req.eventId;
+    return eventId ? factsFor(eventId) : undefined;
+  };
+  // Every registered tool stays callable by name, so a call to one the person
+  // lacks gets the gate's refusal, not "unknown tool".
+  const byName = new Map(registered.map((t) => [t.name, t]));
   const definitions = tools.map(toAnthropicTool);
 
   const systemPrompt = await buildSystemPrompt({
@@ -151,7 +182,9 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     let stepOutcome: AgentStepOutcome;
     let stepCode: string | null = null;
 
-    const decision = tool ? gateToolCall(toolName, { readOnly: req.readOnly, blockFinance: req.blockFinance, writesSoFar }) : null;
+    const decision = tool
+      ? gateToolCall(toolName, { principal: req.principal, event: await eventOfCall(toolName, toolInput), writesSoFar })
+      : null;
     if (!tool || decision === null) {
       text = JSON.stringify({ error: `Unknown tool: ${toolName}`, code: "UNKNOWN_TOOL" });
       isError = true;
