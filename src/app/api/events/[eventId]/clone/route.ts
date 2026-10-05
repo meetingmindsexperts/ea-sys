@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { cloneEventSettings } from "@/lib/event-clone-settings";
 import { Prisma } from "@prisma/client";
 
@@ -39,8 +38,8 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/clone:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.clone", { route: "events/[eventId]/clone:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // An empty body is the historical request and means "copy everything".
     // A body that is present but unreadable is refused rather than defaulted:
@@ -79,7 +78,7 @@ export async function POST(
     return await runWithTenantLane(session.user.organizationId, { route: "events:clone", userId: session.user.id }, async () => {
     // Fetch source event with all structural data
     const source = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       include: {
         ticketTypes: { include: { pricingTiers: true } },
         // Not read at all when the organizer left the box unticked.

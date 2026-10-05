@@ -5,7 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { runWithTenant } from "@/lib/tenant-context";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
@@ -48,8 +48,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the per-row transaction closure below.
     const organizationId = session.user.organizationId;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/import/eventsair:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "imports.eventsair", { route: "events/[eventId]/import/eventsair:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(organizationId, async () => {
     const validated = importContactsSchema.safeParse(body);
@@ -60,7 +60,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

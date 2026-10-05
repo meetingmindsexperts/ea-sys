@@ -16,9 +16,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { getEventTraffic } from "@/analytics/store/event-traffic";
 
 interface RouteParams {
@@ -35,6 +35,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const gate = requirePermission(session, "analytics.read", { route: "events/[eventId]/analytics/traffic:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     const raw = new URL(req.url).searchParams.get("days");
     const requested = raw === null ? DEFAULT_DAYS : Number(raw);
@@ -50,7 +52,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, timezone: true },
     });
     if (!event) {

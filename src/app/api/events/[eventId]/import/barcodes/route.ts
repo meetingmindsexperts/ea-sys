@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { parseCSV, getField } from "@/lib/csv-parser";
 import { runWithTenant } from "@/lib/tenant-context";
 import { importDtcmCodes } from "@/lib/dtcm-pool";
@@ -32,13 +32,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/import/barcodes:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/import/barcodes:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "dtcm.import", { route: "events/[eventId]/import/barcodes:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Verify event access
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, requiresDtcmBarcode: true },
     });
 

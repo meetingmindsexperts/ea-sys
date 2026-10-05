@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   AGREEMENT_PDF_IMAGE_MAX_SIZE,
@@ -39,8 +39,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/agreement-pdf-images:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/agreement-pdf-images:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `agreement-pdf-image-upload:${session.user.id}`,
@@ -134,8 +134,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/agreement-pdf-images:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/agreement-pdf-images:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     const { searchParams } = new URL(req.url);
     const scopeParse = scopeSchema.safeParse(searchParams.get("scope"));

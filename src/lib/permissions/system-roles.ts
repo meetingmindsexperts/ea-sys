@@ -76,7 +76,6 @@ const EVENT_READ: PermissionKey[] = [
   "invoices.export",
   "templates.read",
   "sponsors.read",
-  "media.read",
   "surveys.read",
   "webinar.analytics.read",
   "analytics.read",
@@ -103,6 +102,14 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "events.update",
   "events.delete",
   "events.clone",
+  // The whole event as one ZIP (Sep 30, 2026): ADMIN and ORGANIZER only.
+  "events.export",
+  // The event media library: not in EVENT_READ, because MEMBER was always
+  // refused it (owner kept that, Oct 5, 2026).
+  "media.read",
+  // The DTCM spreadsheet import and the EventsAir import: ADMIN and ORGANIZER.
+  "dtcm.import",
+  "imports.eventsair",
   "events.settings",
   "registrations.delete",
   "registrations.import",
@@ -346,6 +353,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // kept by the owner, Oct 5, 2026. NOT the organisation's invoice book
       // (`invoices.ledger`), which it read across every event before (fixed).
       ...at("ASSIGNED", "invoices.read", "invoices.export"),
+      // The assigned event's analytics and sponsors (the desk's sponsor picker),
+      // recorded by the remaining-routes matrix and kept as found, Oct 5, 2026.
+      ...at("ASSIGNED", "analytics.read", "sponsors.read"),
       ...org("finance.view", "barcode.view", "billingAccounts.read", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],

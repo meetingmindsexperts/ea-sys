@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 13 of 18
-> domains swept (169 route files on `requirePermission`, pinned by
+> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 14 of 18
+> domains swept (187 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -353,6 +353,7 @@ Event-bound keys take a scope. **R** = risk tier "sensitive" (editor warns).
 |---|---|
 | Events | `events.read` · `events.create` · `events.update` · `events.delete` R · `events.clone` · `events.settings` · `events.staff.assign` |
 | Registrations | `registrations.read` · `.create` · `.update` · `.delete` R · `.import` · `.export` R · `.checkin` (incl. undo) · `.badges.print` · `.bulk` (tags, type) · `.email` · `.promo.apply` · `dtcm.assign` |
+| Remaining event routes | SECURITY: reviewers, submitters and registrants no longer read analytics or the per-attendee check-in log; the agreement template follows the speakers read; Webinars may import speakers from a spreadsheet on webinars |
 | Money | `payments.record` · `payments.refund` R · `registrations.cancel` R · `creditNotes.issue` R · `invoices.read` · `invoices.write` · `invoices.send` · `invoices.export` R · `invoices.ledger` (org-wide) R · `billingAccounts.manage` |
 | Speakers | `speakers.read` · `.create` · `.update` · `.delete` R · `.import` · `.email` · `speakers.agreements.manage` · `speakers.documents.read` · `speakers.documents.open` R (added Oct 2, 2026) · `speakers.documents.write` · `speakers.companion.grant` |
 | Abstracts | `abstracts.read` · `.update` · `.decide` · `.delete` R · `.import` · `.email` · `abstracts.export` R · `abstracts.reviewers.assign` · `abstracts.themes.manage` · `abstracts.criteria.manage` · `reviewers.pool.manage` · `submissions.share` (added Oct 2, 2026, with `abstracts.export`) |
@@ -927,6 +928,35 @@ Domain by domain:
   import log, the agent, agreement PDF images, the speaker agreement
   template, submitter context). They are swept as a domain of their own after
   money, which makes eighteen domains, not seventeen.
+- **Remaining event routes SWEPT Oct 5, 2026** (18 files; every file under
+  `/api/events` is now in the guard). Keys: `analytics.read` (analytics, its
+  CSV and check-in log, the traffic view, the import log), `activity.read`,
+  `media.manage` (the library, read included: MEMBER was always refused it,
+  so `media.read` left EVENT_READ and stays with ADMIN and ORGANIZER),
+  `sponsors.read` / `.manage`, `events.clone`, `abstracts.import`,
+  `sessions.write` (the session import), `speakers.import`,
+  `speakers.agreements.manage` (the agreement template and the PDF header and
+  footer images), `speakers.read` (reading the template), and three NEW keys,
+  each ADMIN and ORGANIZER only as before: `events.export` (the whole-event
+  ZIP), `dtcm.import` (the DTCM spreadsheet) and `imports.eventsair`. ONSITE
+  holds `analytics.read` and `sponsors.read` at `ASSIGNED`, as found (the
+  desk's sponsor picker reads the list). The event agent hands off to the
+  agent's own gate (Phase 3) and submitter context serves only the SUBMITTER
+  itself; both joined the guard unchanged. **Owner rulings, Oct 5, 2026:**
+  (1) SECURITY: analytics had no role guard at all, so REVIEWER, SUBMITTER
+  and REGISTRANT read it, its CSV and the per-attendee check-in log (names,
+  emails, door times) on their linked events, another organisation's
+  included; now refused (DATA_EXPORTS gap 1, closed); (2) the speaker
+  agreement template was read through an organisation-only lookup by
+  CRM_USER, HR_USER, ONSITE on unassigned events and WEBINARS on
+  conferences; it now follows `speakers.read`; (3) WEBINARS may run the
+  speaker CSV import on webinars, matching its contacts and registrations
+  imports; (4) MEMBER stays refused the media library. Verified with the
+  chrome-devtools MCP: ADMIN read every route, saved sponsors and downloaded
+  the event ZIP, with clean Analytics, Overview and Media pages; the seeded
+  REGISTRANT and REVIEWER get 404 on analytics and the check-in log;
+  CRM_USER 404 on the template; ONSITE (assigned) and MEMBER keep analytics
+  and sponsors, MEMBER's Analytics page clean.
 
 **Behaviour changes so far.** Everything else in the swept domains answers as
 it did before, byte for byte in the route matrix. These changed on purpose,

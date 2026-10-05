@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -15,10 +15,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const gate = requirePermission(session, "analytics.read", { route: "events/[eventId]/import-logs:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     // Verify event access
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 

@@ -379,6 +379,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Fixed: attendees, authors and reviewers can no longer read event analytics (October 5)
+
+- An event's analytics, its spreadsheet and the per-attendee check-in log
+  (names, emails and door times) had no role check, so a registrant, an
+  abstract author or a reviewer linked to an event could read them, on
+  another organisation's event too. They are now for staff only.
+- The speaker agreement template now follows who can read the event's
+  speakers; before, any organisation account could read it on any event.
+- The webinar team may now import speakers from a spreadsheet on its
+  webinars, as it already could from contacts and registrations.
+- Custom roles Phase 2: analytics, the activity feed, media, sponsors, event
+  cloning, the whole-event export, the imports and the agreement files now
+  check permissions instead of roles. Every event page's data is now behind
+  the new permission checks.
+
 ### Fixed: onsite desk staff can no longer read the organisation's invoice book (October 5)
 
 - Onsite staff, temporary desk accounts assigned to particular events, could

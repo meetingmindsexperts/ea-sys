@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { SPONSOR_TIERS } from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
@@ -78,6 +77,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const gate = requirePermission(session, "sponsors.read", { route: "events/[eventId]/sponsors:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
     // Org-independent roles (REVIEWER / SUBMITTER / REGISTRANT) have a null
     // organizationId. Guard before the query: `organizationId: null` in the
     // where is a Prisma validation error (Event.organizationId is non-nullable),
@@ -93,7 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true },
     });
     if (!event) {
@@ -123,8 +124,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/sponsors:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sponsors.manage", { route: "events/[eventId]/sponsors:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     // Defence in depth: denyReviewer already blocks the null-org roles, but
     // guard explicitly so the query never sees `organizationId: null` (and drop
@@ -167,7 +168,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true },
     });
     if (!event) {

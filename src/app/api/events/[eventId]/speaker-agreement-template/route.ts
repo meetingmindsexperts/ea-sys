@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   SPEAKER_AGREEMENT_DOCX_MIME,
@@ -20,9 +20,9 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-async function loadEvent(eventId: string, organizationId: string) {
+async function loadEvent(eventWhere: Prisma.EventWhereInput) {
   return db.event.findFirst({
-    where: { id: eventId, organizationId },
+    where: eventWhere,
     select: { id: true, speakerAgreementTemplate: true },
   });
 }
@@ -35,8 +35,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    // Whoever reads the event's speakers reads the template; it was readable on
+    // any event in the organisation by any org account before (Oct 5, 2026).
+    const gate = requirePermission(session, "speakers.read", { route: "events/[eventId]/speaker-agreement-template:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadEvent(eventId, orgGuard.orgId);
+    const event = await loadEvent(gate.eventWhere);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -59,8 +63,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/speaker-agreement-template:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/speaker-agreement-template:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `agreement-template-upload:${session.user.id}`,
@@ -75,7 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await loadEvent(eventId, orgGuard.orgId);
+    const event = await loadEvent(gate.eventWhere);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -145,10 +149,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/speaker-agreement-template:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/speaker-agreement-template:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/speaker-agreement-template:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
-    const event = await loadEvent(eventId, orgGuard.orgId);
+    const event = await loadEvent(gate.eventWhere);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }

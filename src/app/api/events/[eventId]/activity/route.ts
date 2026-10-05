@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canWrite } from "@/lib/can-write";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -18,15 +17,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Activity feed is internal-only (SUPER_ADMIN, ADMIN, ORGANIZER)
-    if (!canWrite(session.user.role)) {
-      apiLogger.warn({ msg: "events/activity:forbidden", role: session.user.role, userId: session.user.id, eventId });
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Activity feed is internal-only: `activity.read` (SUPER_ADMIN, ADMIN, ORGANIZER).
+    const gate = requirePermission(session, "activity.read", { route: "events/[eventId]/activity:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Verify event access
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
 

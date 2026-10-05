@@ -74,6 +74,7 @@ export const PERMISSION_KEYS = [
   "events.update",
   "events.delete",
   "events.clone",
+  "events.export",
   "events.settings",
   "events.staff.assign",
   // Registrations
@@ -90,6 +91,8 @@ export const PERMISSION_KEYS = [
   "registrations.email.change",
   "registrations.share",
   "dtcm.assign",
+  "dtcm.import",
+  "imports.eventsair",
   // Money
   "payments.record",
   "payments.refund",
@@ -461,6 +464,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("events.update", "Events", "Edit events", "Change an event's details, dates, venue and status.", E),
   app("events.delete", "Events", "Delete events", "Remove an event and everything under it.", ES),
   app("events.clone", "Events", "Clone events", "Copy an event with its setup into a new one.", E),
+  app("events.export", "Events", "Export a whole event", "Download every area of an event, attendee details and money included, as one ZIP.", ES),
   app("events.settings", "Events", "Event settings and content", "Settings, Content and Readiness: sender, tax and bank details, terms, webinar and Zoom settings.", E),
   app("events.staff.assign", "Events", "Onsite staff", "Create temporary desk accounts and assign them to events (the Onsite Staff tab)."),
 
@@ -478,6 +482,8 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("registrations.email.change", "Registrations", "Change a registrant's email", "Move a registration, and the account linked to it, to a new email address.", E),
   app("registrations.share", "Registrations", "Share registration views", "Create and manage read-only registration links for people without a sign-in.", E),
   app("dtcm.assign", "Registrations", "Assign DTCM codes", "Assign a spare Dubai compliance code to a registration.", E),
+  app("dtcm.import", "Registrations", "Import DTCM codes", "Load the Dubai compliance codes from a spreadsheet.", E),
+  app("imports.eventsair", "Registrations", "Import from EventsAir", "Load an event's registrations from EventsAir.", E),
 
   // ── Money ──
   app("payments.record", "Money", "Record payments", "Record an offline payment against a registration.", E),

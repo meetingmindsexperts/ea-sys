@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { computeEventAnalytics, type EventAnalytics } from "@/lib/event-analytics";
 import { escapeCsvCell } from "@/lib/csv-escape";
@@ -64,10 +64,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const gate = requirePermission(session, "analytics.read", { route: "events/[eventId]/analytics:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     // Event access scoped to the caller's role (org membership / assignment).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

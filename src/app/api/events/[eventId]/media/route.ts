@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { storageProvider } from "@/lib/storage";
 import { storeUploadedMedia } from "@/lib/media-upload";
@@ -46,12 +45,12 @@ export async function GET(
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/media:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.manage", { route: "events/[eventId]/media:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -106,13 +105,13 @@ export async function POST(
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/media:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/media:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.manage", { route: "events/[eventId]/media:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, formData] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, ...buildEventAccessWhere(session.user) },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       req.formData(),

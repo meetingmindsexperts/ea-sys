@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
@@ -68,8 +67,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/import/sessions:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "sessions.write", { route: "events/[eventId]/import/sessions:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const rateLimit = checkRateLimit({
       key: `import-sessions:org:${session.user.organizationId}`,
@@ -123,7 +122,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // consistent with the sessions/tracks routes (an org-null SUPER_ADMIN
     // used to 404 on the hand-rolled organizationId check).
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, timezone: true, organizationId: true },
     });
     if (!event) {

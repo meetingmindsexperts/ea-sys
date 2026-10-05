@@ -35,7 +35,7 @@ Everyone else is either narrower or excluded, with two known gaps in §6.
 | **CRM deals / activity CSV** | `requireCrmExport` | **SUPER_ADMIN · ADMIN only** | ✅ | 10/hr |
 | **System log archive** | `denyNonOperator` | Platform operator only | — | — |
 | **Webinar attendance CSV** | `webinar.attendance.export` (since Oct 2, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS (webinar events) | ✅ | — |
-| ⚠ **Analytics CSV + per-attendee check-in log** | event access **only** | anyone linked to the event — **incl. REVIEWER, SUBMITTER, REGISTRANT** | ✅ | — |
+| **Analytics CSV + per-attendee check-in log** | `analytics.read` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE (assigned events) · WEBINARS (webinars) | ✅ | — |
 
 Single-record downloads (one invoice PDF, one badge, one uploaded passport) are
 **not** in this table. They are covered in §5 and follow different rules.
@@ -108,14 +108,15 @@ route. See [UAE_DOCUMENT_RESIDENCY_PLAN.md](UAE_DOCUMENT_RESIDENCY_PLAN.md).
 
 ## 6. Known gaps (open, not yet fixed)
 
-Found 2026-08-27 while building this table. Both are **audited**, so an
-after-the-fact answer exists; neither is **prevented**.
+Found 2026-08-27 while building this table. Both were **audited**, so an
+after-the-fact answer exists; both are now **prevented** (custom roles Phase 2).
 
-1. **Analytics has no role guard at all** — not even an org check. Access is
-   event linkage alone, and `buildEventAccessWhere` deliberately grants org-null
-   roles the events they are linked to. So a **reviewer, submitter or registrant
-   on an event can download `?export=checkins`**: registration number, name,
-   email and door timestamp for every attendee.
+1. **Analytics**: FIXED Oct 5, 2026. It had no role guard at all, not even an
+   org check: access was event linkage alone, so a **reviewer, submitter or
+   registrant on an event could download `?export=checkins`** (registration
+   number, name, email and door timestamp for every attendee), on another
+   organisation's event too. It now needs `analytics.read` (staff only), as do
+   the traffic view and the import log.
 2. **Webinar attendance CSV**: FIXED Oct 2, 2026 (custom roles Phase 2). It
    had org membership and event access but no export gate, so MEMBER and
    ONSITE could pull every attendee's name, email and watch times; it now

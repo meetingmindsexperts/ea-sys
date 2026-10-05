@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { deleteMedia } from "@/lib/storage";
 import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -22,13 +21,13 @@ export async function DELETE(
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/media/[mediaId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/media/[mediaId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.manage", { route: "events/[eventId]/media/[mediaId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, mediaFile] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, ...buildEventAccessWhere(session.user) },
+        where: gate.eventWhere,
         select: { id: true },
       }),
       db.mediaFile.findFirst({

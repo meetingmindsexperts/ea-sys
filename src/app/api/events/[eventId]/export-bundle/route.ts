@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -28,8 +28,8 @@ export async function GET(req: Request, { params }: RouteParams): Promise<NextRe
     const { eventId } = await params;
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/export-bundle:GET", eventId });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.export", { route: "events/[eventId]/export-bundle:GET", eventId });
+    if (!gate.ok) return gate.response;
     const r = await resolveShareEvent(session, "events/[eventId]/export-bundle:GET", eventId);
     if (r.error) return r.error;
 

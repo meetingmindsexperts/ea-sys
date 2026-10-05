@@ -233,11 +233,10 @@ typed URL lands somewhere sensible.
 
 ## 9. Known gaps and deliberate differences
 
-- One export is reachable more widely than the boundaries above intend
-  (recorded in [DATA_EXPORTS.md](DATA_EXPORTS.md) §6): the analytics CSV with
-  the per-attendee check-in log answers anyone linked to the event, external
-  roles included. The webinar attendance CSV, which answered any org-bound
-  role, needs `webinar.attendance.export` since Oct 2, 2026.
+- The two exports [DATA_EXPORTS.md](DATA_EXPORTS.md) §6 recorded as wider than
+  intended are closed: the webinar attendance CSV needs
+  `webinar.attendance.export` (Oct 2, 2026) and the analytics CSV with the
+  per-attendee check-in log needs `analytics.read`, staff only (Oct 5, 2026).
 - Sidebar and API disagree for ORGANIZER on CRM and Budgets, by owner decision
   (§7.1, §7.3): the entries are hidden, the routes answer.
 - WEBINARS still resolves about 59 event GETs (agenda, speakers, tickets,

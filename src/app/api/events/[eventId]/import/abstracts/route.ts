@@ -7,7 +7,7 @@ import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
 
@@ -29,8 +29,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/import/abstracts:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "events/[eventId]/import/abstracts:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "abstracts.import", { route: "events/[eventId]/import/abstracts:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
@@ -78,7 +78,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

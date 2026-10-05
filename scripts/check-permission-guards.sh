@@ -209,6 +209,26 @@ SWEPT=(
   "src/app/api/billing-accounts/route.ts"
   "src/app/api/billing-accounts/[billingAccountId]/route.ts"
   "src/app/api/billing-accounts/[billingAccountId]/merge/route.ts"
+  # remaining event routes (Oct 5, 2026); agent/execute hands off to the agent's
+  # own gate (Phase 3) and submitter-context serves only the SUBMITTER itself
+  "src/app/api/events/[eventId]/analytics/route.ts"
+  "src/app/api/events/[eventId]/analytics/traffic/route.ts"
+  "src/app/api/events/[eventId]/activity/route.ts"
+  "src/app/api/events/[eventId]/import-logs/route.ts"
+  "src/app/api/events/[eventId]/media/route.ts"
+  "src/app/api/events/[eventId]/media/[mediaId]/route.ts"
+  "src/app/api/events/[eventId]/sponsors/route.ts"
+  "src/app/api/events/[eventId]/clone/route.ts"
+  "src/app/api/events/[eventId]/export-bundle/route.ts"
+  "src/app/api/events/[eventId]/import/abstracts/route.ts"
+  "src/app/api/events/[eventId]/import/barcodes/route.ts"
+  "src/app/api/events/[eventId]/import/eventsair/route.ts"
+  "src/app/api/events/[eventId]/import/sessions/route.ts"
+  "src/app/api/events/[eventId]/import/speakers/route.ts"
+  "src/app/api/events/[eventId]/agreement-pdf-images/route.ts"
+  "src/app/api/events/[eventId]/speaker-agreement-template/route.ts"
+  "src/app/api/events/[eventId]/agent/execute/route.ts"
+  "src/app/api/events/[eventId]/submitter-context/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old
