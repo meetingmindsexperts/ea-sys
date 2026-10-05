@@ -4,8 +4,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canManageCrmQuoteDefaults, canViewDealValues } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { createDealQuote, getDealQuoteDraft } from "@/crm/services/crm-quote-service";
 import {
   addDaysToDateString,
@@ -78,7 +78,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
-    if (!canViewDealValues(ctx.role, ctx.fromApiKey)) {
+    if (!crmCan(ctx, "crm.dealValues.view")) {
       apiLogger.warn({ msg: "crm/quote:draft-forbidden", role: ctx.role, userId: ctx.userId, dealId });
       return NextResponse.json(
         { error: "Quotes are not available to your role", code: "QUOTE_FORBIDDEN" },
@@ -91,7 +91,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       draft: result.draft,
-      canSaveDefaultTerms: canManageCrmQuoteDefaults(ctx.role, ctx.fromApiKey),
+      canSaveDefaultTerms: crmCan(ctx, "crm.quoteDefaults.manage"),
     });
   });
 }
@@ -125,7 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const { saveTermsAsDefault, validityDays, ...provided } = parsed.data;
 
-    if (saveTermsAsDefault && !canManageCrmQuoteDefaults(ctx.role, ctx.fromApiKey)) {
+    if (saveTermsAsDefault && !crmCan(ctx, "crm.quoteDefaults.manage")) {
       apiLogger.warn({ msg: "crm/quote:default-terms-forbidden", role: ctx.role, userId: ctx.userId, dealId });
       return NextResponse.json(
         { error: "Only an admin can change the default quote terms", code: "DEFAULT_TERMS_FORBIDDEN" },

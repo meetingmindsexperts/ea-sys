@@ -119,11 +119,12 @@ describe("every /api/crm/* handler is gated", () => {
   });
 });
 
-describe("every /api/crm/inbox/* handler ALSO gates on canViewCrmInbox", () => {
+describe("every /api/crm/inbox/* handler ALSO gates on the inbox key", () => {
   // The base gate (requireCrmRead) admits MEMBER — the read-only account we hand
   // to sponsor-side stakeholders. The inbox is the one CRM surface MEMBER must
   // NOT reach (a sponsor must never read a rival's negotiation thread), so every
-  // inbox handler layers the narrower canViewCrmInbox on top. That layer is
+  // inbox handler layers the narrower `crm.inbox.read` on top (asked through
+  // `crmCan` since custom roles Phase 2; `canViewCrmInbox` before). That layer is
   // hand-applied, so this asserts it's present on every inbox route — the same
   // "a route just didn't call it" failure mode the base drift test guards.
   const inboxHandlers = allHandlers().filter((h) => h.rel.includes("/api/crm/inbox/"));
@@ -134,11 +135,11 @@ describe("every /api/crm/inbox/* handler ALSO gates on canViewCrmInbox", () => {
   });
 
   it.each(inboxHandlers.map((h) => [`${h.method} ${h.rel}`, h] as const))(
-    "%s calls canViewCrmInbox",
+    "%s asks for crm.inbox.read",
     (label, h) => {
       expect(
-        h.source.includes("canViewCrmInbox"),
-        `${label} is an inbox route but does not call canViewCrmInbox. requireCrmRead alone ` +
+        h.source.includes('crmCan(ctx, "crm.inbox.read")'),
+        `${label} is an inbox route but does not ask crmCan(ctx, "crm.inbox.read"). requireCrmRead alone ` +
           `admits MEMBER, so this would leak sponsor negotiation threads/attachments to a ` +
           `sponsor-side account — the review-M6 gap.`,
       ).toBe(true);

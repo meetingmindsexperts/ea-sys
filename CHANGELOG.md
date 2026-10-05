@@ -379,6 +379,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the CRM checks permissions instead of roles (October 5)
+
+- Custom roles Phase 2: every CRM route now asks one permission check, so a
+  future custom role decides the whole CRM. Nobody's access changes.
+
 ### Fixed: desk, webinar, CRM and HR accounts no longer read the team directory (October 5)
 
 - Any staff account could list every team member (names, emails, roles and

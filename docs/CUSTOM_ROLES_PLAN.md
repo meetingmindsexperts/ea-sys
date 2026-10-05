@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 15 of 18
-> domains swept (213 route files, every event route on `requirePermission`, pinned by
+> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 16 of 18
+> domains swept (260 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -1010,6 +1010,26 @@ Domain by domain:
   renamed itself and was refused the team list; the profile page clean.
   Organisation settings now remain only for email logs and the profile
   route's own staff check.
+- **CRM SWEPT Oct 5, 2026** (all 47 route files, 78 handlers). The routes
+  already named no role: every one calls the CRM's shared guards
+  (`requireCrmRead` / `Write` / `Delete` / `Export` / `Purge` in
+  `crm-route.ts`), and those called role predicates. The guards now ask ONE
+  function, `crmCan(ctx, key)` in `crm-visibility.ts` (`crm.read`, `.write`,
+  `.delete`, `.export`, `.purge`), and so do the routes' own checks for deal
+  values, the inbox, quote defaults and the bulk-read audit
+  (`crm.dealValues.view`, `crm.inbox.read`, `crm.quoteDefaults.manage`,
+  `crm.export`), fourteen calls. The client-safe predicates in `crm-roles.ts`
+  stay for the UI and are pinned to the same keys by the parity test.
+  `crmCan` builds the principal from the org context (a session, an API key
+  or a mobile token); custom keys live today are procurement only, so a
+  session adds nothing yet: thread it through when CRM keys become
+  grantable. Matrix generated one case per handler: byte for byte, no
+  behaviour change. Six CRM test files' `crm-route` mocks now pass the real
+  `crmCan`, and the inbox source-scan test asks for `crm.inbox.read`.
+  Verified with the chrome-devtools MCP: CRM_USER created and archived a
+  company, read deals, reports and the inbox, 403 on export; MEMBER read,
+  403 on the inbox and on writes; ORGANIZER edited, 403 on archive; ADMIN
+  exported and read reports; CRM and inbox pages clean.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

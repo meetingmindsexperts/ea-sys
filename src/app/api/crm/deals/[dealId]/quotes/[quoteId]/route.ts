@@ -6,8 +6,8 @@ import { checkRateLimit } from "@/lib/security";
 import { rateLimited, zodErrorResponse } from "@/lib/api-errors";
 import { deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
-import { requireCrmDelete, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canManageCrmQuoteDefaults } from "@/crm/lib/crm-visibility";
+import { requireCrmDelete, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { archiveDealQuote, updateDealQuote } from "@/crm/services/crm-quote-service";
 import { quoteInputObject } from "@/crm/lib/quote-rules";
 
@@ -55,7 +55,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     const { expectedVersion, saveTermsAsDefault, ...input } = parsed.data;
 
-    if (saveTermsAsDefault && !canManageCrmQuoteDefaults(ctx.role, ctx.fromApiKey)) {
+    if (saveTermsAsDefault && !crmCan(ctx, "crm.quoteDefaults.manage")) {
       apiLogger.warn({ msg: "crm/quote:default-terms-forbidden", role: ctx.role, userId: ctx.userId, dealId, quoteId });
       return NextResponse.json(
         { error: "Only an admin can change the default quote terms", code: "DEFAULT_TERMS_FORBIDDEN" },

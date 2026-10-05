@@ -6,8 +6,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canViewDealValues, canExportCrm } from "@/crm/lib/crm-roles";
+import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { recordExport } from "@/lib/audit-data-transfer";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { CRM_DEALS_LIST_CAP, CRM_BULK_READ_AUDIT_ROWS, listMeta } from "@/crm/lib/list-caps";
@@ -60,7 +60,7 @@ export async function GET(req: Request) {
         max: searchParams.get("max"),
         archived: searchParams.get("archived"),
       },
-      { organizationId: ctx.organizationId, canSeeValues: canViewDealValues(ctx.role, ctx.fromApiKey) },
+      { organizationId: ctx.organizationId, canSeeValues: crmCan(ctx, "crm.dealValues.view") },
     );
 
     // The count runs against the SAME `where` — it is the honest total the board
@@ -113,7 +113,7 @@ export async function GET(req: Request) {
     // by a non-exporting role are now recorded. Threshold, not every read: a
     // filtered board is ordinary work and must not spam the audit log.
     // Fire-and-forget by contract.
-    if (deals.length >= CRM_BULK_READ_AUDIT_ROWS && !canExportCrm(ctx.role, ctx.fromApiKey)) {
+    if (deals.length >= CRM_BULK_READ_AUDIT_ROWS && !crmCan(ctx, "crm.export")) {
       recordExport(req, {
         entityType: "CrmDeal",
         organizationId: ctx.organizationId,

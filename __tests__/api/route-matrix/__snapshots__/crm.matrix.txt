@@ -1,0 +1,1329 @@
+# CRM
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET crm/activity/export
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+GET crm/activity/feed
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET crm/activity
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/companies/[companyId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH crm/companies/[companyId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/companies/[companyId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/companies/facets
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET crm/companies
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+POST crm/companies
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/companies/tags
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET crm/contacts/[crmContactId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH crm/contacts/[crmContactId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/contacts/[crmContactId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/contacts
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+POST crm/contacts
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/contacts/tags
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+PATCH crm/deal-types/[dealTypeId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/deal-types
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+POST crm/deal-types
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/deal-types
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/deals/[dealId]/close
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/deals/[dealId]/contacts
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/deals/[dealId]/contacts
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/deals/[dealId]/documents/[documentId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+DELETE crm/deals/[dealId]/documents/[documentId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/deals/[dealId]/documents
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+POST crm/deals/[dealId]/documents
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   500
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    500
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500
+  NONE        401
+
+GET crm/deals/[dealId]/products
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+POST crm/deals/[dealId]/products
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/deals/[dealId]/products
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/deals/[dealId]/products
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/deals/[dealId]/quote
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+POST crm/deals/[dealId]/quote
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH crm/deals/[dealId]/quotes/[quoteId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/deals/[dealId]/quotes/[quoteId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/deals/[dealId]/quotes
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/deals/[dealId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH crm/deals/[dealId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/deals/[dealId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH crm/deals/[dealId]/stage
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/deals/export
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+GET crm/deals
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+POST crm/deals
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/email-templates/[templateId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/email-templates/[templateId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    401
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    500 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500 w
+  NONE        401
+
+GET crm/email-templates
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+POST crm/email-templates
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/events-lite
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   500
+  MEMBER      500
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    500
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500
+  NONE        401
+
+POST crm/import/companies
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/import/contacts
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/import/deals
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/inbox/[threadId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/inbox/messages/[messageId]/attachments/[index]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/inbox
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+PATCH crm/notes/[noteId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/notes/[noteId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/notes
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/notes
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET crm/notifications
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/notifications
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/pipeline-stages/[stageId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/pipeline-stages/[stageId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/pipeline-stages
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+POST crm/pipeline-stages
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/pipeline-stages
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/products/[productId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    401
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    500 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500 w
+  NONE        401
+
+DELETE crm/products/[productId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    401
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    500 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500 w
+  NONE        401
+
+GET crm/products
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200 w
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+POST crm/products
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/purge
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     403
+  NONE        401
+
+GET crm/reports
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET crm/reps
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET crm/sponsor-email/recipients
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+POST crm/sponsor-email/send
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+PATCH crm/tasks/[taskId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+DELETE crm/tasks/[taskId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+GET crm/tasks
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+POST crm/tasks
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    400
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401

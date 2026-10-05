@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { requireCrmRead } from "@/crm/lib/crm-route";
-import { canViewCrmInbox } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
 
 /**
  * GET /api/crm/inbox/[threadId] — one thread with its messages (oldest first).
@@ -21,7 +20,7 @@ export async function GET(
   if (error) return error;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
-  if (!canViewCrmInbox(ctx.role, ctx.fromApiKey)) {
+  if (!crmCan(ctx, "crm.inbox.read")) {
     apiLogger.warn({ msg: "crm/inbox:thread-forbidden", role: ctx.role, userId: ctx.userId });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

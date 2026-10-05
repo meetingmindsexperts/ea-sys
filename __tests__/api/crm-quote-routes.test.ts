@@ -31,7 +31,9 @@ const { requireCrmRead, requireCrmWrite, requireCrmDelete } = vi.hoisted(() => (
   requireCrmWrite: vi.fn(),
   requireCrmDelete: vi.fn(),
 }));
-vi.mock("@/crm/lib/crm-route", () => ({
+vi.mock("@/crm/lib/crm-route", async () => ({
+  // The REAL permission check: routes ask `crmCan` since custom roles Phase 2.
+  crmCan: (await vi.importActual<typeof import("@/crm/lib/crm-visibility")>("@/crm/lib/crm-visibility")).crmCan,
   requireCrmRead,
   requireCrmWrite,
   requireCrmDelete,

@@ -2,14 +2,13 @@ import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { requireCrmRead } from "@/crm/lib/crm-route";
-import { canViewCrmInbox } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
 
 /**
  * GET /api/crm/inbox — the shared CRM inbox: every email thread in the org,
  * newest activity first (owner decision: one bulk inbox for all CRM staff).
  *
- * Staff-only via canViewCrmInbox — MEMBER (sponsor-side read-only accounts)
+ * Staff-only via `crm.inbox.read` (crmCan) — MEMBER (read-only accounts)
  * passes the generic CRM read gate but must never read rival sponsors'
  * negotiation threads, so this surface layers the narrower predicate on top.
  */
@@ -18,7 +17,7 @@ export async function GET(req: Request) {
   if (error) return error;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
-  if (!canViewCrmInbox(ctx.role, ctx.fromApiKey)) {
+  if (!crmCan(ctx, "crm.inbox.read")) {
     apiLogger.warn({ msg: "crm/inbox:forbidden", role: ctx.role, userId: ctx.userId });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

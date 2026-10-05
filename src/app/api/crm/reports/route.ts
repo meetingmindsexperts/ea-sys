@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { requireCrmRead } from "@/crm/lib/crm-route";
-import { canViewDealValues } from "@/crm/lib/crm-roles";
+import { requireCrmRead, crmCan } from "@/crm/lib/crm-route";
+
 import { buildCrmReport } from "@/crm/services/report-service";
 import { parseReportDimension } from "@/crm/lib/reports";
 
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {
 
-  const canSeeValues = canViewDealValues(ctx.role, ctx.fromApiKey);
+  const canSeeValues = crmCan(ctx, "crm.dealValues.view");
 
   try {
     const { searchParams } = new URL(req.url);

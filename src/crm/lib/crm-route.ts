@@ -17,11 +17,11 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
+import { crmCan, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 
 // Re-exported so route handlers have one import site (the PATCH restore branch
 // calls this inline after requireCrmWrite).
-export { denyCrmDelete } from "@/crm/lib/crm-visibility";
+export { crmCan, denyCrmDelete } from "@/crm/lib/crm-visibility";
 
 /**
  * Resolve the caller and enforce the CRM read gate in one step.
@@ -206,7 +206,7 @@ function stripProseKeys<T>(payload: T): T {
  * PROSE_KEYS above.
  */
 export function redactForCaller<T>(payload: T, ctx: OrgContext): T {
-  if (canViewDealValues(ctx.role, ctx.fromApiKey)) return payload;
+  if (crmCan(ctx, "crm.dealValues.view")) return payload;
   return stripProseKeys(redactFinancialFields(payload));
 }
 
@@ -217,7 +217,7 @@ export function redactForCaller<T>(payload: T, ctx: OrgContext): T {
  * Logs its own refusal, like every CRM guard.
  */
 export function denyCrmProseRead(ctx: OrgContext) {
-  if (canViewDealValues(ctx.role, ctx.fromApiKey)) return null;
+  if (crmCan(ctx, "crm.dealValues.view")) return null;
   apiLogger.warn({
     msg: "auth-guard:crm-notes-read-denied",
     role: ctx.role,

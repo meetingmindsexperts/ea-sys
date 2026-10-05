@@ -6,8 +6,8 @@ import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canViewDealValues } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { addDealDocument, DEAL_DOCUMENT_SELECT } from "@/crm/services/deal-document-service";
 
 /**
@@ -52,7 +52,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       // inside a PDF, so a money-blind caller doesn't get the pointer at all.
       where: {
         dealId,
-        ...(canViewDealValues(ctx.role, ctx.fromApiKey) ? {} : { kind: { not: "QUOTE" as const } }),
+        ...(crmCan(ctx, "crm.dealValues.view") ? {} : { kind: { not: "QUOTE" as const } }),
       },
       select: DEAL_DOCUMENT_SELECT,
       orderBy: [{ kind: "asc" }, { createdAt: "desc" }],

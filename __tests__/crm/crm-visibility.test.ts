@@ -42,7 +42,10 @@ import { apiLogger } from "@/lib/logger";
 const STAFF = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 const BLOCKED = ["ONSITE", "REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
 
+// An organisation is part of the caller since the guards ask `can()` (custom
+// roles Phase 2): every CRM key is organisation-wide.
 const ctx = (role: string | null, fromApiKey = false) => ({
+  organizationId: "org-1",
   role,
   userId: role ? `u-${role}` : null,
   fromApiKey,
@@ -205,7 +208,7 @@ describe("denyCrmPurge", () => {
   });
 
   it("403s an API-key caller", async () => {
-    const res = denyCrmPurge({ role: null, userId: null, fromApiKey: true });
+    const res = denyCrmPurge({ organizationId: "org-1", role: null, userId: null, fromApiKey: true });
     expect(res!.status).toBe(403);
   });
 
@@ -291,7 +294,7 @@ describe("denyCrmExport", () => {
   });
 
   it("allows an API-key caller", () => {
-    expect(denyCrmExport({ role: null, userId: null, fromApiKey: true })).toBeNull();
+    expect(denyCrmExport({ organizationId: "org-1", role: null, userId: null, fromApiKey: true })).toBeNull();
   });
 
   it("logs its own refusal", () => {

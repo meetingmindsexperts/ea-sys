@@ -5,8 +5,8 @@ import { readStoredFile, deleteStoredFile } from "@/lib/storage";
 import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
-import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canViewDealValues } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, requireCrmWrite, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { removeDealDocument } from "@/crm/services/deal-document-service";
 
 /**
@@ -34,7 +34,7 @@ export async function GET(
       where: { id: documentId, dealId, organizationId: ctx.organizationId },
       select: { url: true, filename: true, kind: true },
     });
-    if (!doc || (doc.kind === "QUOTE" && !canViewDealValues(ctx.role, ctx.fromApiKey))) {
+    if (!doc || (doc.kind === "QUOTE" && !crmCan(ctx, "crm.dealValues.view"))) {
       apiLogger.warn({
         msg: "crm/deal-documents:stream-not-found",
         dealId,

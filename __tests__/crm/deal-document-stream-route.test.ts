@@ -31,7 +31,9 @@ vi.mock("@/lib/db", () => ({
 
 // The gate itself is covered by the source-level gate-drift test; here it's a
 // configurable pass-through so each case picks the caller's role.
-vi.mock("@/crm/lib/crm-route", () => ({
+vi.mock("@/crm/lib/crm-route", async () => ({
+  // The REAL permission check: routes ask `crmCan` since custom roles Phase 2.
+  crmCan: (await vi.importActual<typeof import("@/crm/lib/crm-visibility")>("@/crm/lib/crm-visibility")).crmCan,
   requireCrmRead: vi.fn(async () => ({
     ctx: { organizationId: "org-1", userId: "u-1", role: "ADMIN", fromApiKey: false },
   })),

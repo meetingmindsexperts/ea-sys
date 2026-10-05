@@ -24,7 +24,9 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/crm/lib/crm-route", () => ({
+vi.mock("@/crm/lib/crm-route", async () => ({
+  // The REAL permission check: routes ask `crmCan` since custom roles Phase 2.
+  crmCan: (await vi.importActual<typeof import("@/crm/lib/crm-visibility")>("@/crm/lib/crm-visibility")).crmCan,
   requireCrmRead: vi.fn(async () => ({
     ctx: { organizationId: "org-1", userId: "u-1", role: "ADMIN", fromApiKey: false },
   })),

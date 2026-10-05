@@ -16,7 +16,38 @@
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { canViewCrm, canOwnDeals, canDeleteCrm, canPurgeCrm, canExportCrm } from "@/crm/lib/crm-roles";
+import { can } from "@/lib/permissions/can";
+import type { PermissionKey } from "@/lib/permissions/catalogue";
+import { principalFromCaller } from "@/lib/permissions/require-permission";
+
+/**
+ * The caller as the CRM routes see it: a session, an API key or a mobile token
+ * (`getOrgContext`). `organizationId` is required because every CRM key is
+ * organisation-wide.
+ */
+export interface CrmCaller {
+  organizationId: string;
+  userId: string | null;
+  role: string | null;
+  fromApiKey: boolean;
+}
+
+/**
+ * May this caller do `key` in the CRM? The ONE place the CRM asks (custom roles
+ * Phase 2, Oct 5, 2026): the guards below and the routes' value, inbox, quote
+ * and export checks all come here, so a role editor's grant decides them all.
+ * The system grants equal the old role predicates in `crm-roles.ts`, pinned by
+ * system-roles-parity.test.ts; the UI still reads those client-safe predicates.
+ *
+ * Built from the org context, not the session: custom keys that are live today
+ * are procurement only, so a session would add nothing here. When CRM keys can
+ * be granted by a custom role, thread the session through (principalFromCaller
+ * already prefers it).
+ */
+export function crmCan(ctx: CrmCaller, key: PermissionKey): boolean {
+  const principal = principalFromCaller(null, ctx);
+  return principal !== null && can(principal, key);
+}
 
 // Re-exported so server code has one import site for both predicates and guards.
 export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteCrm, canPurgeCrm, canExportCrm, canManageCrmQuoteDefaults } from "@/crm/lib/crm-roles";
@@ -28,12 +59,8 @@ export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteC
  *   const denied = denyCrmAccess(ctx);
  *   if (denied) return denied;
  */
-export function denyCrmAccess(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canViewCrm(ctx.role, ctx.fromApiKey)) return null;
+export function denyCrmAccess(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.read")) return null;
 
   apiLogger.warn({
     msg: "auth-guard:crm-read-denied",
@@ -51,12 +78,8 @@ export function denyCrmAccess(ctx: {
  * complete tasks), else null. MEMBER hits this — it reads the board but never moves
  * a card.
  */
-export function denyCrmWrite(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canOwnDeals(ctx.role, ctx.fromApiKey)) return null;
+export function denyCrmWrite(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.write")) return null;
 
   apiLogger.warn({
     msg: "auth-guard:crm-write-denied",
@@ -75,12 +98,8 @@ export function denyCrmWrite(ctx: {
  * Narrower than denyCrmWrite: ORGANIZER can edit a deal but not archive it. Used by
  * the DELETE handlers and the restore branch of PATCH. Logs its own refusal.
  */
-export function denyCrmDelete(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canDeleteCrm(ctx.role, ctx.fromApiKey)) return null;
+export function denyCrmDelete(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.delete")) return null;
 
   apiLogger.warn({
     msg: "auth-guard:crm-delete-denied",
@@ -101,12 +120,8 @@ export function denyCrmDelete(ctx: {
  * them can walk out with the book. Rationale in full on CRM_EXPORT_ROLES.
  * Logs its own refusal.
  */
-export function denyCrmExport(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canExportCrm(ctx.role, ctx.fromApiKey)) return null;
+export function denyCrmExport(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.export")) return null;
 
   apiLogger.warn({
     msg: "auth-guard:crm-export-denied",
@@ -128,12 +143,8 @@ export function denyCrmExport(ctx: {
  * guard that also refuses API keys (destruction is a human decision; a leaked
  * key must not be able to erase revenue history). Logs its own refusal.
  */
-export function denyCrmPurge(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canPurgeCrm(ctx.role, ctx.fromApiKey)) return null;
+export function denyCrmPurge(ctx: CrmCaller) {
+  if (crmCan(ctx, "crm.purge")) return null;
 
   apiLogger.warn({
     msg: "auth-guard:crm-purge-denied",

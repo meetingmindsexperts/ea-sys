@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import { requireCrmRead, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canViewDealValues } from "@/crm/lib/crm-visibility";
+import { requireCrmRead, crmErrorResponse, crmCan } from "@/crm/lib/crm-route";
+
 import { listDealQuotes } from "@/crm/services/crm-quote-service";
 
 interface RouteParams {
@@ -18,7 +18,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
   return await runWithTenant(ctx.organizationId, async () => {
-    if (!canViewDealValues(ctx.role, ctx.fromApiKey)) {
+    if (!crmCan(ctx, "crm.dealValues.view")) {
       return NextResponse.json({ quotes: [] });
     }
     const result = await listDealQuotes({ organizationId: ctx.organizationId, dealId });
