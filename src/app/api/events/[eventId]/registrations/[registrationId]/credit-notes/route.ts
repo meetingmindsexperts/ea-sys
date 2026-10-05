@@ -14,9 +14,8 @@ import { issueCreditNoteForRegistration, type IssueCreditNoteErrorCode } from "@
  * `issueCreditNoteForRegistration` (payment-service); this route handles auth,
  * rate limiting, event access, body parsing, and result→HTTP mapping.
  *
- * Finance action → denyReviewer (blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER
- * write) + denyFinance (blocks MEMBER money visibility). Event lookup is routed
- * through buildEventAccessWhere so an ONSITE/cross-event caller can't credit
+ * Finance action → `creditNotes.issue` (ADMIN and ORGANIZER). The event
+ * lookup is the gate's own event filter, so a cross-event caller can't credit
  * another event's registration.
  */
 

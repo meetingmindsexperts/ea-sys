@@ -40,33 +40,9 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-// Mirror the real guards exactly (REVIEWER/SUBMITTER/REGISTRANT/MEMBER
-// blocked by denyReviewer; MEMBER also fails canViewFinance).
-vi.mock("@/lib/auth-guards", () => ({
-  denyReviewer: (session: { user?: { role?: string } } | null) => {
-    const role = session?.user?.role;
-    if (
-      role === "REVIEWER" ||
-      role === "SUBMITTER" ||
-      role === "REGISTRANT" ||
-      role === "MEMBER"
-    ) {
-      return { status: 403, json: async () => ({ error: "Forbidden" }) };
-    }
-    return null;
-  },
-  denyFinance: (session: { user?: { role?: string } } | null) => {
-    const role = session?.user?.role;
-    if (
-      role !== "SUPER_ADMIN" &&
-      role !== "ADMIN" &&
-      role !== "ORGANIZER"
-    ) {
-      return { status: 403, json: async () => ({ error: "FINANCE_FORBIDDEN" }) };
-    }
-    return null;
-  },
-}));
+// The guard is the REAL `requirePermission` (`billingAccounts.manage`): it
+// was a hand-written mock of denyReviewer + denyFinance until the Phase 2
+// money sweep (Oct 5, 2026), which the route no longer imports.
 
 import { POST, DELETE } from "@/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route";
 

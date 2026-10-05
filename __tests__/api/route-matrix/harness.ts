@@ -417,6 +417,13 @@ export interface HandlerCase {
   body?: unknown;
   /** Appended to the URL, e.g. `confirm=true`. */
   query?: string;
+  /**
+   * Sent as multipart form data instead of `body`, so an upload route gets
+   * past its form parsing to the event lookup. A value with `content` is a
+   * file. Without this a JSON body fails at `req.formData()` for every role,
+   * and the cells cannot show which events a caller reaches.
+   */
+  form?: Record<string, string | { name: string; type: string; content: string }>;
   /** false for a handler with no event in its path (the events list and create). */
   perEvent?: boolean;
 }
@@ -424,12 +431,20 @@ export interface HandlerCase {
 async function runOnce(c: HandlerCase, caller: Caller, eventId?: string): Promise<string> {
   currentSession = caller.session;
   rec = { eventReadMatched: false, nestedEventMatched: false, wrote: false, listedEventIds: null };
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = c.form ? {} : { "content-type": "application/json" };
   if (caller.apiKey) headers.authorization = `Bearer ${API_KEY}`;
+  let body: BodyInit | undefined = c.body !== undefined ? JSON.stringify(c.body) : undefined;
+  if (c.form) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(c.form)) {
+      fd.append(k, typeof v === "string" ? v : new File([v.content], v.name, { type: v.type }));
+    }
+    body = fd;
+  }
   const req = new Request(`http://localhost/api/matrix${c.query ? `?${c.query}` : ""}`, {
     method: c.method,
     headers,
-    ...(c.body !== undefined && { body: JSON.stringify(c.body) }),
+    ...(body !== undefined && { body }),
   });
   const params = Promise.resolve({ ...(c.params ?? {}), ...(eventId ? { eventId } : {}) });
   let status: number;

@@ -50,12 +50,10 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Refunds move money through Stripe: their own key, `payments.refund`, which
+  // no desk role holds (guard parity with credit notes and cancel, review M7).
   const gate = requirePermission(session, "payments.refund", { route: "events/[eventId]/registrations/[registrationId]/refund:POST", eventId });
   if (!gate.ok) return gate.response;
-  // Guard parity with credit-notes + cancel (review M7): refunds move money
-  // through Stripe — explicitly finance-gated, not just write-gated, so a
-  // future `{ allow: … }` refactor on denyReviewer can't open Stripe refunds
-  // to desk staff by accident.
 
   // The endpoint fires stripe.refunds.create — cap a compromised session
   // (review M7). 60/hr is far above any real refund pace.

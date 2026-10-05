@@ -155,6 +155,10 @@ export default function RegistrationsPage() {
   const roleName = userSession?.user?.role;
   const isOnsite = roleName === "ONSITE";
   const isMember = roleName === "MEMBER";
+  // A payer's detail is its money on EVERY event, so it needs the
+  // organisation's invoice book (`invoices.ledger`), which ONSITE and WEBINARS
+  // do not hold: for them the payer's name is shown, not linked.
+  const canOpenPayer = !isOnsite && roleName !== "WEBINARS";
 
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
@@ -921,7 +925,11 @@ export default function RegistrationsPage() {
                       <TableCell>
                         {/* Third-party payer ("Charge to another account"). "-" =
                             self-pay, or the field was finance-redacted server-side. */}
-                        {registration.billingAccount?.name ? (
+                        {registration.billingAccount?.name && !canOpenPayer ? (
+                          <Badge variant="outline" className="bg-sky-50 text-sky-800 border-sky-200">
+                            {registration.billingAccount.name}
+                          </Badge>
+                        ) : registration.billingAccount?.name ? (
                           <button
                             onClick={(e) => {
                               // The row opens the registration sheet; without

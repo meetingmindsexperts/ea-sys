@@ -1,6 +1,6 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 14 of 18
+> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 14 of 18
 > domains swept (187 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
@@ -932,7 +932,8 @@ Domain by domain:
   `/api/events` is now in the guard). Keys: `analytics.read` (analytics, its
   CSV and check-in log, the traffic view, the import log), `activity.read`,
   `media.manage` (the library, read included: MEMBER was always refused it,
-  so `media.read` left EVENT_READ and stays with ADMIN and ORGANIZER),
+  so `media.read` left EVENT_READ; ADMIN, ORGANIZER, WEBINARS on webinars and
+  API keys still hold it, and no route reads it yet),
   `sponsors.read` / `.manage`, `events.clone`, `abstracts.import`,
   `sessions.write` (the session import), `speakers.import`,
   `speakers.agreements.manage` (the agreement template and the PDF header and
@@ -957,6 +958,25 @@ Domain by domain:
   REGISTRANT and REVIEWER get 404 on analytics and the check-in log;
   CRM_USER 404 on the template; ONSITE (assigned) and MEMBER keep analytics
   and sponsors, MEMBER's Analytics page clean.
+
+- **Code review of money and the remaining event routes, Oct 5, 2026** (two
+  independent reviewers, each finding checked against the code). Fixed before
+  pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns
+  the payer's registrations with attendee names and emails, invoices and
+  payments on EVERY event, and ONSITE and WEBINARS reached it (through
+  `denyFinance` before, through `billingAccounts.read` after the sweep); it
+  now needs `invoices.ledger`, and the desk shows those two roles the payer's
+  name without the link; (MEDIUM) the matrix sent JSON to the upload routes,
+  which fail at form parsing for every role, so the one intended widening was
+  unpinned: the harness now sends real multipart files (`HandlerCase.form`),
+  recorded first against the unswept code; (LOW) the agreement PDF images and
+  the export bundle now bind the event through `gate.eventWhere`, clone also
+  needs `events.create` for the copy's kind (`refuseOutOfScope`), and stale
+  comments and doc lines were corrected. **Recorded for Phase 3:** MEMBER can
+  call the agent's `list_media` today (a `list_` read tool) and will lose it
+  when the agent enforces `media.read`, which MEMBER no longer holds; the
+  import log rides on `analytics.read`, so a custom role granted analytics
+  also gets it.
 
 **Behaviour changes so far.** Everything else in the swept domains answers as
 it did before, byte for byte in the route matrix. These changed on purpose,

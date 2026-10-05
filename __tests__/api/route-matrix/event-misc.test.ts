@@ -19,6 +19,11 @@
  *    before (an organisation-only lookup);
  *  - WEBINARS may run the speaker CSV import on webinars (`speakers.import`,
  *    which already let it import speakers from contacts and registrations).
+ *  - code review, Oct 5, 2026: the upload routes have cases with a real file
+ *    (recorded first against the unswept code, identical apart from the
+ *    lines below), so the cells reach the event lookup; the agreement PDF
+ *    images bind the event to the grant before the organisation-only image
+ *    service, so they read the event first and 404 on another organisation's.
  *
  * Every network call fails here (`fetch` is stubbed to throw), so neither
  * EventsAir nor a model provider is reachable.
@@ -75,6 +80,8 @@ const json = (name: string, handler: HandlerCase["handler"], method: HandlerCase
   ...extra,
 });
 
+const csv = (name: string, content: string) => ({ name, type: "text/csv", content });
+
 const CASES: HandlerCase[] = [
   json("GET analytics", analyticsGET, "GET"),
   json("GET analytics (csv)", analyticsGET, "GET", { query: "export=csv" }),
@@ -99,6 +106,19 @@ const CASES: HandlerCase[] = [
   json("GET speaker-agreement-template", agreementTplGET, "GET"),
   json("POST speaker-agreement-template (JSON, not multipart)", agreementTplPOST, "POST", { body: {} }),
   json("DELETE speaker-agreement-template", agreementTplDELETE, "DELETE"),
+  // The same uploads with a real file, so the cells reach the event lookup and
+  // show which events each caller can write to (code review, Oct 5, 2026).
+  json("POST import/speakers (csv file)", importSpeakersPOST, "POST", { form: { file: csv("speakers.csv", "email,firstName,lastName\nspk@test.local,Sam,Speaker\n") } }),
+  json("POST import/abstracts (csv file)", importAbstractsPOST, "POST", { form: { file: csv("abstracts.csv", "title,email\nA title,spk@test.local\n") } }),
+  json("POST import/sessions (csv file)", importSessionsPOST, "POST", { form: { file: csv("sessions.csv", "name,startTime,endTime\nOpening,2027-01-10 09:00,2027-01-10 10:00\n") } }),
+  json("POST import/barcodes (csv file)", importBarcodesPOST, "POST", { form: { file: csv("codes.csv", "registrationId,barcode\nr1,ABC\n") } }),
+  json("POST media (png file)", mediaPOST, "POST", { form: { file: { name: "logo.png", type: "image/png", content: "\x89PNG\r\n\x1a\nmatrix" } } }),
+  json("POST agreement-pdf-images (png file)", pdfImagePOST, "POST", {
+    form: { scope: "speaker", slot: "header", file: { name: "head.png", type: "image/png", content: "\x89PNG\r\n\x1a\nmatrix" } },
+  }),
+  json("POST speaker-agreement-template (docx file)", agreementTplPOST, "POST", {
+    form: { file: { name: "agreement.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", content: "PK\x03\x04matrix" } },
+  }),
   json("POST agent/execute (empty body)", agentPOST, "POST", { body: {} }),
   json("GET submitter-context", submitterCtxGET, "GET"),
 ];

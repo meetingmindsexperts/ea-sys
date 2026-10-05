@@ -19,7 +19,7 @@ import {
  * registration + event attachment from the duplicate to the survivor inside
  * one transaction, deletes the duplicate, clears the survivor's review flag.
  *
- * Org-scoped, denyReviewer + denyFinance (same boundary as the other payer
+ * Org-scoped, `billingAccounts.manage` (same boundary as the other payer
  * writes), audited (action MERGE on the survivor).
  */
 

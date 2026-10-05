@@ -10,9 +10,10 @@ import { createBillingAccount } from "@/services/billing-account-service";
 
 /**
  * Billing accounts = reusable org-scoped third-party payers for "charge to
- * another account". This is finance/billing data, so every handler is
- * gated by `denyFinance` (MEMBER read-only viewer is barred) on top of
- * `denyReviewer` for writes. Org-scoped by session — never trust an id.
+ * another account". The list needs `billingAccounts.read` (the desk's payer
+ * picker reads it, so ONSITE and WEBINARS hold it); creating and editing need
+ * `billingAccounts.manage`. A payer's DETAIL is wider (its money on every
+ * event) and needs `invoices.ledger`. Org-scoped by session — never trust an id.
  */
 
 const createSchema = z.object({

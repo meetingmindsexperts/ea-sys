@@ -16,8 +16,8 @@ import { cancelRegistration, type CancelRegistrationErrorCode } from "@/services
  * refund fails, the registration is NOT cancelled (recoverable). `{ refund:
  * false }` (or a non-paid reg) → just cancel.
  *
- * Finance action → denyReviewer (blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER +
- * ONSITE) + denyFinance. Event access via buildEventAccessWhere.
+ * Finance action → `registrations.cancel` (ADMIN and ORGANIZER). Event access
+ * through the gate's own event filter.
  */
 
 const bodySchema = z.object({

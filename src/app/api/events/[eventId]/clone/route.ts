@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { cloneEventSettings } from "@/lib/event-clone-settings";
 import { Prisma } from "@prisma/client";
 
@@ -111,6 +111,10 @@ export async function POST(
     if (!source) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+    // Cloning CREATES an event, so it also needs `events.create` for the kind
+    // of event the copy will be (plan §3.2). The same roles hold both today.
+    const outOfScope = refuseOutOfScope(gate.principal, "events.create", { eventType: source.eventType ?? "" }, { route: "events/[eventId]/clone:POST", eventId });
+    if (outOfScope) return outOfScope;
 
     // Guarded twice: the include above skips the read, and these skip the
     // copy, so a future change to one cannot quietly bring the rows back.

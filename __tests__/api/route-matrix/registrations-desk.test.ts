@@ -119,6 +119,12 @@ const CASES: HandlerCase[] = [
   { name: "PATCH registrations/bulk-type", handler: bulkTypePATCH, method: "PATCH", body: { registrationIds: ["r1"], ticketTypeId: "tt1" } },
   { name: "POST registrations/import-contacts", handler: importContactsPOST, method: "POST", body: { contactIds: ["ct1"] } },
   { name: "POST import/registrations (JSON, not multipart)", handler: importCsvPOST, method: "POST", body: {} },
+  {
+    name: "POST import/registrations (csv file)",
+    handler: importCsvPOST,
+    method: "POST",
+    form: { file: { name: "regs.csv", type: "text/csv", content: "email,firstName,lastName\nimp@test.local,Ima,Port\n" } },
+  },
   { name: "POST import/registrations/send-completion-emails", handler: completionPOST, method: "POST", body: { registrationIds: ["r1"] } },
   { name: "GET tags", handler: tagsGET, method: "GET" },
   { name: "GET dtcm-pool", handler: dtcmGET, method: "GET" },

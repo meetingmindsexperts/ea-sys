@@ -391,8 +391,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   webinars, as it already could from contacts and registrations.
 - Custom roles Phase 2: analytics, the activity feed, media, sponsors, event
   cloning, the whole-event export, the imports and the agreement files now
-  check permissions instead of roles. Every event page's data is now behind
-  the new permission checks.
+  check permissions instead of roles. Every event route is now behind the new
+  checks, apart from the event AI agent (which has its own) and the
+  submitter's own page context.
 
 ### Fixed: onsite desk staff can no longer read the organisation's invoice book (October 5)
 
@@ -403,7 +404,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Custom roles Phase 2: refunds, cancellations, credit notes, promo codes on
   a registration, quotes, event invoices and their export, the organisation's
   invoice book and the payer book now check permissions instead of roles.
-  Nobody else's access changes.
+- A payer's detail (its registrations, invoices and payments on every event)
+  is now for staff who can see the organisation's invoice book; onsite staff
+  and the webinar team see the payer's name on the desk, without the link.
+- Nobody else's access changes, except that the platform operator account is
+  now cleanly refused promo codes and payers where it used to hit errors.
 
 ### Changed: the registration desk checks permissions instead of roles (October 5)
 

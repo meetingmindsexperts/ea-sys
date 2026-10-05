@@ -376,6 +376,23 @@ POST import/registrations (JSON, not multipart)
   API_KEY     401         401         401         401
   NONE        401         401         401         401
 
+POST import/registrations (csv file)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r w     200 r w     200 r w     404
+  OPERATOR    403         403         403         403
+  ADMIN       200 r w     200 r w     200 r w     404
+  ORGANIZER   200 r w     200 r w     200 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      403         403         403         403
+  WEBINARS    404         404         200 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    403         403         403         403
+  SUBMITTER   403         403         403         403
+  REGISTRANT  403         403         403         403
+  API_KEY     401         401         401         401
+  NONE        401         401         401         401
+
 POST import/registrations/send-completion-emails
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 404 r       404 r       404 r       404

@@ -349,8 +349,8 @@ GET /api/billing-accounts/[billingAccountId]
   ADMIN       404
   ORGANIZER   404
   MEMBER      404
-  ONSITE      404
-  WEBINARS    404
+  ONSITE      403
+  WEBINARS    403
   CRM_USER    403
   HR_USER     403
   REVIEWER    403

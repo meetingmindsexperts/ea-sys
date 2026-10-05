@@ -41,6 +41,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:POST", eventId });
     if (!gate.ok) return gate.response;
+    // The image service binds the event by organisation only; bind it to the
+    // grant's events first, so a scoped grant cannot reach the rest.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "events/agreement-pdf-images:event-not-found", method: "POST", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const rl = checkRateLimit({
       key: `agreement-pdf-image-upload:${session.user.id}`,
@@ -136,6 +143,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const gate = requirePermission(session, "speakers.agreements.manage", { route: "events/[eventId]/agreement-pdf-images:DELETE", eventId });
     if (!gate.ok) return gate.response;
+    // The image service binds the event by organisation only; bind it to the
+    // grant's events first, so a scoped grant cannot reach the rest.
+    const inScope = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
+    if (!inScope) {
+      apiLogger.warn({ msg: "events/agreement-pdf-images:event-not-found", method: "DELETE", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const { searchParams } = new URL(req.url);
     const scopeParse = scopeSchema.safeParse(searchParams.get("scope"));

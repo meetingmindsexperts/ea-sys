@@ -36,7 +36,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const gate = requirePermission(session, "billingAccounts.read", { route: "billing-accounts/[billingAccountId]:GET" });
+    // The detail is the payer's money across EVERY event (its registrations
+    // with attendee names and emails, invoices and payments), so it needs the
+    // organisation's invoice book, not the payer list the desk's picker reads.
+    // ONSITE and WEBINARS hold only the list (code review, Oct 5, 2026).
+    const gate = requirePermission(session, "invoices.ledger", { route: "billing-accounts/[billingAccountId]:GET" });
     if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure

@@ -5,7 +5,7 @@
  * check and audit row; this route adds the bundle-level gate, rate limit and
  * one audit row for the ZIP.
  *
- * Admins and organisers only (denyReviewer's write roles): the bundle carries
+ * Admins and organisers only (`events.export`): the bundle carries
  * attendee PII and money for a whole event, which is wider than any single
  * export a desk role may take.
  */
@@ -30,7 +30,7 @@ export async function GET(req: Request, { params }: RouteParams): Promise<NextRe
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const gate = requirePermission(session, "events.export", { route: "events/[eventId]/export-bundle:GET", eventId });
     if (!gate.ok) return gate.response;
-    const r = await resolveShareEvent(session, "events/[eventId]/export-bundle:GET", eventId);
+    const r = await resolveShareEvent(session, "events/[eventId]/export-bundle:GET", eventId, gate.eventWhere);
     if (r.error) return r.error;
 
     // A whole-event pull is heavy and sensitive: a small budget per person.

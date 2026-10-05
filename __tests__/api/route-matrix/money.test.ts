@@ -16,6 +16,9 @@
  *    403 on a registration's promo code, attaching a payer to an event and the
  *    payer book, where it reached lookups bound to an empty organisation id
  *    (404, an empty list, or a 500 from a write with no organisation).
+ *  - a payer's DETAIL needs `invoices.ledger` (code review, Oct 5, 2026): it
+ *    returns the payer's registrations, invoices and payments on every event,
+ *    which ONSITE and WEBINARS read through the payer-list key before.
  *
  * Every network call fails here (`fetch` is stubbed to throw, so Stripe is
  * unreachable) and the email sender is mocked, so nothing can refund money or
