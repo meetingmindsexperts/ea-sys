@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
+import { PermissionGate } from "@/components/permissions/permission-gate";
 import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -68,6 +69,14 @@ const speakerStatusColors: Record<string, string> = {
 export default function ReviewersPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  return (
+    <PermissionGate permission="reviewers.pool.manage" eventId={eventId} what="this event's reviewers" back={{ href: `/events/${eventId}`, label: "Back to the event" }}>
+      <Reviewers eventId={eventId} />
+    </PermissionGate>
+  );
+}
+
+function Reviewers({ eventId }: { eventId: string }) {
 
   const { data, isLoading, isFetching } = useReviewers(eventId);
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);

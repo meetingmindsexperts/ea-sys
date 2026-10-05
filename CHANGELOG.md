@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: one "no access" panel instead of empty pages (October 5)
+
+- A page someone may not open now says "You don't have access to ...",
+  names their role, says to ask an organisation admin, and offers a way back.
+  Before, the same refusal looked like an empty list (Member saw "0 reviewers"
+  with an Add Reviewer button), a spinner that never stopped (Member on
+  Media), a blank page (Onsite on an event it is not assigned to), or a bare
+  "Not authorized." (Infra / Ops). Built on `useCan` and `PermissionGate`, which
+  ask the same permission check as the routes; the routes still decide.
+
 ### Changed: the sidebar asks permissions, not roles (October 5)
 
 - Custom roles Phase 3. Each system role names its areas (dashboard, events,

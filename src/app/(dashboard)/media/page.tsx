@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { formatFileSize } from "@/lib/utils";
 import { useMediaView } from "@/hooks/use-media-view";
+import { PermissionGate } from "@/components/permissions/permission-gate";
 
 interface MediaFile {
   id: string;
@@ -38,6 +39,14 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
 export default function MediaPage() {
+  return (
+    <PermissionGate permission="media.library.manage" what="the media library" back={{ href: "/dashboard", label: "Back to Dashboard" }}>
+      <MediaLibrary />
+    </PermissionGate>
+  );
+}
+
+function MediaLibrary() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);

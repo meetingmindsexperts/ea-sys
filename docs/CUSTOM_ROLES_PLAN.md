@@ -1175,9 +1175,21 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
   owner-approved: Member no longer sees Media and Reviewers (both refused it
   already, so the links led to a spinner and a false "0 reviewers"); CRM User
   and HR User lose event menus they could never open.
-- *Next:* `useCan` with one shared "no access" panel (owner, Oct 5: a refused
-  page says so and names who to ask, instead of an empty list or a spinner),
-  then middleware, then MCP and the agent.
+- *useCan and the "no access" panel* (owner, Oct 5: a refused page says so
+  and names who to ask, instead of an empty list, a spinner or a blank page).
+  `useCan(key, eventId?)` (`src/hooks/use-can.ts`) asks the same `can()` from
+  `principalFromUser`; with an event it waits for the event GET and judges the
+  scope from its facts (`eventFactsOf`: type and `settings.onsiteUserIds`).
+  `<PermissionGate>` mounts a page only when the key is held, so a refused
+  page fires no requests; `<NoAccess>` is the one panel (role named, "ask an
+  organisation admin"). `events/[eventId]/layout.tsx` shows it for any event
+  whose GET answers 403 or 404. Applied so far: Media, an event's Reviewers,
+  Infra / Ops (replacing its bare "Not authorized."), and every event page.
+  Advisory only; the routes stay the authority.
+- *Next:* sweep the remaining client files onto `useCan` / `PermissionGate`
+  (the known console 403s first: Member's event activity feed, the EventsAir
+  credentials request for Member and Webinars), then middleware, then MCP and
+  the agent.
 
 ### Phase 4: Event staff assignment (1 week)
 

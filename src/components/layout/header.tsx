@@ -187,6 +187,15 @@ const ROLE_META: Record<string, RoleMeta> = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const EXTRA_ROLE_LABELS: Record<string, string> = { MEMBER: "Member" };
+
+/** The display name of a role, as the header badge shows it ("Onsite Staff"). */
+export function roleLabelOf(role: string | null | undefined): string | null {
+  if (!role) return null;
+  // MEMBER carries no header badge, so it has no ROLE_META entry.
+  return ROLE_META[role]?.label ?? EXTRA_ROLE_LABELS[role] ?? null;
+}
+
 export function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();

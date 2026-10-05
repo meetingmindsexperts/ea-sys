@@ -7,6 +7,7 @@
  * (→ src/lib/infra/aws-ops.ts). Docs: docs/INFRA_OPS.md.
  */
 
+import { NoAccess } from "@/components/permissions/no-access";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
@@ -270,7 +271,7 @@ export default function InfraPage() {
   }, [autoRefresh, isAdmin, load]);
 
   if (!isAdmin) {
-    return <div className="p-8 text-sm text-muted-foreground">Not authorized.</div>;
+    return <NoAccess what="Infra / Ops" back={{ href: "/dashboard", label: "Back to Dashboard" }} />;
   }
 
   return (
