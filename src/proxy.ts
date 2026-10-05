@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/lib/auth.config";
 import { maxBodySizeFor } from "@/lib/body-limits";
+import { confinementRedirect } from "@/lib/route-confinement";
 
 // Use the Edge-compatible auth config (no Node.js modules like bcrypt, prisma)
 const { auth } = NextAuth(authConfig);
@@ -143,177 +144,16 @@ export default auth((req) => {
     }
   }
 
-  // ── RBAC: Restricted role redirects ──
-  const role = req.auth?.user?.role;
-
-  // REGISTRANT: redirect everything to /my-registration
-  if (role === "REGISTRANT") {
-    if (pathname.startsWith("/my-registration") || pathname.startsWith("/api/")) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
+  // ── Confinement: where this person may go in the dashboard UI ──
+  // One pure function (src/lib/route-confinement.ts), pinned by a role-by-path
+  // matrix. API routes always pass: each carries its own permission check.
+  const target = confinementRedirect(req.auth?.user?.role, pathname);
+  if (target) {
     const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/my-registration";
+    redirectUrl.pathname = target;
     return NextResponse.redirect(redirectUrl);
   }
-
-  // CRM_USER: confined to the CRM. Every matched dashboard path (events,
-  // dashboard, settings, contacts, profile, logs, my-registration) is redirected
-  // to /crm. /crm itself is not in the matcher, so it passes straight through.
-  // API routes carry their own per-route guards (requireCrmRead/Write on /api/crm,
-  // denyReviewer elsewhere), so they are never redirected.
-  if (role === "CRM_USER") {
-    if (pathname.startsWith("/api/")) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/crm";
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // HR_USER: confined to the HR module. Every matched dashboard path is
-  // redirected to /hr; /hr itself is not in the matcher, so it passes straight
-  // through. API routes carry their own guard (denyNonHr on /api/hr, denyReviewer
-  // elsewhere), so they are never redirected.
-  //
-  // NOTE this redirect stands even on a deployment where the HR module is
-  // switched off. That is correct: the role only exists where it was granted, and
-  // sending it to a page that 404s is a better answer than dropping it into an
-  // events dashboard it must not see.
-  if (role === "HR_USER") {
-    if (pathname.startsWith("/api/")) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/hr";
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // ONSITE: registration-desk staff. Allowed UI = the events list + a chosen
-  // event's Registrations + Check-In pages. Everything else (other event
-  // sections, dashboard, settings, logs, contacts, new-event) is redirected.
-  // API routes carry their own per-route guards (denyReviewer/denyFinance).
-  if (role === "ONSITE") {
-    if (pathname.startsWith("/api/")) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    if (
-      pathname.startsWith("/dashboard") ||
-      pathname.startsWith("/settings") ||
-      pathname.startsWith("/logs") ||
-      pathname.startsWith("/agent") ||
-      pathname.startsWith("/contacts") ||
-      pathname === "/events/new"
-    ) {
-      const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = "/events";
-      return NextResponse.redirect(redirectUrl);
-    }
-    const onsiteEventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
-    if (!onsiteEventPath) {
-      // /events (list) and non-event paths under the matcher are fine.
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    const sub = onsiteEventPath[1] ?? "";
-    const onsiteAllowed =
-      sub === "registrations" ||
-      sub.startsWith("registrations/") ||
-      sub === "check-in" ||
-      sub.startsWith("check-in/");
-    if (onsiteAllowed) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    // Any other event subpath (incl. the event landing) → that event's
-    // registrations page.
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = `${pathname.split("/").slice(0, 3).join("/")}/registrations`;
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // WEBINARS: the webinar team (Aug 3, 2026). Full UI access to the events
-  // area (their event LIST + APIs resolve only webinars + assigned-conference
-  // desk via buildEventAccessWhere — the API layer is the authoritative gate;
-  // the Edge can't read eventType). Blocked from org-level surfaces. /events/new
-  // is ALLOWED (they create webinar events; the POST forces eventType=WEBINAR).
-  if (role === "WEBINARS") {
-    if (pathname.startsWith("/api/")) {
-      return addCorsHeaders(NextResponse.next(), origin);
-    }
-    if (
-      pathname.startsWith("/dashboard") ||
-      pathname.startsWith("/settings") ||
-      pathname.startsWith("/logs") ||
-      pathname.startsWith("/agent") ||
-      pathname.startsWith("/contacts") ||
-      pathname.startsWith("/crm") ||
-      pathname.startsWith("/admin") ||
-      // Org-wide invoice ledger — WEBINARS is finance-capable for its desk
-      // duties but blocked from org-level finance surfaces (review H-1).
-      pathname.startsWith("/invoices")
-    ) {
-      const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = "/events";
-      return NextResponse.redirect(redirectUrl);
-    }
-    return addCorsHeaders(NextResponse.next(), origin);
-  }
-
-  const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
-
-  if (!isRestricted) {
-    return addCorsHeaders(NextResponse.next(), origin);
-  }
-
-  // Block restricted roles from dashboard, settings, logs and the staff
-  // profile. /profile holds a name field and the email signature appended to
-  // ORGANISER emails — a submitter edits their details on My Details, a
-  // registrant on their registration, and neither ever sends one.
-  if (
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/logs") ||
-    pathname.startsWith("/agent") ||
-    pathname.startsWith("/profile") ||
-    pathname.startsWith("/analytics")
-  ) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/events";
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // Block restricted roles from creating new events
-  if (pathname === "/events/new") {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = "/events";
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  const eventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
-
-  if (!eventPath) {
-    return addCorsHeaders(NextResponse.next(), origin);
-  }
-
-  const eventSubPath = eventPath[1] ?? "";
-  // SUBMITTER/REVIEWER event surface: abstracts, plus session proposals
-  // (July 30, 2026 — SUBMITTER accounts also propose sessions; REVIEWER has
-  // no proposal API access, the page just renders empty for them), plus the
-  // neutral My Details page (Aug 5, 2026 — moved out of /abstracts/profile
-  // so proposal-flow submitters don't see "abstracts" in their profile URL).
-  const isSubmitterAllowedPath =
-    eventSubPath === "abstracts" ||
-    eventSubPath.startsWith("abstracts/") ||
-    eventSubPath === "session-proposals" ||
-    eventSubPath.startsWith("session-proposals/") ||
-    eventSubPath === "my-details";
-
-  if (isSubmitterAllowedPath) {
-    return addCorsHeaders(NextResponse.next(), origin);
-  }
-
-  const redirectUrl = req.nextUrl.clone();
-  redirectUrl.pathname = `${pathname.split("/").slice(0, 3).join("/")}/abstracts`;
-
-  return NextResponse.redirect(redirectUrl);
+  return addCorsHeaders(NextResponse.next(), origin);
 });
 
 export const config = {
