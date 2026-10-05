@@ -1358,8 +1358,24 @@ directory (§7.1).
   (roles wider than the creator are disabled; the route refuses them too).
   Verified locally: a Desk lead key answered 200 on registrations and 404 on
   speakers and sessions, and its MCP tool list was the two desk tools.
-- *Next:* the two warnings that need the database, audit-row names, "View as
-  role".
+- *Owner, Oct 5:* Budgets roles and custom roles in two cards with two
+  dialogs (`roleKind()`); each person dialog shows its own kind and keeps the
+  other.
+- *Slice 3b (built Oct 5).* The two §8.3 warnings that need the database
+  (`readHolderWarnings`, POST `.../permission-sets/[id]/warnings` on the
+  unsaved draft): "assigned events" grants when no holder is assigned
+  anywhere, and person-grant keys that do nothing for N of M holders. Audit
+  rows carry `changes.event` (`ROLE_CREATED`, `ROLE_GRANT_CHANGED`,
+  `ROLE_RENAMED`, `ROLE_ARCHIVED`, `ROLE_RESTORED`, `ROLE_ASSIGNED`; the
+  stored `action` stays CREATE/UPDATE for the activity feeds) and an
+  assignment snapshots role NAMES (`rolesAdded`, `rolesRemoved`). "View as
+  role" is a preview in the editor: for a chosen base role, what holding the
+  role adds to the menu and to the event pages on a conference and a webinar,
+  computed with the real sidebar, middleware and page-gate functions. Signing
+  in AS a role (impersonation) is not built: it would change sign-in.
+- **Phase 5 is complete** apart from: fully custom identities (clone a
+  built-in role, a "No base access" base, custom roles that open new areas,
+  the last needing a JWT change) if the owner wants them, then Phase 6.
 
 ### Phase 6: Retire the old model (1 to 2 weeks)
 

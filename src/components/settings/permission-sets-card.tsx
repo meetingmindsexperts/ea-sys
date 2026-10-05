@@ -15,7 +15,7 @@
  */
 
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Archive, Loader2, Pencil, Plus, ShieldCheck, Undo2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PERMISSION_CATALOGUE, PERMISSION_GROUPS, isGrantableKey } from "@/lib/permissions/catalogue";
 import { roleWarnings, type DraftGrant } from "@/lib/permissions/role-warnings";
+import { RolePreview } from "@/components/settings/role-preview";
 import { isProcurementKey, roleKind, type RoleKind } from "@/lib/permissions/role-kind";
 import type { GrantScope } from "@/lib/permissions/system-roles";
 import { useRuntimeFlags } from "@/components/runtime-flags";
@@ -234,7 +235,24 @@ function PermissionSetDialog({
   const keys = form.permissions.map((g) => g.permission);
   const conflicts = separationConflicts({ permissions: keys });
   // Warnings, not refusals (plan §8.3): a deliberate role can still be saved.
-  const warnings = roleWarnings(form.permissions);
+  // The two that need the database (who holds the role) come from the server
+  // for a role people already hold.
+  const editingId = editing && editing !== "new" ? editing.id : null;
+  const holderWarnings = useQuery({
+    queryKey: ["permission-sets", editingId, "warnings", form.permissions],
+    queryFn: async () => {
+      const res = await fetch(`/api/organization/permission-sets/${editingId}/warnings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions: form.permissions.map((g) => (g.scope ? g : g.permission)) }),
+      });
+      if (!res.ok) throw new Error("Could not check the role's holders");
+      return (await res.json()) as { warnings: { code: string; message: string }[] };
+    },
+    enabled: !!editingId && form.permissions.length > 0,
+    staleTime: 30_000,
+  });
+  const warnings = [...roleWarnings(form.permissions), ...(holderWarnings.data?.warnings ?? [])];
 
   const grantable = PERMISSION_CATALOGUE.filter((p) => {
     if (!isGrantableKey(p.key, customRolesEnabled)) return false;
@@ -361,6 +379,8 @@ function PermissionSetDialog({
               ))}
             </div>
           )}
+
+          {kind !== "procurement" && form.permissions.length > 0 && <RolePreview grants={form.permissions} />}
 
           {grantable.length > 12 && (
             <Input

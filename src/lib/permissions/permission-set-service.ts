@@ -18,7 +18,7 @@ import type { GrantScope } from "@prisma/client";
 import { STARTER_ROLES, describePermission, isGrantableKey, type PermissionKey } from "./catalogue";
 import { isCustomRolesEnabled } from "@/lib/module-flags";
 import { breaksAdminTrio, firstGrantBeyondActor } from "./escalation";
-import type { Principal } from "./can";
+import { holdsPersonGrant, systemPrincipal, type Principal } from "./can";
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS, type Grant } from "./system-roles";
 import { separationConflicts, unionPermissions } from "./separation";
 
@@ -395,7 +395,7 @@ export async function createPermissionSet(input: {
       actorUserId: input.actorUserId,
       action: "CREATE",
       entityId: set.id,
-      changes: { name, permissions: cleaned.grants.map(auditGrant), ip: input.ip ?? null },
+      changes: { event: "ROLE_CREATED", name, permissions: cleaned.grants.map(auditGrant), ip: input.ip ?? null },
     });
     apiLogger.info({ msg: "permissions:role-created", organizationId: input.organizationId, permissionSetId: set.id, name });
     return { ok: true, set };
@@ -521,6 +521,7 @@ export async function updatePermissionSet(input: {
       action: "UPDATE",
       entityId: input.permissionSetId,
       changes: {
+        event: permissionsChanged ? "ROLE_GRANT_CHANGED" : "ROLE_RENAMED",
         name,
         ...(permissionsChanged ? { permissionsBefore: before, permissionsAfter: nextGrants.map(auditGrant) } : {}),
         ip: input.ip ?? null,
@@ -576,7 +577,13 @@ export async function setPermissionSetArchived(input: {
       actorUserId: input.actorUserId,
       action: "UPDATE",
       entityId: input.permissionSetId,
-      changes: { name: current.name, archived: input.archived, holderCount: current._count.holders, ip: input.ip ?? null },
+      changes: {
+        event: input.archived ? "ROLE_ARCHIVED" : "ROLE_RESTORED",
+        name: current.name,
+        archived: input.archived,
+        holderCount: current._count.holders,
+        ip: input.ip ?? null,
+      },
     });
     apiLogger.info({
       msg: input.archived ? "permissions:role-archived" : "permissions:role-restored",
@@ -700,6 +707,13 @@ export async function setUserPermissionSets(input: {
 
   const added = wanted.filter((id) => !before.includes(id));
   const removed = before.filter((id) => !wanted.includes(id));
+  // Names as they are NOW (plan §3.3): a role can be renamed later, and the
+  // trail must still say what the person was given.
+  const nameRows = removed.length
+    ? await db.permissionSet.findMany({ where: { organizationId: input.organizationId, id: { in: removed } }, select: { id: true, name: true } })
+    : [];
+  const nameOf = new Map<string, string>([...sets, ...nameRows].map((r) => [r.id, r.name]));
+  const named = (ids: string[]) => ids.map((id) => ({ id, name: nameOf.get(id) ?? null }));
   // On the PERSON, because "what can this colleague do" is answered from their
   // trail, not from the role's.
   await writeAudit({
@@ -709,10 +723,13 @@ export async function setUserPermissionSets(input: {
     entityType: "User",
     entityId: input.userId,
     changes: {
+      event: "ROLE_ASSIGNED",
       permissionSetsBefore: before,
       permissionSetsAfter: wanted,
       permissionSetsAdded: added,
       permissionSetsRemoved: removed,
+      rolesAdded: named(added),
+      rolesRemoved: named(removed),
       ip: input.ip ?? null,
     },
   });
@@ -822,4 +839,74 @@ export async function readPermissionSetHolderCounts(
     _count: { _all: true },
   });
   return Object.fromEntries(rows.map((row) => [row.userId, row._count._all]));
+}
+
+/**
+ * The editor's warnings that need the database (plan §8.3), for a role people
+ * already hold, judged on the draft being edited:
+ *  - an "assigned events" grant when no holder is assigned to any event, so
+ *    it does nothing yet;
+ *  - a key that also needs a person grant (HR access, an approval limit) and
+ *    does nothing for the holders who lack it.
+ * Warnings, not refusals: the role can still be saved.
+ */
+export async function readHolderWarnings(
+  organizationId: string,
+  permissionSetId: string,
+  draft: readonly GrantInput[],
+): Promise<{ code: "ASSIGNED_NOBODY" | "PERSON_GRANT_MISSING"; message: string }[]> {
+  const holders = await db.userPermissionSet.findMany({
+    where: { organizationId, permissionSetId },
+    select: {
+      user: {
+        select: {
+          id: true,
+          role: true,
+          hrAccess: true,
+          procurementApproveCeilingAed: true,
+          procurementApproveUnlimited: true,
+          _count: { select: { eventStaffAssignments: true } },
+        },
+      },
+    },
+  });
+  if (holders.length === 0) return [];
+  const grants = draft.map((g) => (typeof g === "string" ? { permission: g, scope: null } : { permission: g.permission, scope: g.scope ?? null }));
+  const warnings: { code: "ASSIGNED_NOBODY" | "PERSON_GRANT_MISSING"; message: string }[] = [];
+
+  if (grants.some((g) => g.scope === "ASSIGNED") && holders.every((h) => h.user._count.eventStaffAssignments === 0)) {
+    warnings.push({
+      code: "ASSIGNED_NOBODY",
+      message: `Nobody holding this role is assigned to an event yet, so its "assigned events" permissions do nothing until someone is (Settings, Onsite Staff).`,
+    });
+  }
+
+  for (const g of grants) {
+    const descriptor = describePermission(g.permission);
+    const need = descriptor?.personGrant;
+    if (!need) continue;
+    const lacking = holders.filter(
+      (h) =>
+        !holdsPersonGrant(
+          systemPrincipal({
+            role: h.user.role,
+            organizationId,
+            userId: h.user.id,
+            personGrants: {
+              hrAccess: h.user.hrAccess === true,
+              procurementApproveCeilingAed: h.user.procurementApproveCeilingAed === null ? null : Number(h.user.procurementApproveCeilingAed),
+              procurementApproveUnlimited: h.user.procurementApproveUnlimited === true,
+            },
+          }),
+          need,
+        ),
+    ).length;
+    if (lacking === 0) continue;
+    const what = need === "hrAccess" ? "HR access on the person" : "an approval limit on the person";
+    warnings.push({
+      code: "PERSON_GRANT_MISSING",
+      message: `"${descriptor.label}" does nothing for ${lacking} of ${holders.length} ${holders.length === 1 ? "person" : "people"} holding this role: it also needs ${what}.`,
+    });
+  }
+  return warnings;
 }

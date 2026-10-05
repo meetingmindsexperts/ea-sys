@@ -390,6 +390,8 @@ describe("setUserPermissionSets", () => {
     expect(audit.entityType).toBe("User");
     expect(audit.entityId).toBe("u1");
     expect(audit.changes.permissionSetsAdded).toEqual(["s1"]);
+    // The name as it was at the time, since a role can be renamed later (plan §3.3).
+    expect(audit.changes).toMatchObject({ event: "ROLE_ASSIGNED", rolesAdded: [{ id: "s1", name: "Requester" }], rolesRemoved: [] });
   });
 });
 

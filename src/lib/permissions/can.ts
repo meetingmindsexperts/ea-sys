@@ -155,7 +155,8 @@ export function isOperator(p: Principal): boolean {
   return p.baseRole === "SUPER_ADMIN" && !p.organizationId && !p.fromApiKey;
 }
 
-function holdsPersonGrant(p: Principal, need: PersonGrant): boolean {
+/** Does the person hold this person grant (HR access, an approval limit)? */
+export function holdsPersonGrant(p: Principal, need: PersonGrant): boolean {
   if (need === "hrAccess") return p.personGrants.hrAccess === true;
   // procurementApprove: a ceiling above zero, or unlimited. The AMOUNT is judged
   // at decision time by `canApproveProcurement`; this is "may decide at all".
