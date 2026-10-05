@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -43,10 +43,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "billing-accounts/[billingAccountId]/merge:POST" });
-    if (denied) return denied;
-    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]/merge:POST" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.manage", { route: "billing-accounts/[billingAccountId]/merge:POST" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure
     // Tenancy: the store must be set before mergeBillingAccounts' tenantTransaction.

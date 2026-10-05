@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 
 /**
@@ -39,10 +39,10 @@ async function authGuard(params: RouteParams["params"]) {
   if (!session?.user) {
     return { err: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) } as const;
   }
-  const denied = denyReviewer(session, { route: "events/[eventId]/billing-accounts/[billingAccountId]:gate" });
-  if (denied) return { err: denied } as const;
-  const noFinance = denyFinance(session, { route: "events/[eventId]/billing-accounts/[billingAccountId]:gate" });
-  if (noFinance) return { err: noFinance } as const;
+  // `billingAccounts.manage` is organisation-wide, so both ends stay bound to
+  // the caller's organisation by hand below (`scopeEnds`).
+  const gate = requirePermission(session, "billingAccounts.manage", { route: "events/[eventId]/billing-accounts/[billingAccountId]:gate", eventId });
+  if (!gate.ok) return { err: gate.response } as const;
   return {
     ok: true as const,
     session,

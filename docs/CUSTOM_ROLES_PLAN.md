@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 12 of 17
-> domains swept (152 route files on `requirePermission`, pinned by
+> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 13 of 18
+> domains swept (169 route files on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -893,6 +893,40 @@ Domain by domain:
   worked the desk with clean Registrations and Check-In pages, MEMBER 403 on
   the CSV, barcode and DTCM codes; WEBINARS on a conference got the barcode
   image and 404 on the email change.
+- **Money SWEPT Oct 5, 2026** (17 files: a registration's refund, cancel,
+  credit note, promo code and quote; an event's invoices, an invoice, its PDF
+  and send, the event invoice CSV; attaching payers to an event; the
+  organisation's invoice book and its export; the payer book and merge).
+  Keys: `payments.refund`, `registrations.cancel`, `creditNotes.issue`,
+  `registrations.promo.apply`, `invoices.read` (list, invoice, PDF, quote),
+  `.write`, `.send`, `.export`, `invoices.ledger` (the org book and its
+  export, replacing `denyFinance` plus the hand-written WEBINARS refusal),
+  `billingAccounts.read` / `.manage` (organisation-wide, so the payer routes
+  keep their organisation-bound lookups). Each pair of `denyReviewer` and
+  `denyFinance` became one key. **Owner rulings, Oct 5, 2026:** ONSITE was
+  reading the organisation's WHOLE invoice book and its export (every event,
+  not only its assignments; the August H-1 fix refused WEBINARS and missed
+  ONSITE): now refused. ONSITE keeps its assigned events' invoices, quotes
+  and invoice CSV, and with WEBINARS the payer list its add-registration form
+  reads (`billingAccounts.read`), so those were granted as found; WEBINARS
+  also gained `invoices.export` at `WEBINAR`, which it already used.
+  **Also re-recorded:** the platform operator now gets a clean 403 on a
+  registration's promo code, attaching payers to an event and the payer book,
+  where it reached lookups bound to an empty organisation id (404, an empty
+  list, or a 500 from a write with no organisation). Verified with the
+  chrome-devtools MCP, with no money moved and nothing sent: ADMIN read
+  invoices, the event CSV, a quote PDF, the org book and its CSV, created,
+  renamed, attached and detached a payer, and reached validation on refund,
+  cancel, credit note and promo; ONSITE 403 on the org book and its export,
+  200 on its event's invoices, CSV, quote and payers; MEMBER reads all and
+  is 403 on every money action; WEBINARS 403 on the org book, 404 on a
+  conference's invoices. Invoices pages clean for ADMIN and MEMBER.
+- **Domain added Oct 5, 2026: remaining event routes.** Eighteen event route
+  files belong to no domain above (analytics and traffic, the event activity
+  feed, media, sponsors, clone, the export bundle, the other imports, the
+  import log, the agent, agreement PDF images, the speaker agreement
+  template, submitter context). They are swept as a domain of their own after
+  money, which makes eighteen domains, not seventeen.
 
 **Behaviour changes so far.** Everything else in the swept domains answers as
 it did before, byte for byte in the route matrix. These changed on purpose,
@@ -908,6 +942,7 @@ each approved by the owner:
 | Certificates | Template and run lookups bound to the URL's event (same statuses) |
 | Webinar | The attendance CSV (attendee emails) downloads only for Admin, Organizer and Webinars; Member and Onsite see attendance on screen only |
 | Faculty extras | Member reads survey answers (a widening) |
+| Money | Onsite no longer reads the organisation's invoice book or its export; the platform operator gets a clean 403 on promo codes, event payers and the payer book |
 | Registrations desk | Webinars sees the barcode image on conferences (a widening, matching its badges); the platform operator no longer reads tenants' barcode images or supporting documents |
 
 Recorded and left as found, each an owner call: the platform operator

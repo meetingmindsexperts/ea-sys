@@ -3,7 +3,8 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import {
@@ -17,8 +18,7 @@ import {
  * registration. Discount is stored on the registration (discountAmount +
  * promoCodeId); the pay-later checkout, quote PDF, and invoice already read it.
  *
- * Finance action → denyReviewer (blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER
- * write) + denyFinance (blocks MEMBER money visibility). Same promo rules as the
+ * Finance action → `registrations.promo.apply` (ADMIN and ORGANIZER). Same promo rules as the
  * public/registrant path — organizers do NOT bypass a promo's own limits.
  */
 
@@ -49,13 +49,15 @@ async function authorize(eventId: string) {
   const session = await auth();
   if (!session?.user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
 
-  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/promo:gate" });
-  if (denied) return { error: denied };
-  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/promo:gate" });
-  if (financeDenied) return { error: financeDenied };
+  // A no-organisation caller (the platform operator) is refused outright: it
+  // used to reach a lookup bound to an empty organisation id and get a 404.
+  const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/promo:gate" });
+  if ("error" in orgGuard) return { error: orgGuard.error };
+  const gate = requirePermission(session, "registrations.promo.apply", { route: "events/[eventId]/registrations/[registrationId]/promo:gate", eventId });
+  if (!gate.ok) return { error: gate.response };
 
   const event = await db.event.findFirst({
-    where: { id: eventId, organizationId: (session.user.organizationId ?? "") },
+    where: gate.eventWhere,
     select: { id: true },
   });
   if (!event) return { error: NextResponse.json({ error: "Event not found" }, { status: 404 }) };

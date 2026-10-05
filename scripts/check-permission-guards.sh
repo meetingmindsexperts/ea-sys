@@ -191,6 +191,24 @@ SWEPT=(
   "src/app/api/events/[eventId]/registration-shares/[viewId]/route.ts"
   "src/app/api/events/[eventId]/registration-shares/[viewId]/regenerate/route.ts"
   "src/app/api/events/[eventId]/onsite-staff/route.ts"
+  # money (Oct 5, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/refund/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/cancel/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/credit-notes/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/promo/route.ts"
+  "src/app/api/events/[eventId]/registrations/[registrationId]/quote/route.ts"
+  "src/app/api/events/[eventId]/billing-accounts/route.ts"
+  "src/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route.ts"
+  "src/app/api/events/[eventId]/invoices/route.ts"
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/route.ts"
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/pdf/route.ts"
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/send/route.ts"
+  "src/app/api/events/[eventId]/invoices/export/route.ts"
+  "src/app/api/invoices/route.ts"
+  "src/app/api/invoices/export/route.ts"
+  "src/app/api/billing-accounts/route.ts"
+  "src/app/api/billing-accounts/[billingAccountId]/route.ts"
+  "src/app/api/billing-accounts/[billingAccountId]/merge/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

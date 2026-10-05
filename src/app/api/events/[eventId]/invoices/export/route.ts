@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -39,13 +38,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:export:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices/export:GET" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "invoices.export", { route: "events/[eventId]/invoices/export:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:export", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: gate.eventWhere,
       select: { id: true, code: true },
     });
     if (!event) {

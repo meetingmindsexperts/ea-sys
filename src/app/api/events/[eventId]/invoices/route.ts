@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createInvoice , GroupMemberInvoiceError } from "@/lib/invoice-service";
@@ -27,15 +26,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const noFinance = denyFinance(session, { route: "events/[eventId]/invoices:GET" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "invoices.read", { route: "events/[eventId]/invoices:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Assignment-gated, not just org-gated: ONSITE (and MEMBER) are
     // finance-capable, so an ONSITE temp assigned to Event A must 404 on
     // Event B's invoices — same rule as the desk routes (review H10).
     const event = await db.event.findFirst({
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
@@ -118,12 +117,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/invoices:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/invoices:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "invoices.write", { route: "events/[eventId]/invoices:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

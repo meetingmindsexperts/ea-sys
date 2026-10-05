@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -50,14 +50,11 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "invoices/export:GET" });
-    if (noFinance) return noFinance;
-    // WEBINARS is finance-capable for desk duties only — the org-wide invoice
-    // export is an org-level surface it's blocked from (review H-1).
-    if (session.user.role === "WEBINARS") {
-      apiLogger.warn({ msg: "org-invoices:export-webinars-role-refused", userId: session.user.id });
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // The organisation's whole invoice book: `invoices.ledger`. Finance-capable
+    // is not ledger access: WEBINARS (review H-1) and ONSITE (temp desk staff,
+    // which read it until Oct 5, 2026) see amounts on their own events only.
+    const gate = requirePermission(session, "invoices.ledger", { route: "invoices/export:GET" });
+    if (!gate.ok) return gate.response;
 
     const organizationId = session.user.organizationId;
     if (!organizationId) {

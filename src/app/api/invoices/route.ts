@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { invoiceDateFilter, parseInvoiceEnumFilters } from "@/lib/invoice-export";
@@ -13,15 +13,13 @@ import { runWithTenant } from "@/lib/tenant-context";
  * Organization-wide invoice hub — every Invoice-model document (invoices,
  * receipts, credit notes) across ALL of the org's events, filterable by
  * year / month / event / type / status. Powers the org-level Invoices page
- * in the sidebar. Finance-gated via denyFinance — NOTE (doc-drift fixed
- * Aug 4, 2026): MEMBER and ONSITE are finance-CAPABLE (FINANCE_ROLES, June 17
- * decision), so denyFinance does NOT bar them here; it bars the org-null
- * attendee roles. Org-scoped via `organizationId` so it never crosses tenants.
+ * in the sidebar. Gated on `invoices.ledger` (SUPER_ADMIN, ADMIN, ORGANIZER,
+ * MEMBER). Org-scoped via `organizationId` so it never crosses tenants.
  *
- * WEBINARS (webinar team) is explicitly refused: it is finance-capable for
- * its DESK duties (payment amounts on its own events), but this is an
- * ORG-WIDE ledger covering every conference — an org-level surface the role
- * is blocked from by spec (review H-1).
+ * WEBINARS and ONSITE are finance-capable for their DESK duties (payment
+ * amounts on their own events), but this is an ORG-WIDE ledger covering every
+ * event, so neither holds the key (WEBINARS: review H-1; ONSITE: Oct 5, 2026,
+ * custom roles Phase 2, after the route matrix showed it reading the book).
  *
  * Query params (all optional): year, month (1-12), eventId, type, status, search.
  * Returns `{ invoices, earliestYear }` — earliestYear seeds the page's Year filter.
@@ -32,19 +30,16 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "invoices:GET" });
-    if (noFinance) return noFinance;
-    // Finance-capable ≠ org-ledger access: WEBINARS sees payment amounts on
-    // its own events, never the org-wide invoice book (review H-1).
-    if (session.user.role === "WEBINARS") {
-      apiLogger.warn({ msg: "org-invoices:webinars-role-refused", userId: session.user.id });
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // The organisation's whole invoice book: `invoices.ledger`. Finance-capable
+    // is not ledger access: WEBINARS (review H-1) and ONSITE (temp desk staff,
+    // which read it until Oct 5, 2026) see amounts on their own events only.
+    const gate = requirePermission(session, "invoices.ledger", { route: "invoices:GET" });
+    if (!gate.ok) return gate.response;
 
     const organizationId = session.user.organizationId;
     if (!organizationId) {
       // Org-independent accounts (reviewer/submitter/registrant) have no org
-      // invoices; denyFinance already blocks them, but fail closed regardless.
+      // invoices; the ledger key already refuses them, but fail closed regardless.
       return NextResponse.json({ error: "No organization" }, { status: 403 });
     }
 

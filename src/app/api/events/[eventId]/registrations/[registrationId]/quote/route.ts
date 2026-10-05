@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateQuotePDF } from "@/lib/quote-pdf";
@@ -24,13 +23,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "quote:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/quote:GET" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "invoices.read", { route: "events/[eventId]/registrations/[registrationId]/quote:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:quote", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: gate.eventWhere,
       select: { id: true },
     });
 

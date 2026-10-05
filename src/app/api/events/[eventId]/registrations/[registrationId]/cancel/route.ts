@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { cancelRegistration, type CancelRegistrationErrorCode } from "@/services/payment-service";
@@ -47,10 +46,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.warn({ msg: "cancel:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/cancel:POST" });
-  if (denied) return denied;
-  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/cancel:POST" });
-  if (financeDenied) return financeDenied;
+  const gate = requirePermission(session, "registrations.cancel", { route: "events/[eventId]/registrations/[registrationId]/cancel:POST", eventId });
+  if (!gate.ok) return gate.response;
 
   // Cancel-with-refund fires stripe.refunds.create — cap a compromised
   // session (review M7). 60/hr is far above any real cancellation pace.
@@ -71,7 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   return await runWithTenantLane(session.user.organizationId, { route: "registrations:cancel", userId: session.user.id }, async () => {
   const event = await db.event.findFirst({
-    where: { id: eventId, ...buildEventAccessWhere(session.user) },
+    where: gate.eventWhere,
     select: { id: true },
   });
   if (!event) {

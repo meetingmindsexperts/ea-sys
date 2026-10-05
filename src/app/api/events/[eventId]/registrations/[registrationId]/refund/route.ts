@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { refundRegistration, type RefundErrorCode } from "@/services/payment-service";
@@ -51,14 +50,12 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/refund:POST" });
-  if (denied) return denied;
+  const gate = requirePermission(session, "payments.refund", { route: "events/[eventId]/registrations/[registrationId]/refund:POST", eventId });
+  if (!gate.ok) return gate.response;
   // Guard parity with credit-notes + cancel (review M7): refunds move money
   // through Stripe — explicitly finance-gated, not just write-gated, so a
   // future `{ allow: … }` refactor on denyReviewer can't open Stripe refunds
   // to desk staff by accident.
-  const noFinance = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/refund:POST" });
-  if (noFinance) return noFinance;
 
   // The endpoint fires stripe.refunds.create — cap a compromised session
   // (review M7). 60/hr is far above any real refund pace.
@@ -80,7 +77,7 @@ export async function POST(
   return await runWithTenantLane(session.user.organizationId, { route: "registrations:refund", userId: session.user.id }, async () => {
   // Event access (org-scoped / assignment-gated) before touching the registration.
   const event = await db.event.findFirst({
-    where: { id: eventId, ...buildEventAccessWhere(session.user) },
+    where: gate.eventWhere,
     select: { id: true },
   });
   if (!event) {

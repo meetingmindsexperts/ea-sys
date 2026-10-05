@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { findOrCreateBillingAccount } from "@/services/billing-account-service";
@@ -51,10 +51,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/billing-accounts:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/billing-accounts:POST" });
-    if (denied) return denied;
-    const noFinance = denyFinance(session, { route: "events/[eventId]/billing-accounts:POST" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.manage", { route: "events/[eventId]/billing-accounts:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const orgId = orgGuard.orgId; // capture before the closure
     return await runWithTenant(orgId, async () => {

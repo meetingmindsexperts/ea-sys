@@ -187,6 +187,8 @@ const WEBINARS_MANAGE: PermissionKey[] = [
   "registrations.email",
   "registrations.email.change",
   "invoices.read",
+  // The webinar's invoice CSV (recorded by the money matrix, Oct 5, 2026).
+  "invoices.export",
   "speakers.read",
   "speakers.create",
   "speakers.update",
@@ -339,7 +341,12 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // console's reads, recorded Oct 2, 2026 and kept as found by the owner.
     grants: [
       ...at("ASSIGNED", "events.read", "registrations.read", "tickets.read", "promo.read", "sessions.read", "speakers.read", "abstracts.read", "proposals.read", "webinar.analytics.read", ...DESK, ...DESK_WITH_CODES),
-      ...org("finance.view", "barcode.view", "hr.read", "hr.write"),
+      // The assigned event's invoices, quotes and invoice CSV, and the payer
+      // list its add-registration form reads: recorded by the money matrix and
+      // kept by the owner, Oct 5, 2026. NOT the organisation's invoice book
+      // (`invoices.ledger`), which it read across every event before (fixed).
+      ...at("ASSIGNED", "invoices.read", "invoices.export"),
+      ...org("finance.view", "barcode.view", "billingAccounts.read", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
   },
@@ -360,7 +367,9 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // Reads a webinar's abstracts and session proposals (and their themes),
       // recorded by the route matrix and kept as found, Oct 2, 2026.
       ...at("WEBINAR", "abstracts.read", "proposals.read"),
-      ...org("finance.view", "barcode.view", "zoomHost.view", "hr.read", "hr.write"),
+      // The payer list the desk's add-registration form reads (recorded by
+      // the money matrix, kept as found, Oct 5, 2026).
+      ...org("finance.view", "barcode.view", "zoomHost.view", "billingAccounts.read", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
   },

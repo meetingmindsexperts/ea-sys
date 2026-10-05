@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { issueCreditNoteForRegistration, type IssueCreditNoteErrorCode } from "@/services/payment-service";
@@ -48,10 +47,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.warn({ msg: "credit-notes:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/credit-notes:POST" });
-  if (denied) return denied;
-  const financeDenied = denyFinance(session, { route: "events/[eventId]/registrations/[registrationId]/credit-notes:POST" });
-  if (financeDenied) return financeDenied;
+  const gate = requirePermission(session, "creditNotes.issue", { route: "events/[eventId]/registrations/[registrationId]/credit-notes:POST", eventId });
+  if (!gate.ok) return gate.response;
 
   const rl = checkRateLimit({ key: `credit-note-issue:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
   if (!rl.allowed) {
@@ -70,7 +67,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   return await runWithTenantLane(session.user.organizationId, { route: "registrations:credit-notes", userId: session.user.id }, async () => {
   const event = await db.event.findFirst({
-    where: { id: eventId, ...buildEventAccessWhere(session.user) },
+    where: gate.eventWhere,
     select: { id: true },
   });
   if (!event) {

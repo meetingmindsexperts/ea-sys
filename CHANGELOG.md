@@ -379,6 +379,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Fixed: onsite desk staff can no longer read the organisation's invoice book (October 5)
+
+- Onsite staff, temporary desk accounts assigned to particular events, could
+  read and download every invoice the organisation has issued, across all
+  events. The webinar team was already refused this in August; onsite staff
+  were missed. They keep the invoices of the events they are assigned to.
+- Custom roles Phase 2: refunds, cancellations, credit notes, promo codes on
+  a registration, quotes, event invoices and their export, the organisation's
+  invoice book and the payer book now check permissions instead of roles.
+  Nobody else's access changes.
+
 ### Changed: the registration desk checks permissions instead of roles (October 5)
 
 - Custom roles Phase 2: the registrations list and export, adding, editing

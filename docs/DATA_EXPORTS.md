@@ -24,8 +24,8 @@ Everyone else is either narrower or excluded, with two known gaps in §6.
 |---|---|---|---|---|
 | **Registrations CSV** | `canExportRegistrations` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS · API keys | ✅ | 10/hr |
 | **Contacts CSV** (org address book, incl. private notes) | `canExportContacts` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER | ✅ | 10/hr |
-| **Org invoice ledger** (csv · QuickBooks · PDF zip) | `denyFinance` + named refusal | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE | ✅ | — |
-| **Event invoices** | `denyFinance` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE · WEBINARS | ✅ | — |
+| **Org invoice ledger** (csv · QuickBooks · PDF zip) | `invoices.ledger` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER (ONSITE refused since Oct 5, 2026) | ✅ | — |
+| **Event invoices** | `invoices.export` (since Oct 5, 2026) | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE (assigned events) · WEBINARS (webinars) | ✅ | — |
 | **Reimbursements CSV** — passport numbers, IBANs | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |
 | **Travel grants CSV** | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |
 | **RSVP roster CSV** | `denyReviewer` | SUPER_ADMIN · ADMIN · ORGANIZER | ✅ | — |
@@ -57,9 +57,10 @@ Reaching for a "close enough" existing one is the signal to write a new one.
   walking out with the pipeline is not.
 - **ORGANIZER cannot export the CRM at all**, even though they can export their
   events. Sponsorship money is a different book.
-- **WEBINARS is finance-capable but refused the org-wide invoice ledger by
-  name.** Being able to take a payment at a desk is not the same as reading
-  every invoice the organisation has ever issued.
+- **WEBINARS and ONSITE are finance-capable but refused the org-wide invoice
+  ledger** (`invoices.ledger`; ONSITE since Oct 5, 2026). Being able to take a
+  payment at a desk is not the same as reading every invoice the organisation
+  has ever issued.
 - **Export is deliberately narrower than read** in three places (registrations,
   contacts, CRM). Seeing a list on screen and walking away with the file are
   different acts, and the second is the one that leaves the building.

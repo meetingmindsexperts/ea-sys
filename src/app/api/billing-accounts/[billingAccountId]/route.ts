@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateBillingAccount } from "@/services/billing-account-service";
@@ -36,8 +36,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]:GET" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.read", { route: "billing-accounts/[billingAccountId]:GET" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure
     // Tenancy: populate the ALS tenant store (passthrough on master).
@@ -162,10 +162,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "billing-accounts/[billingAccountId]:PATCH" });
-    if (denied) return denied;
-    const noFinance = denyFinance(session, { route: "billing-accounts/[billingAccountId]:PATCH" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.manage", { route: "billing-accounts/[billingAccountId]:PATCH" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure
     return await runWithTenant(orgId, async () => {

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { denyReviewer } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendInvoiceEmail, sendGroupInvoiceEmail } from "@/lib/invoice-service";
@@ -22,8 +21,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "invoices:send:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "events/[eventId]/invoices/[invoiceId]/send:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "invoices.send", { route: "events/[eventId]/invoices/[invoiceId]/send:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "invoices:send", userId: session.user.id }, async () => {
     const invoice = await db.invoice.findFirst({
@@ -32,7 +31,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
         eventId,
         organizationId: (session.user.organizationId ?? ""),
         // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-        event: buildEventAccessWhere(session.user),
+        event: gate.eventWhere,
       },
       select: { id: true, invoiceNumber: true, groupId: true },
     });

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { createBillingAccount } from "@/services/billing-account-service";
@@ -36,8 +36,8 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const noFinance = denyFinance(session, { route: "billing-accounts:GET" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.read", { route: "billing-accounts:GET" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure
     // Tenancy: populate the ALS tenant store. RLS_SET_LOCAL off (master) → a
@@ -92,10 +92,8 @@ export async function POST(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "billing-accounts:POST" });
-    if (denied) return denied;
-    const noFinance = denyFinance(session, { route: "billing-accounts:POST" });
-    if (noFinance) return noFinance;
+    const gate = requirePermission(session, "billingAccounts.manage", { route: "billing-accounts:POST" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId!; // capture before the closure
     return await runWithTenant(orgId, async () => {
