@@ -28,9 +28,11 @@ export interface RuntimeFlags {
   hrEnabled: boolean;
   /** Is the Budget & Procurement module switched on for this deployment? */
   procurementEnabled: boolean;
+  /** Can a custom role grant every key, not only the Budgets ones? (custom roles Phase 5) */
+  customRolesEnabled: boolean;
 }
 
-const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false };
+const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false, customRolesEnabled: false };
 
 const RuntimeFlagsContext = createContext<RuntimeFlags>(DEFAULTS);
 

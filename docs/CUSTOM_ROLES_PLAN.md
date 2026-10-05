@@ -1335,9 +1335,20 @@ directory (§7.1).
   AREAS; it does not add areas (the middleware reads areas from the role, so
   this needs no JWT change). A custom role that should reach a new area needs
   a base role that works there.
-- *Next:* slice 2, the editor (every key grouped by domain, a scope per
-  event-bound row, the §8.3 warnings); slice 3, API keys per role, audit row
-  names, "View as role".
+- *Slice 2, the editor (built Oct 5).* Settings → Roles appears where
+  Budgets or custom roles is on. The role dialog lists every grantable key by
+  group (161 with the flag on, the 20 Budgets keys with it off) with a
+  search box; an event-bound key gets a scope picker (every event, assigned
+  events, webinars only). The §8.3 warnings that need no database run live
+  (`role-warnings.ts`: sensitive keys, exporting while seeing money or
+  barcodes, a refund without credit notes, a desk action without
+  registrations at the same scope). Settings → Team gets a Roles button per
+  person (never on yourself or a super admin) when custom roles are on. A
+  role may hold up to 200 keys. Verified on the local build with the flag on:
+  created a role with two scoped keys (stored as chosen), assigned it,
+  console clean.
+- *Next:* slice 3: API keys per role, the two warnings that need the
+  database, audit-row names, "View as role".
 
 ### Phase 6: Retire the old model (1 to 2 weeks)
 

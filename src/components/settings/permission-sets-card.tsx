@@ -26,7 +26,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { LIVE_PERMISSION_CATALOGUE, LIVE_PERMISSION_GROUPS } from "@/lib/permissions/catalogue";
+import { PERMISSION_CATALOGUE, PERMISSION_GROUPS, isGrantableKey } from "@/lib/permissions/catalogue";
+import { roleWarnings, type DraftGrant } from "@/lib/permissions/role-warnings";
+import type { GrantScope } from "@/lib/permissions/system-roles";
+import { useRuntimeFlags } from "@/components/runtime-flags";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { separationConflicts } from "@/lib/permissions/separation";
 import { permissionSetKeys, usePermissionSets, type PermissionSetRow } from "@/hooks/use-permission-sets";
 
@@ -174,7 +178,11 @@ function PermissionSetDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({ name: "", description: "", permissions: [] as string[] });
+  const [form, setForm] = useState({ name: "", description: "", permissions: [] as DraftGrant[] });
+  const [search, setSearch] = useState("");
+  // The keys a role may grant on this deployment: the Budgets keys, and every
+  // key once custom roles are switched on (the server refuses anything else).
+  const { customRolesEnabled } = useRuntimeFlags();
   const [saving, setSaving] = useState(false);
   // Seed on every closed -> open transition (React's previous-render pattern,
   // not an effect), so the boxes show the role being edited rather than
@@ -183,24 +191,41 @@ function PermissionSetDialog({
   const key = editing === null ? null : editing === "new" ? "new" : editing.id;
   if (key !== prevKey) {
     setPrevKey(key);
+    setSearch("");
     if (editing === "new") setForm({ name: "", description: "", permissions: [] });
     else if (editing)
       setForm({
         name: editing.name,
         description: editing.description ?? "",
-        permissions: editing.permissions.map((p) => p.permission),
+        permissions: editing.permissions.map((p) => ({ permission: p.permission, scope: p.scope ?? null })),
       });
   }
 
   // Live, from the SAME pure function the server refuses with, so the screen
   // and the boundary can never disagree about what is allowed.
-  const conflicts = separationConflicts({ permissions: form.permissions });
+  const keys = form.permissions.map((g) => g.permission);
+  const conflicts = separationConflicts({ permissions: keys });
+  // Warnings, not refusals (plan §8.3): a deliberate role can still be saved.
+  const warnings = roleWarnings(form.permissions);
 
-  function toggle(permission: string, on: boolean) {
+  const grantable = PERMISSION_CATALOGUE.filter((p) => isGrantableKey(p.key, customRolesEnabled));
+  const query = search.trim().toLowerCase();
+  const shown = query
+    ? grantable.filter((p) => `${p.label} ${p.description} ${p.group}`.toLowerCase().includes(query))
+    : grantable;
+
+  function toggle(permission: string, eventBound: boolean, on: boolean) {
     setForm((f) => ({
       ...f,
-      permissions: on ? [...f.permissions, permission] : f.permissions.filter((p) => p !== permission),
+      // An event-bound key starts at every event; the scope picker narrows it.
+      permissions: on
+        ? [...f.permissions, { permission, scope: eventBound ? "ALL" : null }]
+        : f.permissions.filter((p) => p.permission !== permission),
     }));
+  }
+
+  function setScope(permission: string, scope: GrantScope) {
+    setForm((f) => ({ ...f, permissions: f.permissions.map((p) => (p.permission === permission ? { ...p, scope } : p)) }));
   }
 
   async function save() {
@@ -228,7 +253,7 @@ function PermissionSetDialog({
           body: JSON.stringify({
             name: form.name.trim(),
             description: form.description.trim() || null,
-            permissions: form.permissions,
+            permissions: form.permissions.map((g) => (g.scope ? { permission: g.permission, scope: g.scope } : g.permission)),
             // The optimistic lock: a second admin's edit makes this stale and
             // the save is refused rather than silently overwriting theirs.
             ...(isNew ? {} : { expectedVersion: editing.version }),
@@ -294,27 +319,62 @@ function PermissionSetDialog({
             </div>
           )}
 
+          {warnings.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 space-y-1" role="status">
+              {warnings.map((w) => (
+                <p key={w.code}>{w.message}</p>
+              ))}
+            </div>
+          )}
+
+          {grantable.length > 12 && (
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${grantable.length} permissions`}
+              aria-label="Search permissions"
+            />
+          )}
+
           <div className="space-y-4">
-            {LIVE_PERMISSION_GROUPS.map((group) => {
-              const items = LIVE_PERMISSION_CATALOGUE.filter((p) => p.group === group);
+            {PERMISSION_GROUPS.map((group) => {
+              const items = shown.filter((p) => p.group === group);
               if (items.length === 0) return null;
               return (
                 <div key={group} className="rounded-lg border p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{group}</p>
                   <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                    {items.map((item) => (
-                      <label key={item.key} className="flex items-start gap-3 cursor-pointer">
-                        <Checkbox
-                          className="mt-0.5"
-                          checked={form.permissions.includes(item.key)}
-                          onCheckedChange={(v) => toggle(item.key, v === true)}
-                        />
-                        <span className="min-w-0">
-                          <span className="text-sm font-medium block">{item.label}</span>
-                          <span className="text-xs text-muted-foreground block">{item.description}</span>
-                        </span>
-                      </label>
-                    ))}
+                    {items.map((item) => {
+                      const held = form.permissions.find((p) => p.permission === item.key);
+                      return (
+                        <div key={item.key} className="flex items-start gap-3">
+                          <Checkbox
+                            id={`perm-${item.key}`}
+                            className="mt-0.5"
+                            checked={!!held}
+                            onCheckedChange={(v) => toggle(item.key, item.eventBound === true, v === true)}
+                          />
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <label htmlFor={`perm-${item.key}`} className="cursor-pointer">
+                              <span className="text-sm font-medium block">{item.label}</span>
+                              <span className="text-xs text-muted-foreground block">{item.description}</span>
+                            </label>
+                            {held && item.eventBound && (
+                              <Select value={held.scope ?? "ALL"} onValueChange={(v) => setScope(item.key, v as GrantScope)}>
+                                <SelectTrigger className="h-8 w-48 text-xs" aria-label={`Which events: ${item.label}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="ALL">Every event</SelectItem>
+                                  <SelectItem value="ASSIGNED">Events they are assigned to</SelectItem>
+                                  <SelectItem value="WEBINAR">Webinars only</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );

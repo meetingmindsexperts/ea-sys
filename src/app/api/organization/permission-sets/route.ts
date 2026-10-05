@@ -31,7 +31,7 @@ const createSchema = z.object({
       z.string().max(100),
       z.object({ permission: z.string().max(100), scope: z.enum(["ALL", "ASSIGNED", "WEBINAR"]).nullable().optional() }),
     ]),
-  ).min(1).max(100),
+  ).min(1).max(200),
 });
 
 export async function GET(req: Request) {

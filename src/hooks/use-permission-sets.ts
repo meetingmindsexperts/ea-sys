@@ -17,7 +17,7 @@ export interface PermissionSetRow {
   description: string | null;
   version: number;
   archivedAt: string | null;
-  permissions: { permission: string }[];
+  permissions: { permission: string; scope?: "ALL" | "ASSIGNED" | "WEBINAR" | null }[];
   holderCount: number;
 }
 

@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { ProcurementGrantsDialog, hasProcurementAccess } from "@/components/settings/procurement-grants-dialog";
+import { UserRolesDialog } from "@/components/settings/user-roles-dialog";
 import { PermissionSetsCard } from "@/components/settings/permission-sets-card";
 import { ApprovalChainCard } from "@/components/settings/approval-chain-card";
 import { Input } from "@/components/ui/input";
@@ -179,8 +180,10 @@ const dateFormats = [
 ];
 
 export default function SettingsPage() {
-  const { hrEnabled, procurementEnabled } = useRuntimeFlags();
+  const { hrEnabled, procurementEnabled, customRolesEnabled } = useRuntimeFlags();
+  const rolesTabEnabled = procurementEnabled || customRolesEnabled;
   const [grantUser, setGrantUser] = useState<User | null>(null);
+  const [rolesUser, setRolesUser] = useState<User | null>(null);
   const { data: session, update: updateSession } = useSession();
   const qc = useQueryClient();
   const [organization, setOrganization] = useState<Organization | null>(null);
@@ -628,10 +631,10 @@ export default function SettingsPage() {
             <Users className="h-4 w-4" />
             Team
           </TabsTrigger>
-          {/* Custom roles are a super-admin surface and only mean anything
-              where Budget & Procurement is switched on, so the tab is absent
-              rather than disabled for everyone else. */}
-          {isSuperAdmin && procurementEnabled && (
+          {/* Custom roles are a super-admin surface: there are roles to make
+              where Budgets is on, or where custom roles are switched on for
+              everything (CUSTOM_ROLES_ENABLED). Absent rather than disabled. */}
+          {isSuperAdmin && rolesTabEnabled && (
             <TabsTrigger value="roles" className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4" />
               Roles
@@ -1142,6 +1145,9 @@ export default function SettingsPage() {
                     </DialogContent>
                   </Dialog>
                 )}
+                {customRolesEnabled && (
+                  <UserRolesDialog user={rolesUser} onClose={() => setRolesUser(null)} onSaved={fetchUsers} />
+                )}
                 {procurementEnabled && (
                   <ProcurementGrantsDialog
                     user={grantUser}
@@ -1262,6 +1268,13 @@ export default function SettingsPage() {
                                 <Wallet className={`h-4 w-4 ${hasProcurementAccess(user) ? "text-amber-600" : "text-muted-foreground"}`} />
                               </Button>
                             )}
+                            {/* Custom roles for everything (CUSTOM_ROLES_ENABLED). Never
+                                your own: the server refuses that too. */}
+                            {isSuperAdmin && customRolesEnabled && user.role !== "SUPER_ADMIN" && user.id !== session?.user?.id && (
+                              <Button variant="ghost" size="sm" title="Roles" aria-label={`Roles for ${user.firstName} ${user.lastName}`} onClick={() => setRolesUser(user)}>
+                                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            )}
                             {user.id !== session?.user?.id && (
                               <Button
                                 variant="ghost"
@@ -1300,10 +1313,10 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        {isSuperAdmin && procurementEnabled && (
+        {isSuperAdmin && rolesTabEnabled && (
           <TabsContent value="roles">
             <PermissionSetsCard />
-            <ApprovalChainCard />
+            {procurementEnabled && <ApprovalChainCard />}
           </TabsContent>
         )}
 

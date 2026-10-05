@@ -31,7 +31,7 @@ const patchSchema = z
       z.string().max(100),
       z.object({ permission: z.string().max(100), scope: z.enum(["ALL", "ASSIGNED", "WEBINAR"]).nullable().optional() }),
     ]),
-  ).min(1).max(100).optional(),
+  ).min(1).max(200).optional(),
     archived: z.boolean().optional(),
   })
   .refine((v) => v.archived !== undefined || v.expectedVersion !== undefined, {
