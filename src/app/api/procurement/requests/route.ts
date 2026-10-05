@@ -7,9 +7,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { canAdminProcurement } from "@/lib/procurement-visibility";
+
 import { createSpendRequestSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, guardedRead, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, guardedRead, procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { createSpendRequest, invalidSpendRequestStatusFilter, listSpendRequests } from "@/procurement/services/spend-request-service";
 
 const ROUTE = "procurement/requests";
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const parsed = createSpendRequestSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: ROUTE, userId: g.user.id });
   return runWithTenant(g.orgId, async () => {
-    const result = await createSpendRequest({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", ...parsed.data });
+    const result = await createSpendRequest({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: procurementCan(g.user, "procurement.requests.manage") }, source: "ui", ...parsed.data });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
     return NextResponse.json({ request: result.request }, { status: 201 });
   });

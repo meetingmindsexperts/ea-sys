@@ -65,6 +65,7 @@ export const PERMISSION_KEYS = [
   "procurement.catalogue.manage",
   // Procurement administration (SUPER_ADMIN and ADMIN by role today)
   "procurement.integrations.manage",
+  "procurement.approvalChain.manage",
   "procurement.suppliers.transfer",
 
   // ── The application (Phase 1, Sep 30 2026): defined, not yet live ──
@@ -458,6 +459,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
     description: "Add and edit products, budget templates and cost categories.",
   },
   app("procurement.integrations.manage", "Organisation", "Connect accounting", "Connect, test and disconnect the QuickBooks connector for the organisation."),
+  app("procurement.approvalChain.manage", "Organisation", "Approval chains", "Set who approves spend requests and budgets, and their stand-ins. The super admin, who never approves.", S),
   app("procurement.suppliers.transfer", "Suppliers", "Import and export suppliers", "Move the supplier master in and out as a spreadsheet."),
 
   // ── Events ──

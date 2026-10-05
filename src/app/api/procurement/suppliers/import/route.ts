@@ -16,10 +16,10 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { canSettleProcurement } from "@/lib/procurement-visibility";
+
 import { importCsvSchema } from "@/procurement/lib/budget-schemas";
 import { parseSupplierImport } from "@/procurement/lib/catalogue-import";
-import { procurementGuard, readJson } from "@/procurement/lib/route-helpers";
+import { procurementGuard, readJson, procurementCan } from "@/procurement/lib/route-helpers";
 import { importSuppliers } from "@/procurement/services/supplier-service";
 
 const ROUTE = "procurement/suppliers/import";
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     apiLogger.warn({ msg: `${ROUTE}:invalid-csv`, userId: g.user.id, reason: file.fatal });
     return NextResponse.json({ error: file.fatal, code: "INVALID_CSV" }, { status: 400 });
   }
-  const approveOnCreate = canSettleProcurement(g.user);
+  const approveOnCreate = procurementCan(g.user, "procurement.budgets.signoff");
   return runWithTenant(g.orgId, async () => {
     try {
       const r = await importSuppliers({ organizationId: g.orgId, actorUserId: g.user.id, source: "ui", approveOnCreate, rows: file.rows });

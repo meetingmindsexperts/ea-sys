@@ -7,9 +7,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { canAdminProcurement } from "@/lib/procurement-visibility";
+
 import { spendRequestTransitionSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { transitionSpendRequest } from "@/procurement/services/spend-request-service";
 
 const ROUTE = "procurement/requests/[requestId]/transition";
@@ -17,7 +17,7 @@ const ROUTE = "procurement/requests/[requestId]/transition";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const [g, { requestId }] = await Promise.all([procurementGuard({ route: ROUTE, need: "view", write: true }), params]);
   if (!g.ok) return g.response;
-  const isAdmin = canAdminProcurement(g.user);
+  const isAdmin = procurementCan(g.user, "procurement.requests.manage");
   const denied = denyUnlessRequestOrAdmin(ROUTE, g.user);
   if (denied) return denied;
   const parsed = spendRequestTransitionSchema.safeParse(await readJson(req));

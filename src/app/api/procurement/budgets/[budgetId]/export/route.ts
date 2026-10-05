@@ -15,9 +15,9 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { canViewFinance } from "@/lib/finance-visibility";
+
 import { buildBudgetCsv, budgetExportFilename, type ExportRevenueOption } from "@/procurement/lib/budget-export";
-import { HTTP_STATUS_FOR_BUDGET_ERROR, HTTP_STATUS_FOR_REVENUE_ERROR, guardedRead, procurementGuard, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_BUDGET_ERROR, HTTP_STATUS_FOR_REVENUE_ERROR, guardedRead, procurementGuard, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { getBudget } from "@/procurement/services/budget-service";
 import { getBudgetRevenue } from "@/procurement/services/budget-revenue-service";
 
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ budg
   }
   return runWithTenant(g.orgId, () =>
     guardedRead(ROUTE, g.user.id, async () => {
-      const financeSight = canViewFinance(g.user.role);
+      const financeSight = procurementCan(g.user, "finance.view");
       const [result, rev] = await Promise.all([getBudget(g.orgId, budgetId), financeSight ? getBudgetRevenue(g.orgId, budgetId) : null]);
       if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_BUDGET_ERROR);
       const b = result.budget;

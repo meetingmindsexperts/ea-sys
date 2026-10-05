@@ -14,7 +14,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { CHAIN_MAX_LEVELS } from "@/lib/approvals/approval-chain";
-import { guardedRead, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { guardedRead, procurementGuard, readJson, rejected, procurementCan, type ProcurementActor } from "@/procurement/lib/route-helpers";
 import { getApprovalChain, saveApprovalChain } from "@/procurement/services/approval-chain-service";
 
 const ROUTE = "procurement/approval-chain";
@@ -39,8 +39,10 @@ const STATUS: Record<string, number> = {
   UNKNOWN: 500,
 };
 
-function refuseNonSuperAdmin(g: { user: { id: string; role?: string | null } }): NextResponse | null {
-  if (g.user.role === "SUPER_ADMIN") return null;
+// `procurement.approvalChain.manage`: the super admin, who sets the chains and
+// never approves (owner ruling, Sep 28, 2026).
+function refuseNonSuperAdmin(g: { user: ProcurementActor }): NextResponse | null {
+  if (procurementCan(g.user, "procurement.approvalChain.manage")) return null;
   apiLogger.warn({ msg: `${ROUTE}:forbidden`, userId: g.user.id, role: g.user.role ?? null });
   return NextResponse.json({ error: "Only a super admin sets the approval chains." }, { status: 403 });
 }

@@ -1,0 +1,1261 @@
+# procurement
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET integrations/quickbooks/callback
+  caller      -
+  SUPER_ADMIN 302
+  OPERATOR    302
+  ADMIN       302
+  ORGANIZER   302
+  MEMBER      302
+  ONSITE      302
+  WEBINARS    302
+  CRM_USER    302
+  HR_USER     302
+  REVIEWER    302
+  SUBMITTER   302
+  REGISTRANT  302
+  API_KEY     302
+  NONE        302
+
+GET integrations/quickbooks/chart
+  caller      -
+  SUPER_ADMIN 409
+  OPERATOR    403
+  ADMIN       409
+  ORGANIZER   409
+  MEMBER      409
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET integrations/quickbooks/connect
+  caller      -
+  SUPER_ADMIN 409
+  OPERATOR    403
+  ADMIN       409
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET integrations/quickbooks/credentials
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT integrations/quickbooks/credentials
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       0
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE integrations/quickbooks/credentials
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       0
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET integrations/quickbooks
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE integrations/quickbooks
+  caller      -
+  SUPER_ADMIN 409
+  OPERATOR    403
+  ADMIN       409
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST integrations/quickbooks/test
+  caller      -
+  SUPER_ADMIN 409
+  OPERATOR    403
+  ADMIN       409
+  ORGANIZER   409
+  MEMBER      409
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/approval-chain
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT procurement/approval-chain
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/approvals/[requestId]/decide
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/approvals
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       0
+  ORGANIZER   0
+  MEMBER      0
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/budgets/[budgetId]/activity
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/decide
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/budgets/[budgetId]/export
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/budgets/[budgetId]/lines/[lineId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/budgets/[budgetId]/lines/[lineId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/lines
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/reallocate
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/budgets/[budgetId]/revenue/[lineId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/budgets/[budgetId]/revenue/[lineId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/budgets/[budgetId]/revenue
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/revenue
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/budgets/[budgetId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/budgets/[budgetId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/budgets/[budgetId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/submit
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/transition
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets/[budgetId]/versions
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/budgets
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       0
+  ORGANIZER   0
+  MEMBER      0
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/budgets
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/categories/[categoryId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/categories
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    403
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/categories
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/commitments/[commitmentId]/cancel
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/commitments/[commitmentId]/confirm-receipt
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/commitments/[commitmentId]/pdf
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/commitments/[commitmentId]/receive
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/commitments/[commitmentId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/commitments/[commitmentId]/send
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/commitments/[commitmentId]/undo-receipt
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/commitments
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       0
+  ORGANIZER   0
+  MEMBER      0
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/products/[productId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/products/import
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/products
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    403
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/products
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/amend
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/order
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/quotes/[quoteId]/file
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/requests/[requestId]/quotes/[quoteId]/file
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/requests/[requestId]/quotes/[quoteId]/file
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/requests/[requestId]/quotes/[quoteId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/quotes
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/requests/[requestId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/requests/[requestId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/submit
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests/[requestId]/transition
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/requests/budget-check
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/requests
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/requests
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/suppliers/[supplierId]/decide
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/suppliers/[supplierId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/suppliers/[supplierId]
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/suppliers/export
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    403
+  ADMIN       200 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/suppliers/import
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/suppliers
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/suppliers
+  caller      -
+  SUPER_ADMIN 403
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/templates/[templateId]/lines/[lineId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE procurement/templates/[templateId]/lines/[lineId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/templates/[templateId]/lines
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH procurement/templates/[templateId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET procurement/templates
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    403
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST procurement/templates
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401

@@ -379,6 +379,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: Budgets and Procurement checks permissions through one function (October 5)
+
+- Custom roles Phase 2: budgets, spend requests, orders, suppliers, the
+  catalogue, approvals, approval chains and the QuickBooks connector now ask
+  one permission check on the server. Nobody's access changes; a test
+  compares it with the old rules for every role and grant combination.
+- Every route in the app now checks permissions instead of roles.
+
 ### Changed: the HR module checks permissions instead of roles (October 5)
 
 - Custom roles Phase 2: attendance, leave, holidays and the HR summary ask

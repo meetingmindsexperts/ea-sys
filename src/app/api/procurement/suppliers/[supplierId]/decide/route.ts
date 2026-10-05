@@ -3,8 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { decideSupplierSchema } from "@/procurement/lib/budget-schemas";
-import { canViewSupplierFinancials } from "@/lib/procurement-visibility";
-import { procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+
+import { procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { decideSupplier, redactSupplier } from "@/procurement/services/supplier-service";
 
 const STATUS: Record<string, number> = { SUPPLIER_NOT_FOUND: 404, ALREADY_DECIDED: 409, UNKNOWN: 500 };
@@ -19,6 +19,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sup
     const result = await decideSupplier({ organizationId: g.orgId, actorUserId: g.user.id, source: "ui", supplierId, ...parsed.data });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, STATUS);
     // What the approval did to the requests waiting on this supplier, so the page can say it.
-    return NextResponse.json({ supplier: redactSupplier(result.supplier, canViewSupplierFinancials(g.user)), ordersIssued: result.conversion?.issued ?? 0, ordersFailed: result.conversion?.failed ?? 0, ordersEmailFailed: result.conversion?.sendFailed ?? 0 });
+    return NextResponse.json({ supplier: redactSupplier(result.supplier, procurementCan(g.user, "procurement.suppliers.financials.view")), ordersIssued: result.conversion?.issued ?? 0, ordersFailed: result.conversion?.failed ?? 0, ordersEmailFailed: result.conversion?.sendFailed ?? 0 });
   });
 }

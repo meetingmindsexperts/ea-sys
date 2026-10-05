@@ -2,9 +2,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { canViewSupplierFinancials } from "@/lib/procurement-visibility";
+
 import { updateSupplierSchema } from "@/procurement/lib/budget-schemas";
-import { guardedRead, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { guardedRead, procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { getSupplier, redactSupplier, updateSupplier } from "@/procurement/services/supplier-service";
 
 const STATUS: Record<string, number> = { INVALID_CODE: 400, CODE_TAKEN: 409, SUPPLIER_NOT_FOUND: 404, ALREADY_DECIDED: 409, STALE_WRITE: 409, UNKNOWN: 500 };
@@ -14,7 +14,7 @@ type Params = { params: Promise<{ supplierId: string }> };
 export async function GET(_req: NextRequest, { params }: Params) {
   const [g, { supplierId }] = await Promise.all([procurementGuard({ route: ROUTE, need: "view" }), params]);
   if (!g.ok) return g.response;
-  const canSee = canViewSupplierFinancials(g.user);
+  const canSee = procurementCan(g.user, "procurement.suppliers.financials.view");
   return runWithTenant(g.orgId, () => guardedRead(ROUTE, g.user.id, async () => {
     const result = await getSupplier(g.orgId, supplierId);
     if (!result.ok) return rejected(ROUTE, g.user.id, result, STATUS);

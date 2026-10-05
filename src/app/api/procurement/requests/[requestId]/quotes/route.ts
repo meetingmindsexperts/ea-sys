@@ -2,9 +2,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { canAdminProcurement } from "@/lib/procurement-visibility";
+
 import { createQuoteSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { addQuote } from "@/procurement/services/spend-request-service";
 
 const ROUTE = "procurement/requests/[requestId]/quotes";
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
   const parsed = createQuoteSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: ROUTE, userId: g.user.id, requestId });
   return runWithTenant(g.orgId, async () => {
-    const result = await addQuote({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, ...parsed.data });
+    const result = await addQuote({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: procurementCan(g.user, "procurement.requests.manage") }, source: "ui", requestId, ...parsed.data });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
     return NextResponse.json({ request: result.request }, { status: 201 });
   });

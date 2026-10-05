@@ -303,7 +303,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       // and deciding suppliers by role
       // (`canDecideSuppliers`). HR without a tick on the person.
       ...at("ALL", "abstracts.delete"),
-      ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.suppliers.decide", "hr.read", "hr.write"),
+      ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.approvalChain.manage", "procurement.suppliers.decide", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: ["hrAccess"],
   },

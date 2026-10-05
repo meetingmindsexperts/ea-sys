@@ -2,9 +2,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { canAdminProcurement } from "@/lib/procurement-visibility";
+
 import { updateSpendRequestSchema } from "@/procurement/lib/budget-schemas";
-import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, guardedRead, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, guardedRead, denyUnlessRequestOrAdmin, procurementGuard, readJson, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { getSpendRequest, updateSpendRequest } from "@/procurement/services/spend-request-service";
 
 type Params = { params: Promise<{ requestId: string }> };
@@ -28,7 +28,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const parsed = updateSpendRequestSchema.safeParse(await readJson(req));
   if (!parsed.success) return zodErrorResponse(parsed, { route: ROUTE, userId: g.user.id, requestId });
   return runWithTenant(g.orgId, async () => {
-    const result = await updateSpendRequest({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, ...parsed.data });
+    const result = await updateSpendRequest({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: procurementCan(g.user, "procurement.requests.manage") }, source: "ui", requestId, ...parsed.data });
     if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
     return NextResponse.json({ request: result.request });
   });

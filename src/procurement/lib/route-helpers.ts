@@ -10,13 +10,15 @@ import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
 import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
-import { canAdminProcurement, canApproveProcurement, canRequestProcurement, canSettleProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
-import { denyNonProcurement, type ProcurementNeed } from "./procurement-roles";
-import { canViewFinance } from "@/lib/finance-visibility";
+import { canApproveProcurement, type ProcurementUserLike } from "@/lib/procurement-visibility";
+import { denyNonProcurement, procurementCan, type ProcurementNeed } from "./procurement-roles";
 import type { BudgetErrorCode } from "../services/budget-service";
 import type { RevenueErrorCode } from "../services/budget-revenue-service";
 import type { SpendRequestErrorCode } from "../services/spend-request-service";
 import type { CommitmentErrorCode, OrderActor } from "../services/commitment-service";
+
+// Routes ask permission questions through here (one import site).
+export { procurementCan } from "./procurement-roles";
 
 export type ProcurementActor = ProcurementUserLike & { id: string; organizationId: string };
 
@@ -88,7 +90,7 @@ export async function procurementGuard(opts: { route: string; need: ProcurementN
  * everyone else with the same logged 403 the guard would write.
  */
 export function denyUnlessRequestOrAdmin(route: string, user: ProcurementActor): NextResponse | null {
-  if (canRequestProcurement(user) || canAdminProcurement(user)) return null;
+  if (procurementCan(user, "procurement.requests.create") || procurementCan(user, "procurement.requests.manage")) return null;
   apiLogger.warn({ msg: `${route}:procurement-forbidden`, need: "request-or-admin", role: user.role ?? null, userId: user.id });
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
@@ -101,9 +103,10 @@ export function denyUnlessRequestOrAdmin(route: string, user: ProcurementActor):
 export function orderActorFrom(user: ProcurementActor): OrderActor {
   return {
     id: user.id,
-    isAdmin: canAdminProcurement(user),
-    canRequest: canRequestProcurement(user),
-    canSettle: canSettleProcurement(user),
+    isAdmin: procurementCan(user, "procurement.requests.manage"),
+    canRequest: procurementCan(user, "procurement.requests.create"),
+    canSettle: procurementCan(user, "procurement.budgets.signoff"),
+    // An approver of any ceiling (the AED amount is judged per decision).
     canApprove: canApproveProcurement(user, 0),
   };
 }
@@ -190,7 +193,7 @@ export const HTTP_STATUS_FOR_REVENUE_ERROR: Record<RevenueErrorCode, number> = {
  * Logged, like every refusal.
  */
 export function denyWithoutFinance(route: string, user: ProcurementActor): NextResponse | null {
-  if (canViewFinance(user.role)) return null;
+  if (procurementCan(user, "finance.view")) return null;
   apiLogger.warn({ msg: `${route}:finance-refused`, userId: user.id, role: user.role });
   return NextResponse.json({ error: "Revenue figures need finance access.", code: "FINANCE_REQUIRED" }, { status: 403 });
 }

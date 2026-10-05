@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 17 of 18
-> domains swept (272 route files, every event route on `requirePermission`, pinned by
+> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 ROUTE SWEEP DONE, 18 of
+> 18 domains (326 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -1042,6 +1042,32 @@ Domain by domain:
   the chrome-devtools MCP: HR_USER and SUPER_ADMIN read employees, leave
   codes, holidays and the summary; ADMIN without the tick 403; the HR page
   clean.
+- **Procurement SWEPT Oct 5, 2026** (54 route files under
+  `/api/procurement` and `/api/integrations`, 74 handlers; the live module).
+  Procurement already ran on permission keys (custom roles began here), with
+  role and legacy person-grant fallbacks in client-safe predicates. The
+  server boundary now asks ONE function, `procurementCan(user, key)` in
+  `procurement-roles.ts`, which builds the principal exactly as
+  `principalFromSession` does (base role, the four legacy grants through
+  `LEGACY_PROCUREMENT_GRANTS`, live custom keys). `denyNonProcurement` maps
+  each need onto keys; `integration` and `supplier-transfer` ask without
+  custom keys (the owner fixed them to the role); `approve` keeps the AED
+  ceiling check on the person. The route helpers (`denyUnlessRequestOrAdmin`,
+  `denyWithoutFinance`, `orderActorFrom`) and 17 route-level calls ask it
+  too, and the approval-chain route's inline SUPER_ADMIN check became a NEW
+  key, `procurement.approvalChain.manage` (SUPER_ADMIN). The client-safe
+  predicates stay for the screens and services. Proof: the generated matrix
+  (byte for byte), and a NEW `procurement-guard-parity.test.ts` comparing
+  the guard and the route checks with the old rules over every role, every
+  legacy-grant combination, thirteen custom key sets, every need and a range
+  of amounts (over 30,000 cases). Its first run caught one divergence before
+  anything shipped: a custom role holding only "raise requests" or "sign
+  off" could propose suppliers under the old rule and not under the bare
+  propose key; `propose` now asks all three. Verified with the
+  chrome-devtools MCP (reads plus one catalogue create, nothing emailed):
+  SUPER_ADMIN read every list and the approval chain; ADMIN, ORGANIZER and
+  MEMBER read the lists and are 403 on the chain; ADMIN passed the
+  catalogue gate, MEMBER 403; ONSITE 403 throughout; pages clean.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

@@ -13,9 +13,9 @@ import { apiLogger } from "@/lib/logger";
 import { deleteStoredFile, readStoredFile, uploadFile } from "@/lib/storage";
 import { StorageError } from "@/lib/storage-errors";
 import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
-import { canAdminProcurement } from "@/lib/procurement-visibility";
+
 import { QUOTE_FILE_MAX_BYTES, safeQuoteFileName, sniffQuoteFile } from "@/procurement/lib/quote-file";
-import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, guardedRead, procurementGuard, rejected } from "@/procurement/lib/route-helpers";
+import { HTTP_STATUS_FOR_SPEND_REQUEST_ERROR, denyUnlessRequestOrAdmin, guardedRead, procurementGuard, rejected, procurementCan } from "@/procurement/lib/route-helpers";
 import { getSpendRequest, setQuoteFile } from "@/procurement/services/spend-request-service";
 
 type Params = { params: Promise<{ requestId: string; quoteId: string }> };
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     let storedPath: string | null = null;
     try {
       storedPath = await uploadFile(buf, `${quoteId}-${randomUUID()}.${kind.ext}`, kind.mime, `${UPLOAD_SEGMENT.procurementQuotes}/${g.orgId}`);
-      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: storedPath, fileName: safeQuoteFileName(fileName), fileMimeType: kind.mime, fileSize: buf.length });
+      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: procurementCan(g.user, "procurement.requests.manage") }, source: "ui", requestId, quoteId, fileUrl: storedPath, fileName: safeQuoteFileName(fileName), fileMimeType: kind.mime, fileSize: buf.length });
       if (!result.ok) {
         // The row refused the file (not a draft, not this person's): the bytes must not stay behind.
         await removeStored(storedPath, "refused", ctx);
@@ -120,7 +120,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const ctx = { requestId, quoteId, userId: g.user.id };
   return runWithTenant(g.orgId, async () => {
     try {
-      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: canAdminProcurement(g.user) }, source: "ui", requestId, quoteId, fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
+      const result = await setQuoteFile({ organizationId: g.orgId, actor: { id: g.user.id, isAdmin: procurementCan(g.user, "procurement.requests.manage") }, source: "ui", requestId, quoteId, fileUrl: null, fileName: null, fileMimeType: null, fileSize: null });
       if (!result.ok) return rejected(ROUTE, g.user.id, result, HTTP_STATUS_FOR_SPEND_REQUEST_ERROR);
       if (result.replacedFileUrl) await removeStored(result.replacedFileUrl, "removed", ctx);
       return NextResponse.json({ request: result.request });
