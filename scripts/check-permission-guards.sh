@@ -254,6 +254,9 @@ SWEPT=(
   "src/app/api/organization/users/[userId]/revoke-sessions/route.ts"
   "src/app/api/organization/onsite-staff/route.ts"
   "src/app/api/activity/route.ts"
+  # organisation users, part B (Oct 5, 2026)
+  "src/app/api/organization/users/route.ts"
+  "src/app/api/organization/users/[userId]/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

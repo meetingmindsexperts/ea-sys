@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 14 of 18
-> domains swept plus organisation settings part A (211 route files, every event route on `requirePermission`, pinned by
+> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 15 of 18
+> domains swept (213 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -354,6 +354,7 @@ Event-bound keys take a scope. **R** = risk tier "sensitive" (editor warns).
 | Events | `events.read` · `events.create` · `events.update` · `events.delete` R · `events.clone` · `events.settings` · `events.staff.assign` |
 | Registrations | `registrations.read` · `.create` · `.update` · `.delete` R · `.import` · `.export` R · `.checkin` (incl. undo) · `.badges.print` · `.bulk` (tags, type) · `.email` · `.promo.apply` · `dtcm.assign` |
 | Remaining event routes | SECURITY: reviewers, submitters and registrants no longer read analytics or the per-attendee check-in log; the agreement template follows the speakers read; Webinars may import speakers from a spreadsheet on webinars |
+| Organisation users | ONSITE, WEBINARS, CRM and HR no longer list the team or open colleagues' records; everyone still reads their own |
 | Money | `payments.record` · `payments.refund` R · `registrations.cancel` R · `creditNotes.issue` R · `invoices.read` · `invoices.write` · `invoices.send` · `invoices.export` R · `invoices.ledger` (org-wide) R · `billingAccounts.manage` |
 | Speakers | `speakers.read` · `.create` · `.update` · `.delete` R · `.import` · `.email` · `speakers.agreements.manage` · `speakers.documents.read` · `speakers.documents.open` R (added Oct 2, 2026) · `speakers.documents.write` · `speakers.companion.grant` |
 | Abstracts | `abstracts.read` · `.update` · `.decide` · `.delete` R · `.import` · `.email` · `abstracts.export` R · `abstracts.reviewers.assign` · `abstracts.themes.manage` · `abstracts.criteria.manage` · `reviewers.pool.manage` · `submissions.share` (added Oct 2, 2026, with `abstracts.export`) |
@@ -987,6 +988,28 @@ Domain by domain:
   removed an INTERNAL key, saved the organisation; ADMIN's six tabs clean and
   403 on INTERNAL keys and custom roles; ORGANIZER's four tabs clean, only
   the Onsite Staff list and its own events' staff.
+- **Organisation users, part B, SWEPT Oct 5, 2026** (the team list and
+  invite; a user's record, edit and delete). Keys: `users.invite` (any role)
+  or `events.staff.assign` (ORGANIZER: ONSITE accounts only, through a
+  `isOnsiteDeskAccount` helper on the TARGET role), `users.manage` (editing
+  someone else, changing a role, deactivating, deleting anyone), `roles.manage`
+  (HR access and procurement grants, SUPER_ADMIN only, two inline checks
+  before), and a NEW key `users.read` (the team list and a colleague's record:
+  SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER). Everyone still reads and renames
+  their OWN record. `isRoleGrantableHere` moved to `team-roles.ts` so neither
+  route names a staff role. **Owner ruling, Oct 5, 2026:** any org-bound
+  account (ONSITE temps, WEBINARS, CRM_USER, HR_USER) could list the whole
+  team with emails, roles and HR and procurement grant flags, and open any
+  colleague's record; they are now refused (no screen of theirs uses it).
+  Also re-recorded: the platform operator gets a clean 403 instead of a 500
+  on invite, edit and delete. Verified with the chrome-devtools MCP (accounts
+  created with a set password, so no invitation email): ADMIN invited,
+  read, renamed, deactivated and deleted an ONSITE account and was refused HR
+  access; ORGANIZER created and deleted an ONSITE account and was refused an
+  ADMIN invite and editing another account; the ONSITE account read and
+  renamed itself and was refused the team list; the profile page clean.
+  Organisation settings now remain only for email logs and the profile
+  route's own staff check.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

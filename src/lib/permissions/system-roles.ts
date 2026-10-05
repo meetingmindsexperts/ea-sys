@@ -237,6 +237,10 @@ const BUDGET_AUTHOR: PermissionKey[] = ["procurement.budgets.create", "procureme
 const ORGANIZER_ORG: PermissionKey[] = [
   // The Onsite Staff tab: ORGANIZER's one users power (create and assign ONSITE accounts).
   "events.staff.assign",
+  // The team list and a colleague's record (Settings, the Onsite Staff card,
+  // the activity feed's people filter). Owner, Oct 5, 2026: staff whose screens
+  // use it; ONSITE, WEBINARS, CRM_USER and HR_USER no longer read it.
+  "users.read",
   "invoices.ledger",
   "billingAccounts.read",
   "billingAccounts.manage",
@@ -331,7 +335,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
       ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
-      ...org("invoices.ledger", "billingAccounts.read", "contacts.read", "contacts.export", "crm.read", ...PROCUREMENT_VIEW, "agent.use", "finance.view", "hr.read", "hr.write"),
+      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "crm.read", ...PROCUREMENT_VIEW, "agent.use", "finance.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
   },

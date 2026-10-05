@@ -208,6 +208,7 @@ export const PERMISSION_KEYS = [
   // Organisation
   "org.settings",
   "org.credentials",
+  "users.read",
   "users.invite",
   "users.manage",
   "roles.manage",
@@ -619,6 +620,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   // ── Organisation ──
   app("org.settings", "Organisation", "Organisation settings", "Change the organisation's name, branding and defaults."),
   app("org.credentials", "Organisation", "Integrations", "Hold and test the AI, Stripe, Zoom and EventsAir credentials.", S),
+  app("users.read", "Organisation", "See the team", "List the organisation's team members and open their records. Everyone sees their own."),
   app("users.invite", "Organisation", "Invite users", "Invite team members, no wider than your own access."),
   app("users.manage", "Organisation", "Manage users", "Change roles, deactivate, sign out everywhere and remove accounts.", S),
   app("roles.manage", "Organisation", "Manage roles", "Create and change custom roles and tag them on people.", S),

@@ -12,7 +12,9 @@ import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/securi
 import { TEAM_ROLES, isTeamRole, ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isInternalEmail } from "@/lib/internal-domains";
 import { UserRole } from "@prisma/client";
-import { canWrite } from "@/lib/can-write";
+import { requirePermission, principalFromSession } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { isOnsiteDeskAccount, isRoleGrantableHere } from "@/lib/team-roles";
 
 /** Human label for a team role (used in invite emails + promote messages). */
 const ROLE_LABELS: Record<string, string> = {
@@ -36,7 +38,7 @@ const ROLE_LABELS: Record<string, string> = {
  * dropdown is UX and this is the boundary.
  */
 function roleIsGrantableHere(role: string): boolean {
-  return role !== "HR_USER" || isHrModuleEnabled();
+  return isRoleGrantableHere(role, isHrModuleEnabled());
 }
 
 const inviteUserSchema = z.object({
@@ -62,10 +64,11 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only org members (ADMIN, SUPER_ADMIN, ORGANIZER) can list users
-    if (!session.user.organizationId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // `users.read`: the staff whose screens show the team (SUPER_ADMIN, ADMIN,
+    // ORGANIZER, MEMBER). Every org-bound account could list it until Oct 5,
+    // 2026, ONSITE temps, CRM and HR included (owner: restricted).
+    const gate = requirePermission(session, "users.read", { route: "organization/users:GET" });
+    if (!gate.ok) return gate.response;
 
     // Team members only — an org can also contain org-bound REGISTRANTs
     // (internal-domain attendees), which are NOT staff and must not appear in
@@ -112,12 +115,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Admins can invite any team role. ORGANIZER is admitted too, but ONLY to
-    // create ONSITE (registration-desk temp) accounts — enforced on the parsed
-    // role below, so an organizer can't invite admins/organizers.
-    const callerRole = session.user.role;
-    if (!canWrite(callerRole)) {
-      apiLogger.warn({ msg: "organization/users:invite-not-allowed", callerRole, userId: session.user.id });
+    // `users.invite` invites any team role. `events.staff.assign` (ORGANIZER)
+    // is admitted too, but ONLY to create ONSITE (registration-desk temp)
+    // accounts — enforced on the parsed role below, so an organizer can't
+    // invite admins/organizers.
+    const principal = principalFromSession(session);
+    const invitesAnyRole = can(principal, "users.invite");
+    if (!invitesAnyRole && !can(principal, "events.staff.assign")) {
+      apiLogger.warn({ msg: "organization/users:invite-not-allowed", callerRole: session.user.role, userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -159,7 +164,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (callerRole === "ORGANIZER" && role !== "ONSITE") {
+    if (!invitesAnyRole && !isOnsiteDeskAccount(role)) {
       apiLogger.warn({
         msg: "organization/users:organizer-role-not-allowed",
         requestedRole: role,

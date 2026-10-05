@@ -1,0 +1,207 @@
+# organisation users (part B)
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET organization/users
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/users (invite ONSITE)
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    403
+  ADMIN       500
+  ORGANIZER   500
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/users (invite ADMIN)
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    403
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/users/[userId] (u-member)
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-member, name)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      500 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-onsite, name)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      500 w
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-member, role)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-member, hrAccess)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-member, procurement grant)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId] (u-member, deactivate)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE organization/users/[userId] (u-onsite)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE organization/users/[userId] (u-member)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401

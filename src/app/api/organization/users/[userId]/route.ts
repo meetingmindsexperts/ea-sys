@@ -6,14 +6,15 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
-import { isTeamRole, isOrgAdmin } from "@/lib/team-roles";
+import { isOnsiteDeskAccount, isRoleGrantableHere, isTeamRole } from "@/lib/team-roles";
+import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readUserPermissions } from "@/lib/permissions/permission-set-service";
 import { separationConflicts } from "@/lib/permissions/separation";
-import { canWrite } from "@/lib/can-write";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -80,6 +81,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Your own record (the profile page) always; anyone else's needs
+    // `users.read` (owner, Oct 5, 2026: any signed-in account could open any
+    // colleague's record before, ONSITE temps, CRM and HR included).
+    if (session.user.id !== userId) {
+      const gate = requirePermission(session, "users.read", { route: "organization/users/[userId]:GET" });
+      if (!gate.ok) return gate.response;
+    }
 
     const user = await db.user.findFirst({
       where: {
@@ -120,8 +128,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only admins can update users (except self)
-    if (!isOrgAdmin(session.user.role) && session.user.id !== userId) {
+    // `users.manage` updates anyone; everyone else only themselves. Person
+    // grants (HR access, procurement) need `roles.manage`, SUPER_ADMIN only.
+    const principal = principalFromSession(session);
+    const managesUsers = can(principal, "users.manage");
+    const managesGrants = can(principal, "roles.manage");
+    if (!managesUsers && session.user.id !== userId) {
       apiLogger.warn({ msg: "organization/users:update-not-allowed", callerRole: session.user.role, userId: session.user.id, targetUserId: userId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -140,7 +152,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // HR_USER is only grantable where the HR module is switched on. Same
     // authoritative check as the invite route: a role that can reach nothing is
     // a support ticket, and the dropdown that hides it is only UX.
-    if (validated.data.role === "HR_USER" && !isHrModuleEnabled()) {
+    if (validated.data.role && !isRoleGrantableHere(validated.data.role, isHrModuleEnabled())) {
       apiLogger.warn({
         msg: "organization/users:role-not-grantable-on-this-deployment",
         role: validated.data.role,
@@ -156,7 +168,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // Only a SUPER_ADMIN decides who reads colleagues' sick leave. An ADMIN
       // being excluded from HR must not be able to re-admit themselves, which
       // is exactly what an ADMIN-writable flag would allow.
-      if (session.user.role !== "SUPER_ADMIN") {
+      if (!managesGrants) {
         apiLogger.warn({
           msg: "organization/users:hr-access-grant-refused",
           callerRole: session.user.role,
@@ -181,7 +193,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Regular users can only update their own name, not role
-    if (session.user.id === userId && validated.data.role && !isOrgAdmin(session.user.role)) {
+    if (session.user.id === userId && validated.data.role && !managesUsers) {
       apiLogger.warn({ msg: "organization/users:own-role-change-refused", callerRole: session.user.role, userId: session.user.id });
       return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
     }
@@ -190,7 +202,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // yourself out is not a mistake worth allowing, and the DELETE handler
     // already refuses self-deletion for the same reason.
     if (validated.data.deactivated !== undefined) {
-      if (!isOrgAdmin(session.user.role)) {
+      if (!managesUsers) {
         apiLogger.warn({
           msg: "organization/users:deactivate-not-allowed",
           callerRole: session.user.role,
@@ -224,7 +236,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const touchesProcurement = PROCUREMENT_GRANT_KEYS.some((k) => validated.data[k] !== undefined);
     if (touchesProcurement) {
-      if (session.user.role !== "SUPER_ADMIN") {
+      if (!managesGrants) {
         apiLogger.warn({
           msg: "organization/users:procurement-grant-refused",
           callerRole: session.user.role,
@@ -557,9 +569,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Admins can delete any org user. ORGANIZER is admitted too, but ONLY to
     // delete ONSITE (registration-desk temp) accounts — enforced on the
     // fetched target below, so an organizer can't remove admins or peers.
-    const callerRole = session.user.role;
-    if (!canWrite(callerRole)) {
-      apiLogger.warn({ msg: "organization/users:delete-not-allowed", callerRole, userId: session.user.id, targetUserId: userId });
+    const principal = principalFromSession(session);
+    const removesAnyone = can(principal, "users.manage");
+    if (!removesAnyone && !can(principal, "events.staff.assign")) {
+      apiLogger.warn({ msg: "organization/users:delete-not-allowed", callerRole: session.user.role, userId: session.user.id, targetUserId: userId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -579,7 +592,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (callerRole === "ORGANIZER" && user.role !== "ONSITE") {
+    if (!removesAnyone && !isOnsiteDeskAccount(user.role)) {
       apiLogger.warn({
         msg: "organization/users:organizer-delete-not-allowed",
         targetUserId: userId,

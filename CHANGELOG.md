@@ -379,6 +379,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Fixed: desk, webinar, CRM and HR accounts no longer read the team directory (October 5)
+
+- Any staff account could list every team member (names, emails, roles and
+  HR and procurement access flags) and open any colleague's record. That is
+  now for admins, organisers and members, whose screens use it. Everyone can
+  still see and edit their own profile.
+- Custom roles Phase 2: inviting, editing, deactivating and removing users
+  now check permissions instead of roles. Organisers still create and remove
+  only onsite staff accounts.
+
 ### Changed: organisation settings check permissions instead of roles (October 5)
 
 - Custom roles Phase 2: organisation settings, the AI, Stripe, Zoom and

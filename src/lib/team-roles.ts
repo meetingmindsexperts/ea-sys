@@ -57,3 +57,24 @@ export function isOrgAdmin(role: string | null | undefined): boolean {
  * its Aug 10, 2026 widening made the assignment redundant but harmless).
  */
 export const ONSITE_ACCOUNT_ROLES = ["ONSITE", "WEBINARS"] as const;
+
+/**
+ * The account an ORGANIZER may create and remove from Settings (`events.staff.
+ * assign`): an ONSITE desk account and nothing else. A helper rather than an
+ * inline comparison so the user routes, which `check-permission-guards.sh`
+ * holds to no staff role names, can ask about the TARGET account's role.
+ */
+export function isOnsiteDeskAccount(role: string | null | undefined): boolean {
+  return role === "ONSITE";
+}
+
+/**
+ * HR_USER is only grantable where the HR module is switched on: the enum value
+ * exists on every silo, but on a deployment without the module the role would
+ * be a login that reaches nothing. The authoritative check for both the invite
+ * and the role-change routes (the dropdown that hides it is only UX).
+ */
+export function isRoleGrantableHere(role: string, hrModuleEnabled: boolean): boolean {
+  return role !== "HR_USER" || hrModuleEnabled;
+}
+
