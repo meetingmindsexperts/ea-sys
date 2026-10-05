@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -6,7 +7,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 
 const createHotelSchema = z.object({
@@ -70,7 +71,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Strip room prices (pricePerNight) for non-finance roles — defense-in-depth
     // + consistency with the registrations list (no-op for today's finance-capable
     // org-bound roles; correct if a non-finance org-bound role is ever added).
-    const payload = canViewFinance(session.user.role)
+    const payload = can(gate.principal, "finance.view")
       ? hotels
       : redactFinancialFields(hotels);
 

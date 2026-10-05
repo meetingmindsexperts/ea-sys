@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * Speaker profile — Travel Grant card.
  *
@@ -20,13 +21,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { Copy, ExternalLink, Loader2, Plane, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResidencyBadge, GrantStatusLabel } from "@/components/travel-grant/travel-grant-badges";
-import { GRANT_STATUS_LABEL, canManageTravelGrants, publicTravelGrantUrl } from "@/lib/travel-grant/constants";
+import { GRANT_STATUS_LABEL, publicTravelGrantUrl } from "@/lib/travel-grant/constants";
 import { isTravelGrantEnabled } from "@/lib/travel-grant/settings";
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
 import { useEvent } from "@/hooks/use-api";
@@ -65,8 +65,7 @@ export function SpeakerTravelGrantCard({
    */
   speakerCountry?: string | null;
 }) {
-  const { data: session } = useSession();
-  const role = session?.user?.role;
+  const canManage = useCan("travelGrants.manage", eventId) === "allowed";
   // From the SHARED React Query cache the speaker page already populates, so
   // this costs no request. Gating on it means a profile on an event with the
   // feature off — the overwhelming majority — issues no travel-grant call at
@@ -127,12 +126,12 @@ export function SpeakerTravelGrantCard({
   }, [eventId, speakerId]);
 
   useEffect(() => {
-    if (!canManageTravelGrants(role) || !featureOn) {
+    if (!canManage || !featureOn) {
       setLoading(false);
       return;
     }
     void load();
-  }, [role, featureOn, load, speakerCountry]);
+  }, [canManage, featureOn, load, speakerCountry]);
 
   const send = useCallback(async () => {
     setSending(true);
@@ -203,7 +202,7 @@ export function SpeakerTravelGrantCard({
       .catch(() => toast.error("Couldn't copy the link"));
   }, [row, eventSlug]);
 
-  if (!canManageTravelGrants(role) || !featureOn) return null;
+  if (!canManage || !featureOn) return null;
   if (loading) return null;
   if (loadFailed) {
     return (

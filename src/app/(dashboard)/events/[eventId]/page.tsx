@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { principalFromSession } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -20,7 +22,6 @@ import {
   Rocket,
   Receipt,
 } from "lucide-react";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { EventCountdownBadge } from "@/components/events/event-countdown-badge";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
@@ -87,7 +88,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
-  const canFinance = canViewFinance(session.user.role);
+  const canFinance = can(principalFromSession(session), "finance.view");
 
   // ── Registrations-by-Tier breakdown ─────────────────────────────────────────
   // groupBy returns rows like { pricingTierId, _count: { _all: 42 } }. The

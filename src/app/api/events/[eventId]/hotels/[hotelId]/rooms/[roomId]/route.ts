@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -7,8 +8,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
+import { redactBarcodeFields } from "@/lib/barcode-visibility";
 
 const updateRoomTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -103,8 +104,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Compose both boundaries (mirrors the registrations list GET): barcodes are
     // a door credential (MEMBER excluded), prices are finance.
     let payload: typeof roomType = roomType;
-    if (!canViewEntryBarcode(session.user.role)) payload = redactBarcodeFields(payload);
-    if (!canViewFinance(session.user.role)) payload = redactFinancialFields(payload);
+    if (!can(gate.principal, "barcode.view")) payload = redactBarcodeFields(payload);
+    if (!can(gate.principal, "finance.view")) payload = redactFinancialFields(payload);
 
     return NextResponse.json(payload);
     });

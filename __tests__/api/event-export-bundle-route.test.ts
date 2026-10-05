@@ -61,7 +61,7 @@ describe("the download", () => {
     expect(res.headers.get("content-type")).toBe("application/zip");
     expect(res.headers.get("content-disposition")).toBe('attachment; filename="cardio-data-2026-09-30.zip"');
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(bundle.buildEventBundle).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", role: "ORGANIZER", userName: "Lina Saad" }));
+    expect(bundle.buildEventBundle).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", principal: expect.objectContaining({ baseRole: "ORGANIZER" }), userName: "Lina Saad" }));
     expect(audit.recordExport).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({ entityType: "EventDataBundle", eventId: "ev1", rowCount: 12, format: "zip", filters: { files: 1, skipped: "Invoices" } }));
   });
 

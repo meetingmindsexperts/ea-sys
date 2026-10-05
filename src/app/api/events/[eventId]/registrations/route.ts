@@ -7,15 +7,16 @@ import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
+import { can } from "@/lib/permissions/can";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { getOrgContext } from "@/lib/api-auth";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import {
   computeCancelledCreditState,
   computeRegistrationFinancials,
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
-import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactBarcodeFields } from "@/lib/barcode-visibility";
 import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -276,7 +277,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // `canViewFinance(role)` while the redaction below asked
     // `role !== null && ...`, so an API key (role null, admin-equivalent) got
     // unredacted sponsor fields on every row and a 403 on the filter.
-    const redactsFinance = orgCtx.role !== null && !canViewFinance(orgCtx.role);
+    const redactsFinance = !can(gate.principal, "finance.view");
     const sponsorIdParam = searchParams.get("sponsorId");
     const sponsorFilterId = sponsorIdParam?.trim() ? sponsorIdParam.trim().slice(0, 100) : null;
     if (sponsorFilterId && redactsFinance) {
@@ -550,7 +551,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // finance-capable but must NOT hold a door credential; an internal-domain
     // REGISTRANT reaching this org-scoped list must not harvest every barcode).
     // API keys (role null) are admin-equivalent → keep.
-    if (!canViewEntryBarcode(orgCtx.role, orgCtx.role === null)) {
+    if (!can(gate.principal, "barcode.view")) {
       payload = redactBarcodeFields(payload);
     }
 

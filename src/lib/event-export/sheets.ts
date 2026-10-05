@@ -13,8 +13,7 @@
 import { db } from "@/lib/db";
 import { toCsvRow } from "@/lib/csv-escape";
 import { formatPersonName } from "@/lib/utils";
-import { canViewFinance } from "@/lib/finance-visibility";
-import { canManageReimbursements } from "@/lib/reimbursement/constants";
+import { can, type Principal } from "@/lib/permissions/can";
 
 export interface Sheet {
   /** Path inside the ZIP. */
@@ -35,7 +34,7 @@ const person = (p: { title: string | null; firstName: string; lastName: string }
   p ? formatPersonName(p.title, p.firstName, p.lastName) : "";
 
 /** One row of event facts, so the ZIP says which event it is without the app. */
-export async function eventSheet(eventId: string, role: string): Promise<Sheet> {
+export async function eventSheet(eventId: string, principal: Principal): Promise<Sheet> {
   const e = await db.event.findFirstOrThrow({
     where: { id: eventId },
     select: {
@@ -59,14 +58,14 @@ export async function eventSheet(eventId: string, role: string): Promise<Sheet> 
       createdAt: true,
     },
   });
-  const finance = canViewFinance(role);
+  const finance = can(principal, "finance.view");
   const header = ["Event ID", "Name", "Slug", "Code", "Type", "Status", "Start", "End", "Timezone", "Venue", "Address", "City", "Country", "Tag", "Specialty", ...(finance ? ["Tax Rate", "Tax Label"] : []), "Created At"];
   const row = [e.id, e.name, e.slug, e.code, e.eventType, e.status, iso(e.startDate), iso(e.endDate), e.timezone, e.venue, e.address, e.city, e.country, e.tag, e.specialty, ...(finance ? [money(e.taxRate), e.taxLabel] : []), iso(e.createdAt)];
   return sheet("event.csv", header, [row]);
 }
 
-export async function speakersSheet(eventId: string, role: string): Promise<Sheet> {
-  const honorarium = canManageReimbursements(role);
+export async function speakersSheet(eventId: string, principal: Principal): Promise<Sheet> {
+  const honorarium = can(principal, "honorarium.view");
   const speakers = await db.speaker.findMany({
     where: { eventId },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -164,8 +163,8 @@ export async function sessionSheets(eventId: string): Promise<Sheet[]> {
   ];
 }
 
-export async function accommodationSheets(eventId: string, role: string): Promise<Sheet[]> {
-  const finance = canViewFinance(role);
+export async function accommodationSheets(eventId: string, principal: Principal): Promise<Sheet[]> {
+  const finance = can(principal, "finance.view");
   const [bookings, hotels] = await Promise.all([
     db.accommodation.findMany({
       where: { eventId },
@@ -232,8 +231,8 @@ export async function accommodationSheets(eventId: string, role: string): Promis
 }
 
 /** Registration types, one row per type and one per pricing tier beneath it. */
-export async function registrationTypesSheet(eventId: string, role: string): Promise<Sheet> {
-  const finance = canViewFinance(role);
+export async function registrationTypesSheet(eventId: string, principal: Principal): Promise<Sheet> {
+  const finance = can(principal, "finance.view");
   const types = await db.ticketType.findMany({
     where: { eventId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -277,8 +276,8 @@ export async function registrationTypesSheet(eventId: string, role: string): Pro
   );
 }
 
-export async function promoCodesSheet(eventId: string, role: string): Promise<Sheet> {
-  const finance = canViewFinance(role);
+export async function promoCodesSheet(eventId: string, principal: Principal): Promise<Sheet> {
+  const finance = can(principal, "finance.view");
   const codes = await db.promoCode.findMany({
     where: { eventId },
     orderBy: { code: "asc" },

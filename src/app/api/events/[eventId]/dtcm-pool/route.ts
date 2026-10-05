@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -6,7 +7,6 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { getDtcmPoolCounts, claimSpareDtcmCode } from "@/lib/dtcm-pool";
 
 /**
@@ -55,7 +55,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const gate = requirePermission(session, "dtcm.assign", { route: "events/[eventId]/dtcm-pool:GET", eventId });
     if (!gate.ok) return gate.response;
 
-    if (!canViewEntryBarcode(session.user.role)) {
+    if (!can(gate.principal, "barcode.view")) {
       apiLogger.warn(
         { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role },
         "Role may staff the desk but may not hold a door credential",
@@ -104,7 +104,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Before the rate limit, so a refused role never spends another caller's
     // budget — the same ordering the registrations export uses.
-    if (!canViewEntryBarcode(session.user.role)) {
+    if (!can(gate.principal, "barcode.view")) {
       apiLogger.warn(
         { msg: "dtcm-pool:barcode-role-refused", eventId, userId: session.user.id, role: session.user.role },
         "Role may staff the desk but may not assign a door credential",

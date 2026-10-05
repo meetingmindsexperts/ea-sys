@@ -112,7 +112,7 @@ describe("B1 — sessions list must not leak Zoom host credentials", () => {
 
   it("keeps host credentials for an API-key caller (admin-equivalent, org-scoped)", async () => {
     mockAuth.mockResolvedValue(null);
-    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null });
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, fromApiKey: true });
     const res = await SESSIONS_GET(req(), sessionsParams);
     const body = await res.json();
     expect(body[0].zoomMeeting.startUrl).toBe("https://zoom.us/s/1?zak=HOST_SECRET");

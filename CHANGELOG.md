@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: field visibility follows permissions (October 5)
+
+- Who sees money, entry barcodes, Zoom host links, honorarium, supporting
+  documents, sign-in activity and deal values is now decided by permission
+  keys, not role names, in about 40 places (routes, pages, the event export).
+  Same answers for every role today; a custom role will get them through its
+  keys. The platform operator no longer reads a tenant's DTCM pool.
+
 ### Changed: buttons, middleware and the AI agent follow permissions (October 5)
 
 - Write buttons appear only for who may use them: about 20 pages offered a

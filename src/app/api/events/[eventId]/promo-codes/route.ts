@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -6,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { createPromoCode, type CreatePromoCodeErrorCode } from "@/services/promo-code-service";
 
 const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
@@ -100,7 +101,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER cannot learn which sponsor funds which delegate, and a promo code
     // carrying its sponsor is the same fact one hop away.
     return NextResponse.json(
-      canViewFinance(session.user.role) ? promoCodes : redactFinancialFields(promoCodes),
+      can(gate.principal, "finance.view") ? promoCodes : redactFinancialFields(promoCodes),
     );
     });
   } catch (error) {

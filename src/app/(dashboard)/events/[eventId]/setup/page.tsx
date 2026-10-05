@@ -24,6 +24,8 @@
  *     to "Status unavailable" rather than crashing the whole page
  */
 
+import { principalFromSession } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
@@ -48,7 +50,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { canWrite } from "@/lib/can-write";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -293,7 +294,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
   ] = result;
   if (!event) notFound();
 
-  const canFinance = canViewFinance(session.user.role);
+  const canFinance = can(principalFromSession(session), "finance.view");
   const visibleCards = [
     ...SETUP_CARDS,
     ...(canFinance ? [INVOICES_CARD] : []),

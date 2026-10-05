@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { computeEventAnalytics, type EventAnalytics } from "@/lib/event-analytics";
 import { escapeCsvCell } from "@/lib/csv-escape";
 
@@ -77,7 +77,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Revenue is finance data — omitted entirely for MEMBER.
-    const includeFinance = canViewFinance(session.user.role);
+    const includeFinance = can(gate.principal, "finance.view");
     // RESOURCE-org tenant lane (Domain #19): computeEventAnalytics reads
     // AuditLog CHECK_IN rows (+ swept Registration/TicketType tables) — under
     // platform RLS an unwrapped read fails closed to an all-zero dashboard.

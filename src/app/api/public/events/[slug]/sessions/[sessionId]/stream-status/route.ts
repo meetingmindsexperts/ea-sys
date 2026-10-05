@@ -6,7 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { canWrite } from "@/lib/can-write";
-import { canViewZoomHostCredentials } from "@/lib/zoom-visibility";
+import { can, principalFromUser } from "@/lib/permissions/can";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -33,7 +33,7 @@ async function isAuthorizedViewer(
   // role) get the URLs for the console's stream preview, but only on WEBINAR
   // events: that role's host control stops at webinars, and the URL carries
   // the stream key (code review, Oct 2, 2026).
-  if (canViewZoomHostCredentials(user.role) && sameOrg && event.eventType === "WEBINAR") return true;
+  if (can(principalFromUser(user), "zoomHost.view") && sameOrg && event.eventType === "WEBINAR") return true;
   const cacheKey = `${user.id}:${event.id}`;
   const cachedUntil = viewerAuthCache.get(cacheKey);
   if (cachedUntil && cachedUntil > Date.now()) return true;

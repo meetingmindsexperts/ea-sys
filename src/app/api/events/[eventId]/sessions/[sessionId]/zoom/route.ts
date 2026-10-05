@@ -1,4 +1,5 @@
 import { newStreamKey, rtmpIngestUrl, zoomPublishKey } from "@/lib/webinar/livestream";
+import { can } from "@/lib/permissions/can";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -8,7 +9,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
-import { canViewZoomHostCredentials, redactZoomHostFields } from "@/lib/zoom-visibility";
+import { redactZoomHostFields } from "@/lib/zoom-visibility";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -93,7 +94,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // startUrl (host link) + streamKey (RTMP publish key). Session-only route,
     // so isApiKey is false. Mirrors the sessions-LIST redaction (B1).
     return NextResponse.json(
-      canViewZoomHostCredentials(session.user.role, false)
+      can(gate.principal, "zoomHost.view")
         ? zoomMeeting
         : redactZoomHostFields({ zoomMeeting }).zoomMeeting,
     );

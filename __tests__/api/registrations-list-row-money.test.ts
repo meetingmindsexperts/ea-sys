@@ -91,7 +91,7 @@ describe("sponsor filter follows the redaction (G9, CUSTOM_ROLES_PLAN)", () => {
   const sponsorReq = () => new Request("http://localhost/x?sponsorId=sp1");
 
   it("lets an API key filter by sponsor, since it receives the field unredacted", async () => {
-    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null });
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null, fromApiKey: true });
     const res = await LIST_GET(sponsorReq(), params);
     expect(res.status).toBe(200);
     const where = JSON.stringify(mockDb.registration.findMany.mock.calls[0][0].where);

@@ -20,6 +20,9 @@
  *    (`barcode.view`, `supportingDocs.view`) are organisation-wide and an
  *    organisation-wide key needs an organisation (`can()`). Before, it read
  *    both on any tenant's events.
+ *  - the DTCM pool (read and import): the platform operator is refused for the
+ *    same reason, since its barcode check moved onto `barcode.view` (field
+ *    visibility, custom roles Phase 3).
  *
  * Every network call fails here (`fetch` is stubbed to throw) and the email
  * sender is mocked, so nothing can reach a mailbox.

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can, type Principal } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -9,8 +10,8 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { planRoomTransition, applyRoomTransition, releaseRoom } from "@/lib/accommodation-rooms";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
+import { redactBarcodeFields } from "@/lib/barcode-visibility";
 
 /**
  * H2: the booking payloads used to embed the FULL Registration row via
@@ -52,10 +53,10 @@ const BOOKING_PERSON_INCLUDE = {
 /** Compose the two independent visibility boundaries (mirrors the registrations
  *  list GET): barcodes are a door credential (MEMBER excluded), prices are
  *  finance (MEMBER included). Defence-in-depth behind the select above. */
-function redactBooking<T>(value: T, role: string | null | undefined): T {
+function redactBooking<T>(value: T, principal: Principal): T {
   let out = value;
-  if (!canViewEntryBarcode(role)) out = redactBarcodeFields(out);
-  if (!canViewFinance(role)) out = redactFinancialFields(out);
+  if (!can(principal, "barcode.view")) out = redactBarcodeFields(out);
+  if (!can(principal, "finance.view")) out = redactFinancialFields(out);
   return out;
 }
 
@@ -109,7 +110,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
-    return NextResponse.json(redactBooking(accommodation, session.user.role));
+    return NextResponse.json(redactBooking(accommodation, gate.principal));
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching accommodation" });
@@ -303,7 +304,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for accommodation update" }));
 
-    return NextResponse.json(redactBooking(accommodation, session.user.role));
+    return NextResponse.json(redactBooking(accommodation, gate.principal));
     });
   } catch (error) {
     if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {

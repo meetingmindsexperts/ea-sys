@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -8,7 +9,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { isTeamRole } from "@/lib/auth-guards";
 import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
@@ -180,7 +181,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER sees event config (general, branding) but not the financial
     // fields — taxRate / taxLabel / bankDetails are stripped. UI renders
     // "—" for the masked fields on the Settings → Registration tab.
-    const payload = canViewFinance(session.user.role)
+    const payload = can(gate.principal, "finance.view")
       ? event
       : redactFinancialFields(event);
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -8,7 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
-import { canManageReimbursements, stripHonorariumFields } from "@/lib/reimbursement/constants";
+import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -165,7 +166,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // the Sep 3, 2026 boundary); `include` returns the whole row, so strip
     // the two columns for MEMBER / ONSITE / WEBINARS.
     return NextResponse.json(
-      canManageReimbursements(session.user.role) ? speaker : stripHonorariumFields(speaker),
+      can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker),
     );
     });
   } catch (error) {
@@ -293,7 +294,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // registration on a decline (cancelled / kept / real-registration / …).
     // Same boundary as the GET: the PUT admits WEBINARS on webinars, and the
     // returned row must not hand them the honorarium.
-    const visible = canManageReimbursements(session.user.role) ? speaker : stripHonorariumFields(speaker);
+    const visible = can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker);
     return NextResponse.json(companionCascade ? { ...visible, companionCascade } : visible);
     });
   } catch (error) {

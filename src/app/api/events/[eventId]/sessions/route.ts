@@ -4,10 +4,11 @@ import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { can } from "@/lib/permissions/can";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { createSession, SESSION_SELECT } from "@/services/session-service";
 import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
-import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
+import { redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -148,10 +149,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // HOST start link — plus `streamKey` and `passcode`. Strip them for anyone
     // who isn't actually running the event, otherwise a paying attendee can
     // take host control of the webinar or hijack the RTMP stream.
-    const showHostCredentials = canViewZoomHostCredentials(
-      session?.user?.role,
-      !!orgCtx, // API keys are admin-equivalent + org-scoped
-    );
+    const showHostCredentials = can(gate.principal, "zoomHost.view");
     const payload = showHostCredentials
       ? sessions
       : redactZoomHostFieldsFromSessions(sessions);

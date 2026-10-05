@@ -4,13 +4,12 @@
  * also a speaker), newest-first. Same shared builder as the speaker route, so a
  * person who is both sees one consistent feed from either page.
  */
+import { can } from "@/lib/permissions/can";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildRegistrationActivity } from "@/lib/activity-feed";
-import { canViewFinance } from "@/lib/finance-visibility";
-import { canManageReimbursements } from "@/lib/reimbursement/constants";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 
@@ -60,8 +59,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       eventId,
       { id: registration.id, attendeeEmail: registration.attendee?.email ?? null },
       session.user.organizationId,
-      canViewFinance(session.user.role),
-      canManageReimbursements(session.user.role),
+      can(gate.principal, "finance.view"),
+      can(gate.principal, "honorarium.view"),
     );
     return NextResponse.json({ items, linked });
     });

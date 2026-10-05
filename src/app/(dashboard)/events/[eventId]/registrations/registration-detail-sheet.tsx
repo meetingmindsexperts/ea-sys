@@ -86,8 +86,6 @@ import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/suppo
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
-import { canViewFinance } from "@/lib/finance-visibility";
-import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
@@ -103,7 +101,6 @@ import { ActivityTimelineCard } from "@/components/activity/activity-timeline-ca
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { displayRegistrationType } from "@/lib/faculty-filter";
@@ -198,7 +195,7 @@ export function RegistrationDetailSheet({
   // button that 403s. It matters more than usual here: a role that cannot see
   // barcodes has its payload redacted, so every row looks code-less and the
   // button would otherwise be offered on all of them.
-  const canSeeBarcodes = canViewEntryBarcode(userSession?.user?.role);
+  const canSeeBarcodes = useCan("barcode.view") === "allowed";
   // ONSITE + MEMBER are registration-desk operators: they can edit, check in,
   // record payment, and print badges — but NOT delete or email a registration
   // (those stay admin/organizer; the API enforces it too).
@@ -207,12 +204,12 @@ export function RegistrationDetailSheet({
   const isBaseDeskOperator = isOnsite || isMember;
   // ONSITE + MEMBER now SEE money (they record payments) — canViewFinance
   // includes them, so the Billing tab + Payment Summary + amounts show.
-  const showFinance = canViewFinance(userSession?.user?.role);
+  const showFinance = useCan("finance.view") === "allowed";
   // Narrower than finance and narrower than the desk: admin/organizer only
   // (src/lib/supporting-document-visibility.ts). Hidden rather than rendered
   // as a dead link — a row whose only action 403s is worse than no row, and it
   // would invite an organizer to ask desk staff to "just open it".
-  const showSupportingDocument = canViewSupportingDocument(userSession?.user?.role);
+  const showSupportingDocument = useCan("supportingDocs.view") === "allowed";
   const canReadTickets = useCan("tickets.read", eventId) === "allowed";
   const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
   const { data: regTypes = [] } = useTickets(eventId, canReadTickets);

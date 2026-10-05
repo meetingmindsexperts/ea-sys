@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
@@ -17,8 +18,8 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
+import { redactBarcodeFields } from "@/lib/barcode-visibility";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import {
   updateRegistration,
@@ -268,7 +269,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // the amounts — `redactFinancialFields` strips the whole `financials`
     // block plus payments / invoices / billing. Defense in depth: even a
     // crafted request can't pull money out of this endpoint.
-    let payload = canViewFinance(session.user.role)
+    let payload = can(gate.principal, "finance.view")
       ? withFinancials
       : redactFinancialFields(withFinancials);
 
@@ -277,7 +278,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (a MEMBER on the detail sheet is finance-capable but must not hold a door
     // credential; a REGISTRANT viewing their own row gets their barcode from the
     // portal, not this admin endpoint).
-    if (!canViewEntryBarcode(session.user.role)) {
+    if (!can(gate.principal, "barcode.view")) {
       payload = redactBarcodeFields(payload);
     }
 
@@ -443,7 +444,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Strip financials/payments/billing exactly like the GET does for a role
     // outside `canViewFinance` (the desk roles have seen amounts since the
     // June 17, 2026 "desk staff record payments" decision).
-    const payload = canViewFinance(session.user.role)
+    const payload = can(gate.principal, "finance.view")
       ? withFinancials
       : redactFinancialFields(withFinancials);
 

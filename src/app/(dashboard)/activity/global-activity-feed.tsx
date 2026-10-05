@@ -1,8 +1,8 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSession } from "next-auth/react";
 import { format, formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Activity, RefreshCw, SlidersHorizontal, X, ArrowRight } from "lucide-react";
 import {
@@ -15,7 +15,6 @@ import {
   PROCUREMENT_AUDIT_ENTITY_LABELS,
 } from "@/components/activity/audit-log-display";
 import { computeAuditDiffs } from "@/lib/activity-diff";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -137,12 +136,11 @@ export function GlobalActivityFeed({ scope = "changes" }: { scope?: ActivityScop
   // Module rows belong to no event, so the event filter would only ever empty
   // the list in those scopes.
   const hasEventFilter = !isHr && !isProcurement;
-  const { data: session } = useSession();
   // The page is ADMIN/SUPER_ADMIN-only and both are finance roles, so this is
   // effectively always true — but it is derived rather than hardcoded, so the
   // day someone widens the page's RBAC, the money in the diffs does not follow
   // them through by accident.
-  const showFinance = canViewFinance(session?.user?.role);
+  const showFinance = useCan("finance.view") === "allowed";
 
   const [eventId, setEventId] = useState(ANY);
   const [userId, setUserId] = useState(ANY);

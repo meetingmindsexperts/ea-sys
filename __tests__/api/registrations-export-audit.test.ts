@@ -87,6 +87,19 @@ vi.mock("@/lib/barcode-visibility", () => ({
   canViewEntryBarcode: mockCanViewBarcode,
   redactBarcodeFields: mockRedactBarcode,
 }));
+// The route asks `can()` for the two field keys since custom roles Phase 3;
+// every other key is the real answer, so the export gate stays real.
+vi.mock("@/lib/permissions/can", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/permissions/can")>();
+  return {
+    ...actual,
+    can: (...args: Parameters<typeof actual.can>) => {
+      if (args[1] === "finance.view") return mockCanViewFinance();
+      if (args[1] === "barcode.view") return mockCanViewBarcode();
+      return actual.can(...args);
+    },
+  };
+});
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: vi.fn() }));

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -7,7 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sponsorExistsOnEvent } from "@/lib/sponsors";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { sponsorCoverError } from "@/lib/promo-sponsor-cover";
 
 const updatePromoCodeSchema = z
@@ -123,7 +124,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // redemption's prices to a role the list deliberately hides them from, and
     // a field readable one route over is not hidden at all.
     return NextResponse.json(
-      canViewFinance(session.user.role) ? promoCode : redactFinancialFields(promoCode),
+      can(gate.principal, "finance.view") ? promoCode : redactFinancialFields(promoCode),
     );
     });
   } catch (error) {

@@ -37,6 +37,7 @@ const sheets = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/event-export/sheets", () => sheets);
 
+import { principalFromUser } from "@/lib/permissions/can";
 import { buildEventBundle, countCsvRecords } from "@/lib/event-export/bundle";
 
 const origin = new Request("https://events.example.com/api/events/ev1/export-bundle", { headers: { "user-agent": "vitest", "x-forwarded-for": "1.2.3.4" } });
@@ -70,9 +71,11 @@ describe("countCsvRecords", () => {
   });
 });
 
+const as = (role: string) => principalFromUser({ id: "u1", role, organizationId: "org1" });
+
 describe("buildEventBundle", () => {
   it("zips every area plus a README, calling each existing export with its own query and params", async () => {
-    const r = await buildEventBundle({ req: origin, eventId: "ev1", role: "ADMIN", userName: "Lina Saad" });
+    const r = await buildEventBundle({ req: origin, eventId: "ev1", principal: as("ADMIN"), userName: "Lina Saad" });
     const { names, zip } = await files(r.zip);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -96,7 +99,7 @@ describe("buildEventBundle", () => {
   it("an area the role may not export is left out, with the reason in the README", async () => {
     h.inv.mockResolvedValue(json(403, "Forbidden"));
     h.survey.mockResolvedValue(json(404, "No survey is set up for this event."));
-    const r = await buildEventBundle({ req: origin, eventId: "ev1", role: "ORGANIZER", userName: "x" });
+    const r = await buildEventBundle({ req: origin, eventId: "ev1", principal: as("ORGANIZER"), userName: "x" });
     const { names, zip } = await files(r.zip);
     expect(names).not.toContain("invoices.csv");
     expect(names).not.toContain("survey-responses.csv");
@@ -111,7 +114,7 @@ describe("buildEventBundle", () => {
   it("one failing area does not take down the rest", async () => {
     h.abs.mockRejectedValue(new Error("boom"));
     sheets.speakersSheet.mockRejectedValue(new Error("db down"));
-    const r = await buildEventBundle({ req: origin, eventId: "ev1", role: "ADMIN", userName: "x" });
+    const r = await buildEventBundle({ req: origin, eventId: "ev1", principal: as("ADMIN"), userName: "x" });
     const { names } = await files(r.zip);
     expect(names).toContain("registrations.csv");
     expect(names).not.toContain("abstracts.csv");
@@ -122,20 +125,21 @@ describe("buildEventBundle", () => {
 
   it("a 200 that is not a spreadsheet is not written into the ZIP", async () => {
     h.tg.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));
-    const { names } = await files((await buildEventBundle({ req: origin, eventId: "ev1", role: "ADMIN", userName: "x" })).zip);
+    const { names } = await files((await buildEventBundle({ req: origin, eventId: "ev1", principal: as("ADMIN"), userName: "x" })).zip);
     expect(names).not.toContain("travel-grants.csv");
   });
 
   it("webinar and hybrid events include webinar attendance", async () => {
     mockDb.event.findFirstOrThrow.mockResolvedValue({ name: "W", slug: "w", eventType: "HYBRID" });
-    const { names } = await files((await buildEventBundle({ req: origin, eventId: "ev1", role: "ADMIN", userName: "x" })).zip);
+    const { names } = await files((await buildEventBundle({ req: origin, eventId: "ev1", principal: as("ADMIN"), userName: "x" })).zip);
     expect(names).toContain("webinar-attendance.csv");
   });
 
-  it("passes the caller's role to the sheets that hide money columns", async () => {
-    await buildEventBundle({ req: origin, eventId: "ev1", role: "ORGANIZER", userName: "x" });
+  it("passes the caller's principal to the sheets that hide money columns", async () => {
+    const principal = as("ORGANIZER");
+    await buildEventBundle({ req: origin, eventId: "ev1", principal, userName: "x" });
     for (const f of [sheets.speakersSheet, sheets.accommodationSheets, sheets.registrationTypesSheet, sheets.promoCodesSheet, sheets.eventSheet]) {
-      expect(f).toHaveBeenCalledWith("ev1", "ORGANIZER");
+      expect(f).toHaveBeenCalledWith("ev1", principal);
     }
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * Deals — the sponsorship pipeline board.
  *
@@ -44,7 +45,7 @@ import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
+import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { CRM_CTA, CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, sumStageValue } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +66,7 @@ function DealsPageInner() {
   const { data: session } = useSession();
   const role = session?.user?.role;
   const canWrite = canOwnDeals(role);
-  const canSeeValues = canViewDealValues(role);
+  const canSeeValues = useCan("crm.dealValues.view") === "allowed";
 
   const { get, set, clear, anyActive } = useCrmFilters();
   const router = useRouter();

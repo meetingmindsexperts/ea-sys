@@ -18,6 +18,7 @@
  */
 import JSZip from "jszip";
 import { db } from "@/lib/db";
+import type { Principal } from "@/lib/permissions/can";
 import { apiLogger } from "@/lib/logger";
 import { GET as registrationsGET } from "@/app/api/events/[eventId]/registrations/route";
 import { GET as abstractsGET } from "@/app/api/events/[eventId]/abstracts/route";
@@ -131,10 +132,11 @@ function slugify(name: string): string {
 export async function buildEventBundle(args: {
   req: Request;
   eventId: string;
-  role: string;
+  /** The exporter: each sheet shows money and honorarium as their keys allow. */
+  principal: Principal;
   userName: string;
 }): Promise<BundleResult> {
-  const { req, eventId, role } = args;
+  const { req, eventId, principal } = args;
   const event = await db.event.findFirstOrThrow({ where: { id: eventId }, select: { name: true, slug: true, eventType: true } });
   const campaigns = await db.rsvpCampaign.findMany({ where: { eventId }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } });
 
@@ -163,12 +165,12 @@ export async function buildEventBundle(args: {
 
   // Own sheets first (fast, local), each isolated like the delegated ones.
   const own: { label: string; build: () => Promise<Sheet | Sheet[]> }[] = [
-    { label: "Event details", build: () => eventSheet(eventId, role) },
-    { label: "Registration types and pricing tiers", build: () => registrationTypesSheet(eventId, role) },
-    { label: "Speakers", build: () => speakersSheet(eventId, role) },
+    { label: "Event details", build: () => eventSheet(eventId, principal) },
+    { label: "Registration types and pricing tiers", build: () => registrationTypesSheet(eventId, principal) },
+    { label: "Speakers", build: () => speakersSheet(eventId, principal) },
     { label: "Sessions and topics", build: () => sessionSheets(eventId) },
-    { label: "Accommodation, hotels and rooms", build: () => accommodationSheets(eventId, role) },
-    { label: "Promo codes", build: () => promoCodesSheet(eventId, role) },
+    { label: "Accommodation, hotels and rooms", build: () => accommodationSheets(eventId, principal) },
+    { label: "Promo codes", build: () => promoCodesSheet(eventId, principal) },
     { label: "Sponsors", build: () => sponsorsSheet(eventId) },
   ];
   for (const o of own) {

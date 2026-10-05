@@ -1237,8 +1237,22 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
 - *MCP door: not changed.* The owner parked MCP-door parity (Sep 22: MCP
   keeps writes, an API key stays admin-equivalent). Gating it the same way is
   `tool-permissions.ts` plus a registration filter, when the owner decides.
-- *Phase 3 remaining:* field visibility (Zoom host fields are still redacted by
-  role), then Phase 4.
+- *Field visibility* (Oct 5). Money, entry barcodes, Zoom host details,
+  honorarium, supporting documents, sign-in activity, deal values and the
+  travel-grant and reimbursement cards now ask their keys (`finance.view`,
+  `barcode.view`, `zoomHost.view`, `honorarium.view`, `supportingDocs.view`,
+  `loginActivity.read`, `crm.dealValues.view`, `travelGrants.manage`,
+  `reimbursements.manage`) instead of the role predicates: about 40 sites in
+  routes, pages and components, plus the event export, which now takes the
+  exporter's principal. A route judges the field on its gate's principal, so a
+  session, an API key and a mobile token are each read as the route already
+  read them. The predicates stay, pinned equal to the keys by
+  `system-roles-parity.test.ts`. One intended change: the platform operator no
+  longer reads or imports a tenant's DTCM pool (as with the barcode image).
+  Left on roles: `denyFinance` on the registrant invoice routes (registrants
+  are outside identities) and the CRM and Budgets agent-tool internals (the
+  parked MCP door).
+- **Phase 3 is complete** except the MCP door (parked). Next: Phase 4.
 
 ### Phase 4: Event staff assignment (1 week)
 

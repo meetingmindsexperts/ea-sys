@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { AccommodationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
@@ -7,7 +8,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import {
   createAccommodation,
@@ -128,7 +129,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // consistency with the registrations list. Today every org-bound role is
     // finance-capable so this is a no-op for legitimate callers, but it keeps
     // the boundary correct if a non-finance org-bound role is ever added.
-    const payload = canViewFinance(session.user.role)
+    const payload = can(gate.principal, "finance.view")
       ? accommodations
       : redactFinancialFields(accommodations);
 

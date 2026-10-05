@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -33,7 +34,6 @@ import {
   useResendInvoice,
   type InvoiceListItem,
 } from "@/hooks/use-api";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { canWrite } from "@/lib/can-write";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 
@@ -107,7 +107,7 @@ export default function EventInvoicesPage() {
   const eventId = params.eventId as string;
   const { data: session } = useSession();
   const role = session?.user?.role;
-  const canFinance = canViewFinance(role);
+  const canFinance = useCan("finance.view") === "allowed";
   const canWriteFinance = canWrite(role);
 
   const { data: event } = useEvent(eventId);

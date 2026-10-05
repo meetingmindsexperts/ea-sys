@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * Notes / calls / meetings log for ONE CRM record (deal, account or contact).
  *
@@ -27,7 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RecordCard } from "@/components/record-layout";
-import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { ACTIVITY_TYPE_LABELS, personName, type CrmActivityType } from "@/crm/lib/crm-types";
 import { useCreateNote, useCrmNotes, useDeleteNote } from "@/crm/hooks/use-crm-api";
 
@@ -45,7 +45,7 @@ export function CrmNotesCard({
 }) {
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
-  const canSeeNotes = canViewDealValues(session?.user?.role);
+  const canSeeNotes = useCan("crm.dealValues.view") === "allowed";
 
   const { data: notes = [], isLoading: notesLoading } = useCrmNotes(attach, { enabled: canSeeNotes });
   const createNote = useCreateNote();

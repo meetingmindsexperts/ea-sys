@@ -102,10 +102,10 @@ describe("the sponsor filter", () => {
     // names off the rows, and the redaction has bought nothing.
     // ONE value decides both (G9): an API key receives the field unredacted,
     // so it may filter on it too.
-    expect(src).toContain("const redactsFinance = orgCtx.role !== null && !canViewFinance(orgCtx.role);");
+    expect(src).toContain('const redactsFinance = !can(gate.principal, "finance.view");');
     expect(src).toMatch(/sponsorFilterId && redactsFinance\)/);
     expect(src).toMatch(/if \(redactsFinance\) \{\s*payload = redactFinancialFields\(payload\)/);
-    expect(src.match(/canViewFinance\(orgCtx\.role\)/g)).toHaveLength(1);
+    expect(src.match(/can\(gate\.principal, "finance\.view"\)/g)).toHaveLength(1);
     expect(src).toContain("SPONSOR_FILTER_FORBIDDEN");
   });
 

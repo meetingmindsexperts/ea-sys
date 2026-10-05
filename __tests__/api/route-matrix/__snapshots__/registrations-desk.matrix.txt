@@ -430,7 +430,7 @@ GET tags
 GET dtcm-pool
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 200 r       200 r       200 r       404
-  OPERATOR    200 r       200 r       200 r       200 r
+  OPERATOR    403         403         403         403
   ADMIN       200 r       200 r       200 r       404
   ORGANIZER   200 r       200 r       200 r       404
   MEMBER      403         403         403         403
@@ -447,7 +447,7 @@ GET dtcm-pool
 POST dtcm-pool
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 400 r       400 r       400 r       404
-  OPERATOR    400 r       400 r       400 r       400 r
+  OPERATOR    403         403         403         403
   ADMIN       400 r       400 r       400 r       404
   ORGANIZER   400 r       400 r       400 r       404
   MEMBER      403         403         403         403

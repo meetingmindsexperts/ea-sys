@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
+import { principalFromSession } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { redirect } from "next/navigation";
 import { Activity } from "lucide-react";
-import { canViewLoginActivity } from "@/lib/login-visibility";
 import { canViewHr } from "@/lib/hr-visibility";
 import { canViewProcurement } from "@/lib/procurement-visibility";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
@@ -48,7 +49,7 @@ export default async function ActivityPage() {
       </div>
 
       <ActivityTabs
-        canViewSignIns={canViewLoginActivity(session.user.role)}
+        canViewSignIns={can(principalFromSession(session), "loginActivity.read")}
         canViewHrActivity={canViewHrActivity}
         canViewBudgetActivity={canViewBudgetActivity}
       />

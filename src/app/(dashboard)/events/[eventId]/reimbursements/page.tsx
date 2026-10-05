@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * Speaker reimbursements — organizer console (v1: submission-only).
  *
@@ -16,7 +17,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import {
   Banknote,
   Check,
@@ -55,7 +55,6 @@ import {
   BANK_FIELD_LABELS,
   CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
-  canManageReimbursements,
   claimItemLabel,
   documentKindLabel,
   formatClaimTotals,
@@ -110,7 +109,6 @@ interface ReimbursementRow {
 
 export default function ReimbursementsPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { data: session } = useSession();
   const { data: event } = useEvent(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
 
@@ -158,8 +156,7 @@ export default function ReimbursementsPage() {
     [templatesData],
   );
 
-  const role = session?.user?.role;
-  const allowed = canManageReimbursements(role);
+  const allowed = useCan("reimbursements.manage", eventId) === "allowed";
 
   // Which reimbursement types the event offers (Sep 8, 2026). The draft is
   // what the picker shows; `eventClaimItems` is what is saved.

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -11,7 +12,7 @@ import { principalFromCaller, requirePermission } from "@/lib/permissions/requir
 import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getClientIp } from "@/lib/security";
-import { canManageReimbursements, stripHonorariumFields } from "@/lib/reimbursement/constants";
+import { stripHonorariumFields } from "@/lib/reimbursement/constants";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createSpeaker,
@@ -194,7 +195,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // is judged by role; a call with no session got here on an API key,
     // which is admin-equivalent everywhere and keeps them.
     const canSeeHonorarium = session?.user
-      ? canManageReimbursements(session.user.role)
+      ? can(gate.principal, "honorarium.view")
       : Boolean(orgCtx);
     const response = NextResponse.json(canSeeHonorarium ? speakers : speakers.map(stripHonorariumFields));
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");

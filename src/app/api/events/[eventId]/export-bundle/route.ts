@@ -45,16 +45,15 @@ export async function GET(req: Request, { params }: RouteParams): Promise<NextRe
 
     return await runWithTenant(r.event.organizationId, async () => {
       const started = Date.now();
-      const role = session.user.role ?? "";
       const userName = [session.user.firstName, session.user.lastName].filter(Boolean).join(" ") || session.user.email || session.user.id;
-      const bundle = await buildEventBundle({ req, eventId: r.event.id, role, userName });
+      const bundle = await buildEventBundle({ req, eventId: r.event.id, principal: gate.principal, userName });
 
       recordExport(req, {
         entityType: "EventDataBundle",
         eventId: r.event.id,
         organizationId: r.event.organizationId,
         userId: session.user.id,
-        role,
+        role: session.user.role ?? "",
         source: "rest",
         rowCount: bundle.totalRows,
         format: "zip",

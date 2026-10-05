@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -10,7 +11,7 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
-import { canViewZoomHostCredentials, redactZoomHostFields } from "@/lib/zoom-visibility";
+import { redactZoomHostFields } from "@/lib/zoom-visibility";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { enableWebinarQA } from "@/lib/zoom";
@@ -129,7 +130,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       zoomMeeting,
     };
     return NextResponse.json(
-      canViewZoomHostCredentials(session.user.role, false)
+      can(gate.principal, "zoomHost.view")
         ? payload
         : redactZoomHostFields(payload),
     );

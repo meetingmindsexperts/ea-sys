@@ -93,8 +93,6 @@ import {
 } from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
-import { canViewFinance } from "@/lib/finance-visibility";
 import { canWrite } from "@/lib/can-write";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
@@ -204,11 +202,11 @@ export default function RegistrationsPage() {
   // NOT `!isDeskOperator`: that set includes MEMBER (excluded from barcodes)
   // and excludes ONSITE (the desk, who must see them). The two boundaries
   // genuinely disagree, which is why barcode visibility has its own predicate.
-  const canSeeBarcodes = canViewEntryBarcode(roleName);
+  const canSeeBarcodes = useCan("barcode.view") === "allowed";
   // "Paid / Due" column: the API attaches `rowMoney` only for roles that can
   // see money (redactFinancialFields strips it otherwise), so the column is
   // gated on the same predicate rather than on a per-row field check.
-  const canSeeMoney = canViewFinance(roleName);
+  const canSeeMoney = useCan("finance.view") === "allowed";
   // Payer column only when someone on this list actually has a third-party
   // payer. It read "-" on nearly every row, and the width is better spent on
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
@@ -221,7 +219,7 @@ export default function RegistrationsPage() {
   // control for a role the server refuses would break the whole list the moment
   // they touched it. It also stays hidden when the event has no sponsors, since
   // a filter that can only mean "all" is noise.
-  const canFilterBySponsor = canViewFinance(roleName) && sponsors.length > 0;
+  const canFilterBySponsor = canSeeMoney && sponsors.length > 0;
   const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {

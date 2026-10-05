@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * Speaker profile — Reimbursement card.
  *
@@ -24,8 +25,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { Banknote, Check, Copy, ExternalLink, Eye, FileDown, FileText, Loader2, PenLine, Plus, Send } from "lucide-react";
+import {
+  Banknote,
+  Check,
+  Copy,
+  ExternalLink,
+  Eye,
+  FileDown,
+  FileText,
+  Loader2,
+  PenLine,
+  Plus,
+  Send,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,7 +59,6 @@ import { useEvent, usePreviewEmailBySlug } from "@/hooks/use-api";
 import {
   CLAIM_ITEM_KEYS,
   REIMBURSEMENT_CURRENCIES,
-  canManageReimbursements,
   documentKindLabel,
   formatClaimTotals,
   formatHonorarium,
@@ -77,9 +88,8 @@ interface Row {
 }
 
 export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
-  const { data: session } = useSession();
   const { data: event } = useEvent(eventId);
-  const allowed = canManageReimbursements(session?.user?.role);
+  const allowed = useCan("reimbursements.manage", eventId) === "allowed";
 
   const [row, setRow] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);

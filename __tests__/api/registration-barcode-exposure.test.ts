@@ -76,7 +76,7 @@ describe("H7 — list GET barcode exposure", () => {
   });
 
   it("KEEPS barcodes for an API-key caller (role null, admin-equivalent)", async () => {
-    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null });
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: null, userId: null, fromApiKey: true });
     const res = await LIST_GET(listReq(), listParams);
     const body = await res.json();
     expect(body[0].qrCode).toBe("ENTRY-1");

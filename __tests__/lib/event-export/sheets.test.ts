@@ -14,6 +14,7 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
 import { accommodationSheets, promoCodesSheet, registrationTypesSheet, speakersSheet } from "@/lib/event-export/sheets";
+import { principalFromUser } from "@/lib/permissions/can";
 
 const dec = (v: string) => ({ toString: () => v });
 
@@ -52,39 +53,41 @@ beforeEach(() => {
   mockDb.hotel.findMany.mockResolvedValue([]);
 });
 
+const as = (role: string) => principalFromUser({ id: "u1", role, organizationId: "org1" });
+
 describe("money columns follow the screen predicates", () => {
   it("the honorarium shows for admins and organisers, not for a desk role", async () => {
-    expect((await speakersSheet("ev1", "ADMIN")).csv).toContain("1500.00");
-    const desk = await speakersSheet("ev1", "MEMBER");
+    expect((await speakersSheet("ev1", as("ADMIN"))).csv).toContain("1500.00");
+    const desk = await speakersSheet("ev1", as("MEMBER"));
     expect(desk.csv).not.toContain("Honorarium");
     expect(desk.csv).not.toContain("1500.00");
   });
 
   it("prices show for finance roles only", async () => {
-    expect((await registrationTypesSheet("ev1", "ORGANIZER")).csv).toContain("950.00");
-    const nonFinance = await registrationTypesSheet("ev1", "CRM_USER");
+    expect((await registrationTypesSheet("ev1", as("ORGANIZER"))).csv).toContain("950.00");
+    const nonFinance = await registrationTypesSheet("ev1", as("CRM_USER"));
     expect(nonFinance.csv).not.toContain("950.00");
     expect(nonFinance.csv).not.toContain("Price");
-    expect((await promoCodesSheet("ev1", "CRM_USER")).csv).not.toContain("Discount Value");
-    const [bookings] = await accommodationSheets("ev1", "CRM_USER");
+    expect((await promoCodesSheet("ev1", as("CRM_USER"))).csv).not.toContain("Discount Value");
+    const [bookings] = await accommodationSheets("ev1", as("CRM_USER"));
     expect(bookings.csv).not.toContain("800.00");
   });
 });
 
 describe("shape", () => {
   it("a type row is followed by its pricing tiers", async () => {
-    const t = await registrationTypesSheet("ev1", "ADMIN");
+    const t = await registrationTypesSheet("ev1", as("ADMIN"));
     expect(t.rows).toBe(2);
     expect(t.csv.split("\n")[2]).toContain("Pricing tier");
   });
 
   it("formula-shaped cells are neutralised by the shared escaper", async () => {
-    const csv = (await speakersSheet("ev1", "ADMIN")).csv;
+    const csv = (await speakersSheet("ev1", as("ADMIN"))).csv;
     expect(csv).not.toMatch(/,=HYPERLINK/);
   });
 
   it("a speaker's sessions and companion registration are listed", async () => {
-    const csv = (await speakersSheet("ev1", "ADMIN")).csv;
+    const csv = (await speakersSheet("ev1", as("ADMIN"))).csv;
     expect(csv).toContain("Opening (SPEAKER)");
     expect(csv).toContain(",Yes,");
   });

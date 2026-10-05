@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 /**
  * CRM Reports — pipeline, win/loss, and a per-rep leaderboard, plus CSV export.
  *
@@ -37,7 +38,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport, useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canViewDealValues, canExportCrm } from "@/crm/lib/crm-roles";
+import { canExportCrm } from "@/crm/lib/crm-roles";
 import { CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import {
   CRM_REPORT_DIMENSIONS,
@@ -66,7 +67,7 @@ function money(v: number | null, currency: string | null, mixed?: boolean): stri
 
 function ReportsInner() {
   const { data: session } = useSession();
-  const canSeeValues = canViewDealValues(session?.user?.role);
+  const canSeeValues = useCan("crm.dealValues.view") === "allowed";
   // Admin and above only. The API is the authority (requireCrmExport); hiding
   // the button just avoids handing everyone else a download that 403s.
   const canExport = canExportCrm(session?.user?.role);

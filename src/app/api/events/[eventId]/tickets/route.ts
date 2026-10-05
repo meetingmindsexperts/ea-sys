@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -112,7 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER sees ticket-type names + capacity but not prices (price,
     // pricingTiers[].price are all financial). redactFinancialFields
     // strips them; the UI renders "—" for the missing price.
-    const payload = canViewFinance(session.user.role)
+    const payload = can(gate.principal, "finance.view")
       ? ticketTypes
       : redactFinancialFields(ticketTypes);
 
