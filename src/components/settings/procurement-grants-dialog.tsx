@@ -33,6 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { separationConflicts } from "@/lib/permissions/separation";
+import { roleKind } from "@/lib/permissions/role-kind";
 import {
   permissionSetKeys,
   usePermissionSets,
@@ -96,7 +97,11 @@ export function ProcurementGrantsDialog({
 }) {
   const qc = useQueryClient();
   const open = !!user;
-  const { data: allSets = [] } = usePermissionSets({ enabled: open });
+  // Budgets roles only: custom roles are assigned from the person's Roles.
+  // Saving sends every role held (roleIds is seeded from all of them), so
+  // their custom roles are kept as they are.
+  const { data: everySet = [] } = usePermissionSets({ enabled: open });
+  const allSets = everySet.filter((s) => roleKind(s.permissions.map((p) => p.permission)) === "procurement");
   const { data: held } = useUserPermissionSets(user?.id ?? null);
 
   const [form, setForm] = useState({ request: false, ceiling: "", unlimited: false, settle: false, delegate: NEXT_TIER });
@@ -229,7 +234,7 @@ export function ProcurementGrantsDialog({
             <Label>Roles</Label>
             {allSets.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No roles yet. Create one under Settings → Roles, then tag it here.
+                No Budgets roles yet. Create one under Settings → Roles, then tag it here.
               </p>
             ) : (
               <div className="grid gap-x-6 gap-y-3 rounded-lg border p-3 sm:grid-cols-2">

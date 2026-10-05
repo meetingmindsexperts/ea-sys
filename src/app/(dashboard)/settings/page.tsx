@@ -1316,7 +1316,9 @@ export default function SettingsPage() {
 
         {isSuperAdmin && rolesTabEnabled && (
           <TabsContent value="roles">
-            <PermissionSetsCard />
+            {/* Two kinds, two cards, two dialogs (owner, Oct 5, 2026). */}
+            {customRolesEnabled && <PermissionSetsCard kind="custom" />}
+            {procurementEnabled && <PermissionSetsCard kind="procurement" />}
             {procurementEnabled && <ApprovalChainCard />}
           </TabsContent>
         )}

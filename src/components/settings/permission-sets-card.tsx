@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PERMISSION_CATALOGUE, PERMISSION_GROUPS, isGrantableKey } from "@/lib/permissions/catalogue";
 import { roleWarnings, type DraftGrant } from "@/lib/permissions/role-warnings";
+import { isProcurementKey, roleKind, type RoleKind } from "@/lib/permissions/role-kind";
 import type { GrantScope } from "@/lib/permissions/system-roles";
 import { useRuntimeFlags } from "@/components/runtime-flags";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,9 +38,35 @@ import { permissionSetKeys, usePermissionSets, type PermissionSetRow } from "@/h
 /** `"new"` opens the dialog empty; a row opens it on that role. */
 type Editing = PermissionSetRow | "new" | null;
 
-export function PermissionSetsCard() {
+/** Copy per card (owner, Oct 5, 2026: two dialogs, two buttons). */
+const CARD_COPY: Record<"procurement" | "custom", { title: string; description: string; cta: string; empty: string }> = {
+  procurement: {
+    title: "Budgets roles",
+    description:
+      "Budget & Procurement permissions you tag onto people, on top of their role. Assigned from a person's Procurement access, beside their approval limit.",
+    cta: "New Budgets role",
+    empty: "No Budgets roles yet.",
+  },
+  custom: {
+    title: "Custom roles",
+    description:
+      "Permissions you add on top of a person's base role, anywhere in the app. Someone holding two roles can do everything both allow. Assigned from a person's Roles.",
+    cta: "New role",
+    empty: "No custom roles yet. Create one to give people more than their base role.",
+  },
+};
+
+const keysOf = (set: PermissionSetRow) => set.permissions.map((p) => p.permission);
+
+export function PermissionSetsCard({ kind }: { kind: "procurement" | "custom" }) {
   const qc = useQueryClient();
-  const { data: sets = [], isLoading } = usePermissionSets({ includeArchived: true });
+  const { data: allSets = [], isLoading } = usePermissionSets({ includeArchived: true });
+  // This card's roles: Budgets ones here, everything else (mixed included) under Custom roles.
+  const sets = allSets.filter((set) => {
+    const k = roleKind(keysOf(set));
+    return kind === "procurement" ? k === "procurement" : k !== "procurement";
+  });
+  const copy = CARD_COPY[kind];
   const [editing, setEditing] = useState<Editing>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -90,16 +117,13 @@ export function PermissionSetsCard() {
               <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-50 text-amber-600">
                 <ShieldCheck className="h-4 w-4" />
               </div>
-              Roles
+              {copy.title}
             </CardTitle>
-            <CardDescription>
-              Named sets of permissions you tag onto people, on top of their role. Someone holding two roles can do
-              everything both allow.
-            </CardDescription>
+            <CardDescription>{copy.description}</CardDescription>
           </div>
           <Button onClick={() => setEditing("new")}>
             <Plus className="mr-2 h-4 w-4" />
-            New role
+            {copy.cta}
           </Button>
         </div>
       </CardHeader>
@@ -110,7 +134,7 @@ export function PermissionSetsCard() {
           </p>
         )}
         {!isLoading && sets.length === 0 && (
-          <p className="text-sm text-muted-foreground">No roles yet. Create one to get started.</p>
+          <p className="text-sm text-muted-foreground">{copy.empty}</p>
         )}
         {[...active, ...archived].map((set) => (
           <div
@@ -158,6 +182,7 @@ export function PermissionSetsCard() {
       </CardContent>
 
       <PermissionSetDialog
+        kind={editing && editing !== "new" ? roleKind(keysOf(editing)) : kind}
         editing={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {
@@ -170,10 +195,13 @@ export function PermissionSetsCard() {
 }
 
 function PermissionSetDialog({
+  kind,
   editing,
   onClose,
   onSaved,
 }: {
+  /** Which keys the dialog offers: Budgets keys, every other key, or all (a mixed role). */
+  kind: RoleKind;
   editing: Editing;
   onClose: () => void;
   onSaved: () => void;
@@ -208,7 +236,12 @@ function PermissionSetDialog({
   // Warnings, not refusals (plan §8.3): a deliberate role can still be saved.
   const warnings = roleWarnings(form.permissions);
 
-  const grantable = PERMISSION_CATALOGUE.filter((p) => isGrantableKey(p.key, customRolesEnabled));
+  const grantable = PERMISSION_CATALOGUE.filter((p) => {
+    if (!isGrantableKey(p.key, customRolesEnabled)) return false;
+    if (kind === "procurement") return isProcurementKey(p.key);
+    if (kind === "custom") return !isProcurementKey(p.key);
+    return true;
+  });
   const query = search.trim().toLowerCase();
   const shown = query
     ? grantable.filter((p) => `${p.label} ${p.description} ${p.group}`.toLowerCase().includes(query))
@@ -279,7 +312,9 @@ function PermissionSetDialog({
     <Dialog open={editing !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editing === "new" ? "New role" : "Edit role"}</DialogTitle>
+          <DialogTitle>
+            {editing === "new" ? (kind === "procurement" ? "New Budgets role" : "New role") : kind === "procurement" ? "Edit Budgets role" : "Edit role"}
+          </DialogTitle>
           <DialogDescription>
             Tick what this role lets someone do. People holding it pick the change up within five minutes; anything
             that moves money is re-checked at the moment they act.
@@ -381,10 +416,12 @@ function PermissionSetDialog({
             })}
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            The amount somebody may approve is set on the person, not here: two people holding the same approving role
-            can have different limits.
-          </p>
+          {kind !== "custom" && (
+            <p className="text-xs text-muted-foreground">
+              The amount somebody may approve is set on the person, not here: two people holding the same approving role
+              can have different limits.
+            </p>
+          )}
         </div>
 
         <DialogFooter>

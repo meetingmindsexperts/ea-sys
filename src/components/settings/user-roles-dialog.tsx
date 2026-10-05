@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { permissionSetKeys, usePermissionSets, useUserPermissionSets } from "@/hooks/use-permission-sets";
+import { roleKind } from "@/lib/permissions/role-kind";
 
 interface Person {
   id: string;
@@ -28,7 +29,10 @@ interface Person {
 export function UserRolesDialog({ user, onClose, onSaved }: { user: Person | null; onClose: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
   const open = user !== null;
-  const { data: roles = [], isLoading } = usePermissionSets({ enabled: open });
+  // Custom roles only: Budgets roles are assigned from Procurement access.
+  // Saving sends every role held, so the Budgets ones are kept as they are.
+  const { data: allRoles = [], isLoading } = usePermissionSets({ enabled: open });
+  const roles = allRoles.filter((r) => roleKind(r.permissions.map((p) => p.permission)) !== "procurement");
   const { data: held } = useUserPermissionSets(user?.id ?? null);
   const [picked, setPicked] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -80,7 +84,7 @@ export function UserRolesDialog({ user, onClose, onSaved }: { user: Person | nul
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading" />
           </div>
         ) : roles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No roles yet. Create one under Settings, Roles.</p>
+          <p className="text-sm text-muted-foreground">No roles yet. Create one under Settings, Roles, Custom roles.</p>
         ) : (
           <div className="space-y-3 max-h-80 overflow-y-auto">
             {roles.map((role) => (
