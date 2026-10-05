@@ -56,6 +56,10 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockGetOrgContext() }));
+// The routes build their principal from the session when there is one, else
+// from the org context; no session here, so each test drives the caller
+// through `getOrgContext` alone, as before the Phase 2 sweep.
+vi.mock("@/lib/auth", () => ({ auth: async () => null }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),

@@ -379,6 +379,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the contact store checks permissions instead of roles (October 5)
+
+- Custom roles Phase 2: the organisation's contacts (list, detail, create,
+  edit, delete, email change, tags, export and both imports). Nobody's access
+  changes: members and the CRM team still read, members still export, and
+  only admins and organizers (and API keys) change the store.
+
 ### Changed: reimbursements, honoraria, travel grants, RSVPs and surveys check permissions instead of roles (October 2)
 
 - Custom roles Phase 2: speaker reimbursements (including their PDF,

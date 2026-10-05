@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyContactAccess } from "@/lib/contact-visibility";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 
 export async function GET(req: Request) {
   try {
@@ -13,9 +14,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Staff + MEMBER only — the tag vocabulary is CRM metadata (contacts review H1).
-    const denied = denyContactAccess(ctx);
-    if (denied) return denied;
+    // `contacts.read` — the tag vocabulary is CRM metadata (contacts review H1).
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.read", { route: "contacts/tags:GET" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {

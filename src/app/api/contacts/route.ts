@@ -5,8 +5,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyReviewer } from "@/lib/auth-guards";
-import { denyContactAccess } from "@/lib/contact-visibility";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -51,11 +51,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // The org CRM is staff + MEMBER only. `denyReviewer` guards the writes;
-    // without this, ONSITE / internal-domain REGISTRANT (both org-bound) could
-    // page through every contact in the organization (contacts review H1).
-    const denied = denyContactAccess(ctx);
-    if (denied) return denied;
+    // `contacts.read`: staff, MEMBER and CRM_USER. Without it, ONSITE or an
+    // internal-domain REGISTRANT (both org-bound) could page through every
+    // contact in the organization (contacts review H1). Writes need
+    // `contacts.write`.
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.read", { route: "contacts:GET" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: populate the ALS tenant store for this request. With
     // RLS_SET_LOCAL off (master) this is a pure async wrapper — no behavior
@@ -137,8 +138,8 @@ export async function POST(req: Request) {
     // The old inline REVIEWER||SUBMITTER check let read-only MEMBER and
     // REGISTRANT write/delete org contacts. API-key auth (role null →
     // undefined) is admin-equivalent and passes, as before.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.write", { route: "contacts:POST" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {

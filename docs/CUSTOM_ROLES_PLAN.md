@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 10 of 17
-> domains swept (122 route files on `requirePermission`, pinned by
+> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 11 of 17
+> domains swept (130 route files on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -832,6 +832,23 @@ Domain by domain:
   with clean RSVP, Reimbursements and Survey pages; MEMBER loads the Survey
   page clean and is 403 on the export and every other faculty route;
   WEBINARS on a conference 404 on the survey and 403 elsewhere.
+- **Contacts SWEPT Oct 5, 2026** (8 files under `/api/contacts`: the list and
+  create, a contact, its email change, bulk tags, the tag list, export, CSV
+  import, the EventsAir import). Keys: `contacts.read` (MEMBER, CRM_USER and
+  API keys read), `contacts.write`, `contacts.delete`, `contacts.export`
+  (MEMBER yes, CRM_USER no, the July 16 owner rule), `contacts.import`. These
+  routes take a session, an API key or a mobile token through
+  `getOrgContext`, so they gate on `principalFromCaller(session, ctx)`: a
+  signed-in person brings their own grants, a key the API_KEY row. The
+  `denyContactAccess` / `denyContactExport` helpers had no callers left and
+  are removed; `canViewContacts` / `canExportContacts` stay for email logs,
+  the CRM and supporting documents, pinned to the keys by the parity test.
+  `contacts-read-access.test.ts` mocks `auth()` so it still drives the caller
+  through the org context. Matrix byte for byte; no behaviour change.
+  Verified with the chrome-devtools MCP: ADMIN created, edited, tagged,
+  re-addressed, exported, imported and deleted contacts with a clean Contacts
+  page; MEMBER reads and exports, 403 on create; CRM_USER reads, 403 on export
+  and create.
 
 **Behaviour changes so far.** Everything else in the swept domains answers as
 it did before, byte for byte in the route matrix. These changed on purpose,

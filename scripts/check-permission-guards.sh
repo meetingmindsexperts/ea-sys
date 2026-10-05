@@ -159,6 +159,15 @@ SWEPT=(
   "src/app/api/events/[eventId]/survey/responses/route.ts"
   "src/app/api/events/[eventId]/survey/responses/export/route.ts"
   "src/app/api/events/[eventId]/registrations/[registrationId]/survey/route.ts"
+  # contacts (Oct 5, 2026)
+  "src/app/api/contacts/route.ts"
+  "src/app/api/contacts/[contactId]/route.ts"
+  "src/app/api/contacts/[contactId]/email/route.ts"
+  "src/app/api/contacts/bulk-tags/route.ts"
+  "src/app/api/contacts/tags/route.ts"
+  "src/app/api/contacts/export/route.ts"
+  "src/app/api/contacts/import/route.ts"
+  "src/app/api/contacts/import-eventsair/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

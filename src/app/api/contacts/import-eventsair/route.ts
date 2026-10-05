@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { downloadExternalPhoto } from "@/lib/storage";
 import { omitBlankFields } from "@/lib/contact-sync";
@@ -28,8 +28,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "contacts/import-eventsair:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "contacts.import", { route: "contacts/import-eventsair:POST" });
+    if (!gate.ok) return gate.response;
 
     // Captured as a const so the guard's narrowing survives into the closure.
     const organizationId = session.user.organizationId;

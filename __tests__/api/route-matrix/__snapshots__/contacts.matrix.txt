@@ -1,0 +1,190 @@
+# contacts
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET contacts
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+POST contacts
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    401
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500 w
+  NONE        401
+
+GET contacts/[contactId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    404
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PUT contacts/[contactId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+DELETE contacts/[contactId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH contacts/[contactId]/email
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    401
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     404
+  NONE        401
+
+PATCH contacts/bulk-tags
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     400
+  NONE        401
+
+GET contacts/tags
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    200
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200
+  NONE        401
+
+GET contacts/export
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    401
+  ADMIN       200 w
+  ORGANIZER   200 w
+  MEMBER      200 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     200 w
+  NONE        401
+
+POST contacts/import (JSON, not multipart)
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   500
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     500
+  NONE        401
+
+POST contacts/import-eventsair
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401

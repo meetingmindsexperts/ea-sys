@@ -2,7 +2,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyContactAccess, denyContactExport } from "@/lib/contact-visibility";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
@@ -25,17 +26,14 @@ export async function GET(req: Request) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
 
-    const denied = denyContactAccess(ctx);
-    if (denied) return denied;
+    // `contacts.export` is narrower than read: CRM_USER may search and read
+    // the store (to link a rep to a registration) but may NOT pull the whole
+    // org book as a file (owner decision, July 16, 2026).
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.export", { route: "contacts/export:GET" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {
-
-    // Export is a narrower boundary than read: CRM_USER may search/read the
-    // store (to link a rep to a registration) but may NOT pull the whole org
-    // book as a file (owner decision, July 16, 2026).
-    const exportDenied = denyContactExport(ctx);
-    if (exportDenied) return exportDenied;
 
     // A bulk PII export deserves its own budget, separate from the read routes.
     const limit = checkRateLimit({

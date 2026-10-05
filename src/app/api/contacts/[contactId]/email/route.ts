@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyReviewer } from "@/lib/auth-guards";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail } from "@/lib/email-change";
 
@@ -30,8 +31,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
     // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]/email:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.write", { route: "contacts/[contactId]/email:PATCH" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {

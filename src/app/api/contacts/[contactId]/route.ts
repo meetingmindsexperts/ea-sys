@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyReviewer } from "@/lib/auth-guards";
-import { denyContactAccess } from "@/lib/contact-visibility";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -57,10 +57,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Staff + MEMBER only — the detail payload carries phone, bio and the
+    // `contacts.read` — the detail payload carries phone, bio and the
     // organizer's private notes (contacts review H1).
-    const denied = denyContactAccess(ctx);
-    if (denied) return denied;
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.read", { route: "contacts/[contactId]:GET" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {
@@ -141,10 +141,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
-    // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]:PUT" });
-    if (denied) return denied;
+    // `contacts.write`: MEMBER and CRM_USER read only; an API key holds it.
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.write", { route: "contacts/[contactId]:PUT" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {
@@ -237,10 +236,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
-    // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/[contactId]:DELETE" });
-    if (denied) return denied;
+    // `contacts.delete`: MEMBER and CRM_USER read only; an API key holds it.
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.delete", { route: "contacts/[contactId]:DELETE" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {

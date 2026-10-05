@@ -5,7 +5,8 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyReviewer } from "@/lib/auth-guards";
+import { auth } from "@/lib/auth";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
 
@@ -19,8 +20,8 @@ export async function POST(req: Request) {
 
     // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
     // API-key auth (role null) passes through as admin-equivalent.
-    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } }, { route: "contacts/import:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(principalFromCaller(await auth(), ctx), "contacts.import", { route: "contacts/import:POST" });
+    if (!gate.ok) return gate.response;
 
     // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     return await runWithTenant(ctx.organizationId, async () => {

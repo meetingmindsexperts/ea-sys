@@ -33,8 +33,6 @@
  *
  * Fails closed: an unknown/absent role gets nothing.
  */
-import { NextResponse } from "next/server";
-import { apiLogger } from "@/lib/logger";
 
 // CRM_USER is included (owner decision, 2026-07-15) so the sales team can search
 // the event contact store to LINK a rep to their event registration. This does
@@ -62,33 +60,6 @@ export function canViewContacts(
 }
 
 /**
- * Returns a 403 if the caller's org context may not read the contact store,
- * else null. Logged HERE so no call site can forget (payments review M12) —
- * a restricted role probing the CRM must be visible in /logs.
- *
- * Usage (after the `getOrgContext` null check):
- *   const denied = denyContactAccess(ctx);
- *   if (denied) return denied;
- */
-export function denyContactAccess(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canViewContacts(ctx.role, ctx.fromApiKey)) return null;
-
-  apiLogger.warn({
-    msg: "auth-guard:contacts-read-denied",
-    role: ctx.role,
-    userId: ctx.userId,
-  });
-  return NextResponse.json(
-    { error: "The contact store is not available to your role", code: "CONTACTS_FORBIDDEN" },
-    { status: 403 },
-  );
-}
-
-/**
  * True when the role may bulk-export the org contact store as CSV.
  * Narrower than `canViewContacts` — see CONTACT_EXPORT_ROLES. API keys are
  * admin-equivalent (admin-minted, org-scoped) and may export.
@@ -101,25 +72,8 @@ export function canExportContacts(
   return !!role && CONTACT_EXPORT_ROLES.has(role);
 }
 
-/**
- * Returns a 403 if the caller may not bulk-export the contact store, else
- * null. Runs AFTER `denyContactAccess` on the export route — this is the
- * second, narrower gate. Logged here so no call site can forget.
- */
-export function denyContactExport(ctx: {
-  role: string | null;
-  userId: string | null;
-  fromApiKey: boolean;
-}) {
-  if (canExportContacts(ctx.role, ctx.fromApiKey)) return null;
-
-  apiLogger.warn({
-    msg: "auth-guard:contacts-export-denied",
-    role: ctx.role,
-    userId: ctx.userId,
-  });
-  return NextResponse.json(
-    { error: "Exporting the contact store is not available to your role", code: "CONTACTS_EXPORT_FORBIDDEN" },
-    { status: 403 },
-  );
-}
+// The routes no longer call a deny helper here: since Oct 5, 2026 (custom
+// roles Phase 2) they gate on `contacts.read` / `contacts.export` through
+// `requirePermission`, whose system-role grants match these two predicates
+// (pinned by system-roles-parity.test.ts). The predicates stay for the
+// callers that still read them (email logs, the CRM, supporting documents).

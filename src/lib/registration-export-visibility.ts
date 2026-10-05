@@ -18,7 +18,7 @@
  *     name, email, phone, organization, bio, specialty and dietary
  *     requirements for any event they merely signed up for.
  *
- *     For calibration: `/api/contacts/export` is gated by `denyContactExport`
+ *     For calibration: `/api/contacts/export` is gated by `contacts.export` (formerly `denyContactExport`)
  *     AND rate-limited 10/hr/org. Without this predicate the registrations
  *     export — a strictly larger and more sensitive dataset — was the least
  *     guarded bulk-PII export in the product.
