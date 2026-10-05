@@ -1156,6 +1156,29 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
 - **MCP clients reconnect**; bump `package.json` and the lockfile.
 - **Rollback:** revert; the route layer is unaffected.
 
+**Progress (Oct 5, 2026).**
+
+- *Areas.* Each system role names the parts of the app it works in
+  (`SystemRole.areas` in `system-roles.ts`: dashboard, events, desk, org, crm,
+  hr, procurement, operator; events and desk carry a scope). A key says what a
+  role may do; an area says where it works. Without areas a keys-only sidebar
+  showed Onsite the dashboard and an Organizer the CRM. `inArea(p, area,
+  event?)` and the client-safe `principalFromUser(user)` live in `can.ts`;
+  `principalFromSession` now delegates to it.
+- *Sidebar.* `computeSidebarNav` (`src/components/layout/sidebar-nav.ts`) is
+  one filter: an item shows when the principal works in its area and holds one
+  of its keys; event items need their key for that event. The outside
+  identities (registrant, reviewer, submitter) keep their own branches. The
+  Organizer's hidden CRM and Budgets entries stay a display preference (owner).
+  Pinned for 11 roles, 4 person variants, 5 contexts and both module flag
+  states by `__tests__/components/sidebar-nav.test.ts`. Intended changes, both
+  owner-approved: Member no longer sees Media and Reviewers (both refused it
+  already, so the links led to a spinner and a false "0 reviewers"); CRM User
+  and HR User lose event menus they could never open.
+- *Next:* `useCan` with one shared "no access" panel (owner, Oct 5: a refused
+  page says so and names who to ask, instead of an empty list or a spinner),
+  then middleware, then MCP and the agent.
+
 ### Phase 4: Event staff assignment (1 week)
 
 - `EventStaffAssignment` replaces `settings.onsiteUserIds`: backfill, dual-read

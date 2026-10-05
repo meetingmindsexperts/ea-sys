@@ -24,7 +24,8 @@
  */
 import type { Prisma } from "@prisma/client";
 import { describePermission, type PermissionKey, type PersonGrant } from "./catalogue";
-import { LEGACY_PROCUREMENT_GRANTS, systemRoleFor, type Grant, type GrantScope } from "./system-roles";
+import { isLivePermissionKey } from "./catalogue";
+import { LEGACY_PROCUREMENT_GRANTS, systemRoleFor, type Area, type AreaGrant, type Grant, type GrantScope } from "./system-roles";
 
 /** The grants that live on the PERSON (plan §3.4), as the `User` row carries them. */
 export interface PersonGrants {
@@ -45,6 +46,8 @@ export interface Principal {
   grants: readonly Grant[];
   /** Effective: the person's own, plus what the base role implies. */
   personGrants: PersonGrants;
+  /** The parts of the app the base role works in (`Area`, system-roles.ts). */
+  areas: readonly AreaGrant[];
 }
 
 /** What `can()` needs to know about an event to judge a scope. */
@@ -93,7 +96,53 @@ export function systemPrincipal(input: {
       ...person,
       hrAccess: implied.has("hrAccess") || person.hrAccess === true,
     },
+    areas: system?.areas ?? [],
   };
+}
+
+/**
+ * The principal for a signed-in person as their session carries them: base
+ * role, organisation, the person grants and the live keys of their custom
+ * roles. CLIENT-SAFE (no Node imports): the screens build the same principal
+ * the routes do. `principalFromSession` on the server calls this.
+ */
+export function principalFromUser(u: {
+  id?: string | null;
+  role?: string | null;
+  organizationId?: string | null;
+  hrAccess?: boolean | null;
+  procurementRequest?: boolean | null;
+  procurementSettle?: boolean | null;
+  procurementApproveCeilingAed?: number | null;
+  procurementApproveUnlimited?: boolean | null;
+  procurementPermissions?: readonly string[] | null;
+}): Principal {
+  return systemPrincipal({
+    role: u.role,
+    organizationId: u.organizationId,
+    userId: u.id ?? null,
+    personGrants: {
+      hrAccess: u.hrAccess === true,
+      procurementRequest: u.procurementRequest === true,
+      procurementSettle: u.procurementSettle === true,
+      procurementApproveCeilingAed: u.procurementApproveCeilingAed ?? null,
+      procurementApproveUnlimited: u.procurementApproveUnlimited === true,
+    },
+    customGrants: (u.procurementPermissions ?? []).filter(isLivePermissionKey).map((permission) => ({ permission })),
+  });
+}
+
+/**
+ * Does this principal WORK IN `area`, for this event if the area is scoped?
+ * Without an event the answer is "somewhere". A scope admits the event the
+ * same way a grant's does.
+ */
+export function inArea(p: Principal, area: Area, event?: EventFacts | null): boolean {
+  const held = p.areas.filter((a) => a.area === area);
+  if (held.length === 0) return false;
+  if (event === undefined) return true;
+  if (!event) return false;
+  return held.some((a) => a.scope === undefined || scopeAdmits(a.scope, p, event));
 }
 
 /** The platform operator: a SUPER_ADMIN with no organisation (plan §4, "not in the catalogue"). */

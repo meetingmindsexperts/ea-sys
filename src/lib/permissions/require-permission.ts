@@ -28,9 +28,8 @@ import type { Prisma } from "@prisma/client";
 import type { Session } from "next-auth";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { describePermission, isLivePermissionKey, type PermissionKey } from "./catalogue";
-import { can, eventWhereFor, systemPrincipal, type EventFacts, type Principal } from "./can";
-import type { Grant } from "./system-roles";
+import { describePermission, type PermissionKey } from "./catalogue";
+import { can, eventWhereFor, principalFromUser, systemPrincipal, type EventFacts, type Principal } from "./can";
 
 /**
  * The principal for a signed-in person. Custom-role keys arrive resolved on
@@ -39,23 +38,8 @@ import type { Grant } from "./system-roles";
  * the pairs, and `cleanGrants` already refuses one stored without a scope.
  */
 export function principalFromSession(session: Session): Principal {
-  const u = session.user;
-  const customGrants: Grant[] = (u.procurementPermissions ?? [])
-    .filter(isLivePermissionKey)
-    .map((permission) => ({ permission }));
-  return systemPrincipal({
-    role: u.role,
-    organizationId: u.organizationId,
-    userId: u.id,
-    personGrants: {
-      hrAccess: u.hrAccess,
-      procurementRequest: u.procurementRequest,
-      procurementSettle: u.procurementSettle,
-      procurementApproveCeilingAed: u.procurementApproveCeilingAed,
-      procurementApproveUnlimited: u.procurementApproveUnlimited,
-    },
-    customGrants,
-  });
+  // One builder for server and screens (custom roles Phase 3): see can.ts.
+  return principalFromUser(session.user);
 }
 
 /** The principal for an organisation API key: the API_KEY system row, no person grants. */

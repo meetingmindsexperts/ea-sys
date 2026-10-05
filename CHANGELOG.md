@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: the sidebar asks permissions, not roles (October 5)
+
+- Custom roles Phase 3. Each system role names its areas (dashboard, events,
+  desk, org, CRM, HR, procurement, operator); a sidebar entry shows when the
+  person works in its area and holds its permission. Same entries as before
+  for every role, pinned by a snapshot test, except: Member no longer sees
+  Media and Reviewers (both pages refused it), and CRM User and HR User no
+  longer carry event menus they could not open.
+
 ### Added: CSV import updates existing speakers and registrations (October 2)
 
 - Owner: make the import idempotent, upserting fields. Speaker and

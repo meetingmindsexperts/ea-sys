@@ -43,6 +43,29 @@ export type SystemRoleKey =
   | "HR_USER"
   | "API_KEY";
 
+/**
+ * The parts of the app a role WORKS IN (plan §3.5 `modules`; owner, Oct 5,
+ * 2026): what its sidebar offers, and later what the middleware lets it open.
+ * Keys decide what it may DO; areas decide where it is sent. They differ on
+ * purpose: ONSITE holds read keys for speakers and the agenda (its desk form
+ * reads them) but works only the desk, so its sidebar offers only the desk.
+ *
+ *   dashboard  the dashboard
+ *   events     an event's full workspace (scoped like a grant)
+ *   desk       an event's Registrations and Check-In (scoped like a grant)
+ *   org        the organisation-level pages (analytics, contacts, invoices,
+ *              media, agent, settings, activity, infra)
+ *   crm, hr, procurement   those modules
+ *   operator   the platform operator's pages (logs, lookup, backups, docs)
+ */
+export type Area = "dashboard" | "events" | "desk" | "org" | "crm" | "hr" | "procurement" | "operator";
+
+export interface AreaGrant {
+  area: Area;
+  /** For `events` and `desk`: which events. Absent means every event. */
+  scope?: GrantScope;
+}
+
 export interface SystemRole {
   key: SystemRoleKey;
   name: string;
@@ -54,7 +77,19 @@ export interface SystemRole {
    * HR_USER read HR with no tick on the person (`HR_SELF_SUFFICIENT_ROLES`).
    */
   impliedPersonGrants: readonly PersonGrant[];
+  /** The parts of the app this role works in (see `Area`). */
+  areas: readonly AreaGrant[];
 }
+
+const STAFF_AREAS: readonly AreaGrant[] = [
+  { area: "dashboard" },
+  { area: "events", scope: "ALL" },
+  { area: "desk", scope: "ALL" },
+  { area: "org" },
+  { area: "crm" },
+  { area: "hr" },
+  { area: "procurement" },
+];
 
 const at = (scope: GrantScope, ...keys: PermissionKey[]): Grant[] => keys.map((permission) => ({ permission, scope }));
 const org = (...keys: PermissionKey[]): Grant[] => keys.map((permission) => ({ permission }));
@@ -311,6 +346,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.approvalChain.manage", "procurement.suppliers.decide", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: ["hrAccess"],
+    areas: [...STAFF_AREAS, { area: "operator" }],
   },
   ADMIN: {
     key: "ADMIN",
@@ -320,6 +356,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // `can()` refuses them until `hrAccess` is set (plan §3.4).
     grants: [...ADMIN_GRANTS, ...org("hr.read", "hr.write")],
     impliedPersonGrants: [],
+    areas: STAFF_AREAS,
   },
   ORGANIZER: {
     key: "ORGANIZER",
@@ -329,6 +366,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     // Its ONSITE-only invite is `events.staff.assign`, not `users.invite`.
     grants: [...ORGANIZER_GRANTS, ...org("hr.read", "hr.write")],
     impliedPersonGrants: [],
+    areas: STAFF_AREAS,
   },
   MEMBER: {
     key: "MEMBER",
@@ -343,6 +381,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "crm.read", ...PROCUREMENT_VIEW, "agent.use", "finance.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
+    areas: STAFF_AREAS,
   },
   ONSITE: {
     key: "ONSITE",
@@ -369,6 +408,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ...org("finance.view", "barcode.view", "billingAccounts.read", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
+    areas: [{ area: "desk", scope: "ASSIGNED" }],
   },
   WEBINARS: {
     key: "WEBINARS",
@@ -392,6 +432,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ...org("finance.view", "barcode.view", "zoomHost.view", "billingAccounts.read", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
+    areas: [{ area: "desk", scope: "ALL" }, { area: "events", scope: "WEBINAR" }, { area: "procurement" }],
   },
   CRM_USER: {
     key: "CRM_USER",
@@ -399,6 +440,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "CRM_USER",
     grants: org("crm.read", "crm.write", "crm.delete", "crm.inbox.read", "crm.dealValues.view", "contacts.read", "hr.read", "hr.write"),
     impliedPersonGrants: [],
+    areas: [{ area: "crm" }],
   },
   HR_USER: {
     key: "HR_USER",
@@ -406,6 +448,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     baseRole: "HR_USER",
     grants: org("hr.read", "hr.write"),
     impliedPersonGrants: ["hrAccess"],
+    areas: [{ area: "hr" }],
   },
   API_KEY: {
     key: "API_KEY",
@@ -485,6 +528,7 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
       ),
     ],
     impliedPersonGrants: [],
+    areas: [],
   },
 };
 
