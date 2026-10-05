@@ -12,6 +12,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { warn: mockWarn, info: vi.fn(), err
 
 import { principalFromApiKey, principalFromCaller, principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
 import { eventWhereFor, systemPrincipal } from "@/lib/permissions/can";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const session = (role: string, extra: Record<string, unknown> = {}, organizationId: string | null = "org-1") =>
   ({ user: { id: "user-1", role, organizationId, firstName: "F", lastName: "L", ...extra } }) as unknown as Session;
@@ -68,7 +69,7 @@ describe("which events", () => {
     expect(gate.ok).toBe(true);
     if (!gate.ok) return;
     expect(gate.eventWhere).toEqual(eventWhereFor(gate.principal, "registrations.checkin", "ev-1"));
-    expect(gate.eventWhere).toEqual({ id: "ev-1", organizationId: "org-1", settings: { path: ["onsiteUserIds"], array_contains: "user-1" } });
+    expect(gate.eventWhere).toEqual({ id: "ev-1", organizationId: "org-1", ...assignedToEventWhere("user-1") });
   });
 
   it("WEBINARS reaches every event for the desk and only webinars for control", () => {

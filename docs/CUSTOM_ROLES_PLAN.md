@@ -1263,6 +1263,31 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
 - `reviewerUserIds` untouched (reviewers are external).
 - **Rollback:** the JSON stays written during the dual-read release.
 
+**Progress (Oct 5, 2026): release 1 of 2 built.**
+
+- Migration `20261005120000_add_event_staff_assignment`: the table (unique
+  per event and user, cascades with the event, the user and the
+  organisation), backfilled from the JSON for ids that are real users of the
+  event's own organisation (a stale or foreign id is dropped). Additive and
+  idempotent: re-run on the local prod copy, a no-op; it carried the one live
+  assignment. RLS in `prisma/rls/eventstaffassignment.sql`, isolation proofs
+  in `tests/tenancy/eventstaffassignment-rls.test.ts` (CI harness).
+- `src/lib/event-staff.ts` is the only writer: assign and unassign write the
+  row and the JSON together. `assignedToEventWhere()`
+  (`src/lib/event-staff-where.ts`, pure) is the only reader shape, used by
+  `buildEventAccessWhere` (ONSITE) and `eventWhereFor` (ASSIGNED scope): it
+  accepts either store. The event GET returns `staffUserIds` from the table,
+  which `eventFactsOf` reads beside the JSON; the agent's facts loader and
+  the Onsite Staff lists read both. Route matrices unchanged except the
+  remove-staff handler now writes the row first.
+- Verified in the browser: remove and re-add from Settings, Onsite Staff
+  write and clear both stores; with the JSON entry deleted by hand, the
+  assigned Onsite user still opens the desk through the row alone.
+- **Release 2 (after one deploy cycle):** stop writing and reading
+  `settings.onsiteUserIds` (drop the JSON arm of `assignedToEventWhere`, the
+  JSON half of `event-staff.ts`, and the fallbacks). Settings → Onsite Staff
+  becomes Event Staff when Phase 5 lets other roles hold an ASSIGNED grant.
+
 ### Phase 5: The role editor (1 to 2 weeks)
 
 - Before the editor ships: split the application descriptors out of the module

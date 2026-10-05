@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 export type SessionUser = {
   id: string;
@@ -123,7 +124,8 @@ export function buildEventAccessWhere(
     return {
       ...(eventId && { id: eventId }),
       organizationId: user.organizationId!,
-      settings: { path: ["onsiteUserIds"], array_contains: user.id },
+      // The assignment, from either store during the Phase 4 transition.
+      ...assignedToEventWhere(user.id),
     };
   }
 

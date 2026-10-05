@@ -5,14 +5,15 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import { updateEventSettings } from "@/lib/event-settings";
+import { assignEventStaff, eventStaffUserIds, unassignEventStaff } from "@/lib/event-staff";
 import { getClientIp } from "@/lib/security";
 import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 
 /**
  * Per-event ONSITE (registration-desk) staff assignment.
  *
- * ONSITE is org-bound but scoped per-event via `Event.settings.onsiteUserIds`
+ * ONSITE is org-bound but scoped per-event via `EventStaffAssignment` (Phase 4;
+ * `Event.settings.onsiteUserIds` is written alongside for one release)
  * (mirrors `reviewerUserIds` — see buildEventAccessWhere). A temp desk worker
  * sees ONLY the events they're assigned to here. These endpoints add/remove a
  * user id from that array; the central management UI lives in org
@@ -49,8 +50,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const settings = (event.settings as Record<string, unknown>) || {};
-    const onsiteUserIds = (settings.onsiteUserIds as string[]) || [];
+    const onsiteUserIds = await eventStaffUserIds(event.id, event.settings);
     const onsiteStaff = onsiteUserIds.length
       ? await db.user.findMany({
           where: { id: { in: onsiteUserIds } },
@@ -109,10 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Atomic append against the freshly-locked array (dedup with a Set — a
     // concurrent add of the same user can't create a duplicate).
-    await updateEventSettings(eventId, (cur) => ({
-      ...cur,
-      onsiteUserIds: Array.from(new Set([...((cur.onsiteUserIds as string[]) ?? []), userId])),
-    }));
+    await assignEventStaff({ eventId, organizationId: orgGuard.orgId, userId, assignedById: session.user.id });
 
     db.auditLog
       .create({
@@ -159,10 +156,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    await updateEventSettings(eventId, (cur) => ({
-      ...cur,
-      onsiteUserIds: ((cur.onsiteUserIds as string[]) ?? []).filter((id) => id !== userId),
-    }));
+    await unassignEventStaff({ eventId, userId });
 
     db.auditLog
       .create({

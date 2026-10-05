@@ -47,6 +47,7 @@ vi.mock("@/lib/activity-feed", () => ({
 
 import { GET as regActivityGET } from "@/app/api/events/[eventId]/registrations/[registrationId]/activity/route";
 import { GET as spkActivityGET } from "@/app/api/events/[eventId]/speakers/[speakerId]/activity/route";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const REGISTRANT = { id: "u-reg", role: "REGISTRANT", organizationId: null };
 const SUBMITTER = { id: "u-sub", role: "SUBMITTER", organizationId: null };
@@ -99,7 +100,7 @@ describe("registration activity GET — role gate", () => {
     const res = await regActivityGET(req, regParams);
     expect(res.status).toBe(404);
     expect(lastEventWhere()).toMatchObject({
-      settings: { path: ["onsiteUserIds"], array_contains: "u-ons" },
+      ...assignedToEventWhere("u-ons"),
     });
   });
 

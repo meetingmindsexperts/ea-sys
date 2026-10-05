@@ -45,6 +45,7 @@ vi.mock("@/lib/invoice-numbering", () => ({ formatQuoteNumber: vi.fn() }));
 import { GET as invoicesGET, POST as invoicesPOST } from "@/app/api/events/[eventId]/invoices/route";
 import { GET as invoicePdfGET } from "@/app/api/events/[eventId]/invoices/[invoiceId]/pdf/route";
 import { GET as quoteGET } from "@/app/api/events/[eventId]/registrations/[registrationId]/quote/route";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const ONSITE = { user: { id: "onsite1", role: "ONSITE", organizationId: "org1" } };
 const ADMIN = { user: { id: "admin1", role: "ADMIN", organizationId: "org1" } };
@@ -76,7 +77,7 @@ describe("invoice LIST — H10", () => {
     const res = await invoicesGET(req(), eventParams);
     expect(res.status).toBe(404);
     expect(lastEventWhere()).toMatchObject({
-      settings: { path: ["onsiteUserIds"], array_contains: "onsite1" },
+      ...assignedToEventWhere("onsite1"),
     });
     expect(mockDb.invoice.findMany).not.toHaveBeenCalled();
   });
@@ -100,7 +101,7 @@ describe("invoice PDF — H10", () => {
     expect(where).toMatchObject({
       id: "inv1",
       eventId: "evB",
-      event: { settings: { path: ["onsiteUserIds"], array_contains: "onsite1" } },
+      event: { ...assignedToEventWhere("onsite1") },
     });
   });
 });
@@ -111,7 +112,7 @@ describe("quote PDF — H10", () => {
     const res = await quoteGET(req(), quoteParams);
     expect(res.status).toBe(404);
     expect(lastEventWhere()).toMatchObject({
-      settings: { path: ["onsiteUserIds"], array_contains: "onsite1" },
+      ...assignedToEventWhere("onsite1"),
     });
   });
 });

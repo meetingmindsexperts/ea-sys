@@ -171,6 +171,8 @@ export async function GET(req: Request, { params }: RouteParams) {
             tracks: true,
           },
         },
+        // Assigned staff ids (Phase 4): the screens judge an ASSIGNED scope by them.
+        staffAssignments: { select: { userId: true } },
       },
     });
 
@@ -181,9 +183,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     // MEMBER sees event config (general, branding) but not the financial
     // fields — taxRate / taxLabel / bankDetails are stripped. UI renders
     // "—" for the masked fields on the Settings → Registration tab.
+    const { staffAssignments, ...eventRow } = event;
+    const withStaff = { ...eventRow, staffUserIds: (staffAssignments ?? []).map((a) => a.userId) };
     const payload = can(gate.principal, "finance.view")
-      ? event
-      : redactFinancialFields(event);
+      ? withStaff
+      : redactFinancialFields(withStaff);
 
     // Add cache headers for better performance
     const response = NextResponse.json(payload);

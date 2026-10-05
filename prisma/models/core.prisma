@@ -45,6 +45,7 @@ model Organization {
   leaveGrants                 LeaveGrant[]
   publicHolidays              PublicHoliday[]
   attendanceRules             AttendanceRule[]
+  eventStaffAssignments       EventStaffAssignment[]
   // Budget & Procurement module, see docs/BUDGET_PROCUREMENT_MODULE.html
   budgetCategories            BudgetCategory[]
   budgetProducts              BudgetProduct[]
@@ -259,6 +260,8 @@ model User {
   permissionSets           UserPermissionSet[] @relation("PermissionSetHolder")
   /// Assignments this person made, kept for the audit trail.
   assignedPermissionSets   UserPermissionSet[] @relation("PermissionSetAssigner")
+  /// Events this person works as assigned event staff (the desk), Phase 4.
+  eventStaffAssignments    EventStaffAssignment[]
 
   @@index([organizationId])
   @@index([email])
@@ -572,6 +575,10 @@ model Event {
   previousEdition        Event?        @relation("EventEditions", fields: [previousEditionEventId], references: [id], onDelete: SetNull)
   nextEditions           Event[]       @relation("EventEditions")
   budgets                EventBudget[]
+  /// Assigned event staff (custom roles Phase 4): who holds an ASSIGNED-scope
+  /// grant on this event. Replaces `settings.onsiteUserIds`, which is written
+  /// alongside for one release and read as a fallback.
+  staffAssignments       EventStaffAssignment[]
 
   /// `code` is the QuickBooks Class label and every budget's `eventCode`, so it
   /// is unique per organisation (nulls stay distinct: an event without a code
@@ -585,6 +592,29 @@ model Event {
   @@index([status])
   @@index([startDate])
   @@index([externalSource, externalId])
+}
+
+/// One person assigned to work one event (custom roles Phase 4, Oct 5, 2026).
+/// An ASSIGNED-scope grant (today ONSITE's desk) reaches exactly the events a
+/// person holds a row for. Replaces `Event.settings.onsiteUserIds`: both are
+/// written for one release (src/lib/event-staff.ts) and the access checks read
+/// either, so a deploy or a rollback never strands an assignment.
+model EventStaffAssignment {
+  id             String   @id @default(cuid())
+  organizationId String
+  eventId        String
+  userId         String
+  /// Who assigned them. A bare scalar: removing that admin keeps the row.
+  assignedById   String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@index([organizationId])
 }
 
 // ==================== API KEYS ====================

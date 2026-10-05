@@ -37,10 +37,16 @@ export async function GET() {
       }),
       db.event.findMany({
         where: { organizationId: orgId },
-        select: { id: true, name: true, startDate: true, settings: true },
+        select: { id: true, name: true, startDate: true, settings: true, staffAssignments: { select: { userId: true } } },
         orderBy: { startDate: "desc" },
       }),
     ]);
+    // Assigned staff from either store during the Phase 4 transition.
+    const assigned = (e: (typeof events)[number]) =>
+      new Set([
+        ...(e.staffAssignments ?? []).map((a) => a.userId),
+        ...((((e.settings as Record<string, unknown>)?.onsiteUserIds as string[]) ?? [])),
+      ]);
 
     // Map each ONSITE user to the events whose onsiteUserIds include them.
     const onsiteStaff = users.map((u) => ({
@@ -51,7 +57,7 @@ export async function GET() {
       active: !!u.emailVerified,
       createdAt: u.createdAt,
       eventIds: events
-        .filter((e) => (((e.settings as Record<string, unknown>)?.onsiteUserIds as string[]) ?? []).includes(u.id))
+        .filter((e) => assigned(e).has(u.id))
         .map((e) => e.id),
     }));
 

@@ -11,6 +11,7 @@ const { mockDb, mockAuth, updateEventSettingsSpy } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
+    eventStaffAssignment: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockAuth: vi.fn(),
@@ -53,6 +54,10 @@ describe("POST /events/[id]/onsite-staff — assign a temp to an event", () => {
     const res = await POST(postReq({ userId: "onsite1" }), { params });
     expect(res.status).toBeLessThan(400);
     expect(updateEventSettingsSpy).toHaveBeenCalledTimes(1);
+    // The row (Phase 4) and the JSON it replaces are both written.
+    expect(mockDb.eventStaffAssignment.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { eventId: "ev1", organizationId: "org1", userId: "onsite1", assignedById: "admin1" } }),
+    );
     const patch = updateEventSettingsSpy.mock.calls[0][1] as PatchFn;
     expect(patch({ onsiteUserIds: ["x"], foo: 1 })).toEqual({ onsiteUserIds: ["x", "onsite1"], foo: 1 });
     expect(patch({})).toEqual({ onsiteUserIds: ["onsite1"] });

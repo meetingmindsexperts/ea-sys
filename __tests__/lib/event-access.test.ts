@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 describe("buildEventAccessWhere", () => {
   // ── ADMIN (org-bound) ────────────────────────────────────────────────
@@ -125,7 +126,7 @@ describe("buildEventAccessWhere", () => {
       });
       expect(result).toEqual({
         organizationId: "org-1",
-        settings: { path: ["onsiteUserIds"], array_contains: "onsite-1" },
+        ...assignedToEventWhere("onsite-1"),
       });
     });
 
@@ -137,7 +138,7 @@ describe("buildEventAccessWhere", () => {
       expect(result).toEqual({
         id: "evt-9",
         organizationId: "org-1",
-        settings: { path: ["onsiteUserIds"], array_contains: "onsite-1" },
+        ...assignedToEventWhere("onsite-1"),
       });
     });
 
@@ -150,13 +151,13 @@ describe("buildEventAccessWhere", () => {
       expect(result).toHaveProperty("organizationId", "org-1");
     });
 
-    it("is NOT the org-wide default (must carry the onsiteUserIds assignment gate)", () => {
+    it("is NOT the org-wide default (must carry the assignment gate)", () => {
       const result = buildEventAccessWhere({
         id: "onsite-1",
         role: "ONSITE",
         organizationId: "org-1",
       });
-      expect(result).toHaveProperty("settings");
+      expect(result).toHaveProperty("OR", assignedToEventWhere("onsite-1").OR);
     });
   });
 

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added: event staff assignments as a table (October 5)
+
+- Custom roles Phase 4, release 1. Which events an Onsite (desk) user may
+  work now lives in `EventStaffAssignment` rows instead of the event's
+  settings JSON. The migration copies today's assignments (dropping ids of
+  deleted or foreign users); assign and remove write both stores and access
+  accepts either, so the deploy and a rollback strand nothing. The JSON is
+  retired in the next release. Nothing changes for anyone's access.
+
 ### Changed: field visibility follows permissions (October 5)
 
 - Who sees money, entry barcodes, Zoom host links, honorarium, supporting

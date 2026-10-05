@@ -50,6 +50,7 @@ import { POST as checkinPOST } from "@/app/api/events/[eventId]/registrations/[r
 import { POST as badgesPOST } from "@/app/api/events/[eventId]/registrations/badges/route";
 import { GET as sessionsGET } from "@/app/api/events/[eventId]/sessions/route";
 import { GET as speakersGET } from "@/app/api/events/[eventId]/speakers/route";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const ONSITE = { id: "onsite1", role: "ONSITE", organizationId: "org1" };
 const ADMIN = { id: "admin1", role: "ADMIN", organizationId: "org1" };
@@ -61,7 +62,7 @@ function lastEventWhere() {
 }
 function expectAssignmentGated(userId: string) {
   expect(lastEventWhere()).toMatchObject({
-    settings: { path: ["onsiteUserIds"], array_contains: userId },
+    ...assignedToEventWhere(userId),
   });
 }
 function expectOrgScopedOnly() {
@@ -213,7 +214,7 @@ describe("accessUserFrom — one predicate, no branch", () => {
   it("a signed-in person keeps their role, so their scoping actually runs", () => {
     const user = accessUserFrom({ organizationId: "org1", userId: "onsite1", role: "ONSITE" });
     expect(buildEventAccessWhere(user, "evB")).toMatchObject({
-      settings: { path: ["onsiteUserIds"], array_contains: "onsite1" },
+      ...assignedToEventWhere("onsite1"),
     });
   });
 

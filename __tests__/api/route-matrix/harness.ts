@@ -145,6 +145,11 @@ export function matchesEvent(where: Where | undefined, ev: FixtureEvent): boolea
       case "registrations":
         if (!matchesSome(cond, ev.registrantUserIds, "registrations")) return false;
         break;
+      // Assigned staff as rows (Phase 4). The fixtures model the state after
+      // the backfill: every JSON assignment also has its row.
+      case "staffAssignments":
+        if (!matchesSome(cond, ev.settings.onsiteUserIds ?? [], "staffAssignments")) return false;
+        break;
       case "OR":
         if (!(cond as Where[]).some((w) => matchesEvent(w, ev))) return false;
         break;

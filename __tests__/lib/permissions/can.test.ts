@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { can, eventWhereFor, isOperator, systemPrincipal, type EventFacts } from "@/lib/permissions/can";
 import type { Grant } from "@/lib/permissions/system-roles";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const ORG = "org-1";
 const USER = "user-1";
@@ -76,7 +77,7 @@ describe("the union is over whole pairs (§7.3)", () => {
     expect(can(p, "registrations.checkin", { event: conference })).toBe(false);
     expect(eventWhereFor(p, "registrations.checkin")).toEqual({
       organizationId: ORG,
-      OR: [{ eventType: "WEBINAR" }, { settings: { path: ["onsiteUserIds"], array_contains: USER } }],
+      OR: [{ eventType: "WEBINAR" }, { ...assignedToEventWhere(USER) }],
     });
   });
 });

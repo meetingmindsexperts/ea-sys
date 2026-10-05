@@ -582,10 +582,10 @@ POST onsite-staff
 
 DELETE onsite-staff
   caller      conf        assigned    webinar     foreign
-  SUPER_ADMIN 500 r       500 r       500 r       404
+  SUPER_ADMIN 500 r w     500 r w     500 r w     404
   OPERATOR    403         403         403         403
-  ADMIN       500 r       500 r       500 r       404
-  ORGANIZER   500 r       500 r       500 r       404
+  ADMIN       500 r w     500 r w     500 r w     404
+  ORGANIZER   500 r w     500 r w     500 r w     404
   MEMBER      403         403         403         403
   ONSITE      403         403         403         403
   WEBINARS    403         403         403         403

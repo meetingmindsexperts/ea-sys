@@ -25,6 +25,7 @@
 import type { Prisma } from "@prisma/client";
 import { describePermission, type PermissionKey, type PersonGrant } from "./catalogue";
 import { isLivePermissionKey } from "./catalogue";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 import { LEGACY_PROCUREMENT_GRANTS, systemRoleFor, type Area, type AreaGrant, type Grant, type GrantScope } from "./system-roles";
 
 /** The grants that live on the PERSON (plan §3.4), as the `User` row carries them. */
@@ -54,7 +55,7 @@ export interface Principal {
 export interface EventFacts {
   organizationId: string;
   eventType: string;
-  /** `Event.settings.onsiteUserIds` today; `EventStaffAssignment` after Phase 4. */
+  /** Assigned staff: `EventStaffAssignment` rows plus `settings.onsiteUserIds` (Phase 4 transition). */
   staffUserIds?: readonly string[] | null;
 }
 
@@ -215,7 +216,8 @@ export function eventWhereFor(p: Principal, permission: PermissionKey, eventId?:
   if (scopes.has("ALL")) return inOrg;
   const arms: Prisma.EventWhereInput[] = [];
   if (scopes.has("WEBINAR")) arms.push({ eventType: "WEBINAR" });
-  if (scopes.has("ASSIGNED") && p.userId) arms.push({ settings: { path: ["onsiteUserIds"], array_contains: p.userId } });
+  // The assignment, from the table or the JSON it replaces (Phase 4 transition).
+  if (scopes.has("ASSIGNED") && p.userId) arms.push(assignedToEventWhere(p.userId));
   if (arms.length === 0) return none;
   if (arms.length === 1) return { ...inOrg, ...arms[0] };
   return { ...inOrg, OR: arms };

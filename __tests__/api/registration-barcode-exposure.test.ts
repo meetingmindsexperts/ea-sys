@@ -44,6 +44,7 @@ vi.mock("@/lib/barcode-visibility", async () => await vi.importActual("@/lib/bar
 import { GET as LIST_GET } from "@/app/api/events/[eventId]/registrations/route";
 import { GET as BARCODE_GET } from "@/app/api/registrant/registrations/[registrationId]/barcode/route";
 import { auth } from "@/lib/auth";
+import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const REGS = [
   { id: "r1", status: "CONFIRMED", paymentStatus: "PAID", qrCode: "ENTRY-1", dtcmBarcode: "DTCM-1", attendee: { firstName: "A", lastName: "B" } },
@@ -87,7 +88,7 @@ describe("H8 — registrant barcode route assignment-scoping", () => {
   const barcodeParams = { params: Promise.resolve({ registrationId: "r1" }) };
   const barcodeReq = () => new Request("http://localhost/x");
 
-  it("scopes an org-staff caller through buildEventAccessWhere (ONSITE → settings.onsiteUserIds, NOT org-wide)", async () => {
+  it("scopes an org-staff caller through buildEventAccessWhere (ONSITE → its assignment, NOT org-wide)", async () => {
     (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       user: { id: "o1", role: "ONSITE", organizationId: "org1" },
     });
@@ -98,8 +99,8 @@ describe("H8 — registrant barcode route assignment-scoping", () => {
     const res = await BARCODE_GET(barcodeReq(), barcodeParams);
     expect(res.status).toBe(404);
     // The event filter must carry the ONSITE assignment predicate, not a bare org id.
-    const where = capturedBarcodeWhere.value as { event?: { settings?: unknown; organizationId?: string } };
-    expect(where.event?.settings).toBeDefined();
+    const where = capturedBarcodeWhere.value as { event?: { OR?: unknown; organizationId?: string } };
+    expect(where.event?.OR).toEqual(assignedToEventWhere("o1").OR);
     expect(where.event?.organizationId).toBe("org1");
   });
 
