@@ -161,6 +161,7 @@ export const PERMISSION_KEYS = [
   "templates.read",
   "templates.manage",
   "emailLogs.read",
+  "emailLogs.org.read",
   // Certificates
   "certificates.read",
   "certificates.templates.manage",
@@ -174,6 +175,7 @@ export const PERMISSION_KEYS = [
   "sponsors.manage",
   "media.read",
   "media.manage",
+  "media.library.manage",
   // Faculty extras
   "reimbursements.manage",
   "honorarium.manage",
@@ -566,6 +568,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("templates.read", "Communications", "See email templates", "Open the event's email templates.", E),
   app("templates.manage", "Communications", "Email templates", "Edit the event's email templates.", E),
   app("emailLogs.read", "Communications", "Email history", "Read what was sent to whom.", E),
+  app("emailLogs.org.read", "Communications", "Organisation email history", "Read email history not tied to an event you work: contacts, team members and organisation mail.", S),
 
   // ── Certificates ──
   app("certificates.read", "Certificates", "See certificates", "Open the certificate templates and issue runs.", E),
@@ -581,6 +584,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("sponsors.manage", "Events", "Sponsors", "Manage the event's sponsors.", E),
   app("media.read", "Events", "See event media", "Open the event's media library.", E),
   app("media.manage", "Events", "Event media", "Upload and remove the event's media files.", E),
+  app("media.library.manage", "Organisation", "Media library", "Open, upload to and remove from the organisation's media library."),
 
   // ── Faculty extras ──
   app("reimbursements.manage", "Faculty extras", "Reimbursements", "Handle speaker reimbursement claims, with passports and bank details.", E),

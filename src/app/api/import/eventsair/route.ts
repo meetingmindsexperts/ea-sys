@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { decryptSecret, fetchEventDetails } from "@/lib/eventsair-client";
 
 export const maxDuration = 60;
@@ -22,8 +22,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session, { route: "import/eventsair:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "imports.eventsair", { route: "import/eventsair:POST" });
+    if (!gate.ok) return gate.response;
 
     const validated = importSchema.safeParse(body);
     if (!validated.success) {

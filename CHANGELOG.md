@@ -379,6 +379,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: email history, the media library and uploads check permissions (October 5)
+
+- Custom roles Phase 2: email history and stored email bodies, the
+  organisation media library, the certificate background upload, the
+  EventsAir event import and the claude.ai connection approval now check
+  permissions instead of roles. Nobody's access changes.
+
 ### Changed: Budgets and Procurement checks permissions through one function (October 5)
 
 - Custom roles Phase 2: budgets, spend requests, orders, suppliers, the

@@ -5,7 +5,8 @@ import { getClient, issueAuthCode } from "@/lib/mcp-oauth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, isSameOriginRequest } from "@/lib/security";
 import { describeRedirectTarget } from "@/lib/mcp-client-trust";
-import { canWrite } from "@/lib/can-write";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 
 /**
  * POST handler for the consent form at /mcp-authorize.
@@ -96,9 +97,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── RBAC: only admin/organizer roles can grant access ───────────────
+  // ── RBAC: `mcp.connect` (SUPER_ADMIN, ADMIN, ORGANIZER) grants access ──
   const role = session.user.role;
-  if (!canWrite(role)) {
+  if (!can(principalFromSession(session), "mcp.connect")) {
     apiLogger.warn({ msg: "mcp-oauth:decision-role-refused", role, userId: session.user.id });
     return NextResponse.json(
       { error: "access_denied", error_description: "Role not permitted to grant MCP access" },

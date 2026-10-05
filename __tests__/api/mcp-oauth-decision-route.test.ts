@@ -94,7 +94,8 @@ beforeEach(() => {
     clientName: "Claude",
     redirectUris: [CLAUDE_CB],
   });
-  mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } });
+  // A staff session carries its organisation; `mcp.connect` is organisation-wide.
+  mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
   mockDb.user.findUnique.mockResolvedValue({ id: "u1", organizationId: "org1" });
   issueAuthCodeSpy.mockResolvedValue("code_raw_value_123456");
 });
@@ -182,7 +183,7 @@ describe("pre-existing guards still hold", () => {
   });
 
   it("rejects a role that may not grant MCP access", async () => {
-    mockAuth.mockResolvedValue({ user: { id: "u2", role: "MEMBER" } });
+    mockAuth.mockResolvedValue({ user: { id: "u2", role: "MEMBER", organizationId: "org1" } });
     const res = await POST(req({ host: HOST, origin: `https://${HOST}` }, APPROVE));
     expect(res.status).toBe(403);
     expect(issueAuthCodeSpy).not.toHaveBeenCalled();

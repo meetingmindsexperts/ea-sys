@@ -257,6 +257,17 @@ SWEPT=(
   # organisation users, part B (Oct 5, 2026)
   "src/app/api/organization/users/route.ts"
   "src/app/api/organization/users/[userId]/route.ts"
+  # organisation-level leftovers (Oct 5, 2026); upload/photo (any signed-in
+  # account) and profile (staff self-service) keep their own checks, no key
+  "src/app/api/email-logs/route.ts"
+  "src/app/api/email-logs/[emailLogId]/body/route.ts"
+  "src/app/api/media/route.ts"
+  "src/app/api/media/[mediaId]/route.ts"
+  "src/app/api/upload/pdf/route.ts"
+  "src/app/api/upload/photo/route.ts"
+  "src/app/api/import/eventsair/route.ts"
+  "src/app/api/profile/route.ts"
+  "src/app/api/mcp/oauth/authorize/decision/route.ts"
   # CRM (Oct 5, 2026): the routes call the CRM's shared guards, which ask crmCan()
   "src/app/api/crm/activity/export/route.ts"
   "src/app/api/crm/activity/feed/route.ts"

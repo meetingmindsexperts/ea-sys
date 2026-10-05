@@ -1,0 +1,241 @@
+# organisation-level leftovers
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET email-logs (REGISTRATION)
+  caller      -
+  SUPER_ADMIN 404 e
+  OPERATOR    200
+  ADMIN       404 e
+  ORGANIZER   404 e
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    404 e
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET email-logs (SPEAKER)
+  caller      -
+  SUPER_ADMIN 404 e
+  OPERATOR    200
+  ADMIN       404 e
+  ORGANIZER   404 e
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    404 e
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET email-logs (CONTACT)
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    200
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET email-logs (USER)
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    200
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET email-logs (OTHER)
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    200
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET email-logs/[emailLogId]/body
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    404 e
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET media
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST media (png file)
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE media/[mediaId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST upload/pdf (png file)
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    400
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST upload/photo (png file)
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    400
+  ADMIN       400
+  ORGANIZER   400
+  MEMBER      400
+  ONSITE      400
+  WEBINARS    400
+  CRM_USER    400
+  HR_USER     400
+  REVIEWER    400
+  SUBMITTER   400
+  REGISTRANT  400
+  API_KEY     401
+  NONE        401
+
+POST import/eventsair
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   500
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET profile
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    404
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      404
+  WEBINARS    404
+  CRM_USER    404
+  HR_USER     404
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH profile
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    500 w
+  ADMIN       500 w
+  ORGANIZER   500 w
+  MEMBER      500 w
+  ONSITE      500 w
+  WEBINARS    500 w
+  CRM_USER    500 w
+  HR_USER     500 w
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401

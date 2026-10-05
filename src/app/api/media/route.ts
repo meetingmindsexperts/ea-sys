@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { storageProvider } from "@/lib/storage";
 import { storeUploadedMedia } from "@/lib/media-upload";
@@ -44,8 +44,8 @@ export async function GET(req: Request) {
     const orgGuard = requireOrgId(session, { route: "media:GET" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "media:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.library.manage", { route: "media:GET" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const { searchParams } = new URL(req.url);
@@ -95,8 +95,8 @@ export async function POST(req: Request) {
     const orgGuard = requireOrgId(session, { route: "media:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "media:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.library.manage", { route: "media:POST" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({

@@ -3,8 +3,8 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { getEmailLogsFor } from "@/lib/email-log";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -19,8 +19,10 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "email-logs:GET" });
-    if (denied) return denied;
+    // `emailLogs.read` for the event-tied history (registrations, speakers),
+    // scoped by the grant's own event filter.
+    const gate = requirePermission(session, "emailLogs.read", { route: "email-logs:GET" });
+    if (!gate.ok) return gate.response;
 
     const { searchParams } = new URL(req.url);
     const parsed = querySchema.safeParse({
@@ -42,21 +44,18 @@ export async function GET(req: Request) {
       return NextResponse.json({ logs: [] });
     }
 
-    // WEBINARS (review M-1): email history only for entities on ITS events
-    // (webinars + desk-assigned conferences, via the role-aware where below).
-    // CONTACT is a straight side-door around its contacts exclusion
-    // (canViewContacts=false) and USER/OTHER have no per-entity owner to
-    // confine by — refuse all three for this role.
-    const isWebinarsRole = session.user.role === "WEBINARS";
-    if (isWebinarsRole && entityType !== "REGISTRATION" && entityType !== "SPEAKER") {
-      apiLogger.warn({ msg: "email-logs:webinars-entity-type-refused", entityType, userId: session.user.id });
+    // CONTACT, USER and OTHER history is not tied to an event the caller
+    // works, so it needs `emailLogs.org.read` (ADMIN, ORGANIZER). WEBINARS
+    // (review M-1) holds only the event-tied key: CONTACT would be a side-door
+    // around its contacts exclusion, and USER/OTHER have no owner to confine by.
+    if (entityType !== "REGISTRATION" && entityType !== "SPEAKER" && !can(gate.principal, "emailLogs.org.read")) {
+      apiLogger.warn({ msg: "email-logs:entity-type-refused", entityType, userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    // For WEBINARS the ownership lookup binds through buildEventAccessWhere
-    // (desk surface) instead of bare org scope; identical for other roles.
-    const entityEventWhere = isWebinarsRole
-      ? buildEventAccessWhere(session.user, undefined, { surface: "desk" })
-      : { organizationId: orgId };
+    // The ownership lookup binds through the grant's event filter: the whole
+    // organisation for ADMIN, ORGANIZER and WEBINARS today (WEBINARS reads the
+    // desk on every event), never wider than the grant.
+    const entityEventWhere = gate.eventWhere;
 
     // Tenancy (Domain #18): the ownership lookups read swept Registration /
     // Speaker / Contact and the log read is on swept EmailLog — all ride the

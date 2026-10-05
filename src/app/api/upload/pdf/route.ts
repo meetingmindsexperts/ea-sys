@@ -29,7 +29,7 @@ import { auth } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { uploadCertificatePdf } from "@/lib/storage";
 import { db } from "@/lib/db";
 import { PDFDocument } from "pdf-lib";
@@ -104,8 +104,8 @@ export async function POST(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "upload/pdf:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "certificates.templates.manage", { route: "upload/pdf:POST" });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({
       key: `pdf-upload:${session.user.id}`,

@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { deleteMedia } from "@/lib/storage";
 import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -23,8 +23,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "media/[mediaId]:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { route: "media/[mediaId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "media.library.manage", { route: "media/[mediaId]:DELETE" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const mediaFile = await db.mediaFile.findFirst({

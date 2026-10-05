@@ -237,6 +237,11 @@ const BUDGET_AUTHOR: PermissionKey[] = ["procurement.budgets.create", "procureme
 const ORGANIZER_ORG: PermissionKey[] = [
   // The Onsite Staff tab: ORGANIZER's one users power (create and assign ONSITE accounts).
   "events.staff.assign",
+  // Email history beyond events (contacts, team members, organisation mail),
+  // and the organisation media library: ADMIN and ORGANIZER, as their
+  // `denyReviewer` gates (custom roles Phase 2, Oct 5, 2026).
+  "emailLogs.org.read",
+  "media.library.manage",
   // The team list and a colleague's record (Settings, the Onsite Staff card,
   // the activity feed's people filter). Owner, Oct 5, 2026: staff whose screens
   // use it; ONSITE, WEBINARS, CRM_USER and HR_USER no longer read it.

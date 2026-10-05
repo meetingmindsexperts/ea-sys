@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
 > **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 ROUTE SWEEP DONE, 18 of
-> 18 domains (326 route files, every event route on `requirePermission`, pinned by
+> 18 domains plus the organisation-level leftovers (335 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -1068,6 +1068,29 @@ Domain by domain:
   SUPER_ADMIN read every list and the approval chain; ADMIN, ORGANIZER and
   MEMBER read the lists and are 403 on the chain; ADMIN passed the
   catalogue gate, MEMBER 403; ONSITE 403 throughout; pages clean.
+- **Organisation-level leftovers SWEPT Oct 5, 2026** (9 files). Email
+  history and a stored email body gate on `emailLogs.read` and look entities
+  up through the grant's event filter; history not tied to an event
+  (CONTACT, USER, OTHER, and bodies with no event) needs a NEW key
+  `emailLogs.org.read` (ADMIN, ORGANIZER), which replaces two
+  `role === "WEBINARS"` confinements (review M-1) with a key WEBINARS does
+  not hold. The organisation media library uses a NEW organisation-level key
+  `media.library.manage` (ADMIN, ORGANIZER; `media.manage` is per event).
+  The PDF upload is the certificate background, so
+  `certificates.templates.manage`; the EventsAir event import
+  `imports.eventsair`; the claude.ai consent decision `mcp.connect`. The
+  photo upload (any signed-in account) and the staff profile (TEAM_ROLES
+  self-service) joined the guard with their own checks. Matrix byte for
+  byte; the consent test's session gained its organisation. Verified with
+  the chrome-devtools MCP: ADMIN read registration and user email history
+  and the media library (page clean); WEBINARS read registration history
+  and is 403 on user and contact history and the media library.
+  **Still outside the guard, by design or pending a decision:** the admin
+  infrastructure page (`admin/infra`, ADMIN by role, no catalogue key yet),
+  the public session pages' staff preview shortcut (`canWrite`: a key would
+  let WEBINARS preview its own webinars, a widening for the owner), the
+  registrant's own quote (an outside identity's portal), and the operator
+  surfaces (`/api/admin`, `/api/logs`), which are not staff permissions.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

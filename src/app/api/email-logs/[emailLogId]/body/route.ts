@@ -22,8 +22,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -37,8 +37,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const [session, p] = await Promise.all([auth(), params]);
     emailLogId = p.emailLogId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "email-logs/[emailLogId]/body:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "emailLogs.read", { route: "email-logs/[emailLogId]/body:GET" });
+    if (!gate.ok) return gate.response;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "email-log-body:no-org", userId: session.user.id, emailLogId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -51,13 +51,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // The OR-null branch stays for master's historical rows; under platform
     // RLS it simply never matches (USING hides null-org rows) — and the
     // Domain #18 backfill stamps every event-derivable row anyway.
-    // WEBINARS (review M-1): stored bodies only for rows on ITS events —
-    // bind through the role-aware event where (desk surface) instead of the
-    // bare org scope. Rows with no event never match for this role (fail
-    // closed); other roles keep the historical org + null-org-fallback shape.
+    // Without `emailLogs.org.read` (WEBINARS, review M-1): stored bodies only
+    // for rows on events the grant reaches. Rows with no event never match
+    // (fail closed). With it (ADMIN, ORGANIZER): the historical org +
+    // null-org-fallback shape.
     const scope =
-      session.user.role === "WEBINARS"
-        ? { event: buildEventAccessWhere(session.user, undefined, { surface: "desk" }) }
+      !can(gate.principal, "emailLogs.org.read")
+        ? { event: gate.eventWhere }
         : {
             OR: [
               { organizationId: orgId },
