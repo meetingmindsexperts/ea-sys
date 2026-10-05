@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
 > **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 14 of 18
-> domains swept (187 route files, every event route on `requirePermission`, pinned by
+> domains swept plus organisation settings part A (211 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -959,6 +959,34 @@ Domain by domain:
   CRM_USER 404 on the template; ONSITE (assigned) and MEMBER keep analytics
   and sponsors, MEMBER's Analytics page clean.
 
+- **Organisation settings, part A, SWEPT Oct 5, 2026** (24 files: the
+  organisation and its branding, the AI, Stripe, Zoom and EventsAir
+  credentials and tests, API keys and OAuth clients, sign-in activity and who
+  is online, custom roles and their holders, a user's custom roles, signing a
+  user out everywhere, the org-wide Onsite Staff list, the organisation
+  activity page). Keys: `org.settings` (the PUT; the GET and branding have no
+  role check and keep none), `org.credentials`, `apiKeys.manage`,
+  `loginActivity.read`, `roles.manage` (through `denyNonRoleAdmin`, which now
+  asks `can()` and keeps the module flag's 404), `users.manage` (signing
+  SOMEONE ELSE out; anyone signs themselves out), `events.staff.assign`,
+  `activity.org.read`, and a NEW key `apiKeys.internalTier`, SUPER_ADMIN only,
+  for issuing an INTERNAL-tier key or switching an OAuth client to it (two
+  inline `role !== "SUPER_ADMIN"` checks before). **Re-recorded on purpose:**
+  the organisation-less platform operator gets a clean 403 on the
+  organisation PUT, API keys, OAuth clients, the Onsite Staff list and the
+  activity page, where it reached them with a null organisation; production
+  has no such account (its one SUPER_ADMIN belongs to the organisation and
+  holds every key, so acting in another organisation through `x-org-id` is
+  unchanged). **Found during verification and fixed:** Settings requested the
+  custom-role holder counts for every role, a console 403 for ADMIN and
+  ORGANIZER since the roles editor shipped; it now asks only for the super
+  admin, re-running once the session loads (the users list loads twice on
+  that first visit). Part B (inviting, editing and removing users) follows;
+  email logs and the profile route wait for their own part. Verified with
+  the chrome-devtools MCP: SUPER_ADMIN read every route and tab, issued and
+  removed an INTERNAL key, saved the organisation; ADMIN's six tabs clean and
+  403 on INTERNAL keys and custom roles; ORGANIZER's four tabs clean, only
+  the Onsite Staff list and its own events' staff.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

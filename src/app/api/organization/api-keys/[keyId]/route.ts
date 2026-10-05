@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer, denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 
 interface RouteParams {
@@ -12,10 +12,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const [session, { keyId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "organization/api-keys/[keyId]:DELETE" });
-    if (denied) return denied;
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/api-keys/[keyId]:DELETE", message: "Only admins can manage API keys" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "apiKeys.manage", { route: "organization/api-keys/[keyId]:DELETE" });
+    if (!gate.ok) return gate.response;
 
     const key = await db.apiKey.findFirst({
       where: { id: keyId, organizationId: session.user.organizationId! },

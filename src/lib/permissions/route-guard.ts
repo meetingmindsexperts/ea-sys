@@ -12,6 +12,8 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { apiLogger } from "@/lib/logger";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
+import { can } from "./can";
+import { principalFromSession } from "./require-permission";
 import type { PermissionSetErrorCode, PermissionSetFailure } from "./permission-set-service";
 
 export const HTTP_STATUS_FOR_PERMISSION_SET_ERROR: Record<PermissionSetErrorCode, number> = {
@@ -70,7 +72,8 @@ export function denyNonRoleAdmin(session: Session | null, route: string): NextRe
     apiLogger.warn({ msg: "permissions:no-org", route, userId: session.user.id });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (session.user.role !== "SUPER_ADMIN") {
+  // `roles.manage`, which only SUPER_ADMIN holds (custom roles Phase 2).
+  if (!can(principalFromSession(session), "roles.manage")) {
     apiLogger.warn({ msg: "permissions:not-super-admin", route, role: session.user.role, userId: session.user.id });
     return NextResponse.json(
       { error: "Only a super admin can manage custom roles.", code: "SUPER_ADMIN_ONLY" },

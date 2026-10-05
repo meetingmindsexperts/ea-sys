@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 
 /**
@@ -21,8 +21,8 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, { route: "organization/onsite-staff:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.staff.assign", { route: "organization/onsite-staff:GET" });
+    if (!gate.ok) return gate.response;
 
     const orgId = session.user.organizationId;
     if (!orgId) {

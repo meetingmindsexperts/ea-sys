@@ -8,7 +8,7 @@ import { updateOrganizationSettings } from "@/lib/event-settings";
 import { invalidateStripeClientCache } from "@/lib/stripe";
 import { z } from "zod";
 import type { Session } from "next-auth";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * Per-org Stripe credentials (Platform decision item 7 — the Zoom
@@ -28,12 +28,13 @@ const credentialsSchema = z.object({
   webhookSecret: z.string().max(500).optional(),
 });
 
-/** The 401 for a signed-out or org-less caller, then the shared admin gate (G7). */
+/** The 401 for a signed-out or org-less caller, then `org.credentials` (G7). */
 function requireAdmin(session: Session | null, route: string) {
   if (!session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return denyNonOrgAdmin(session, { route: route });
+  const gate = requirePermission(session, "org.credentials", { route });
+  return gate.ok ? null : gate.response;
 }
 
 function readStripeSub(settings: unknown): Record<string, unknown> {

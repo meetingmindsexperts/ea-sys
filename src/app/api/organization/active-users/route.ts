@@ -19,7 +19,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
-import { denyLoginActivity } from "@/lib/login-visibility";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import {
@@ -42,12 +42,8 @@ export async function GET() {
     const org = requireOrgId(session, { route: ROUTE });
     if ("error" in org) return org.error;
 
-    const denied = denyLoginActivity({
-      role: session.user.role,
-      userId: session.user.id,
-      organizationId: org.orgId,
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "loginActivity.read", { route: ROUTE });
+    if (!gate.ok) return gate.response;
 
     // The card polls, so give it a ceiling — generous enough that a normal
     // 30s poll across a working day never trips it.

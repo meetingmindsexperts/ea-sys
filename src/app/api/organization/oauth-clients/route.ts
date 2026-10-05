@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer, denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -21,10 +21,8 @@ export async function GET() {
   try {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "organization/oauth-clients:GET" });
-    if (denied) return denied;
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/oauth-clients:GET", message: "Only admins can view OAuth clients" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "apiKeys.manage", { route: "organization/oauth-clients:GET" });
+    if (!gate.ok) return gate.response;
 
     const organizationId = session.user.organizationId!;
 

@@ -7,7 +7,7 @@ import { checkRateLimit } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 import type { Session } from "next-auth";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * Per-org AI credentials + Help Chat provider preference (item 7). ONE route
@@ -34,12 +34,13 @@ const deleteSchema = z.object({
   provider: z.enum(["anthropic", "openai"]),
 });
 
-/** The 401 for a signed-out or org-less caller, then the shared admin gate (G7). */
+/** The 401 for a signed-out or org-less caller, then `org.credentials` (G7). */
 function requireAdmin(session: Session | null, route: string) {
   if (!session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return denyNonOrgAdmin(session, { route: route });
+  const gate = requirePermission(session, "org.credentials", { route });
+  return gate.ok ? null : gate.response;
 }
 
 function readSub(settings: unknown, key: string): Record<string, unknown> {

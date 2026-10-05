@@ -295,10 +295,11 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     grants: [
       ...ADMIN_GRANTS,
       // SUPER_ADMIN alone: abstract delete (route check), CRM purge, the roles
-      // editor (`denyNonRoleAdmin`), and deciding suppliers by role
+      // editor (`denyNonRoleAdmin`), INTERNAL-tier API keys and OAuth clients,
+      // and deciding suppliers by role
       // (`canDecideSuppliers`). HR without a tick on the person.
       ...at("ALL", "abstracts.delete"),
-      ...org("crm.purge", "roles.manage", "procurement.suppliers.decide", "hr.read", "hr.write"),
+      ...org("crm.purge", "roles.manage", "apiKeys.internalTier", "procurement.suppliers.decide", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: ["hrAccess"],
   },

@@ -4,7 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * Probe an AI provider with the org's EFFECTIVE key (org key → env fallback
@@ -23,8 +23,8 @@ export async function POST(req: Request) {
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/ai/test-connection:POST" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/ai/test-connection:POST" });
+    if (!gate.ok) return gate.response;
     const orgId = session.user.organizationId;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({

@@ -1,0 +1,615 @@
+# organisation settings (part A)
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+GET organization
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    404
+  ADMIN       404
+  ORGANIZER   404
+  MEMBER      404
+  ONSITE      404
+  WEBINARS    404
+  CRM_USER    404
+  HR_USER     404
+  REVIEWER    404
+  SUBMITTER   404
+  REGISTRANT  404
+  API_KEY     401
+  NONE        401
+
+PUT organization
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/branding
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    200
+  ADMIN       200
+  ORGANIZER   200
+  MEMBER      200
+  ONSITE      200
+  WEBINARS    200
+  CRM_USER    200
+  HR_USER     200
+  REVIEWER    200
+  SUBMITTER   200
+  REGISTRANT  200
+  API_KEY     200
+  NONE        200
+
+GET organization/active-users
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/login-activity
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/ai/credentials
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+PUT organization/ai/credentials
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+DELETE organization/ai/credentials
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+POST organization/ai/test-connection
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET organization/stripe/credentials
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+PUT organization/stripe/credentials
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+DELETE organization/stripe/credentials
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+POST organization/stripe/test-connection
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET organization/zoom/credentials
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+PUT organization/zoom/credentials
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+DELETE organization/zoom/credentials
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+POST organization/zoom/test-connection
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET organization/eventsair/credentials
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+PUT organization/eventsair/credentials
+  caller      -
+  SUPER_ADMIN 500
+  OPERATOR    401
+  ADMIN       500
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET organization/eventsair/events
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    401
+  ADMIN       400
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+POST organization/eventsair/test-connection
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    401
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    401
+  SUBMITTER   401
+  REGISTRANT  401
+  API_KEY     401
+  NONE        401
+
+GET organization/api-keys
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/api-keys
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/api-keys (INTERNAL tier)
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE organization/api-keys/[keyId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       404
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/oauth-clients
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH organization/oauth-clients/[clientId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/permission-sets
+  caller      -
+  SUPER_ADMIN 200 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/permission-sets
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH organization/permission-sets/[permissionSetId]
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/permission-sets/holders
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/users/[userId]/permission-sets
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT organization/users/[userId]/permission-sets
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST organization/users/[userId]/revoke-sessions
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       500 w
+  ORGANIZER   403
+  MEMBER      500 w
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET organization/onsite-staff
+  caller      -
+  SUPER_ADMIN 200 [conf,assigned,webinar]
+  OPERATOR    403
+  ADMIN       200 [conf,assigned,webinar]
+  ORGANIZER   200 [conf,assigned,webinar]
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET activity (organisation)
+  caller      -
+  SUPER_ADMIN 200
+  OPERATOR    403
+  ADMIN       200
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     403
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401

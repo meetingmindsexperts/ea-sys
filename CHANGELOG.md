@@ -379,6 +379,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: organisation settings check permissions instead of roles (October 5)
+
+- Custom roles Phase 2: organisation settings, the AI, Stripe, Zoom and
+  EventsAir connections, API keys and OAuth clients, sign-in activity, custom
+  roles, signing users out and the organisation activity page. Nobody's
+  access changes.
+- The Settings page no longer shows an error in the browser console for
+  admins and organisers (it asked for custom-role details only a super admin
+  may read).
+
 ### Fixed: attendees, authors and reviewers can no longer read event analytics (October 5)
 
 - An event's analytics, its spreadsheet and the per-attendee check-in log

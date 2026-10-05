@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -223,7 +223,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchOrganization();
-    fetchUsers();
   }, []);
 
   const fetchOrganization = async () => {
@@ -253,7 +252,7 @@ export default function SettingsPage() {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       // Roles come from their own lane-wrapped endpoint, not from the users
       // route: see the comment on permission-sets/holders/route.ts. Fetched
@@ -261,7 +260,9 @@ export default function SettingsPage() {
       // including onSaved from the grants dialog.
       const [res, holdersRes] = await Promise.all([
         fetch("/api/organization/users"),
-        fetch("/api/organization/permission-sets/holders").catch(() => null),
+        // Only the super admin manages custom roles, so only it may read the
+        // counts (`roles.manage`); for anyone else the request is a 403.
+        isSuperAdmin ? fetch("/api/organization/permission-sets/holders").catch(() => null) : Promise.resolve(null),
       ]);
       if (res.ok) {
         const data = await res.json();
@@ -286,7 +287,13 @@ export default function SettingsPage() {
     } catch (error) {
       console.error("settings:users-load-failed", error);
     }
-  };
+  }, [isSuperAdmin]);
+
+  // Re-run once the session says who this is: the role-holder counts are
+  // fetched for the super admin only, and the session loads after first render.
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleSaveOrganization = async () => {
     setSaving(true);

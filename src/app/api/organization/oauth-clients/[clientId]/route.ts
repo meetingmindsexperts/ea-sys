@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 
 const patchSchema = z.object({
@@ -33,21 +33,10 @@ export async function PATCH(req: Request, { params }: RouteContext) {
     ]);
 
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "organization/oauth-clients/[clientId]:PATCH" });
-    if (denied) return denied;
-
-    if (session.user.role !== "SUPER_ADMIN") {
-      apiLogger.warn({
-        msg: "oauth-client:tier-flip-denied",
-        userId: session.user.id,
-        role: session.user.role,
-        clientId,
-      });
-      return NextResponse.json(
-        { error: "Only SUPER_ADMIN can change OAuth client rate-limit tier" },
-        { status: 403 },
-      );
-    }
+    // INTERNAL bypasses the MCP limit for every token the client mints:
+    // `apiKeys.internalTier`, SUPER_ADMIN only (same threat model as INTERNAL keys).
+    const gate = requirePermission(session, "apiKeys.internalTier", { route: "organization/oauth-clients/[clientId]:PATCH" });
+    if (!gate.ok) return gate.response;
 
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {

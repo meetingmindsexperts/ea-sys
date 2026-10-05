@@ -7,7 +7,7 @@ import { encryptSecret } from "@/lib/eventsair-client";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 // Every value is trimmed (Sep 30, 2026). Zoom's console makes it easy to copy a
 // key or secret with a trailing space or newline, and a secret saved with one
@@ -83,8 +83,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:GET" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/zoom/credentials:GET" });
+    if (!gate.ok) return gate.response;
 
     const org = await db.organization.findUnique({
       where: { id: session.user.organizationId },
@@ -123,8 +123,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:PUT" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/zoom/credentials:PUT" });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `zoom-creds:${session.user.organizationId}`,
@@ -268,8 +268,8 @@ export async function DELETE() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/credentials:DELETE" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/zoom/credentials:DELETE" });
+    if (!gate.ok) return gate.response;
 
     // Atomic delete of just the zoom key — other settings keys preserved.
     await updateOrganizationSettings(session.user.organizationId, (cur) => {

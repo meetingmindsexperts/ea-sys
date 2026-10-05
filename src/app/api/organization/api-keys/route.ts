@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer, denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { generateApiKey, hashApiKey, keyPrefix } from "@/lib/api-key";
 import { apiLogger } from "@/lib/logger";
 
@@ -16,10 +17,8 @@ export async function GET() {
   try {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "organization/api-keys:GET" });
-    if (denied) return denied;
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/api-keys:GET", message: "Only admins can manage API keys" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "apiKeys.manage", { route: "organization/api-keys:GET" });
+    if (!gate.ok) return gate.response;
 
     const keys = await db.apiKey.findMany({
       where: { organizationId: session.user.organizationId! },
@@ -50,10 +49,8 @@ export async function POST(req: Request) {
   try {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "organization/api-keys:POST" });
-    if (denied) return denied;
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/api-keys:POST", message: "Only admins can manage API keys" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "apiKeys.manage", { route: "organization/api-keys:POST" });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json();
     const parsed = createKeySchema.safeParse(body);
@@ -64,7 +61,7 @@ export async function POST(req: Request) {
 
     // INTERNAL-tier keys bypass the MCP rate limit, so they're a privileged
     // capability gated to SUPER_ADMIN. ADMIN can issue NORMAL keys freely.
-    if (parsed.data.rateLimitTier === "INTERNAL" && session.user.role !== "SUPER_ADMIN") {
+    if (parsed.data.rateLimitTier === "INTERNAL" && !can(gate.principal, "apiKeys.internalTier")) {
       apiLogger.warn({
         msg: "organization/api-keys:internal-tier-denied",
         userId: session.user.id,

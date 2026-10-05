@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -89,8 +89,8 @@ export async function PUT(req: Request) {
     }
 
     // Only admins can update organization settings
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization:PUT" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.settings", { route: "organization:PUT" });
+    if (!gate.ok) return gate.response;
 
     const body = await req.json();
     const validated = updateOrganizationSchema.safeParse(body);

@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { encryptSecret } from "@/lib/eventsair-client";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 const credentialsSchema = z.object({
   clientId: z.string().min(1).max(500),
@@ -19,8 +19,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/eventsair/credentials:GET" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/eventsair/credentials:GET" });
+    if (!gate.ok) return gate.response;
 
     const org = await db.organization.findUnique({
       where: { id: session.user.organizationId },
@@ -49,8 +49,8 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/eventsair/credentials:PUT" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/eventsair/credentials:PUT" });
+    if (!gate.ok) return gate.response;
 
     const validated = credentialsSchema.safeParse(body);
     if (!validated.success) {

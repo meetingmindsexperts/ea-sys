@@ -4,7 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { zoomApiRequest, isZoomConfigured } from "@/lib/zoom";
 import type { ZoomUserResponse } from "@/lib/zoom";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 export async function POST() {
   try {
@@ -13,8 +13,8 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const notAdmin = denyNonOrgAdmin(session, { route: "organization/zoom/test-connection:POST" });
-    if (notAdmin) return notAdmin;
+    const gate = requirePermission(session, "org.credentials", { route: "organization/zoom/test-connection:POST" });
+    if (!gate.ok) return gate.response;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `zoom-test:${session.user.organizationId}`,
