@@ -56,6 +56,33 @@ describe("readHeldSets", () => {
 });
 
 describe("permissionsForHeldSets", () => {
+  it("with custom roles switched on, keeps every key and carries an event-bound key's scope", async () => {
+    vi.stubEnv("CUSTOM_ROLES_ENABLED", "true");
+    mockDb.permissionSet.findMany.mockResolvedValue([
+      {
+        id: "r1",
+        version: 1,
+        archivedAt: null,
+        permissions: [
+          { permission: "registrations.read", scope: "ASSIGNED" },
+          { permission: "crm.read", scope: null },
+          { permission: "not.a.key", scope: null },
+        ],
+      },
+    ]);
+    expect(await permissionsForHeldSets("org-1", [["r1", 1]])).toEqual(["registrations.read@ASSIGNED", "crm.read"]);
+    vi.unstubAllEnvs();
+  });
+
+  it("with custom roles switched off, a stored non-procurement grant grants nothing (the rollback)", async () => {
+    vi.stubEnv("CUSTOM_ROLES_ENABLED", "");
+    mockDb.permissionSet.findMany.mockResolvedValue([
+      { id: "r2", version: 1, archivedAt: null, permissions: [{ permission: "registrations.read", scope: "ALL" }, { permission: "procurement.orders.view", scope: null }] },
+    ]);
+    expect(await permissionsForHeldSets("org-1", [["r2", 1]])).toEqual(["procurement.orders.view"]);
+    vi.unstubAllEnvs();
+  });
+
   it("unions live keys across roles and drops keys the build does not enforce", async () => {
     mockDb.permissionSet.findMany.mockResolvedValue([
       set("a", 1, ["procurement.budgets.view", "procurement.requests.create"]),

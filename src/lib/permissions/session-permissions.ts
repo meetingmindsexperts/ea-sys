@@ -23,13 +23,15 @@
 import { db } from "@/lib/db";
 import { authLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { isLivePermissionKey, type PermissionKey } from "./catalogue";
+import { encodeSessionGrant, isGrantableKey } from "./catalogue";
+import { isCustomRolesEnabled } from "@/lib/module-flags";
 
 /** One held role as the token carries it. */
 export type HeldSet = readonly [id: string, version: number];
 
 const CACHE_LIMIT = 2_000;
-const keysBySetVersion = new Map<string, readonly PermissionKey[]>();
+/** Session grants per role version: `key`, or `key@SCOPE` on an event-bound key. */
+const keysBySetVersion = new Map<string, readonly string[]>();
 
 const cacheKey = ([id, version]: HeldSet) => `${id}:${version}`;
 
@@ -64,7 +66,7 @@ export async function readHeldSets(organizationId: string, userId: string): Prom
 export async function permissionsForHeldSets(
   organizationId: string | null | undefined,
   held: readonly HeldSet[] | null | undefined,
-): Promise<PermissionKey[]> {
+): Promise<string[]> {
   if (!organizationId || !held || held.length === 0) return [];
 
   const missing = held.filter((h) => !keysBySetVersion.has(cacheKey(h)));
@@ -73,13 +75,17 @@ export async function permissionsForHeldSets(
       const rows = await runWithTenant(organizationId, () =>
         db.permissionSet.findMany({
           where: { organizationId, id: { in: missing.map(([id]) => id) } },
-          select: { id: true, version: true, archivedAt: true, permissions: { select: { permission: true } } },
+          select: { id: true, version: true, archivedAt: true, permissions: { select: { permission: true, scope: true } } },
         }),
       );
       if (keysBySetVersion.size + rows.length > CACHE_LIMIT) keysBySetVersion.clear();
       for (const row of rows) {
         // An archived role grants nothing, whatever the token still says.
-        const keys = row.archivedAt ? [] : row.permissions.map((p) => p.permission).filter(isLivePermissionKey);
+        // A key the flag does not make grantable grants nothing (the rollback).
+        const enabled = isCustomRolesEnabled();
+        const keys = row.archivedAt
+          ? []
+          : row.permissions.filter((p) => isGrantableKey(p.permission, enabled)).map((p) => encodeSessionGrant(p.permission, p.scope));
         keysBySetVersion.set(cacheKey([row.id, row.version]), keys);
       }
     } catch (err) {
@@ -87,7 +93,7 @@ export async function permissionsForHeldSets(
     }
   }
 
-  const union = new Set<PermissionKey>();
+  const union = new Set<string>();
   for (const h of held) for (const key of keysBySetVersion.get(cacheKey(h)) ?? []) union.add(key);
   return [...union];
 }

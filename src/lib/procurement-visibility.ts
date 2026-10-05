@@ -57,10 +57,19 @@ export function hasAnyProcurementGrant(user: ProcurementUserLike | null | undefi
   );
 }
 
+/**
+ * Does the person hold any procurement key through a custom role? Since
+ * custom roles can grant every module (Phase 5), "holds a custom key" no
+ * longer means "holds a procurement key", so the module asks this.
+ */
+export function holdsCustomProcurementKey(keys: readonly string[] | null | undefined): boolean {
+  return Array.isArray(keys) && keys.some((k) => k.startsWith("procurement."));
+}
+
 export function canViewProcurement(user: ProcurementUserLike | null | undefined): boolean {
   // Any procurement permission at all is enough to enter the module: the
   // per-screen keys decide what is visible once inside.
-  if (Array.isArray(user?.procurementPermissions) && user.procurementPermissions.length > 0) return true;
+  if (holdsCustomProcurementKey(user?.procurementPermissions)) return true;
   if (!user?.role) return false;
   if (PROCUREMENT_READ_ROLES.has(user.role)) return true;
   return hasAnyProcurementGrant(user);

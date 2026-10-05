@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -87,6 +88,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const result = await setUserPermissionSets({
         organizationId: orgId,
         actorUserId,
+        actor: principalFromSession(session!),
         userId,
         permissionSetIds: parsed.data.permissionSetIds,
         ip,

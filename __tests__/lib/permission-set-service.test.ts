@@ -28,12 +28,16 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Phase 2 will make event-bound keys live one domain at a time; until then no
-// live key takes a scope, so the SCOPE_REQUIRED rule is pinned by treating one
-// event-bound key as live here. Everything else is the real catalogue.
+// With the custom-roles flag off no grantable key takes a scope, so the
+// SCOPE_REQUIRED rule is pinned by treating one event-bound key as live here. Everything else is the real catalogue.
 vi.mock("@/lib/permissions/catalogue", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/permissions/catalogue")>();
-  return { ...actual, isLivePermissionKey: (k: string) => actual.isLivePermissionKey(k) || k === "registrations.checkin" };
+  const live = (k: string) => actual.isLivePermissionKey(k) || k === "registrations.checkin";
+  return {
+    ...actual,
+    isLivePermissionKey: live,
+    isGrantableKey: (k: string, enabled: boolean) => live(k) || actual.isGrantableKey(k, enabled),
+  };
 });
 
 import {
@@ -49,6 +53,9 @@ import {
 } from "@/lib/permissions/permission-set-service";
 import { STARTER_ROLES, isPermissionKey } from "@/lib/permissions/catalogue";
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS } from "@/lib/permissions/system-roles";
+import { principalFromUser } from "@/lib/permissions/can";
+
+const SA = principalFromUser({ id: "u", role: "SUPER_ADMIN", organizationId: "org-1" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -163,7 +170,7 @@ describe("grants with a scope (Phase 1 slice 2)", () => {
   });
 
   it("stores a bare key with no scope, as the Roles tab sends it today", async () => {
-    const r = await createPermissionSet({ organizationId: "org-1", actorUserId: "u", name: "R", permissions: ["procurement.budgets.view"] });
+    const r = await createPermissionSet({ organizationId: "org-1", actorUserId: "u", actor: SA, name: "R", permissions: ["procurement.budgets.view"] });
     expect(r.ok).toBe(true);
     expect(mockDb.permissionSet.create.mock.calls[0][0].data.permissions.create).toEqual([
       { organizationId: "org-1", permission: "procurement.budgets.view", scope: null },
@@ -173,7 +180,7 @@ describe("grants with a scope (Phase 1 slice 2)", () => {
   it("refuses a scope on an organisation-wide key", async () => {
     const r = await createPermissionSet({
       organizationId: "org-1",
-      actorUserId: "u",
+      actorUserId: "u", actor: SA,
       name: "R",
       permissions: [{ permission: "procurement.budgets.view", scope: "ALL" }],
     });
@@ -182,18 +189,18 @@ describe("grants with a scope (Phase 1 slice 2)", () => {
   });
 
   it("requires a scope on an event-bound key, and stores it", async () => {
-    const missing = await createPermissionSet({ organizationId: "org-1", actorUserId: "u", name: "R", permissions: ["registrations.checkin"] });
+    const missing = await createPermissionSet({ organizationId: "org-1", actorUserId: "u", actor: SA, name: "R", permissions: ["registrations.checkin"] });
     expect(missing).toMatchObject({ ok: false, code: "SCOPE_REQUIRED" });
     const bad = await createPermissionSet({
       organizationId: "org-1",
-      actorUserId: "u",
+      actorUserId: "u", actor: SA,
       name: "R",
       permissions: [{ permission: "registrations.checkin", scope: "EVERYWHERE" as never }],
     });
     expect(bad).toMatchObject({ ok: false, code: "SCOPE_REQUIRED" });
     const r = await createPermissionSet({
       organizationId: "org-1",
-      actorUserId: "u",
+      actorUserId: "u", actor: SA,
       name: "R",
       permissions: [{ permission: "registrations.checkin", scope: "ASSIGNED" }],
     });
@@ -207,7 +214,7 @@ describe("grants with a scope (Phase 1 slice 2)", () => {
   it("still refuses a key that is not live, before any scope rule", async () => {
     const r = await createPermissionSet({
       organizationId: "org-1",
-      actorUserId: "u",
+      actorUserId: "u", actor: SA,
       name: "R",
       permissions: [{ permission: "events.delete", scope: "ALL" }],
     });
@@ -222,7 +229,7 @@ describe("system roles are rows for identity only", () => {
 
   it("cannot be edited", async () => {
     mockDb.permissionSet.findFirst.mockResolvedValue(SYSTEM_SET);
-    const r = await updatePermissionSet({ organizationId: "org-1", actorUserId: "u", permissionSetId: "sys", expectedVersion: 1, name: "X" });
+    const r = await updatePermissionSet({ organizationId: "org-1", actorUserId: "u", actor: SA, permissionSetId: "sys", expectedVersion: 1, name: "X" });
     expect(r).toMatchObject({ ok: false, code: "SYSTEM_ROLE" });
     expect(mockDb.permissionSet.updateMany).not.toHaveBeenCalled();
   });
@@ -236,7 +243,7 @@ describe("system roles are rows for identity only", () => {
 
   it("cannot be assigned to a person", async () => {
     mockDb.permissionSet.findMany.mockResolvedValue([{ id: "sys", name: "Admin", isSystem: true, archivedAt: null, permissions: [] }]);
-    const r = await setUserPermissionSets({ organizationId: "org-1", actorUserId: "u", userId: "p", permissionSetIds: ["sys"] });
+    const r = await setUserPermissionSets({ organizationId: "org-1", actorUserId: "u", actor: SA, userId: "p", permissionSetIds: ["sys"] });
     expect(r).toMatchObject({ ok: false, code: "SYSTEM_ROLE" });
     expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();
   });

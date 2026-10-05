@@ -24,7 +24,7 @@
  */
 import type { Prisma } from "@prisma/client";
 import { describePermission, type PermissionKey, type PersonGrant } from "./catalogue";
-import { isLivePermissionKey } from "./catalogue";
+import { decodeSessionGrant, isPermissionKey } from "./catalogue";
 import { assignedToEventWhere } from "@/lib/event-staff-where";
 import { LEGACY_PROCUREMENT_GRANTS, systemRoleFor, type Area, type AreaGrant, type Grant, type GrantScope } from "./system-roles";
 
@@ -129,7 +129,11 @@ export function principalFromUser(u: {
       procurementApproveCeilingAed: u.procurementApproveCeilingAed ?? null,
       procurementApproveUnlimited: u.procurementApproveUnlimited === true,
     },
-    customGrants: (u.procurementPermissions ?? []).filter(isLivePermissionKey).map((permission) => ({ permission })),
+    // The session's custom grants, `key` or `key@SCOPE`; the server already
+    // kept only what the flag makes grantable (session-permissions.ts).
+    customGrants: (u.procurementPermissions ?? [])
+      .map(decodeSessionGrant)
+      .filter((g): g is { permission: PermissionKey; scope?: GrantScope } => isPermissionKey(g.permission)),
   });
 }
 

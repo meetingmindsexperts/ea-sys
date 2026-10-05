@@ -1310,6 +1310,35 @@ directory (§7.1).
   nothing and must be moved back to a system role, so the flag is turned on
   master with one test user first (D8).
 
+**Progress (Oct 5, 2026): slice 1 of 3 built (the server).**
+
+- `CUSTOM_ROLES_ENABLED` (`isCustomRolesEnabled()`, module-flags.ts). Off, a
+  custom role grants only the procurement keys, as since Sep 16; a stored
+  grant of any other key grants nothing, which is the rollback. On, every
+  catalogue key is grantable (`isGrantableKey`), since Phase 2 made every
+  route enforce its key.
+- Custom grants reach the session as `key` or `key@SCOPE`
+  (`encodeSessionGrant`), filtered by the flag where the session is built;
+  `principalFromUser` decodes them, so an event-bound custom grant keeps its
+  scope on the screens and in `can()`.
+- Guardrails (§7.4) in `src/lib/permissions/escalation.ts`, enforced by the
+  service on create, edit and assign: grant only what your roles hold, at no
+  wider a scope; the admin trio (`roles.manage`, `users.manage`,
+  `org.credentials`) only from someone holding all three; never edit a role
+  you hold or change your own roles (`OWN_ROLE`). The top administrator
+  (holds the trio: SUPER_ADMIN) may grant any key, including the six
+  procurement keys their own role leaves out, as before. Codes
+  `BEYOND_YOUR_ACCESS`, `ADMIN_TRIO`, `OWN_ROLE` answer 403.
+- "Holds any custom key" no longer means "may enter Budgets":
+  `holdsCustomProcurementKey` checks for a procurement key.
+- **Design note:** a custom role adds KEYS within the person's base-role
+  AREAS; it does not add areas (the middleware reads areas from the role, so
+  this needs no JWT change). A custom role that should reach a new area needs
+  a base role that works there.
+- *Next:* slice 2, the editor (every key grouped by domain, a scope per
+  event-bound row, the §8.3 warnings); slice 3, API keys per role, audit row
+  names, "View as role".
+
 ### Phase 6: Retire the old model (1 to 2 weeks)
 
 - Delete the staff branches from `buildEventAccessWhere`, the role sets from the

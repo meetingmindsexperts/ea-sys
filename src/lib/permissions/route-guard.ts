@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { apiLogger } from "@/lib/logger";
-import { isProcurementModuleEnabled } from "@/lib/module-flags";
+import { isCustomRolesEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { can } from "./can";
 import { principalFromSession } from "./require-permission";
 import type { PermissionSetErrorCode, PermissionSetFailure } from "./permission-set-service";
@@ -31,6 +31,10 @@ export const HTTP_STATUS_FOR_PERMISSION_SET_ERROR: Record<PermissionSetErrorCode
   SCOPE_NOT_ALLOWED: 400,
   // 409: the row exists and the request was well formed; what it names is not a thing that can be done to it.
   SYSTEM_ROLE: 409,
+  // 403: the request is valid; the person saving it may not give this away.
+  BEYOND_YOUR_ACCESS: 403,
+  ADMIN_TRIO: 403,
+  OWN_ROLE: 403,
   UNKNOWN: 500,
 };
 
@@ -61,7 +65,8 @@ export function permissionSetErrorResponse(failure: PermissionSetFailure): NextR
  * would tell a caller the surface exists.
  */
 export function denyNonRoleAdmin(session: Session | null, route: string): NextResponse | null {
-  if (!isProcurementModuleEnabled()) {
+  // Custom roles exist for Budgets, and for everything once switched on.
+  if (!isProcurementModuleEnabled() && !isCustomRolesEnabled()) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (!session?.user) {

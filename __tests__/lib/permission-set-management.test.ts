@@ -7,6 +7,7 @@
  * assignment that is not truly replace-all.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { principalFromUser } from "@/lib/permissions/can";
 
 // Hoisted WITH the vi.mock factories: they run above every plain top-level
 // const, so a bare `const` here is read before it exists and the whole suite
@@ -21,7 +22,7 @@ const { mockDb } = vi.hoisted(() => ({
       updateMany: vi.fn(),
     },
     permissionSetGrant: { deleteMany: vi.fn(), createMany: vi.fn() },
-    userPermissionSet: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn(), groupBy: vi.fn() },
+    userPermissionSet: { findMany: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn(), groupBy: vi.fn() },
     user: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -47,7 +48,8 @@ import {
 
 const ORG = "org-1";
 const ACTOR = "actor-1";
-const base = { organizationId: ORG, actorUserId: ACTOR };
+/** A super admin saves: they hold every key, so the escalation rules admit all. */
+const base = { organizationId: ORG, actorUserId: ACTOR, actor: principalFromUser({ id: ACTOR, role: "SUPER_ADMIN", organizationId: ORG }) };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -407,5 +409,38 @@ describe("listPermissionSets", () => {
     expect(mockDb.permissionSet.findMany.mock.calls[0][0].where).toMatchObject({ archivedAt: null });
     await listPermissionSets(ORG, { includeArchived: true });
     expect(mockDb.permissionSet.findMany.mock.calls[1][0].where.archivedAt).toBeUndefined();
+  });
+});
+
+describe("never your own role (custom roles plan §7.4)", () => {
+  it("refuses to change your own roles", async () => {
+    const result = await setUserPermissionSets({ ...base, userId: ACTOR, permissionSetIds: ["s1"] });
+    expect(result).toMatchObject({ ok: false, code: "OWN_ROLE" });
+    expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses to change what a role grants when you hold it", async () => {
+    mockDb.permissionSet.findFirst.mockResolvedValue({
+      id: "s1",
+      name: "Desk lead",
+      description: null,
+      version: 3,
+      isSystem: false,
+      archivedAt: null,
+      permissions: [{ permission: "procurement.budgets.view", scope: null }],
+    });
+    mockDb.userPermissionSet.findFirst.mockResolvedValue({ userId: ACTOR });
+    const result = await updatePermissionSet({ ...base, permissionSetId: "s1", expectedVersion: 3, permissions: ["procurement.orders.view"] });
+    expect(result).toMatchObject({ ok: false, code: "OWN_ROLE" });
+    expect(mockDb.permissionSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses to assign a role wider than the assigner's own access", async () => {
+    mockDb.permissionSet.findMany.mockResolvedValue([
+      { id: "s2", name: "Budget reader", isSystem: false, archivedAt: null, permissions: [{ permission: "procurement.budgets.view", scope: null }] },
+    ]);
+    const member = principalFromUser({ id: ACTOR, role: "HR_USER", organizationId: ORG });
+    const result = await setUserPermissionSets({ ...base, actor: member, userId: "someone-else", permissionSetIds: ["s2"] });
+    expect(result).toMatchObject({ ok: false, code: "BEYOND_YOUR_ACCESS", meta: { permissionSetId: "s2" } });
   });
 });

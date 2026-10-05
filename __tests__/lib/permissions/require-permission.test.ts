@@ -11,7 +11,7 @@ const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: mockWarn, info: vi.fn(), error: vi.fn() } }));
 
 import { principalFromApiKey, principalFromCaller, principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
-import { eventWhereFor, systemPrincipal } from "@/lib/permissions/can";
+import { eventWhereFor, systemPrincipal, can } from "@/lib/permissions/can";
 import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 const session = (role: string, extra: Record<string, unknown> = {}, organizationId: string | null = "org-1") =>
@@ -116,10 +116,20 @@ describe("the resulting-object rule (§3.2)", () => {
 });
 
 describe("principals", () => {
-  it("custom-role keys on the session become grants; keys the build does not enforce are dropped", () => {
+  // The session builder keeps only what CUSTOM_ROLES_ENABLED makes grantable
+  // (session-permissions.ts); the principal decodes `key@SCOPE` and drops
+  // strings that are not keys. An event-bound key without a scope grants
+  // nothing, since can() fails closed on it.
+  it("custom-role grants on the session become grants, with their scope; non-keys are dropped", () => {
     const plain = principalFromSession(session("MEMBER"));
-    const p = principalFromSession(session("MEMBER", { procurementPermissions: ["procurement.orders.view", "events.delete", "not.a.key"] }));
-    expect(p.grants.slice(plain.grants.length)).toEqual([{ permission: "procurement.orders.view" }]);
+    const p = principalFromSession(
+      session("MEMBER", { procurementPermissions: ["procurement.orders.view", "events.delete@ALL", "not.a.key"] }),
+    );
+    expect(p.grants.slice(plain.grants.length)).toEqual([
+      { permission: "procurement.orders.view" },
+      { permission: "events.delete", scope: "ALL" },
+    ]);
+    expect(can(principalFromSession(session("MEMBER", { procurementPermissions: ["events.delete"] })), "events.delete")).toBe(false);
   });
 
   it("the person grants ride from the session", () => {

@@ -15,7 +15,10 @@
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { GrantScope } from "@prisma/client";
-import { STARTER_ROLES, describePermission, isLivePermissionKey, type PermissionKey } from "./catalogue";
+import { STARTER_ROLES, describePermission, isGrantableKey, type PermissionKey } from "./catalogue";
+import { isCustomRolesEnabled } from "@/lib/module-flags";
+import { breaksAdminTrio, firstGrantBeyondActor } from "./escalation";
+import type { Principal } from "./can";
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS, type Grant } from "./system-roles";
 import { separationConflicts, unionPermissions } from "./separation";
 
@@ -137,7 +140,7 @@ export async function readUserPermissions(
   const keys = new Set<PermissionKey>();
   for (const row of held) {
     for (const { permission } of row.permissionSet.permissions) {
-      if (isLivePermissionKey(permission)) keys.add(permission);
+      if (isGrantableKey(permission, isCustomRolesEnabled())) keys.add(permission);
     }
   }
   return [...keys];
@@ -157,7 +160,7 @@ export async function readUserGrants(organizationId: string, userId: string): Pr
   const grants: Grant[] = [];
   for (const row of held) {
     for (const { permission, scope } of row.permissionSet.permissions) {
-      if (!isLivePermissionKey(permission)) continue;
+      if (!isGrantableKey(permission, isCustomRolesEnabled())) continue;
       const pair = `${permission}@${scope ?? ""}`;
       if (seen.has(pair)) continue;
       seen.add(pair);
@@ -219,6 +222,9 @@ export type PermissionSetErrorCode =
   | "SCOPE_REQUIRED"
   | "SCOPE_NOT_ALLOWED"
   | "SYSTEM_ROLE"
+  | "BEYOND_YOUR_ACCESS"
+  | "ADMIN_TRIO"
+  | "OWN_ROLE"
   | "UNKNOWN";
 
 export interface PermissionSetFailure {
@@ -277,9 +283,9 @@ function cleanGrants(raw: readonly GrantInput[]): { ok: true; grants: CleanGrant
   for (const item of raw) {
     const key = typeof item === "string" ? item : item.permission;
     const scope = typeof item === "string" ? null : (item.scope ?? null);
-    // LIVE keys only: a key the catalogue defines but no route checks yet
-    // (the application keys of Phase 1) would read as access and grant none.
-    if (!isLivePermissionKey(key)) {
+    // Grantable keys only: the procurement keys, and every other key once
+    // custom roles are switched on (CUSTOM_ROLES_ENABLED).
+    if (!isGrantableKey(key, isCustomRolesEnabled())) {
       return fail("UNKNOWN_PERMISSION", `This build does not have a permission called "${key}".`, { permission: key });
     }
     // The scope goes with the key's kind: an event-bound key without one
@@ -327,9 +333,34 @@ export async function listPermissionSets(
   return rows.map(({ _count, ...set }) => ({ ...set, holderCount: _count.holders }));
 }
 
+/**
+ * The editor's anti-escalation rules (plan §7.4): a role may grant only what
+ * the person saving it holds, at no wider a scope, and the keys that make
+ * admins only from someone holding all three.
+ */
+function refuseEscalation(actor: Principal, grants: readonly CleanGrant[]): PermissionSetFailure | null {
+  const beyond = firstGrantBeyondActor(actor, grants);
+  if (beyond) {
+    return fail(
+      "BEYOND_YOUR_ACCESS",
+      `You can only give a role what you hold yourself: you do not hold "${beyond.permission}"${beyond.scope ? ` for ${beyond.scope.toLowerCase()} events` : ""}.`,
+      { permission: beyond.permission, scope: beyond.scope },
+    );
+  }
+  if (breaksAdminTrio(actor, grants)) {
+    return fail(
+      "ADMIN_TRIO",
+      "Managing roles, managing users and organisation credentials can only be granted by someone who holds all three.",
+    );
+  }
+  return null;
+}
+
 export async function createPermissionSet(input: {
   organizationId: string;
   actorUserId: string;
+  /** The person saving it: a role may grant only what they hold (plan §7.4). */
+  actor: Principal;
   name: string;
   description?: string | null;
   permissions: readonly GrantInput[];
@@ -342,6 +373,8 @@ export async function createPermissionSet(input: {
   if (!cleaned.ok) return cleaned;
   const selfConflict = refuseSelfConflict(cleaned.keys);
   if (selfConflict) return selfConflict;
+  const escalation = refuseEscalation(input.actor, cleaned.grants);
+  if (escalation) return escalation;
 
   try {
     const set = await db.permissionSet.create({
@@ -390,6 +423,8 @@ export async function updatePermissionSet(input: {
   actorUserId: string;
   permissionSetId: string;
   expectedVersion: number;
+  /** The person saving it: a role may grant only what they hold (plan §7.4). */
+  actor: Principal;
   name?: string;
   description?: string | null;
   permissions?: readonly GrantInput[];
@@ -423,6 +458,14 @@ export async function updatePermissionSet(input: {
     if (!cleaned.ok) return cleaned;
     const selfConflict = refuseSelfConflict(cleaned.keys);
     if (selfConflict) return selfConflict;
+    const escalation = refuseEscalation(input.actor, cleaned.grants);
+    if (escalation) return escalation;
+    // You cannot widen the role you hold: that is granting yourself.
+    const holdsIt = await db.userPermissionSet.findFirst({
+      where: { organizationId: input.organizationId, userId: input.actorUserId, permissionSetId: input.permissionSetId },
+      select: { userId: true },
+    });
+    if (holdsIt) return fail("OWN_ROLE", "You hold this role, so you cannot change what it grants. Ask another administrator.");
     nextGrants = cleaned.grants;
     nextKeys = [...cleaned.keys];
   }
@@ -569,14 +612,19 @@ export async function setUserPermissionSets(input: {
   actorUserId: string;
   userId: string;
   permissionSetIds: readonly string[];
+  /** The person assigning: never themselves, never a role wider than their own (plan §7.4). */
+  actor: Principal;
   ip?: string | null;
 }): Promise<{ ok: true; permissionSetIds: string[]; permissions: string[] } | PermissionSetFailure> {
   const wanted = [...new Set(input.permissionSetIds)];
+  if (input.userId === input.actorUserId) {
+    return fail("OWN_ROLE", "You cannot change your own roles. Ask another administrator.");
+  }
 
   const sets = wanted.length
     ? await db.permissionSet.findMany({
         where: { organizationId: input.organizationId, id: { in: wanted } },
-        select: { id: true, name: true, isSystem: true, archivedAt: true, permissions: { select: { permission: true } } },
+        select: { id: true, name: true, isSystem: true, archivedAt: true, permissions: { select: { permission: true, scope: true } } },
       })
     : [];
   if (sets.length !== wanted.length) {
@@ -587,6 +635,14 @@ export async function setUserPermissionSets(input: {
     return fail("SYSTEM_ROLE", `"${system.name}" is a system role: it is held through a person's base role, not assigned.`, {
       permissionSetId: system.id,
     });
+  }
+  // Assigning a role is granting it: bounded by the assigner's own access.
+  for (const set of sets) {
+    const escalation = refuseEscalation(
+      input.actor,
+      set.permissions.map((p) => ({ permission: p.permission as PermissionKey, scope: p.scope })),
+    );
+    if (escalation) return { ...escalation, meta: { ...(escalation.meta ?? {}), permissionSetId: set.id, role: set.name } };
   }
   const archived = sets.find((s) => s.archivedAt !== null);
   if (archived) {

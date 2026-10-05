@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
@@ -78,6 +79,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       const result = await updatePermissionSet({
         organizationId: orgId,
         actorUserId,
+        actor: principalFromSession(session!),
         permissionSetId,
         expectedVersion: expectedVersion!,
         ...(name !== undefined ? { name } : {}),

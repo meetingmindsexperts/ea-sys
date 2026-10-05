@@ -81,3 +81,13 @@ export function isProcurementModuleEnabled(): boolean {
 export function isAdminDocLinksEnabled(): boolean {
   return process.env.ADMIN_DOC_LINKS_ENABLED === "true";
 }
+
+/**
+ * Custom roles beyond Budgets (custom roles Phase 5). Off: a custom role can
+ * grant only the procurement keys, as since Sep 16, 2026, and a stored grant
+ * of any other key grants nothing (the rollback). On: every key a route
+ * enforces is grantable. Server only; the session carries the result.
+ */
+export function isCustomRolesEnabled(): boolean {
+  return process.env.CUSTOM_ROLES_ENABLED === "true";
+}

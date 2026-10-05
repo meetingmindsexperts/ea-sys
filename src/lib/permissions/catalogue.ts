@@ -656,6 +656,33 @@ export function isLivePermissionKey(key: string): key is PermissionKey {
   return LIVE_KEY_SET.has(key);
 }
 
+/**
+ * May a custom role grant this key? The procurement keys always (live since
+ * Sep 16, 2026); every other key once custom roles are switched on
+ * (`CUSTOM_ROLES_ENABLED`, read by the caller, since this module is
+ * client-safe). Every route enforces its key since Phase 2, so a granted key
+ * is never a promise nothing keeps.
+ */
+export function isGrantableKey(key: string, customRolesEnabled: boolean): key is PermissionKey {
+  return isLivePermissionKey(key) || (customRolesEnabled && isPermissionKey(key));
+}
+
+/**
+ * A granted key as the session carries it: `key`, or `key@SCOPE` for an
+ * event-bound key, so a custom role's scope survives the trip to the screens.
+ */
+export function encodeSessionGrant(permission: string, scope: string | null | undefined): string {
+  return scope ? `${permission}@${scope}` : permission;
+}
+
+export function decodeSessionGrant(value: string): { permission: string; scope?: "ALL" | "ASSIGNED" | "WEBINAR" } {
+  const at = value.indexOf("@");
+  if (at < 0) return { permission: value };
+  const scope = value.slice(at + 1);
+  const permission = value.slice(0, at);
+  return scope === "ALL" || scope === "ASSIGNED" || scope === "WEBINAR" ? { permission, scope } : { permission };
+}
+
 const DESCRIPTOR_BY_KEY: ReadonlyMap<string, PermissionDescriptor> = new Map(PERMISSION_CATALOGUE.map((p) => [p.key, p]));
 
 /** The descriptor for a key, or undefined for a string that is not a key. */

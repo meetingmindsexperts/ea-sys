@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
       const result = await createPermissionSet({
         organizationId: orgId,
         actorUserId,
+        actor: principalFromSession(session!),
         name: parsed.data.name,
         description: parsed.data.description ?? null,
         permissions: parsed.data.permissions,

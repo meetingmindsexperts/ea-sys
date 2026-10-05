@@ -18,6 +18,7 @@ import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import {
   canApproveProcurement,
   hasAnyProcurementGrant,
+  holdsCustomProcurementKey,
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
 import { can, systemPrincipal, type Principal } from "@/lib/permissions/can";
@@ -77,7 +78,7 @@ function allowed(user: ProcurementActorLike | null | undefined, need: Procuremen
     case "view":
       // Any custom procurement key at all enters the module; the per-screen
       // keys decide what is visible once inside (as canViewProcurement).
-      if (Array.isArray(user.procurementPermissions) && user.procurementPermissions.length > 0) return true;
+      if (holdsCustomProcurementKey(user.procurementPermissions)) return true;
       return VIEW_KEYS.some(pc);
     case "author":
       return pc("procurement.budgets.create") || pc("procurement.budgets.edit");

@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import { webinarModuleFilter } from "@/lib/webinar";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
-import { hasAnyProcurementGrant } from "@/lib/procurement-visibility";
+import { hasAnyProcurementGrant, holdsCustomProcurementKey } from "@/lib/procurement-visibility";
 import { can, inArea, principalFromUser, type EventFacts } from "@/lib/permissions/can";
 import type { PermissionKey } from "@/lib/permissions/catalogue";
 import type { Area } from "@/lib/permissions/system-roles";
@@ -287,8 +287,8 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   // Phase 3, Oct 5, 2026). Same answers as the role branches this replaced,
   // pinned for every role and context by __tests__/components/sidebar-nav.test.ts.
   const p = principalFromUser((user ?? {}) as Parameters<typeof principalFromUser>[0]);
-  const customKeys = (user as { procurementPermissions?: unknown } | null | undefined)?.procurementPermissions;
-  const holdsAnyCustomKey = Array.isArray(customKeys) && customKeys.length > 0;
+  const customKeys = (user as { procurementPermissions?: string[] } | null | undefined)?.procurementPermissions;
+  const holdsAnyCustomKey = holdsCustomProcurementKey(customKeys);
   // A display preference, not a permission (owner, Sep 15 2026; kept Oct 5):
   // organisers run events, not the sales pipeline or budgets. The pages and
   // APIs still answer an organiser; one holding a procurement grant sees Budgets.
