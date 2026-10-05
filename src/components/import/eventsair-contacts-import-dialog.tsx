@@ -71,7 +71,7 @@ const INITIAL_PROGRESS: ImportProgress = {
 };
 
 export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirContactsImportDialogProps) {
-  const { data: config, isLoading: configLoading } = useEventsAirConfig();
+  const { data: config, isLoading: configLoading } = useEventsAirConfig(open);
   const { data: events, isLoading: eventsLoading, refetch: fetchEvents, isError: eventsError, error: eventsErrorDetail } = useEventsAirEvents();
   const queryClient = useQueryClient();
 

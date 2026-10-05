@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 /**
  * IssuedCertificatesCard — per-recipient cert activity panel.
  *
@@ -72,7 +74,13 @@ interface IssuedCertificatesCardProps {
   recipientTags?: string[];
 }
 
-export function IssuedCertificatesCard({
+/** Shown only to who may read this event's certificates (the GET asks the same key). */
+export function IssuedCertificatesCard(props: IssuedCertificatesCardProps) {
+  const allowed = useCan("certificates.read", props.eventId) === "allowed";
+  return allowed ? <IssuedCertificatesCardBody {...props} /> : null;
+}
+
+function IssuedCertificatesCardBody({
   eventId,
   registrationId,
   speakerId,

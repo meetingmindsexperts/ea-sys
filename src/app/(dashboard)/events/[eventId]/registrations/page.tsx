@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useState } from "react";
 import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
 import {
@@ -187,7 +189,10 @@ export default function RegistrationsPage() {
   const registrationsQuery = useRegistrations(eventId, serverFilters);
   const registrations = (registrationsQuery.data ?? []) as Registration[];
   const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
-  const ticketsQuery = useTickets(eventId);
+  // Webinars works the desk on a conference without its types or sponsors.
+  const canReadTickets = useCan("tickets.read", eventId) === "allowed";
+  const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
+  const ticketsQuery = useTickets(eventId, canReadTickets);
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
   const eventIsWebinar = isWebinar(event ?? undefined);
@@ -209,7 +214,7 @@ export default function RegistrationsPage() {
   // Country and Paid / Due (organiser request, Sep 10 2026). The payer field
   // is finance-redacted, so a non-finance role never sees the column either.
   const showPayerColumn = registrations.some((r) => !!r.billingAccount?.name);
-  const { data: sponsorData } = useSponsors(eventId);
+  const { data: sponsorData } = useSponsors(eventId, canReadSponsors);
   const sponsors = sponsorData?.sponsors ?? [];
   // Gated on the SAME predicate the API gates the filter on, which returns 403
   // rather than ignoring it. So this is not cosmetic hiding: rendering the

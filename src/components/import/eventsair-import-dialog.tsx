@@ -82,7 +82,7 @@ const INITIAL_PROGRESS: ImportProgress = {
 
 export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDialogProps) {
   const router = useRouter();
-  const { data: config, isLoading: configLoading } = useEventsAirConfig();
+  const { data: config, isLoading: configLoading } = useEventsAirConfig(open);
   const { data: events, isLoading: eventsLoading, refetch: fetchEvents, isError: eventsError, error: eventsErrorDetail } = useEventsAirEvents();
   const importEvent = useImportEventsAirEvent();
 

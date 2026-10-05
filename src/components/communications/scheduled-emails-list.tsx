@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useState } from "react";
 import { Calendar, Clock, Edit, RotateCw, Trash2, AlertCircle, CheckCircle2, Loader2, Users, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
@@ -213,7 +215,13 @@ const EMAIL_TYPE_LABEL: Record<string, string> = {
   "abstract-reminder": "Submission Reminder",
 };
 
-export function ScheduledEmailsList({ eventId }: Props) {
+/** Shown only to who may schedule this event's emails (the list GET asks the same key). */
+export function ScheduledEmailsList(props: Parameters<typeof ScheduledEmailsListBody>[0]) {
+  const allowed = useCan("communications.schedule", props.eventId) === "allowed";
+  return allowed ? <ScheduledEmailsListBody {...props} /> : null;
+}
+
+function ScheduledEmailsListBody({ eventId }: Props) {
   const { data: scheduledEmails = [], isLoading } = useScheduledEmails(eventId);
   const cancelMutation = useCancelScheduledEmail(eventId);
   const retryMutation = useRetryScheduledEmail(eventId);

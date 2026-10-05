@@ -1,0 +1,16 @@
+SUPER_ADMIN · conference: -
+SUPER_ADMIN · webinar: -
+ADMIN · conference: -
+ADMIN · webinar: -
+ORGANIZER · conference: -
+ORGANIZER · webinar: -
+MEMBER · conference: certificates, dinner, export, media, reimbursements, reviewers, rsvp, travel-grants
+MEMBER · webinar: certificates, dinner, export, media, reimbursements, reviewers, rsvp, travel-grants
+ONSITE · conference: accommodation, agent, certificates, communications, dinner, email-templates, export, media, reimbursements, reviewers, rsvp, survey, travel-grants
+ONSITE · webinar: accommodation, agent, certificates, communications, dinner, email-templates, export, media, reimbursements, reviewers, rsvp, survey, travel-grants
+WEBINARS · conference: abstracts, accommodation, agenda, agent, analytics, certificates, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar
+WEBINARS · webinar: accommodation, agent, certificates, dinner, export, reimbursements, reviewers, rsvp, travel-grants
+CRM_USER · conference: abstracts, accommodation, agenda, agent, analytics, certificates, check-in, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, registrations, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar
+CRM_USER · webinar: abstracts, accommodation, agenda, agent, analytics, certificates, check-in, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, registrations, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar
+HR_USER · conference: abstracts, accommodation, agenda, agent, analytics, certificates, check-in, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, registrations, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar
+HR_USER · webinar: abstracts, accommodation, agenda, agent, analytics, certificates, check-in, communications, dinner, email-templates, export, imports, invoices, media, promo-codes, registrations, reimbursements, reviewers, rsvp, session-proposals, speakers, sponsors, survey, tickets, travel-grants, webinar

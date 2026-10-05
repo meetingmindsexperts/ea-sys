@@ -55,6 +55,7 @@ import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/conta
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { isOrgAdmin } from "@/lib/team-roles";
+import { useCan } from "@/hooks/use-can";
 
 interface Contact {
   id: string;
@@ -95,6 +96,10 @@ type TagMode = "add" | "remove" | "replace";
 export default function ContactsPage() {
   const { data: userSession } = useSession();
   const isAdmin = isOrgAdmin(userSession?.user?.role);
+  // The EventsAir import reads the organisation's EventsAir credentials: offered only to who may use them.
+  const canImportContacts = useCan("contacts.import");
+  const canReadCredentials = useCan("org.credentials");
+  const canImportEventsAir = canImportContacts === "allowed" && canReadCredentials === "allowed";
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -328,15 +333,17 @@ export default function ContactsPage() {
               <FileDown className="h-3.5 w-3.5 mr-1.5" />
               Template
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEventsAirOpen(true)}
-              className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
-            >
-              <Cloud className="h-3.5 w-3.5 mr-1.5" />
-              EventsAir
-            </Button>
+            {canImportEventsAir && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEventsAirOpen(true)}
+                className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
+              >
+                <Cloud className="h-3.5 w-3.5 mr-1.5" />
+                EventsAir
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

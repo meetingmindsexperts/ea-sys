@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -304,7 +306,8 @@ export default function CommunicationsPage() {
   // for the cap so the picker can find older numbers, and tell the dialog when
   // even that was not everything.
   const abstractsQuery = useAbstracts(eventId, { limit: String(ABSTRACT_PICKER_FETCH_LIMIT) });
-  const reviewersQuery = useReviewers(eventId);
+  const canSeeReviewers = useCan("reviewers.pool.manage", eventId) === "allowed";
+  const reviewersQuery = useReviewers(eventId, { enabled: canSeeReviewers });
   const templatesQuery = useEmailTemplates(eventId);
 
   // Active organizer-created templates (excludes system defaults) — surfaced

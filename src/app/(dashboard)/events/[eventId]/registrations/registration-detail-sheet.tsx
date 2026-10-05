@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -211,7 +213,9 @@ export function RegistrationDetailSheet({
   // as a dead link — a row whose only action 403s is worse than no row, and it
   // would invite an organizer to ask desk staff to "just open it".
   const showSupportingDocument = canViewSupportingDocument(userSession?.user?.role);
-  const { data: regTypes = [] } = useTickets(eventId);
+  const canReadTickets = useCan("tickets.read", eventId) === "allowed";
+  const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
+  const { data: regTypes = [] } = useTickets(eventId, canReadTickets);
   const { data: eventForMode } = useEvent(eventId);
   // WEBINARS on a NON-webinar event is desk-limited too (review M-3): its
   // conference tier is ONSITE-equivalent, so hide the organizer-only actions
@@ -231,7 +235,7 @@ export function RegistrationDetailSheet({
   ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
   // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
   // display in the Payment Summary. Cheap query, cached at the event level.
-  const { data: sponsorsRes } = useSponsors(eventId);
+  const { data: sponsorsRes } = useSponsors(eventId, canReadSponsors);
   // Per-event scoped payer list — only payers attached to THIS event via
   // the EventBillingAccount junction. Mirrors the picker on the Add
   // Registration form so reassignment can't pick a payer that wasn't

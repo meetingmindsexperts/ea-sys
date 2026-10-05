@@ -418,11 +418,11 @@ export function useDtcmPool(eventId: string, enabled = true) {
  * so operators pick from existing tags instead of typing duplicates
  * like "VIP" vs "vip".
  */
-export function useEventSpeakerTags(eventId: string) {
+export function useEventSpeakerTags(eventId: string, enabled = true) {
   return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
     queryKey: ["events", eventId, "speaker-tags"] as const,
     queryFn: () => fetchApi(`/api/events/${eventId}/speakers/tags`),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
   });
 }
 
@@ -1068,9 +1068,12 @@ export function useUpdateOAuthClientTier() {
 }
 
 // ============ EVENTSAIR ============
-export function useEventsAirConfig() {
+/** `enabled`: the import dialogs ask only once opened, so a page that merely
+ *  mounts a closed dialog never requests credentials it may not read. */
+export function useEventsAirConfig(enabled = true) {
   return useQuery({
     queryKey: queryKeys.eventsAirConfig,
+    enabled,
     queryFn: () => fetchApi<{ configured: boolean; clientId: string | null; configuredAt: string | null }>("/api/organization/eventsair/credentials"),
   });
 }
@@ -1395,14 +1398,14 @@ export interface ScheduledEmailItem {
   createdBy: { firstName: string; lastName: string; email: string } | null;
 }
 
-export function useScheduledEmails(eventId: string) {
+export function useScheduledEmails(eventId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.scheduledEmails(eventId),
     queryFn: () =>
       fetchApi<{ scheduledEmails: ScheduledEmailItem[] }>(
         `/api/events/${eventId}/emails/schedule`
       ).then((d) => d.scheduledEmails),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
     // Poll every 15s while there are in-flight rows so the UI reflects the
     // cron worker's progress without forcing the user to refresh. Idle when
     // every row is in a terminal state (SENT/FAILED/CANCELLED).
@@ -2840,14 +2843,14 @@ export interface WebinarPanelist {
   join_url?: string;
 }
 
-export function useWebinarPanelists(eventId: string) {
+export function useWebinarPanelists(eventId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.webinarPanelists(eventId),
     queryFn: () =>
       fetchApi<{ panelists: WebinarPanelist[] }>(
         `/api/events/${eventId}/webinar/panelists`,
       ),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
   });
 }
 
@@ -2971,14 +2974,14 @@ export function useResendPanelistInvite(eventId: string) {
 import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
 export type { SponsorEntry, SponsorTier };
 
-export function useSponsors(eventId: string) {
+export function useSponsors(eventId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.sponsors(eventId),
     queryFn: () =>
       fetchApi<{ sponsors: SponsorEntry[] }>(
         `/api/events/${eventId}/sponsors`,
       ),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
   });
 }
 
@@ -3032,14 +3035,17 @@ interface UseIssuedCertificatesArgs {
   eventId: string;
   registrationId?: string;
   speakerId?: string;
+  /** False when the caller may not read certificates (useCan). */
+  enabled?: boolean;
 }
 
 export function useIssuedCertificates({
   eventId,
   registrationId,
   speakerId,
+  enabled: allowed = true,
 }: UseIssuedCertificatesArgs) {
-  const enabled = !!eventId && (!!registrationId || !!speakerId);
+  const enabled = allowed && !!eventId && (!!registrationId || !!speakerId);
   // Build the URL query string for whichever id is set. The route
   // rejects requests that supply both, which would only happen on a
   // caller bug — we guard by passing exactly one.

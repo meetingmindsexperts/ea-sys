@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_EVENT_TIMEZONE, formatDateTimeInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import type { LucideIcon } from "lucide-react";
@@ -1622,7 +1624,8 @@ function PanelistsCard({
   eventId: string;
   hasZoom: boolean;
 }) {
-  const { data, isLoading, error } = useWebinarPanelists(eventId);
+  const canManageWebinar = useCan("webinar.manage", eventId) === "allowed";
+  const { data, isLoading, error } = useWebinarPanelists(eventId, canManageWebinar);
   const addPanelist = useAddWebinarPanelist(eventId);
   const removePanelist = useRemoveWebinarPanelist(eventId);
   const syncSpeakers = useSyncSpeakersToPanelists(eventId);

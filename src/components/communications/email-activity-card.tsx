@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useRef, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -71,7 +73,13 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
 }
 
-export function EmailActivityCard({ eventId }: { eventId: string }) {
+/** Shown only to who may send this event's emails (the activity GET asks the same key). */
+export function EmailActivityCard(props: Parameters<typeof EmailActivityCardBody>[0]) {
+  const allowed = useCan("communications.send", props.eventId) === "allowed";
+  return allowed ? <EmailActivityCardBody {...props} /> : null;
+}
+
+function EmailActivityCardBody({ eventId }: { eventId: string }) {
   const [senderId, setSenderId] = useState<string>(ALL);
   const [status, setStatus] = useState<string>(ALL);
   const [templateSlug, setTemplateSlug] = useState<string>(ALL);

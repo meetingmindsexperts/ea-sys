@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: pages stop asking for what the role cannot read (October 5)
+
+- A crawl of every dashboard page as Member, Onsite and Webinars found pages a
+  role could reach by URL but not use (Webinars on a conference's agenda,
+  speakers, tickets and about twenty more; Member on certificates, RSVP, event
+  media, travel grants, reimbursements and export) and allowed pages firing
+  one refused request (speaker tags, certificates, scheduled emails, email
+  activity, the activity feed, webinar panelists, the EventsAir check). The
+  first now show the "no access" panel without loading; the second no longer
+  ask. Nothing changed on the server.
+- The EventsAir import is offered only to Admin and Super Admin: an Organizer
+  could open it but never list EventsAir events (owner decision pending).
+
 ### Added: one "no access" panel instead of empty pages (October 5)
 
 - A page someone may not open now says "You don't have access to ...",

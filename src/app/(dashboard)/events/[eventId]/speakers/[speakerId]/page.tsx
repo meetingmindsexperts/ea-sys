@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { SessionDetailSheet } from "@/components/sessions/session-detail-sheet";
@@ -254,7 +256,9 @@ export default function SpeakerDetailPage() {
     (a) => !["DRAFT", "WITHDRAWN"].includes(a.status),
   );
   // Existing tags for the in-page edit autocomplete.
-  const speakerTagsQuery = useEventSpeakerTags(eventId);
+  // The tag list GET asks speakers.update: only an editor picks tags.
+  const canEditSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const speakerTagsQuery = useEventSpeakerTags(eventId, canEditSpeakers);
   // Event timezone — session times on this page render in the EVENT's clock
   // (review M10: they used to render viewer-local, disagreeing with the
   // agenda grid + the SessionDetailSheet this page opens).

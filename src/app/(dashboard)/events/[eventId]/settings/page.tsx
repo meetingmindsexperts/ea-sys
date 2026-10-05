@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useCallback, useEffect, useState } from "react";
 import { CORE_TEMPLATE_SLUGS } from "@/lib/email-template-registry";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -227,13 +229,14 @@ export default function EventSettingsPage() {
   const { procurementEnabled } = useRuntimeFlags();
   const router = useRouter();
   const eventId = params.eventId as string;
+  const canSeeBudgets = useCan("procurement.budgets.view") === "allowed";
   // A budget is keyed on the event code, so the code is locked while one
   // references it (the PUT refuses with EVENT_CODE_REFERENCED); the field says
   // so up front instead of failing on Save. Read only when the module is on.
   const { data: codeReferenced = false } = useQuery({
     queryKey: ["procurement", "budgets", eventId, "all"],
     queryFn: () => apiFetch<{ budgets: { id: string }[] }>(`/api/procurement/budgets?eventId=${eventId}`).then((r) => r.budgets.length > 0),
-    enabled: procurementEnabled && !!eventId,
+    enabled: procurementEnabled && canSeeBudgets && !!eventId,
   });
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);

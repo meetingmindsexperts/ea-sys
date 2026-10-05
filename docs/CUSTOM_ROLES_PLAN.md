@@ -1186,10 +1186,27 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
   whose GET answers 403 or 404. Applied so far: Media, an event's Reviewers,
   Infra / Ops (replacing its bare "Not authorized."), and every event page.
   Advisory only; the routes stay the authority.
-- *Next:* sweep the remaining client files onto `useCan` / `PermissionGate`
-  (the known console 403s first: Member's event activity feed, the EventsAir
-  credentials request for Member and Webinars), then middleware, then MCP and
-  the agent.
+- *The client sweep, driven by a crawl* (Oct 5). Every dashboard page was
+  opened as Member, Onsite and Webinars on the local build and each refused
+  request recorded; the fixes are of two kinds.
+  - Whole pages: `EVENT_PAGE_KEYS` (`src/lib/permissions/event-page-keys.ts`)
+    names the key each event page's own list request asks; the event layout
+    waits for the event and shows the panel when the key is not held, so the
+    page never mounts. The role-by-page result is pinned by
+    `__tests__/permissions/event-page-keys.test.ts` (Admin, Organizer and
+    Super Admin are refused nothing). The organisation invoice book shows the
+    panel to a finance role without `invoices.ledger` (Onsite).
+  - Single requests on pages a role may open: the data hooks take `enabled`
+    and the caller passes its `useCan` answer (speaker tags, issued
+    certificates, scheduled emails, email activity, the event activity feed,
+    webinar panelists, ticket types and sponsors on the desk, the reviewers
+    list on Communications, the budget lookup on event settings). The EventsAir
+    dialogs read the credentials only once opened.
+  - Found and left for the owner: an Organizer holds `imports.eventsair` and
+    `contacts.import` but not `org.credentials`, which listing EventsAir events
+    needs, so the EventsAir import never worked for an Organizer. The button is
+    now offered only to who holds both (Admin, Super Admin).
+- *Next:* middleware, then MCP and the agent.
 
 ### Phase 4: Event staff assignment (1 week)
 

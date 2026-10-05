@@ -9,6 +9,8 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { eventListSelect } from "@/lib/event-visibility";
 import { EventListClient } from "./event-list-client";
 import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
 
 interface EventsPageProps {
@@ -21,6 +23,12 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
+
+  // The import lists EventsAir events with the organisation's credentials, so
+  // it is offered only to who holds both (an organiser holds the import key
+  // but not the credentials, and its dialog could never list anything).
+  const principal = principalFromSession(session);
+  const canImportFromEventsAir = can(principal, "imports.eventsair") && can(principal, "org.credentials");
 
   const sort = parseEventSort(sp);
 
@@ -57,7 +65,7 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
         </div>
         {!isRestricted && (
           <div className="flex gap-2">
-            <EventsAirImportButton />
+            {canImportFromEventsAir && <EventsAirImportButton />}
             <Button asChild className="btn-gradient shadow-sm">
               <Link href="/events/new">
                 <Plus className="mr-2 h-4 w-4" />

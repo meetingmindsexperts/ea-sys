@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Activity } from "lucide-react";
@@ -21,7 +23,13 @@ interface ActivityLog {
   user: { firstName: string; lastName: string; email: string } | null;
 }
 
-export function ActivityFeed({ eventId }: { eventId: string }) {
+/** Shown only to who may read this event's activity (the feed GET asks the same key). */
+export function ActivityFeed(props: Parameters<typeof ActivityFeedBody>[0]) {
+  const allowed = useCan("activity.read", props.eventId) === "allowed";
+  return allowed ? <ActivityFeedBody {...props} /> : null;
+}
+
+function ActivityFeedBody({ eventId }: { eventId: string }) {
   const { data: logs = [], isLoading } = useQuery<ActivityLog[]>({
     queryKey: ["activity", eventId],
     queryFn: async () => {

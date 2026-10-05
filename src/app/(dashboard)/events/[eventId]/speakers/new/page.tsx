@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -29,7 +31,9 @@ export default function NewSpeakerPage() {
   // Feed the tag autocomplete from the event's existing speaker tags —
   // same source the bulk-tag dialog uses, so the operator sees a
   // consistent set across entry points.
-  const speakerTagsQuery = useEventSpeakerTags(eventId);
+  // The tag list GET asks speakers.update: only an editor picks tags.
+  const canEditSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const speakerTagsQuery = useEventSpeakerTags(eventId, canEditSpeakers);
   const [formData, setFormData] = useState<{
     personData: PersonFormData;
     status: string;

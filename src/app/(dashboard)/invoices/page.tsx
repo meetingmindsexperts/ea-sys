@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { canViewFinance } from "@/lib/finance-visibility";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
+import { NoAccess } from "@/components/permissions/no-access";
 import OrgInvoicesClient from "./invoices-client";
 
 /**
@@ -13,6 +15,10 @@ import OrgInvoicesClient from "./invoices-client";
 export default async function InvoicesPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (!canViewFinance(session.user.role)) redirect("/dashboard");
+  // The organisation's invoice book: the key its API asks (Onsite is
+  // finance-capable on its events but does not hold the book).
+  if (!can(principalFromSession(session), "invoices.ledger")) {
+    return <NoAccess what="the organisation's invoices" back={{ href: "/dashboard", label: "Back to Dashboard" }} />;
+  }
   return <OrgInvoicesClient />;
 }

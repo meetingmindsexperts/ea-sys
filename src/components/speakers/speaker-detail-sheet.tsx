@@ -1,5 +1,7 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
+
 import Image from "next/image";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -219,7 +221,9 @@ export function SpeakerDetailSheet({
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
   // Existing speaker tags for the in-sheet edit autocomplete.
-  const speakerTagsQuery = useEventSpeakerTags(eventId);
+  // The tag list GET asks speakers.update: only an editor picks tags.
+  const canEditSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const speakerTagsQuery = useEventSpeakerTags(eventId, canEditSpeakers);
   // Active custom templates for the "Send Saved Template" option (July 31,
   // 2026 — single-send parity with the bulk dialog's saved-template picks).
   const { data: emailTemplatesData } = useEmailTemplates(eventId);
