@@ -305,6 +305,19 @@ SWEPT=(
   "src/app/api/crm/sponsor-email/send/route.ts"
   "src/app/api/crm/tasks/[taskId]/route.ts"
   "src/app/api/crm/tasks/route.ts"
+  # HR (Oct 5, 2026): the routes call denyNonHr, which asks can() for hr.read / hr.write
+  "src/app/api/hr/attendance-rules/[ruleId]/route.ts"
+  "src/app/api/hr/attendance-rules/route.ts"
+  "src/app/api/hr/attendance/route.ts"
+  "src/app/api/hr/balances/[employeeId]/route.ts"
+  "src/app/api/hr/employees/[employeeId]/exit/route.ts"
+  "src/app/api/hr/employees/[employeeId]/route.ts"
+  "src/app/api/hr/employees/route.ts"
+  "src/app/api/hr/holidays/[holidayId]/route.ts"
+  "src/app/api/hr/holidays/route.ts"
+  "src/app/api/hr/leave-codes/route.ts"
+  "src/app/api/hr/leave-year/roll/route.ts"
+  "src/app/api/hr/summary/route.ts"
 )
 
 # What a swept file may no longer contain, once comments are stripped: the old

@@ -379,6 +379,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the HR module checks permissions instead of roles (October 5)
+
+- Custom roles Phase 2: attendance, leave, holidays and the HR summary ask
+  one permission check, which still honours the per-person HR access tick.
+  Nobody's access changes.
+
 ### Changed: the CRM checks permissions instead of roles (October 5)
 
 - Custom roles Phase 2: every CRM route now asks one permission check, so a

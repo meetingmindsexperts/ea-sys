@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 16 of 18
-> domains swept (260 route files, every event route on `requirePermission`, pinned by
+> **Status (Oct 5, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 17 of 18
+> domains swept (272 route files, every event route on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -1030,6 +1030,18 @@ Domain by domain:
   company, read deals, reports and the inbox, 403 on export; MEMBER read,
   403 on the inbox and on writes; ORGANIZER edited, 403 on archive; ADMIN
   exported and read reports; CRM and inbox pages clean.
+- **HR SWEPT Oct 5, 2026** (all 12 route files, 17 handlers). Same shape
+  as the CRM: every route calls `denyNonHr`, which now asks
+  `can(principalFromSession(session), "hr.read" | "hr.write")` (the person's
+  `hrAccess` tick comes from the session; SUPER_ADMIN implies it; HR_USER
+  needs none; an API key holds no HR key) and keeps the module flag's 404.
+  Pinned to canViewHr / canWriteHr by the parity test. Matrix generated per
+  handler (some HR handlers take a NextRequest, so a 0 there marks a throw
+  past the catch, alike on both sides): byte for byte. One test fixture
+  gained an organisation, which real HR accounts always carry. Verified with
+  the chrome-devtools MCP: HR_USER and SUPER_ADMIN read employees, leave
+  codes, holidays and the summary; ADMIN without the tick 403; the HR page
+  clean.
 - **Code review of money and the remaining event routes, Oct 5, 2026** (two
   independent reviewers, each finding checked against the code). Fixed before
   pushing: (HIGH) a payer's detail (`GET /api/billing-accounts/[id]`) returns

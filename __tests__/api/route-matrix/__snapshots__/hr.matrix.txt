@@ -1,0 +1,292 @@
+# HR
+# cell: HTTP status; r = an event read matched (data reached); e = another table's event filter matched; w = a write was attempted (writes throw, so the status after w is the handler's catch)
+# events: conf (no links) · assigned (ONSITE+WEBINARS desk list, reviewer, submitter, registrant) · webinar · foreign (other org, same links)
+
+DELETE hr/attendance-rules/[ruleId]
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     500 w
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/attendance-rules
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     0
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST hr/attendance-rules
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/attendance
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     0
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PUT hr/attendance
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE hr/attendance
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/balances/[employeeId]
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     0
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST hr/employees/[employeeId]/exit
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+PATCH hr/employees/[employeeId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     404
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/employees
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     0
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST hr/employees
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+DELETE hr/holidays/[holidayId]
+  caller      -
+  SUPER_ADMIN 404
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     404
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/holidays
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     500 w
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST hr/holidays
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/leave-codes
+  caller      -
+  SUPER_ADMIN 500 w
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     500 w
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+POST hr/leave-year/roll
+  caller      -
+  SUPER_ADMIN 400
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     400
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401
+
+GET hr/summary
+  caller      -
+  SUPER_ADMIN 0
+  OPERATOR    403
+  ADMIN       403
+  ORGANIZER   403
+  MEMBER      403
+  ONSITE      403
+  WEBINARS    403
+  CRM_USER    403
+  HR_USER     0
+  REVIEWER    403
+  SUBMITTER   403
+  REGISTRANT  403
+  API_KEY     401
+  NONE        401

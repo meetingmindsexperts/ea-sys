@@ -115,8 +115,9 @@ describe("denyNonHr", () => {
    */
   it("distinguishes 'not here' from 'not yours'", () => {
     withHr(true);
-    expect(denyNonHr({ user: { id: "u1", role: "ORGANIZER" } }, { route: "hr:test" })?.status).toBe(403);
-    expect(denyNonHr({ user: { id: "u1", role: "HR_USER" } }, { route: "hr:test" })).toBeNull();
+    // Staff accounts carry their organisation; `hr.read` is organisation-wide.
+    expect(denyNonHr({ user: { id: "u1", role: "ORGANIZER", organizationId: "org-1" } }, { route: "hr:test" })?.status).toBe(403);
+    expect(denyNonHr({ user: { id: "u1", role: "HR_USER", organizationId: "org-1" } }, { route: "hr:test" })).toBeNull();
   });
 
   it("refuses an unauthenticated caller", () => {

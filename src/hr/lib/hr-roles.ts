@@ -45,7 +45,9 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { isHrModuleEnabled } from "@/lib/module-flags";
-import { canViewHr, canWriteHr } from "./hr-visibility";
+import type { Session } from "next-auth";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 
 /*
  * The predicate itself lives in core, `src/lib/hr-visibility.ts` (re-exported
@@ -69,7 +71,7 @@ export { canViewHr, canWriteHr, HR_SELF_SUFFICIENT_ROLES } from "./hr-visibility
  * all of them read alike in /logs. Pass `route` always.
  */
 export function denyNonHr(
-  session: { user?: { id?: string; role?: string | null } } | null | undefined,
+  session: { user?: { id?: string; role?: string | null; organizationId?: string | null; hrAccess?: boolean } } | null | undefined,
   context: { route: string; write?: boolean },
 ): NextResponse | null {
   if (!isHrModuleEnabled()) {
@@ -79,7 +81,11 @@ export function denyNonHr(
     });
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const allowed = context.write ? canWriteHr(session?.user) : canViewHr(session?.user);
+  // `hr.read` / `hr.write` (custom roles Phase 2). The grant needs the person's
+  // `hrAccess` tick unless the role is self-sufficient; `can()` reads it from the
+  // session, and system-roles-parity.test.ts pins this to canViewHr / canWriteHr.
+  // An API key carries no HR grant, so it is refused, as before.
+  const allowed = !!session?.user && can(principalFromSession(session as Session), context.write ? "hr.write" : "hr.read");
   if (!allowed) {
     apiLogger.warn({
       msg: `${context.route}:hr-forbidden`,
