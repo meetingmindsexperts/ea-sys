@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useCan } from "@/hooks/use-can";
 import {
   ArrowLeft,
   ArrowDown,
@@ -107,6 +108,8 @@ function defaultQuestion(type: SurveyQuestion["type"]): SurveyQuestion {
 export default function SurveyBuilderPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // The survey saves through the event PUT, so that route's key decides.
+  const canEdit = useCan("events.update", eventId) === "allowed";
 
   const [eventName, setEventName] = useState<string>("");
   const [eventSlug, setEventSlug] = useState<string>("");
@@ -353,6 +356,7 @@ export default function SurveyBuilderPage() {
               </Button>
             </Link>
           ) : null}
+          {canEdit && (
           <Button
             onClick={() => void handleSave("save")}
             disabled={saving || dirtyCount === 0}
@@ -370,6 +374,7 @@ export default function SurveyBuilderPage() {
               </>
             )}
           </Button>
+          )}
         </div>
       </div>
 
@@ -427,18 +432,21 @@ export default function SurveyBuilderPage() {
             />
           </CardContent>
         </Card>
-        <p className="text-xs text-muted-foreground lg:col-span-2">
-          Both are saved with the survey when you click{" "}
-          <span className="font-medium">Save survey</span>.
-        </p>
+        {canEdit && (
+          <p className="text-xs text-muted-foreground lg:col-span-2">
+            Both are saved with the survey when you click{" "}
+            <span className="font-medium">Save survey</span>.
+          </p>
+        )}
       </div>
 
       {questions.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground mb-4">
-              No questions yet. Add your first question to get started.
+              {canEdit ? "No questions yet. Add your first question to get started." : "No questions yet."}
             </p>
+            {canEdit && (
             <div className="inline-flex gap-2">
               <Button
                 variant="outline"
@@ -465,6 +473,7 @@ export default function SurveyBuilderPage() {
                 Add free text
               </Button>
             </div>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -482,9 +491,11 @@ export default function SurveyBuilderPage() {
               onRemove={() => removeQuestion(q.id)}
               onUpdate={(patch) => updateQuestion(q.id, patch)}
               onChangeType={(type) => changeQuestionType(q.id, type)}
+              canEdit={canEdit}
             />
           ))}
 
+          {canEdit && (
           <div className="flex flex-wrap gap-2 pt-4">
             <Button
               variant="outline"
@@ -522,6 +533,7 @@ export default function SurveyBuilderPage() {
               Clear survey
             </Button>
           </div>
+          )}
         </div>
       )}
     </div>
@@ -541,6 +553,7 @@ interface QuestionCardProps {
   onRemove: () => void;
   onUpdate: (patch: Partial<SurveyQuestion>) => void;
   onChangeType: (type: SurveyQuestion["type"]) => void;
+  canEdit: boolean;
 }
 
 function QuestionCard({
@@ -554,6 +567,7 @@ function QuestionCard({
   onRemove,
   onUpdate,
   onChangeType,
+  canEdit,
 }: QuestionCardProps) {
   return (
     <Card>
@@ -593,6 +607,7 @@ function QuestionCard({
               )}
             </div>
           </button>
+          {canEdit && (
           <div className="flex items-center gap-0.5 shrink-0">
             <Button
               variant="ghost"
@@ -624,6 +639,7 @@ function QuestionCard({
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
+          )}
         </div>
       </CardHeader>
       {expanded ? (

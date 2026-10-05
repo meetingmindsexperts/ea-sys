@@ -32,6 +32,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -73,6 +74,11 @@ export default function SpeakersPage() {
   const eventId = params.eventId as string;
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  const canCreateSpeaker = useCan("speakers.create", eventId) === "allowed";
+  const canImportSpeakers = useCan("speakers.import", eventId) === "allowed";
+  const canTagSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const canSendEmail = useCan("communications.send", eventId) === "allowed";
+  const canSelect = canTagSpeakers || canSendEmail;
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -198,7 +204,7 @@ export default function SpeakersPage() {
           </Button>
           {!isReviewer && (
             <>
-              {speakers.length > 0 && (
+              {canSendEmail && speakers.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => setBulkEmailOpen(true)}
@@ -207,41 +213,47 @@ export default function SpeakersPage() {
                   {selectedIds.size > 0 ? `Email (${selectedIds.size})` : statusFilter !== "all" ? `Email ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}` : "Email All"}
                 </Button>
               )}
-              <CSVImportButton eventId={eventId} entityType="speakers" />
-              <ImportRegistrationsButton eventId={eventId} />
-              <Button asChild>
-                <Link href={`/events/${eventId}/speakers/new`}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Speaker
-                </Link>
-              </Button>
+              {canImportSpeakers && <CSVImportButton eventId={eventId} entityType="speakers" />}
+              {canImportSpeakers && <ImportRegistrationsButton eventId={eventId} />}
+              {canCreateSpeaker && (
+                <Button asChild>
+                  <Link href={`/events/${eventId}/speakers/new`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Speaker
+                  </Link>
+                </Button>
+              )}
             </>
           )}
         </div>
       </div>
 
       {/* Bulk Selection Toolbar */}
-      {selectedIds.size > 0 && !isReviewer && (
+      {selectedIds.size > 0 && !isReviewer && canSelect && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} speaker{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="flex gap-2 ml-auto">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setTagDialogOpen(true)}
-            >
-              <Tag className="mr-2 h-4 w-4" />
-              Manage Tags
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setBulkEmailOpen(true)}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send Email
-            </Button>
+            {canTagSpeakers && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTagDialogOpen(true)}
+              >
+                <Tag className="mr-2 h-4 w-4" />
+                Manage Tags
+              </Button>
+            )}
+            {canSendEmail && (
+              <Button
+                size="sm"
+                onClick={() => setBulkEmailOpen(true)}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Send Email
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -353,13 +365,15 @@ export default function SpeakersPage() {
         <CardContent>
           {speakers.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
-              No speakers yet. Click &quot;Add Speaker&quot; to get started.
+              {canCreateSpeaker
+                ? <>No speakers yet. Click &quot;Add Speaker&quot; to get started.</>
+                : "No speakers yet."}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  {!isReviewer && (
+                  {!isReviewer && canSelect && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
@@ -386,7 +400,7 @@ export default function SpeakersPage() {
                     className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(speaker.id) ? "bg-primary/5" : ""}`}
                     onClick={() => router.push(`/events/${eventId}/speakers/${speaker.id}`)}
                   >
-                    {!isReviewer && (
+                    {!isReviewer && canSelect && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(speaker.id)}

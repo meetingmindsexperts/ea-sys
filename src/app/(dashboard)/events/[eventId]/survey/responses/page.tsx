@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -87,6 +88,8 @@ export default function SurveyResponsesPage() {
   const [error, setError] = useState<string | null>(null);
   const { data: session } = useSession();
   const canReset = canResetSurvey(session?.user?.role);
+  // The survey editor saves through the event PUT.
+  const canEditSurvey = useCan("events.update", eventId) === "allowed";
   const [resetTarget, setResetTarget] = useState<{ registrationId: string; name: string } | null>(null);
 
   // ── Load ─────────────────────────────────────────────────────────────
@@ -178,12 +181,14 @@ export default function SurveyResponsesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link href={`/events/${eventId}/survey`}>
-            <Button variant="outline" size="sm">
-              <PenLine className="h-3.5 w-3.5 mr-1.5" />
-              Edit survey
-            </Button>
-          </Link>
+          {canEditSurvey && (
+            <Link href={`/events/${eventId}/survey`}>
+              <Button variant="outline" size="sm">
+                <PenLine className="h-3.5 w-3.5 mr-1.5" />
+                Edit survey
+              </Button>
+            </Link>
+          )}
           {data.totalCount > 0 ? (
             <a href={exportUrl} download>
               <Button size="sm">

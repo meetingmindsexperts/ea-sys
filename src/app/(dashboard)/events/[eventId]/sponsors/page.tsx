@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { useCan } from "@/hooks/use-can";
 import {
   Card,
   CardContent,
@@ -129,6 +130,8 @@ function SponsorsEditor({
   initialSponsors: SponsorEntry[];
 }) {
   const updateSponsors = useUpdateSponsors(eventId);
+  // The whole list saves through one PUT, so one key covers add, edit, reorder and remove.
+  const canManage = useCan("sponsors.manage", eventId) === "allowed";
 
   // Lazy-init draft from props — safe because this component only mounts
   // when server data is ready and remounts on server-side identity changes.
@@ -225,6 +228,7 @@ function SponsorsEditor({
             Sponsors and exhibitors shown on public session pages. Grouped by tier.
           </p>
         </div>
+        {canManage && (
         <div className="flex items-center gap-2">
           {isDirty && (
             <Button variant="outline" onClick={handleDiscard} disabled={updateSponsors.isPending}>
@@ -243,6 +247,7 @@ function SponsorsEditor({
             Save changes
           </Button>
         </div>
+        )}
       </div>
 
       <Card>
@@ -252,14 +257,16 @@ function SponsorsEditor({
               <CardTitle>Sponsor list</CardTitle>
               <CardDescription>
                 {draft.length === 0
-                  ? "No sponsors yet. Add one to get started."
-                  : `${draft.length} sponsor${draft.length === 1 ? "" : "s"}. Use the arrows to reorder within a tier.`}
+                  ? canManage ? "No sponsors yet. Add one to get started." : "No sponsors yet."
+                  : `${draft.length} sponsor${draft.length === 1 ? "" : "s"}.${canManage ? " Use the arrows to reorder within a tier." : ""}`}
               </CardDescription>
             </div>
-            <Button variant="outline" onClick={openAdd}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add sponsor
-            </Button>
+            {canManage && (
+              <Button variant="outline" onClick={openAdd}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add sponsor
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -270,10 +277,12 @@ function SponsorsEditor({
                 Sponsors you add here appear on the public session page in a
                 dedicated Sponsors tab.
               </p>
-              <Button onClick={openAdd}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add your first sponsor
-              </Button>
+              {canManage && (
+                <Button onClick={openAdd}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add your first sponsor
+                </Button>
+              )}
             </div>
           ) : (
             <div className="divide-y">
@@ -331,6 +340,7 @@ function SponsorsEditor({
                     </div>
 
                     {/* Action buttons */}
+                    {canManage && (
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
                         size="icon"
@@ -368,6 +378,7 @@ function SponsorsEditor({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                    )}
                   </div>
                 );
               })}

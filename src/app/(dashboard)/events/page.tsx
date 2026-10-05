@@ -29,6 +29,7 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
   // but not the credentials, and its dialog could never list anything).
   const principal = principalFromSession(session);
   const canImportFromEventsAir = can(principal, "imports.eventsair") && can(principal, "org.credentials");
+  const canCreateEvent = can(principal, "events.create");
 
   const sort = parseEventSort(sp);
 
@@ -66,12 +67,14 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
         {!isRestricted && (
           <div className="flex gap-2">
             {canImportFromEventsAir && <EventsAirImportButton />}
-            <Button asChild className="btn-gradient shadow-sm">
-              <Link href="/events/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Event
-              </Link>
-            </Button>
+            {canCreateEvent && (
+              <Button asChild className="btn-gradient shadow-sm">
+                <Link href="/events/new">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Event
+                </Link>
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -92,11 +95,11 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
           </div>
           <h3 className="text-lg font-semibold mb-1">No events yet</h3>
           <p className="text-muted-foreground text-sm max-w-xs mb-5">
-            {isRestricted
-              ? "You have no assigned events yet."
-              : "Create your first event to start managing registrations, speakers, and more."}
+            {isRestricted && "You have no assigned events yet."}
+            {!isRestricted && canCreateEvent && "Create your first event to start managing registrations, speakers, and more."}
+            {!isRestricted && !canCreateEvent && "There are no events in your workspace yet."}
           </p>
-          {!isRestricted && (
+          {!isRestricted && canCreateEvent && (
             <Button asChild className="btn-gradient shadow-sm">
               <Link href="/events/new">
                 <Plus className="mr-2 h-4 w-4" />

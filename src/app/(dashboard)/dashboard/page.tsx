@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,8 @@ export default async function DashboardPage() {
   if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {
     redirect("/events");
   }
+
+  const canCreateEvent = can(principalFromSession(session), "events.create");
 
   let eventCount: number, registrationCount: number, speakerCount: number, upcomingEventCount: number;
   let recentEvents: { id: string; name: string; status: string; startDate: Date; _count: { registrations: number } }[];
@@ -165,10 +169,15 @@ export default async function DashboardPage() {
                   <Calendar className="h-5 w-5 text-primary" />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  No events yet.{" "}
-                  <Link href="/events/new" className="text-primary hover:underline">
-                    Create your first.
-                  </Link>
+                  No events yet.
+                  {canCreateEvent && (
+                    <>
+                      {" "}
+                      <Link href="/events/new" className="text-primary hover:underline">
+                        Create your first.
+                      </Link>
+                    </>
+                  )}
                 </p>
               </div>
             )}
@@ -181,19 +190,21 @@ export default async function DashboardPage() {
             <CardTitle className="text-base">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
-            <Link
-              href="/events/new"
-              className="flex items-center gap-3 rounded-lg border p-3.5 hover:bg-muted/50 hover:border-primary/40 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <Plus className="h-4.5 w-4.5 h-[18px] w-[18px]" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-medium text-sm group-hover:text-primary transition-colors">Create New Event</p>
-                <p className="text-xs text-muted-foreground">Start planning your next event</p>
-              </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </Link>
+            {canCreateEvent && (
+              <Link
+                href="/events/new"
+                className="flex items-center gap-3 rounded-lg border p-3.5 hover:bg-muted/50 hover:border-primary/40 transition-all group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Plus className="h-4.5 w-4.5 h-[18px] w-[18px]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-medium text-sm group-hover:text-primary transition-colors">Create New Event</p>
+                  <p className="text-xs text-muted-foreground">Start planning your next event</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </Link>
+            )}
             <Link
               href="/settings"
               className="flex items-center gap-3 rounded-lg border p-3.5 hover:bg-muted/50 hover:border-primary/40 transition-all group"

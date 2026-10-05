@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useCan } from "@/hooks/use-can";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ function TemplateCard({
   deleting,
   onDuplicate,
   duplicating,
+  canManage,
 }: {
   template: TemplateRow;
   isCustom: boolean;
@@ -83,6 +85,7 @@ function TemplateCard({
   deleting: boolean;
   onDuplicate: (id: string) => void;
   duplicating: boolean;
+  canManage: boolean;
 }) {
   const href = `/events/${eventId}/communications/templates/${template.id}`;
   return (
@@ -127,8 +130,9 @@ function TemplateCard({
           href={href}
           className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
-          <Pencil className="h-3 w-3" /> Edit
+          <Pencil className="h-3 w-3" /> {canManage ? "Edit" : "View"}
         </Link>
+        {canManage && (
         <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -173,6 +177,7 @@ function TemplateCard({
           </AlertDialog>
         )}
         </div>
+        )}
       </div>
     </Card>
   );
@@ -185,6 +190,7 @@ export default function EmailTemplatesPage() {
   const createMutation = useCreateEmailTemplate(eventId);
   const deleteMutation = useDeleteEmailTemplate(eventId);
   const duplicateMutation = useDuplicateEmailTemplate(eventId);
+  const canManage = useCan("templates.manage", eventId) === "allowed";
   const router = useRouter();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -323,6 +329,7 @@ export default function EmailTemplatesPage() {
             Customize the emails sent to attendees, speakers, and reviewers. Use {"{{variables}}"} for personalization.
           </p>
         </div>
+        {canManage && (
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -420,6 +427,7 @@ export default function EmailTemplatesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Toolbar: search + status filter */}
@@ -471,6 +479,7 @@ export default function EmailTemplatesPage() {
                 deleting={deletingId === template.id}
                 onDuplicate={handleDuplicate}
                 duplicating={duplicatingId === template.id}
+                canManage={canManage}
               />
             ))}
           </div>
@@ -495,6 +504,7 @@ export default function EmailTemplatesPage() {
                 deleting={deletingId === template.id}
                 onDuplicate={handleDuplicate}
                 duplicating={duplicatingId === template.id}
+                canManage={canManage}
               />
             ))}
           </div>

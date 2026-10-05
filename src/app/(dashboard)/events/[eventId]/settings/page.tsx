@@ -230,6 +230,9 @@ export default function EventSettingsPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const canSeeBudgets = useCan("procurement.budgets.view") === "allowed";
+  // Every Save on this page is the event PUT; Delete Event is the event DELETE.
+  const canUpdate = useCan("events.update", eventId) === "allowed";
+  const canDeleteEvent = useCan("events.delete", eventId) === "allowed";
   // A budget is keyed on the event code, so the code is locked while one
   // references it (the PUT refuses with EVENT_CODE_REFERENCED); the field says
   // so up front instead of failing on Save. Read only when the module is on.
@@ -1314,12 +1317,14 @@ export default function EventSettingsPage() {
           </Card>
 
           {/* One Save for the tab — see handleSaveTab. */}
+          {canUpdate && (
           <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <Button onClick={handleSaveTab} disabled={saving} size="lg">
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save general settings"}
             </Button>
           </div>
+          )}
         </TabsContent>
 
         {/* Registration Settings */}
@@ -2041,12 +2046,14 @@ export default function EventSettingsPage() {
               Save you could see returned a green toast and discarded the
               change. Both halves PUT to the same endpoint, so this sends them
               together in one request. */}
+          {canUpdate && (
           <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <Button onClick={handleSaveTab} disabled={saving} size="lg">
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save registration settings"}
             </Button>
           </div>
+          )}
         </TabsContent>
 
         {/* Abstracts: submission windows, themes and review criteria in one
@@ -2409,12 +2416,14 @@ export default function EventSettingsPage() {
             page, not by reading it. Themes and Review Criteria below save
             themselves through their own APIs, so they are correctly outside this.
           */}
+          {canUpdate && (
           <div className="flex justify-end">
             <Button onClick={handleSaveSettings} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save Settings"}
             </Button>
           </div>
+          )}
 
           <Card>
             <CardHeader>
@@ -2490,12 +2499,14 @@ export default function EventSettingsPage() {
                 </p>
               </div>
 
+              {canUpdate && (
               <div className="flex justify-end">
                 <Button onClick={handleSaveBranding} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Branding"}
                 </Button>
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -2613,12 +2624,14 @@ export default function EventSettingsPage() {
                 </p>
               </div>
 
+              {canUpdate && (
               <div className="flex justify-end">
                 <Button onClick={handleSaveBranding} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Email Branding"}
                 </Button>
               </div>
+              )}
             </CardContent>
           </Card>
 
@@ -2654,6 +2667,7 @@ export default function EventSettingsPage() {
                     Permanently delete this event and all its data. This action cannot be undone.
                   </p>
                 </div>
+                {canDeleteEvent && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="destructive">
@@ -2681,6 +2695,7 @@ export default function EventSettingsPage() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -2718,6 +2733,7 @@ function slugify(name: string): string {
 function EmailTemplatesTab({ eventId }: { eventId: string }) {
   const { data, isLoading } = useEmailTemplates(eventId);
   const createMutation = useCreateEmailTemplate(eventId);
+  const canManageTemplates = useCan("templates.manage", eventId) === "allowed";
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -2777,6 +2793,7 @@ function EmailTemplatesTab({ eventId }: { eventId: string }) {
             Customize emails sent to attendees, speakers, and reviewers. Use {"{{variables}}"} for personalization.
           </p>
         </div>
+        {canManageTemplates && (
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
@@ -2839,6 +2856,7 @@ function EmailTemplatesTab({ eventId }: { eventId: string }) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* System templates */}

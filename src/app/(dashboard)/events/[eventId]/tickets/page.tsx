@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useCan } from "@/hooks/use-can";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -134,6 +135,8 @@ export default function TicketsPage() {
   const createTicket = useCreateTicket(eventId);
   const updateTicket = useUpdateTicket(eventId);
   const deleteTicket = useDeleteTicket(eventId);
+  const canWrite = useCan("tickets.write", eventId) === "allowed";
+  const canDelete = useCan("tickets.delete", eventId) === "allowed";
   const { data: event } = useEvent(eventId);
   const [copiedTier, setCopiedTier] = useState<string | null>(null);
   const [utmDialogOpen, setUtmDialogOpen] = useState(false);
@@ -447,18 +450,22 @@ export default function TicketsPage() {
             <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
               <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             </Button>
-            <Button variant="outline" onClick={handleSeedDefaults}>
-              <Plus className="mr-2 h-4 w-4" />
-              Seed Defaults
-            </Button>
+            {canWrite && (
+              <Button variant="outline" onClick={handleSeedDefaults}>
+                <Plus className="mr-2 h-4 w-4" />
+                Seed Defaults
+              </Button>
+            )}
             <Button variant="outline" onClick={() => { setUtmDialogOpen(true); setUtmTier(""); setUtmSource(""); setUtmMedium(""); setUtmCampaign(""); }}>
               <Link2 className="mr-2 h-4 w-4" />
               UTM Link Builder
             </Button>
-            <Button onClick={openCreateType}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Type
-            </Button>
+            {canWrite && (
+              <Button onClick={openCreateType}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Type
+              </Button>
+            )}
           </div>
 
       {/* Registration form overview link */}
@@ -486,7 +493,7 @@ export default function TicketsPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-muted-foreground text-center py-8">
-              No registration types yet. Click &quot;Add Type&quot; to get started.
+              {canWrite ? <>No registration types yet. Click &quot;Add Type&quot; to get started.</> : "No registration types yet."}
             </p>
           </CardContent>
         </Card>
@@ -519,13 +526,17 @@ export default function TicketsPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0 ml-2">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditType(tt)} title="Edit">
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700"
-                      onClick={() => handleDeleteType(tt)} disabled={tt._count.registrations > 0} title="Delete">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {canWrite && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditType(tt)} title="Edit">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700"
+                        onClick={() => handleDeleteType(tt)} disabled={tt._count.registrations > 0} title="Delete">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -535,6 +546,7 @@ export default function TicketsPage() {
                   <Switch
                     checked={tt.isActive}
                     onCheckedChange={() => toggleTypeActive(tt)}
+                    disabled={!canWrite}
                     className="scale-90"
                   />
                 </div>
@@ -558,6 +570,7 @@ export default function TicketsPage() {
                           <Checkbox
                             checked={tier.isActive}
                             onCheckedChange={() => toggleTierActive(tt.id, tier)}
+                            disabled={!canWrite}
                             className="shrink-0"
                           />
 
@@ -603,27 +616,31 @@ export default function TicketsPage() {
                             </Button>
                           )}
 
-                          {/* Edit */}
-                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
-                            onClick={() => openEditTier(tt.id, tier)} title="Edit tier">
-                            <Pencil className="h-3 w-3" />
-                          </Button>
+                          {canWrite && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
+                              onClick={() => openEditTier(tt.id, tier)} title="Edit tier">
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
 
-                          {/* Delete */}
-                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-red-400 hover:text-red-600"
-                            onClick={() => handleDeleteTier(tt.id, tier)} disabled={tier._count.registrations > 0} title="Delete tier">
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                          {canDelete && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-red-400 hover:text-red-600"
+                              onClick={() => handleDeleteTier(tt.id, tier)} disabled={tier._count.registrations > 0} title="Delete tier">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs"
-                    onClick={() => openCreateTier(tt.id)}>
-                    <Plus className="mr-1.5 h-3 w-3" />
-                    Add Tier
-                  </Button>
+                  {canWrite && (
+                    <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs"
+                      onClick={() => openCreateTier(tt.id)}>
+                      <Plus className="mr-1.5 h-3 w-3" />
+                      Add Tier
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

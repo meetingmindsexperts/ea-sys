@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +104,8 @@ interface Accommodation {
 export default function AccommodationPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const canManageHotels = useCan("hotels.manage", eventId) === "allowed";
+  const canWriteBookings = useCan("accommodation.write", eventId) === "allowed";
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -373,141 +376,143 @@ export default function AccommodationPage() {
             Manage hotels, room types, and guest bookings
           </p>
         </div>
-        <Dialog
-          open={isHotelDialogOpen}
-          onOpenChange={(open) => {
-            setIsHotelDialogOpen(open);
-            if (!open) resetHotelForm();
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Hotel
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>
-                {editingHotel ? "Edit Hotel" : "Add Hotel"}
-              </DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleHotelSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="hotelName">Hotel Name</Label>
-                <Input
-                  id="hotelName"
-                  value={hotelFormData.name}
-                  onChange={(e) =>
-                    setHotelFormData({ ...hotelFormData, name: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  value={hotelFormData.address}
-                  onChange={(e) =>
-                    setHotelFormData({ ...hotelFormData, address: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="hotelDescription">Description</Label>
-                <Textarea
-                  id="hotelDescription"
-                  value={hotelFormData.description}
-                  onChange={(e) =>
-                    setHotelFormData({
-                      ...hotelFormData,
-                      description: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+        {canManageHotels && (
+          <Dialog
+            open={isHotelDialogOpen}
+            onOpenChange={(open) => {
+              setIsHotelDialogOpen(open);
+              if (!open) resetHotelForm();
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Hotel
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingHotel ? "Edit Hotel" : "Add Hotel"}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleHotelSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="contactEmail">Contact Email</Label>
+                  <Label htmlFor="hotelName">Hotel Name</Label>
                   <Input
-                    id="contactEmail"
-                    type="email"
-                    value={hotelFormData.contactEmail}
+                    id="hotelName"
+                    value={hotelFormData.name}
                     onChange={(e) =>
-                      setHotelFormData({
-                        ...hotelFormData,
-                        contactEmail: e.target.value,
-                      })
+                      setHotelFormData({ ...hotelFormData, name: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={hotelFormData.address}
+                    onChange={(e) =>
+                      setHotelFormData({ ...hotelFormData, address: e.target.value })
                     }
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="contactPhone">Contact Phone</Label>
-                  <Input
-                    id="contactPhone"
-                    value={hotelFormData.contactPhone}
+                  <Label htmlFor="hotelDescription">Description</Label>
+                  <Textarea
+                    id="hotelDescription"
+                    value={hotelFormData.description}
                     onChange={(e) =>
                       setHotelFormData({
                         ...hotelFormData,
-                        contactPhone: e.target.value,
+                        description: e.target.value,
                       })
                     }
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="stars">Star Rating</Label>
-                  <Select
-                    value={hotelFormData.stars}
-                    onValueChange={(value) =>
-                      setHotelFormData({ ...hotelFormData, stars: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select rating" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1 Star</SelectItem>
-                      <SelectItem value="2">2 Stars</SelectItem>
-                      <SelectItem value="3">3 Stars</SelectItem>
-                      <SelectItem value="4">4 Stars</SelectItem>
-                      <SelectItem value="5">5 Stars</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 flex items-end">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={hotelFormData.isActive}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="contactEmail">Contact Email</Label>
+                    <Input
+                      id="contactEmail"
+                      type="email"
+                      value={hotelFormData.contactEmail}
                       onChange={(e) =>
                         setHotelFormData({
                           ...hotelFormData,
-                          isActive: e.target.checked,
+                          contactEmail: e.target.value,
                         })
                       }
                     />
-                    <span className="text-sm">Active</span>
-                  </label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="contactPhone">Contact Phone</Label>
+                    <Input
+                      id="contactPhone"
+                      value={hotelFormData.contactPhone}
+                      onChange={(e) =>
+                        setHotelFormData({
+                          ...hotelFormData,
+                          contactPhone: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsHotelDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingHotel ? "Save Changes" : "Add Hotel"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="stars">Star Rating</Label>
+                    <Select
+                      value={hotelFormData.stars}
+                      onValueChange={(value) =>
+                        setHotelFormData({ ...hotelFormData, stars: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select rating" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1 Star</SelectItem>
+                        <SelectItem value="2">2 Stars</SelectItem>
+                        <SelectItem value="3">3 Stars</SelectItem>
+                        <SelectItem value="4">4 Stars</SelectItem>
+                        <SelectItem value="5">5 Stars</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 flex items-end">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={hotelFormData.isActive}
+                        onChange={(e) =>
+                          setHotelFormData({
+                            ...hotelFormData,
+                            isActive: e.target.checked,
+                          })
+                        }
+                      />
+                      <span className="text-sm">Active</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsHotelDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    {editingHotel ? "Save Changes" : "Add Hotel"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Stats */}
@@ -703,7 +708,9 @@ export default function AccommodationPage() {
             <Card>
               <CardContent className="pt-6">
                 <p className="text-muted-foreground text-center py-8">
-                  No hotels yet. Click &quot;Add Hotel&quot; to get started.
+                  {canManageHotels
+                    ? <>No hotels yet. Click &quot;Add Hotel&quot; to get started.</>
+                    : "No hotels yet."}
                 </p>
               </CardContent>
             </Card>
@@ -756,36 +763,38 @@ export default function AccommodationPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openAddRoomDialog(hotel.id)}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add Room
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditHotelDialog(hotel)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteHotel(hotel.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {canManageHotels && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openAddRoomDialog(hotel.id)}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Room
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditHotelDialog(hotel)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteHotel(hotel.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>
                   {hotel.roomTypes.length === 0 ? (
                     <p className="text-muted-foreground text-sm">
-                      No room types yet. Add room types to this hotel.
+                      {canManageHotels ? "No room types yet. Add room types to this hotel." : "No room types yet."}
                     </p>
                   ) : (
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -851,12 +860,14 @@ export default function AccommodationPage() {
         </TabsContent>
 
         <TabsContent value="bookings" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => setIsAssignDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Assign Room
-            </Button>
-          </div>
+          {canWriteBookings && (
+            <div className="flex justify-end">
+              <Button onClick={() => setIsAssignDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Assign Room
+              </Button>
+            </div>
+          )}
           {accommodations.length === 0 ? (
             <Card>
               <CardContent className="pt-6">
@@ -910,68 +921,70 @@ export default function AccommodationPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-start gap-2 ml-4">
-                        {booking.status === "PENDING" && (
-                          <>
+                      {canWriteBookings && (
+                        <div className="flex items-start gap-2 ml-4">
+                          {booking.status === "PENDING" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-700 border-green-200 hover:bg-green-50"
+                                onClick={() => handleStatusUpdate(booking.id, "CONFIRMED", booking.updatedAt)}
+                              >
+                                Confirm
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-700 border-red-200 hover:bg-red-50"
+                                onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          )}
+                          {booking.status === "CONFIRMED" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                                onClick={() => handleStatusUpdate(booking.id, "CHECKED_IN", booking.updatedAt)}
+                              >
+                                Check In
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-700 border-red-200 hover:bg-red-50"
+                                onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          )}
+                          {booking.status === "CHECKED_IN" && (
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-green-700 border-green-200 hover:bg-green-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CONFIRMED", booking.updatedAt)}
+                              className="text-gray-700 border-gray-200 hover:bg-gray-50"
+                              onClick={() => handleStatusUpdate(booking.id, "CHECKED_OUT", booking.updatedAt)}
                             >
-                              Confirm
+                              Check Out
                             </Button>
+                          )}
+                          {booking.status === "CANCELLED" && (
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-red-700 border-red-200 hover:bg-red-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
+                              className="text-yellow-700 border-yellow-200 hover:bg-yellow-50"
+                              onClick={() => handleStatusUpdate(booking.id, "PENDING", booking.updatedAt)}
                             >
-                              Cancel
+                              Reinstate
                             </Button>
-                          </>
-                        )}
-                        {booking.status === "CONFIRMED" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CHECKED_IN", booking.updatedAt)}
-                            >
-                              Check In
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-700 border-red-200 hover:bg-red-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        )}
-                        {booking.status === "CHECKED_IN" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-gray-700 border-gray-200 hover:bg-gray-50"
-                            onClick={() => handleStatusUpdate(booking.id, "CHECKED_OUT", booking.updatedAt)}
-                          >
-                            Check Out
-                          </Button>
-                        )}
-                        {booking.status === "CANCELLED" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-yellow-700 border-yellow-200 hover:bg-yellow-50"
-                            onClick={() => handleStatusUpdate(booking.id, "PENDING", booking.updatedAt)}
-                          >
-                            Reinstate
-                          </Button>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

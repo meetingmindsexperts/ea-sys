@@ -223,6 +223,9 @@ export function SpeakerDetailSheet({
   // Existing speaker tags for the in-sheet edit autocomplete.
   // The tag list GET asks speakers.update: only an editor picks tags.
   const canEditSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const canDeleteSpeaker = useCan("speakers.delete", eventId) === "allowed";
+  const canEmailSpeaker = useCan("speakers.email", eventId) === "allowed";
+  const canEmailAbstracts = useCan("abstracts.email", eventId) === "allowed";
   const speakerTagsQuery = useEventSpeakerTags(eventId, canEditSpeakers);
   // Active custom templates for the "Send Saved Template" option (July 31,
   // 2026 — single-send parity with the bulk dialog's saved-template picks).
@@ -619,50 +622,64 @@ export function SpeakerDetailSheet({
                 <div className="flex flex-wrap gap-2 mt-3">
                   {!isEditing ? (
                     <>
-                      <Button size="sm" variant="secondary" onClick={startEditing}>
-                        <Pencil className="mr-2 h-4 w-4" /> Edit
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="sm" variant="secondary">
-                            <Send className="mr-2 h-4 w-4" /> Send Email
-                            <ChevronDown className="ml-1 h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          <DropdownMenuItem onClick={() => { setEmailType("invitation"); setEmailDialogOpen(true); }}>
-                            <Mail className="mr-2 h-4 w-4" /> Speaker Invitation
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => { setEmailType("agreement"); setEmailDialogOpen(true); }}>
-                            <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
-                          </DropdownMenuItem>
-                          {resendableAbstracts.length > 0 && (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setEmailType("abstract-confirmation");
-                                setSelectedAbstractId(resendableAbstracts[0]?.id ?? "");
-                                setEmailDialogOpen(true);
-                              }}
-                            >
-                              <FileCheck className="mr-2 h-4 w-4" /> Abstract Confirmation
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => { setEmailType("template"); setEmailDialogOpen(true); }}>
-                            <Mail className="mr-2 h-4 w-4" /> Send Saved Template
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => { setEmailType("custom"); setEmailDialogOpen(true); }}>
-                            <Send className="mr-2 h-4 w-4" /> Custom Email
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="text-red-600 hover:text-red-700"
-                        onClick={handleDelete}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </Button>
+                      {canEditSpeakers && (
+                        <Button size="sm" variant="secondary" onClick={startEditing}>
+                          <Pencil className="mr-2 h-4 w-4" /> Edit
+                        </Button>
+                      )}
+                      {(canEmailSpeaker || (canEmailAbstracts && resendableAbstracts.length > 0)) && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="secondary">
+                              <Send className="mr-2 h-4 w-4" /> Send Email
+                              <ChevronDown className="ml-1 h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            {canEmailSpeaker && (
+                              <>
+                                <DropdownMenuItem onClick={() => { setEmailType("invitation"); setEmailDialogOpen(true); }}>
+                                  <Mail className="mr-2 h-4 w-4" /> Speaker Invitation
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { setEmailType("agreement"); setEmailDialogOpen(true); }}>
+                                  <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {canEmailAbstracts && resendableAbstracts.length > 0 && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEmailType("abstract-confirmation");
+                                  setSelectedAbstractId(resendableAbstracts[0]?.id ?? "");
+                                  setEmailDialogOpen(true);
+                                }}
+                              >
+                                <FileCheck className="mr-2 h-4 w-4" /> Abstract Confirmation
+                              </DropdownMenuItem>
+                            )}
+                            {canEmailSpeaker && (
+                              <>
+                                <DropdownMenuItem onClick={() => { setEmailType("template"); setEmailDialogOpen(true); }}>
+                                  <Mail className="mr-2 h-4 w-4" /> Send Saved Template
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { setEmailType("custom"); setEmailDialogOpen(true); }}>
+                                  <Send className="mr-2 h-4 w-4" /> Custom Email
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      {canDeleteSpeaker && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-red-600 hover:text-red-700"
+                          onClick={handleDelete}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1007,7 +1024,7 @@ export function SpeakerDetailSheet({
                           <div className="flex shrink-0 items-center gap-2">
                             <Badge variant="outline">{a.status}</Badge>
                             {/* No confirmation exists for a DRAFT; WITHDRAWN would mislead. */}
-                            {!["DRAFT", "WITHDRAWN"].includes(a.status) && (
+                            {canEmailAbstracts && !["DRAFT", "WITHDRAWN"].includes(a.status) && (
                               <Button
                                 variant="outline"
                                 size="sm"

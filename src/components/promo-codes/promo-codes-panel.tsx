@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import { fromLocalDateTimeInput, toLocalDateTimeInput } from "@/lib/datetime-local";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +136,8 @@ export function PromoCodesPanel({ eventId }: Props) {
   const createPromo = useCreatePromoCode(eventId);
   const updatePromo = useUpdatePromoCode(eventId);
   const deletePromo = useDeletePromoCode(eventId);
+  const canWrite = useCan("promo.write", eventId) === "allowed";
+  const canDelete = useCan("promo.delete", eventId) === "allowed";
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -250,9 +253,11 @@ export function PromoCodesPanel({ eventId }: Props) {
             <p className="text-2xl font-bold text-primary">{totalRedemptions}</p>
           </CardContent></Card>
         </div>
-        <Button onClick={openCreate} className="btn-gradient">
-          <Plus className="h-4 w-4 mr-1.5" /> Add Promo Code
-        </Button>
+        {canWrite && (
+          <Button onClick={openCreate} className="btn-gradient">
+            <Plus className="h-4 w-4 mr-1.5" /> Add Promo Code
+          </Button>
+        )}
       </div>
 
       {/* List */}
@@ -263,7 +268,9 @@ export function PromoCodesPanel({ eventId }: Props) {
           <CardContent className="py-12 text-center">
             <Tag className="h-10 w-10 mx-auto text-slate-300 mb-3" />
             <p className="text-slate-500">No promo codes yet</p>
-            <Button onClick={openCreate} variant="outline" className="mt-3">Create your first promo code</Button>
+            {canWrite && (
+              <Button onClick={openCreate} variant="outline" className="mt-3">Create your first promo code</Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -323,12 +330,16 @@ export function PromoCodesPanel({ eventId }: Props) {
                           <Link2 className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(promo)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => handleDelete(promo)}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                      {canWrite && (
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(promo)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button size="icon" variant="ghost" onClick={() => handleDelete(promo)}>
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>

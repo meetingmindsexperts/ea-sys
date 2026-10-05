@@ -258,6 +258,11 @@ export default function SpeakerDetailPage() {
   // Existing tags for the in-page edit autocomplete.
   // The tag list GET asks speakers.update: only an editor picks tags.
   const canEditSpeakers = useCan("speakers.update", eventId) === "allowed";
+  const canDeleteSpeaker = useCan("speakers.delete", eventId) === "allowed";
+  const canEmailSpeaker = useCan("speakers.email", eventId) === "allowed";
+  const canEmailAbstracts = useCan("abstracts.email", eventId) === "allowed";
+  const canGrantCompanion = useCan("speakers.companion.grant", eventId) === "allowed";
+  const canManageAgreement = useCan("speakers.agreements.manage", eventId) === "allowed";
   const speakerTagsQuery = useEventSpeakerTags(eventId, canEditSpeakers);
   // Event timezone — session times on this page render in the EVENT's clock
   // (review M10: they used to render viewer-local, disagreeing with the
@@ -699,46 +704,58 @@ export default function SpeakerDetailPage() {
             <div className="flex flex-wrap gap-2 mt-4">
               {!isEditing ? (
                 <>
-                  <Button size="sm" variant="secondary" onClick={startEditing}>
-                    <Pencil className="mr-2 h-4 w-4" /> Edit
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="secondary">
-                        <Send className="mr-2 h-4 w-4" /> Send Email
-                        <ChevronDown className="ml-1 h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => { setEmailType("invitation"); setIsEmailDialogOpen(true); }}>
-                        <Mail className="mr-2 h-4 w-4" /> Speaker Invitation
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setEmailType("agreement"); setIsEmailDialogOpen(true); }}>
-                        <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
-                      </DropdownMenuItem>
-                      {resendableAbstracts.length > 0 && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEmailType("abstract-confirmation");
-                            setSelectedAbstractId(resendableAbstracts[0]?.id ?? "");
-                            setIsEmailDialogOpen(true);
-                          }}
-                        >
-                          <FileCheck className="mr-2 h-4 w-4" /> Abstract Confirmation
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem onClick={() => { setEmailType("template"); setIsEmailDialogOpen(true); }}>
-                        <Mail className="mr-2 h-4 w-4" /> Send Saved Template
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setEmailType("custom"); setIsEmailDialogOpen(true); }}>
-                        <Send className="mr-2 h-4 w-4" /> Custom Email
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {canEditSpeakers && (
+                    <Button size="sm" variant="secondary" onClick={startEditing}>
+                      <Pencil className="mr-2 h-4 w-4" /> Edit
+                    </Button>
+                  )}
+                  {(canEmailSpeaker || (canEmailAbstracts && resendableAbstracts.length > 0)) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="secondary">
+                          <Send className="mr-2 h-4 w-4" /> Send Email
+                          <ChevronDown className="ml-1 h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {canEmailSpeaker && (
+                          <>
+                            <DropdownMenuItem onClick={() => { setEmailType("invitation"); setIsEmailDialogOpen(true); }}>
+                              <Mail className="mr-2 h-4 w-4" /> Speaker Invitation
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setEmailType("agreement"); setIsEmailDialogOpen(true); }}>
+                              <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {canEmailAbstracts && resendableAbstracts.length > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEmailType("abstract-confirmation");
+                              setSelectedAbstractId(resendableAbstracts[0]?.id ?? "");
+                              setIsEmailDialogOpen(true);
+                            }}
+                          >
+                            <FileCheck className="mr-2 h-4 w-4" /> Abstract Confirmation
+                          </DropdownMenuItem>
+                        )}
+                        {canEmailSpeaker && (
+                          <>
+                            <DropdownMenuItem onClick={() => { setEmailType("template"); setIsEmailDialogOpen(true); }}>
+                              <Mail className="mr-2 h-4 w-4" /> Send Saved Template
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setEmailType("custom"); setIsEmailDialogOpen(true); }}>
+                              <Send className="mr-2 h-4 w-4" /> Custom Email
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   {/* Grant Registration in the header for anyone who still
                       needs one (no linked registration, or a revoked one) —
                       owner request Aug 5, 2026. */}
-                  {(!speaker.sourceRegistration ||
+                  {canGrantCompanion && (!speaker.sourceRegistration ||
                     speaker.sourceRegistration.status === "CANCELLED") && (
                     <Button size="sm" variant="secondary" onClick={() => setGrantDialogOpen(true)}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -747,9 +764,11 @@ export default function SpeakerDetailPage() {
                         : "Grant Registration"}
                     </Button>
                   )}
-                  <Button size="sm" variant="secondary" className="text-red-600 hover:text-red-700" onClick={handleDelete}>
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </Button>
+                  {canDeleteSpeaker && (
+                    <Button size="sm" variant="secondary" className="text-red-600 hover:text-red-700" onClick={handleDelete}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
@@ -1146,7 +1165,7 @@ export default function SpeakerDetailPage() {
                         <Badge variant="outline">{abstract.status}</Badge>
                         {/* No confirmation exists for a DRAFT; a WITHDRAWN
                             "your abstract was submitted" would mislead. */}
-                        {!["DRAFT", "WITHDRAWN"].includes(abstract.status) && (
+                        {canEmailAbstracts && !["DRAFT", "WITHDRAWN"].includes(abstract.status) && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -1239,16 +1258,18 @@ export default function SpeakerDetailPage() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-red-600 hover:text-red-700"
-                    onClick={() => handleAgreementToggle(false)}
-                    disabled={updatingAgreement}
-                  >
-                    {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
-                    Revoke
-                  </Button>
+                  {canManageAgreement && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700"
+                      onClick={() => handleAgreementToggle(false)}
+                      disabled={updatingAgreement}
+                    >
+                      {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
+                      Revoke
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1258,16 +1279,18 @@ export default function SpeakerDetailPage() {
                       Speaker has not yet accepted the agreement.
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => handleAgreementToggle(true)}
-                    disabled={updatingAgreement}
-                  >
-                    {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                    Mark as Accepted
-                  </Button>
+                  {canManageAgreement && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => handleAgreementToggle(true)}
+                      disabled={updatingAgreement}
+                    >
+                      {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                      Mark as Accepted
+                    </Button>
+                  )}
                 </div>
               )}
 
@@ -1425,7 +1448,7 @@ export default function SpeakerDetailPage() {
 
                   {/* Revoked (cancelled) companion → the Re-grant Registration
                       button lives in the header next to Delete (Aug 5, 2026). */}
-                  {speaker.sourceRegistration.status === "CANCELLED" && (
+                  {canGrantCompanion && speaker.sourceRegistration.status === "CANCELLED" && (
                     <p className="text-xs text-muted-foreground">
                       Registration revoked — use <strong>Re-grant Registration</strong> above to
                       issue a new one (complimentary or payable).
@@ -1445,11 +1468,13 @@ export default function SpeakerDetailPage() {
                   <p className="text-sm text-muted-foreground">
                     No linked registration yet.
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Use <strong>Grant Registration</strong> above — complimentary (Faculty) or
-                    payable on a registration type you pick; payable emails them the quote +
-                    Pay Now link. An existing registration is linked automatically.
-                  </p>
+                  {canGrantCompanion && (
+                    <p className="text-xs text-muted-foreground">
+                      Use <strong>Grant Registration</strong> above — complimentary (Faculty) or
+                      payable on a registration type you pick; payable emails them the quote +
+                      Pay Now link. An existing registration is linked automatically.
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>

@@ -13,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useCan } from "@/hooks/use-can";
 
 /**
  * Per-speaker documents (July 16, 2026, owner request):
@@ -60,6 +61,7 @@ export function SpeakerDocumentsCard({
   const [otherLabel, setOtherLabel] = useState("");
   const agreementInputRef = useRef<HTMLInputElement>(null);
   const otherInputRef = useRef<HTMLInputElement>(null);
+  const canWrite = useCan("speakers.documents.write", eventId) === "allowed";
 
   const baseUrl = `/api/events/${eventId}/speakers/${speakerId}/documents`;
 
@@ -186,53 +188,61 @@ export function SpeakerDocumentsCard({
                         <Download className="h-3.5 w-3.5" />
                       </Button>
                     </a>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-red-500 hover:text-red-600"
-                      title="Delete"
-                      disabled={deletingId === signedAgreement.id}
-                      onClick={() => handleDelete(signedAgreement)}
-                    >
-                      {deletingId === signedAgreement.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
+                    {canWrite && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-600"
+                        title="Delete"
+                        disabled={deletingId === signedAgreement.id}
+                        onClick={() => handleDelete(signedAgreement)}
+                      >
+                        {deletingId === signedAgreement.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
-              ) : (
+              ) : canWrite ? (
                 <p className="text-xs text-muted-foreground mb-2">
                   Upload the signed copy the speaker returned (kept for future reference —
                   this does not change the agreement status above).
                 </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-2">No signed agreement uploaded.</p>
               )}
-              <input
-                ref={agreementInputRef}
-                type="file"
-                accept={ACCEPT}
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleUpload("SIGNED_AGREEMENT", file);
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full mt-2"
-                disabled={uploadingKind !== null}
-                onClick={() => agreementInputRef.current?.click()}
-              >
-                {uploadingKind === "SIGNED_AGREEMENT" ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                {signedAgreement ? "Replace signed agreement" : "Upload signed agreement"}
-              </Button>
+              {canWrite && (
+                <>
+                  <input
+                    ref={agreementInputRef}
+                    type="file"
+                    accept={ACCEPT}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleUpload("SIGNED_AGREEMENT", file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    disabled={uploadingKind !== null}
+                    onClick={() => agreementInputRef.current?.click()}
+                  >
+                    {uploadingKind === "SIGNED_AGREEMENT" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    {signedAgreement ? "Replace signed agreement" : "Upload signed agreement"}
+                  </Button>
+                </>
+              )}
             </div>
 
             {/* Other documents — bio doc, CV, ... */}
@@ -242,7 +252,7 @@ export function SpeakerDocumentsCard({
               </p>
               {otherDocs.length === 0 ? (
                 <p className="text-xs text-muted-foreground mb-2">
-                  No documents yet — attach a bio doc, CV, or any PDF/DOC.
+                  {canWrite ? "No documents yet — attach a bio doc, CV, or any PDF/DOC." : "No documents yet."}
                 </p>
               ) : (
                 <div className="space-y-2 mb-2">
@@ -276,64 +286,70 @@ export function SpeakerDocumentsCard({
                             <Download className="h-3.5 w-3.5" />
                           </Button>
                         </a>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-red-500 hover:text-red-600"
-                          title="Delete"
-                          disabled={deletingId === doc.id}
-                          onClick={() => handleDelete(doc)}
-                        >
-                          {deletingId === doc.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
+                        {canWrite && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-600"
+                            title="Delete"
+                            disabled={deletingId === doc.id}
+                            onClick={() => handleDelete(doc)}
+                          >
+                            {deletingId === doc.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-              <Input
-                value={otherLabel}
-                onChange={(e) => setOtherLabel(e.target.value)}
-                placeholder='Label (optional, e.g. "Passport copy", "Cover letter", Bio)'
-                className="h-8 text-sm mb-2"
-                maxLength={200}
-              />
-              <p className="text-[11px] text-muted-foreground mb-2">
-                Label a file &ldquo;Passport copy&rdquo; or &ldquo;Cover letter&rdquo; and it also
-                fills that slot on the speaker&rsquo;s Photo &amp; Documents form.
-              </p>
-              <input
-                ref={otherInputRef}
-                type="file"
-                accept={ACCEPT}
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleUpload("OTHER", file);
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={uploadingKind !== null}
-                onClick={() => otherInputRef.current?.click()}
-              >
-                {uploadingKind === "OTHER" ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                Add document
-              </Button>
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                PDF or DOC/DOCX, up to 10MB.
-              </p>
+              {canWrite && (
+                <>
+                  <Input
+                    value={otherLabel}
+                    onChange={(e) => setOtherLabel(e.target.value)}
+                    placeholder='Label (optional, e.g. "Passport copy", "Cover letter", Bio)'
+                    className="h-8 text-sm mb-2"
+                    maxLength={200}
+                  />
+                  <p className="text-[11px] text-muted-foreground mb-2">
+                    Label a file &ldquo;Passport copy&rdquo; or &ldquo;Cover letter&rdquo; and it also
+                    fills that slot on the speaker&rsquo;s Photo &amp; Documents form.
+                  </p>
+                  <input
+                    ref={otherInputRef}
+                    type="file"
+                    accept={ACCEPT}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleUpload("OTHER", file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={uploadingKind !== null}
+                    onClick={() => otherInputRef.current?.click()}
+                  >
+                    {uploadingKind === "OTHER" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    Add document
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    PDF or DOC/DOCX, up to 10MB.
+                  </p>
+                </>
+              )}
             </div>
           </>
         )}

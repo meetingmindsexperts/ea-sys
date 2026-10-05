@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/hooks/use-can";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,6 +123,8 @@ export function SessionDetailSheet({
   timezone,
 }: SessionDetailSheetProps) {
   const eventTz = resolveTimezone(timezone);
+  // Topics save through the session PUT, which asks sessions.write.
+  const canWriteSessions = useCan("sessions.write", eventId) === "allowed";
   const [session, setSession] = useState<SessionData | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -350,7 +353,7 @@ export function SessionDetailSheet({
                 <h4 className="text-sm font-medium">
                   Topics {session.topics.length > 0 && `(${session.topics.length})`}
                 </h4>
-                {!isEditing ? (
+                {!canWriteSessions ? null : !isEditing ? (
                   <Button
                     variant="outline"
                     size="sm"

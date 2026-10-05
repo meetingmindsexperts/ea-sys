@@ -92,6 +92,7 @@ import {
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -311,6 +312,10 @@ export default function AgendaPage() {
   const isReviewer =
     authSession?.user?.role === "REVIEWER" ||
     authSession?.user?.role === "SUBMITTER";
+  const canWriteSessions = useCan("sessions.write", eventId) === "allowed";
+  const canDeleteSessions = useCan("sessions.delete", eventId) === "allowed";
+  const canWriteTracks = useCan("tracks.write", eventId) === "allowed";
+  const canManageZoom = useCan("zoom.meetings.manage", eventId) === "allowed";
 
   const [copied, setCopied] = useState(false);
   // Bulk delete from the All Sessions panel (organiser request, Sep 2 2026).
@@ -683,7 +688,7 @@ export default function AgendaPage() {
 
   // Click on calendar grid → pre-fill startTime/endTime from Y position
   const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, trackId?: string) => {
-    if (isReviewer) return;
+    if (isReviewer || !canWriteSessions) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
     // Pixel → event-local hour via the non-linear axis, then snap to the
@@ -901,7 +906,7 @@ export default function AgendaPage() {
               </h1>
             </div>
             <p className="text-muted-foreground text-sm ml-6">
-              {isReviewer
+              {isReviewer || !canWriteSessions
                 ? "View the event agenda"
                 : "Click any time slot to add a session · Click a session to edit"}
             </p>
@@ -919,15 +924,19 @@ export default function AgendaPage() {
             </Button>
             {!isReviewer && (
               <>
-                <CSVImportButton eventId={eventId} entityType="sessions" />
-                <Button variant="outline" size="sm" onClick={openAddTrack}>
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Add Track
-                </Button>
-                <Button size="sm" onClick={openAddSession}>
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Add Session
-                </Button>
+                {canWriteSessions && <CSVImportButton eventId={eventId} entityType="sessions" />}
+                {canWriteTracks && (
+                  <Button variant="outline" size="sm" onClick={openAddTrack}>
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Track
+                  </Button>
+                )}
+                {canWriteSessions && (
+                  <Button size="sm" onClick={openAddSession}>
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Session
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1006,7 +1015,7 @@ export default function AgendaPage() {
                   style={{ backgroundColor: t.color }}
                 />
                 <span className="font-medium">{t.name}</span>
-                {!isReviewer && (
+                {!isReviewer && canWriteTracks && (
                   <div className="flex gap-0.5 ml-1">
                     <button
                       type="button"
@@ -1179,9 +1188,9 @@ export default function AgendaPage() {
                           </div>
                           {/* Clickable time area */}
                           <div
-                            className={`relative${!isReviewer ? " cursor-crosshair" : ""}`}
+                            className={`relative${!isReviewer && canWriteSessions ? " cursor-crosshair" : ""}`}
                             style={{ height: `${timeAxis.gridHeight}px` }}
-                            onClick={!isReviewer ? (e) => handleSlotClick(e, tid) : undefined}
+                            onClick={!isReviewer && canWriteSessions ? (e) => handleSlotClick(e, tid) : undefined}
                           >
                             {TIME_SLOTS.map((slot, i) => (
                               <div
@@ -1246,7 +1255,7 @@ export default function AgendaPage() {
                       })()
                     ) : (
                       <div className="h-9 border-b bg-muted/10 flex items-center px-3">
-                        {!isReviewer && (
+                        {!isReviewer && canWriteSessions && (
                           <span className="text-xs text-muted-foreground">
                             Click any time slot to add a session
                           </span>
@@ -1255,9 +1264,9 @@ export default function AgendaPage() {
                     )}
                     {/* Clickable time area */}
                     <div
-                      className={`relative${!isReviewer ? " cursor-crosshair" : ""}`}
+                      className={`relative${!isReviewer && canWriteSessions ? " cursor-crosshair" : ""}`}
                       style={{ height: `${timeAxis.gridHeight}px` }}
-                      onClick={!isReviewer ? (e) => handleSlotClick(e) : undefined}
+                      onClick={!isReviewer && canWriteSessions ? (e) => handleSlotClick(e) : undefined}
                     >
                       {TIME_SLOTS.map((slot, i) => (
                         <div
@@ -1635,7 +1644,7 @@ export default function AgendaPage() {
               )}
 
               {/* Zoom Integration — never on a break item */}
-              {editingSession && isZoomEnabled && !isReviewer && !isBreakForm && (
+              {editingSession && isZoomEnabled && !isReviewer && canManageZoom && !isBreakForm && (
                 <div className="space-y-2 pt-2 border-t">
                   <Label className="text-sm font-medium">Zoom</Label>
                   <ZoomMeetingForm
@@ -1668,7 +1677,7 @@ export default function AgendaPage() {
               )}
 
               <div className="flex items-center justify-between pt-2">
-                {editingSession ? (
+                {editingSession && canDeleteSessions ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -1691,10 +1700,12 @@ export default function AgendaPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isSaving}>
-                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingSession ? "Save Changes" : "Create Session"}
-                  </Button>
+                  {canWriteSessions && (
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {editingSession ? "Save Changes" : "Create Session"}
+                    </Button>
+                  )}
                 </div>
               </div>
             </form>
@@ -1793,7 +1804,7 @@ export default function AgendaPage() {
               </SheetTitle>
             </SheetHeader>
 
-            {!isReviewer && sessionsByDate.length > 0 && (() => {
+            {!isReviewer && canDeleteSessions && sessionsByDate.length > 0 && (() => {
               const allIds = (sessions as Session[]).map((s) => s.id);
               const allSelected = allIds.length > 0 && allIds.every((id) => selectedSessionIds.has(id));
               return (
@@ -1834,7 +1845,7 @@ export default function AgendaPage() {
                 {sessionsByDate.map(([day, daySessions]) => (
                   <div key={day}>
                     <div className="mb-2 flex items-center gap-2">
-                      {!isReviewer && (
+                      {!isReviewer && canDeleteSessions && (
                         <Checkbox
                           checked={daySessions.every((s) => selectedSessionIds.has(s.id))}
                           onCheckedChange={(v) =>
@@ -1858,7 +1869,7 @@ export default function AgendaPage() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex min-w-0 items-start gap-2">
-                              {!isReviewer && (
+                              {!isReviewer && canDeleteSessions && (
                                 <Checkbox
                                   className="mt-0.5"
                                   checked={selectedSessionIds.has(s.id)}
@@ -1931,27 +1942,31 @@ export default function AgendaPage() {
                             />
                           )}
 
-                          {!isReviewer && (
+                          {!isReviewer && (canWriteSessions || canDeleteSessions) && (
                             <div className="flex gap-2 pt-0.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsSessionListOpen(false);
-                                  openEditSession(s);
-                                }}
-                                className="text-xs text-primary hover:underline flex items-center gap-1"
-                              >
-                                <Edit className="h-3 w-3" />
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSession(s.id)}
-                                className="text-xs text-red-500 hover:underline flex items-center gap-1"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Delete
-                              </button>
+                              {canWriteSessions && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsSessionListOpen(false);
+                                    openEditSession(s);
+                                  }}
+                                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                  Edit
+                                </button>
+                              )}
+                              {canDeleteSessions && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSession(s.id)}
+                                  className="text-xs text-red-500 hover:underline flex items-center gap-1"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  Delete
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>

@@ -309,6 +309,8 @@ export default function CommunicationsPage() {
   const canSeeReviewers = useCan("reviewers.pool.manage", eventId) === "allowed";
   const reviewersQuery = useReviewers(eventId, { enabled: canSeeReviewers });
   const templatesQuery = useEmailTemplates(eventId);
+  // Every send on this page goes through the bulk email route.
+  const canSend = useCan("communications.send", eventId) === "allowed";
 
   // Active organizer-created templates (excludes system defaults) — surfaced
   // as one-click tiles so a custom template an organizer activated is
@@ -625,7 +627,7 @@ export default function CommunicationsPage() {
   // One-click tiles for the event's active custom templates, scoped to an
   // audience. Rendered under the Registrations and Speakers cards.
   function renderSavedTemplates(audience: RecipientType) {
-    if (customTemplates.length === 0) return null;
+    if (!canSend || customTemplates.length === 0) return null;
     return (
       <div className="space-y-2 border-t pt-3">
         <p className="text-xs font-medium text-muted-foreground">Your templates</p>
@@ -746,6 +748,7 @@ export default function CommunicationsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Workflow tiles — one-click presets for common sends */}
+            {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {REGISTRATION_TILES.map((tile) => {
                 const count = registrations.filter(tile.matches).length;
@@ -770,9 +773,11 @@ export default function CommunicationsPage() {
                 );
               })}
             </div>
+            )}
 
             {/* Select by IDs — paste a spreadsheet column to email exactly
                 those registrations. */}
+            {canSend && (
             <Button
               variant="outline"
               size="sm"
@@ -783,6 +788,7 @@ export default function CommunicationsPage() {
               <ListChecks className="mr-2 h-4 w-4" />
               Select by IDs
             </Button>
+            )}
 
             {/* Compose freely — opens the send dialog, where the audience is
                 filtered (status / payment / registration type / badge / tags /
@@ -793,6 +799,7 @@ export default function CommunicationsPage() {
               <span className="text-sm text-muted-foreground">
                 {registrations.length} registration{registrations.length !== 1 ? "s" : ""} — filter the audience in the send dialog
               </span>
+              {canSend && (
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("registrations")}
@@ -801,6 +808,7 @@ export default function CommunicationsPage() {
                 <Send className="mr-2 h-4 w-4" />
                 Send Email
               </Button>
+              )}
             </div>
 
             {renderSavedTemplates("registrations")}
@@ -820,6 +828,7 @@ export default function CommunicationsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Workflow tiles — one-click presets for common sends */}
+            {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {SPEAKER_TILES.map((tile) => {
                 const count = speakers.filter(tile.matches).length;
@@ -844,6 +853,7 @@ export default function CommunicationsPage() {
                 );
               })}
             </div>
+            )}
 
             {/* Advanced filters — escape hatch for ad-hoc segments */}
             <details className="group rounded-lg border [&[open]>summary>svg]:rotate-90">
@@ -936,6 +946,7 @@ export default function CommunicationsPage() {
               <span className="text-sm font-medium">
                 {filteredSpeakers.length} recipient{filteredSpeakers.length !== 1 ? "s" : ""}
               </span>
+              {canSend && (
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("speakers")}
@@ -944,6 +955,7 @@ export default function CommunicationsPage() {
                 <Send className="mr-2 h-4 w-4" />
                 Send Email
               </Button>
+              )}
             </div>
               </div>
             </details>
@@ -975,6 +987,7 @@ export default function CommunicationsPage() {
                 <p className="text-xs text-muted-foreground">Unique Submitters</p>
               </div>
             </div>
+            {canSend && (
             <Button
               variant="outline"
               size="sm"
@@ -985,6 +998,7 @@ export default function CommunicationsPage() {
               <ListChecks className="mr-2 h-4 w-4" />
               Select abstracts
             </Button>
+            )}
 
             <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
               <span className="min-w-0 text-sm">
@@ -1010,6 +1024,7 @@ export default function CommunicationsPage() {
                   </button>
                 )}
               </span>
+              {canSend && (
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("abstracts")}
@@ -1018,6 +1033,7 @@ export default function CommunicationsPage() {
                 <Send className="mr-2 h-4 w-4" />
                 {abstractSelection.ids.length > 0 ? `Email ${abstractSelection.ids.length}` : "Send Email"}
               </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1042,6 +1058,7 @@ export default function CommunicationsPage() {
               <span className="text-sm font-medium">
                 {reviewers.length} recipient{reviewers.length !== 1 ? "s" : ""}
               </span>
+              {canSend && (
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("reviewers")}
@@ -1050,6 +1067,7 @@ export default function CommunicationsPage() {
                 <Send className="mr-2 h-4 w-4" />
                 Send Email
               </Button>
+              )}
             </div>
           </CardContent>
         </Card>

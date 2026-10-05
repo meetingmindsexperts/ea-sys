@@ -100,6 +100,10 @@ export default function ContactsPage() {
   const canImportContacts = useCan("contacts.import");
   const canReadCredentials = useCan("org.credentials");
   const canImportEventsAir = canImportContacts === "allowed" && canReadCredentials === "allowed";
+  const canImportCsv = canImportContacts === "allowed";
+  const canWriteContacts = useCan("contacts.write") === "allowed";
+  const canDeleteContacts = useCan("contacts.delete") === "allowed";
+  const canExportContacts = useCan("contacts.export") === "allowed";
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -344,30 +348,36 @@ export default function ContactsPage() {
                 EventsAir
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
-            >
-              <Upload className="h-3.5 w-3.5 mr-1.5" />
-              Import CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportCSV}
-              className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
-            >
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Export
-            </Button>
-            <Button size="sm" className="btn-gradient h-8 text-xs" asChild>
-              <Link href="/contacts/new">
-                <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-                Add Contact
-              </Link>
-            </Button>
+            {canImportCsv && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
+              >
+                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                Import CSV
+              </Button>
+            )}
+            {canExportContacts && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportCSV}
+                className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Export
+              </Button>
+            )}
+            {canWriteContacts && (
+              <Button size="sm" className="btn-gradient h-8 text-xs" asChild>
+                <Link href="/contacts/new">
+                  <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                  Add Contact
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -428,7 +438,7 @@ export default function ContactsPage() {
         />
         </div>
         {/* Bulk actions bar */}
-        {selectedIds.size > 0 && (
+        {canWriteContacts && selectedIds.size > 0 && (
           <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 rounded-xl border border-primary/20">
             <div className="flex items-center gap-2 shrink-0">
               <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
@@ -520,10 +530,12 @@ export default function ContactsPage() {
                         <p className="text-xs text-gray-400">
                           {search || tagFilter.size > 0
                             ? "Try adjusting your search or filters"
-                            : "Import a CSV or add contacts manually"}
+                            : canWriteContacts || canImportCsv
+                              ? "Import a CSV or add contacts manually"
+                              : "Contacts added by your team appear here"}
                         </p>
                       </div>
-                      {!search && tagFilter.size === 0 && (
+                      {canWriteContacts && !search && tagFilter.size === 0 && (
                         <Button size="sm" className="btn-gradient mt-1" asChild>
                           <Link href="/contacts/new">
                             <UserPlus className="h-3.5 w-3.5 mr-1.5" />
@@ -623,18 +635,20 @@ export default function ContactsPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 text-gray-600"
-                            title="Edit contact"
-                            asChild
-                          >
-                            <Link href={`/contacts/${contact.id}/edit`}>
-                              <Pencil className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          {isAdmin && (
+                          {canWriteContacts && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 text-gray-600"
+                              title="Edit contact"
+                              asChild
+                            >
+                              <Link href={`/contacts/${contact.id}/edit`}>
+                                <Pencil className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          )}
+                          {isAdmin && canDeleteContacts && (
                             <Button
                               variant="outline"
                               size="icon"

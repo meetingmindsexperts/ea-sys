@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useCan } from "@/hooks/use-can";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +66,8 @@ export default function EmailTemplateEditorPage() {
   const resetMutation = useResetEmailTemplate(eventId);
   const previewMutation = usePreviewEmailTemplate(eventId);
   const deleteMutation = useDeleteEmailTemplate(eventId);
+  // Save, reset, delete, preview and test send all need templates.manage.
+  const canManage = useCan("templates.manage", eventId) === "allowed";
 
   // Track the server data version to know when to re-initialize form
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
@@ -260,6 +263,7 @@ export default function EmailTemplateEditorPage() {
             Slug: <code className="bg-muted px-1 rounded">{template.slug}</code>
           </p>
         </div>
+        {canManage && (
         <div className="flex items-center gap-2">
           {isSystemTemplate ? (
             <AlertDialog>
@@ -333,6 +337,7 @@ export default function EmailTemplateEditorPage() {
             {updateMutation.isPending ? "Saving..." : "Save"}
           </Button>
         </div>
+        )}
       </div>
 
       {unfillableTokens.length > 0 && (
@@ -380,6 +385,7 @@ export default function EmailTemplateEditorPage() {
                 </div>
                 <Switch
                   checked={isActive}
+                  disabled={!canManage}
                   onCheckedChange={(checked) => {
                     setIsActive(checked);
                     setDirty(true);

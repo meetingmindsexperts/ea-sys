@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useCan } from "@/hooks/use-can";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +26,8 @@ const TiptapEditor = dynamic(
 export default function ContentPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // Every Save on this page is the event PUT.
+  const canSave = useCan("events.update", eventId) === "allowed";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -214,12 +217,14 @@ export default function ContentPage() {
               </CardContent>
             </Card>
 
+            {canSave && (
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving..." : "Save Registration Content"}
               </Button>
             </div>
+            )}
           </div>
         </TabsContent>
 
@@ -400,12 +405,14 @@ export default function ContentPage() {
               </CardContent>
             </Card>
 
+            {canSave && (
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving..." : "Save Abstract Content"}
               </Button>
             </div>
+            )}
           </div>
         </TabsContent>
 
@@ -503,12 +510,14 @@ export default function ContentPage() {
               />
             )}
 
+            {canSave && (
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving..." : "Save Speaker Content"}
               </Button>
             </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>
