@@ -1,12 +1,12 @@
 /**
  * Shared registration views, list + create (Sep 29, 2026;
  * docs/REGISTRATION_SHARE_PLAN.md). Same boundary as the abstracts share
- * routes: denyReviewer (admins and organisers) + the access-scoped event.
+ * routes: `registrations.share` (admins and organisers) + the access-scoped event.
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveShareEvent } from "@/lib/share-link-access";
 import { registrationViewBodySchema, toViewInput, viewErrorResponse } from "@/lib/registration-share-http";
@@ -21,9 +21,9 @@ export async function GET(_req: Request, { params }: RouteParams): Promise<NextR
     const { eventId } = await params;
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/registration-shares:GET", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:GET", eventId);
+    const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares:GET", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:GET", eventId, gate.eventWhere);
     if (r.error) return r.error;
     return await runWithTenant(r.event.organizationId, async () => {
       const data = await listRegistrationViews(r.event.id, r.event.slug);
@@ -40,9 +40,9 @@ export async function POST(req: Request, { params }: RouteParams): Promise<NextR
     const [{ eventId }, body] = await Promise.all([params, req.json().catch(() => null)]);
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/registration-shares:POST", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:POST", eventId);
+    const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares:POST", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares:POST", eventId, gate.eventWhere);
     if (r.error) return r.error;
 
     const parsed = registrationViewBodySchema.safeParse(body);

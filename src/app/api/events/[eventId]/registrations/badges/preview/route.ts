@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { rateLimited } from "@/lib/api-errors";
@@ -71,8 +70,8 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Same population as the print route: desk staff calibrate too, and they
     // cannot reach Settings to read the saved numbers.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/badges/preview:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.badges.print", { route: "events/[eventId]/registrations/badges/preview:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     // Each preview rasterizes a barcode, so it is CPU-bound on the box that
     // also serves the live scanner. Generous enough to drag a slider, bounded
@@ -94,7 +93,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       { route: "registrations:badges:preview", userId: session.user.id },
       async () => {
         const event = await db.event.findFirst({
-          where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+          where: gate.eventWhere,
           select: {
             id: true,
             badgeVerticalOffset: true,

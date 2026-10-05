@@ -11,8 +11,7 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderM
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { resolveRsvpLinkForPerson, templateUsesRsvpLink } from "@/lib/rsvp/personal-link";
 import { getTitleLabel } from "@/lib/utils";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
@@ -56,8 +55,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/[registrationId]/email:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.email", { route: "events/[eventId]/registrations/[registrationId]/email:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const emailLimit = checkRateLimit({
       key: `registration-email:${session.user.id}`,
@@ -75,7 +74,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         // Company block + logo needed for the confirmation delegation's quote PDF.
         include: {
           organization: {
@@ -632,8 +631,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/email:PATCH" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/[registrationId]/email:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.email.change", { route: "events/[eventId]/registrations/[registrationId]/email:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     const changeLimit = checkRateLimit({
       key: `email-change:${session.user.id}`,
@@ -666,7 +665,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, organizationId: true },
       }),
       db.registration.findFirst({

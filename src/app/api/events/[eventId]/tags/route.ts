@@ -31,8 +31,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -48,8 +47,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Desk allow-list (Sep 8, 2026): the registrations list this feeds is
     // readable by MEMBER / ONSITE / WEBINARS, and the rows carry their tags,
     // so the aggregate below discloses nothing those roles do not already see.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "tags:list", eventId });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.read", { route: "tags:list", eventId });
+    if (!gate.ok) return gate.response;
 
     // Event-access check first. Returns 404 instead of 403 on a foreign
     // event id to avoid an enumeration oracle.
@@ -60,7 +59,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // included, per row) while this call 404'd behind them. The payload is
     // tag names + counts, nothing the list does not already show.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: gate.eventWhere,
       // organizationId, not just id: the read below is on a POLICIED table and
       // needs the event's tenant lane. Event carries no policy, so resolving it
       // first works without one — which is exactly why this route (and the two

@@ -87,6 +87,8 @@ export const PERMISSION_KEYS = [
   "registrations.badges.print",
   "registrations.bulk",
   "registrations.email",
+  "registrations.email.change",
+  "registrations.share",
   "dtcm.assign",
   // Money
   "payments.record",
@@ -473,6 +475,8 @@ export const PERMISSION_CATALOGUE: readonly PermissionDescriptor[] = [
   app("registrations.badges.print", "Registrations", "Print badges", "Preview and print badges.", E),
   app("registrations.bulk", "Registrations", "Bulk changes", "Change tags or the registration type on many registrations at once.", E),
   app("registrations.email", "Registrations", "Email a registrant", "Send an email to one registration from its page.", E),
+  app("registrations.email.change", "Registrations", "Change a registrant's email", "Move a registration, and the account linked to it, to a new email address.", E),
+  app("registrations.share", "Registrations", "Share registration views", "Create and manage read-only registration links for people without a sign-in.", E),
   app("dtcm.assign", "Registrations", "Assign DTCM codes", "Assign a spare Dubai compliance code to a registration.", E),
 
   // ── Money ──

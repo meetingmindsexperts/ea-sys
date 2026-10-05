@@ -10,8 +10,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -147,12 +146,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]:GET" });
     if ("error" in orgGuard) return orgGuard.error;
+    const gate = requirePermission(session, "registrations.read", { route: "events/[eventId]/registrations/[registrationId]:GET", eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event check, registration fetch, and the credited-so-far sum.
     const [event, registration, creditedAgg] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+        where: gate.eventWhere,
         // taxRate/taxLabel feed the `financials` block so the Payment
         // block + Payment Summary match the quote/invoice VAT math.
         select: { id: true, taxRate: true, taxLabel: true },
@@ -304,10 +305,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    // Registration-desk roles (ONSITE + MEMBER) can edit a registration (incl.
+    // The desk roles (ONSITE + MEMBER + WEBINARS) can edit a registration (incl.
     // payment status). DELETE stays admin/organizer-only (see below).
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]:PUT" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.update", { route: "events/[eventId]/registrations/[registrationId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event access check + registration lookup. NOTE: the update
@@ -319,7 +320,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user
         // may only edit registrations for events they're assigned to. Org-scoped
         // (unchanged) for admin/organizer. Mirrors the GET above.
-        where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+        where: gate.eventWhere,
         // taxRate/taxLabel feed the recomputed `financials` attached to the
         // PUT response so the detail sheet's Payment Summary refreshes after an
         // inline edit (e.g. a pricing-tier re-classification) without a
@@ -439,9 +440,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     };
     const withFinancials = { ...registration, financials };
 
-    // ONSITE (registration-desk) can PUT but must never see amounts —
-    // strip financials/payments/billing exactly like the GET does. MEMBER
-    // can't reach this route (denyReviewer blocks it), but redact defensively.
+    // Strip financials/payments/billing exactly like the GET does for a role
+    // outside `canViewFinance` (the desk roles have seen amounts since the
+    // June 17, 2026 "desk staff record payments" decision).
     const payload = canViewFinance(session.user.role)
       ? withFinancials
       : redactFinancialFields(withFinancials);
@@ -475,12 +476,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // deliberately NOT allowed (review L-4, owner-acked): the role is blocked
     // from refunds/credit-notes, and deleting a PAID registration destroys
     // the row with no money movement. Cancellation/refund is an admin action.
-    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.delete", { route: "events/[eventId]/registrations/[registrationId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
     });
 
     if (!event) {

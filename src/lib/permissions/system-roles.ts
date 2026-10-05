@@ -108,6 +108,10 @@ const ORGANIZER_EVENT: PermissionKey[] = [
   "registrations.import",
   "registrations.bulk",
   "registrations.email",
+  "registrations.email.change",
+  // Registration share links (Sep 29, 2026): ADMIN and ORGANIZER, as
+  // `submissions.share`.
+  "registrations.share",
   "registrations.promo.apply",
   "payments.refund",
   "registrations.cancel",
@@ -181,6 +185,7 @@ const WEBINARS_MANAGE: PermissionKey[] = [
   "registrations.import",
   "registrations.bulk",
   "registrations.email",
+  "registrations.email.change",
   "invoices.read",
   "speakers.read",
   "speakers.create",

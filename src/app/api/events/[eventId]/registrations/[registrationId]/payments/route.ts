@@ -3,8 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -112,8 +111,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Registration-desk roles (ONSITE + MEMBER) can record a payment.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/payments:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "payments.record", { route: "events/[eventId]/registrations/[registrationId]/payments:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // The widest money-write population of any endpoint (desk temps included)
     // had no rate limit (review H7). 60/hr is far above any real desk pace.
@@ -147,7 +146,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const data = parsed.data;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, ...buildEventAccessWhere(session.user, undefined, { surface: "desk" }) },
+      where: gate.eventWhere,
       select: { id: true, organizationId: true, name: true, taxRate: true, taxLabel: true },
     });
     if (!event) {

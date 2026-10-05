@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 
@@ -45,8 +45,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Barcode boundary (July 11 H6-H8 model): the JSON payloads strip these
     // fields for non-door roles, and this image endpoint must agree — before
     // this gate a MEMBER (or an event-linked REGISTRANT) could fetch the PNG
-    // directly even though the UI never shows them the value.
-    if (!canViewEntryBarcode(session.user.role)) {
+    // directly even though the UI never shows them the value. The event scope
+    // is the registrations read: since Oct 5, 2026 WEBINARS sees the image on
+    // every event where it works the desk, as its printed badges already do
+    // (owner; it 404'd on conferences before).
+    const gate = requirePermission(session, "registrations.read", { route: "events/[eventId]/registrations/[registrationId]/barcode:GET", eventId });
+    if (!gate.ok) return gate.response;
+    if (!can(gate.principal, "barcode.view")) {
       apiLogger.warn({
         msg: "registration-barcode:role-refused",
         eventId,
@@ -62,7 +67,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:barcode", userId: session.user.id }, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: { id: true, requiresDtcmBarcode: true },
       }),
       db.registration.findFirst({

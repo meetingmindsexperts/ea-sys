@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
 import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
@@ -18,7 +18,9 @@ import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
  * user id from that array; the central management UI lives in org
  * Settings → Onsite Staff and calls these per event toggle.
  *
- * Guarded by `denyReviewer` (ADMIN / ORGANIZER / SUPER_ADMIN only). The target
+ * Guarded by `events.staff.assign` (ADMIN / ORGANIZER / SUPER_ADMIN), an
+ * organisation-wide key, so the event lookup stays bound to the caller's
+ * organisation by hand. The target
  * user must be an ONSITE account in the caller's org — you can't assign an
  * arbitrary user id.
  */
@@ -36,8 +38,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:GET" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:GET" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:GET" });
+    if (!gate.ok) return gate.response;
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
@@ -73,8 +75,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:POST" });
+    if (!gate.ok) return gate.response;
 
     const parsed = assignSchema.safeParse(body);
     if (!parsed.success) {
@@ -141,8 +143,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/onsite-staff:DELETE" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/onsite-staff:DELETE" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "events.staff.assign", { route: "events/[eventId]/onsite-staff:DELETE" });
+    if (!gate.ok) return gate.response;
 
     const userId = new URL(req.url).searchParams.get("userId");
     if (!userId) {

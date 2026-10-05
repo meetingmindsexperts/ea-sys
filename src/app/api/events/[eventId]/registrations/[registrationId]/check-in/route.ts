@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
 import { scannedEntryCodeCandidates } from "@/lib/barcode";
@@ -58,21 +57,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:POST" });
-    if (denied) return denied;
+    const access = requirePermission(session, "registrations.checkin", { route: "events/[eventId]/registrations/[registrationId]/check-in:POST", eventId });
+    if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: access.eventWhere,
       select: { id: true },
     });
 
     if (!event) {
       // H5: an ONSITE user hitting an event they're not assigned to lands here
-      // (buildEventAccessWhere returned nothing) — log the cross-event denial.
+      // (the grant's event filter matched nothing) — log the cross-event denial.
       apiLogger.warn({ msg: "check-in:event-not-found", eventId, registrationId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -176,15 +175,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:PUT" });
-    if (denied) return denied;
+    const access = requirePermission(session, "registrations.checkin", { route: "events/[eventId]/registrations/[registrationId]/check-in:PUT", eventId });
+    if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: access.eventWhere,
       select: { id: true },
     });
 
@@ -355,14 +354,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) may undo a check-in they made.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/check-in:DELETE" });
-    if (denied) return denied;
+    const access = requirePermission(session, "registrations.checkin", { route: "events/[eventId]/registrations/[registrationId]/check-in:DELETE", eventId });
+    if (!access.ok) return access.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE — an ONSITE user may only act on events
       // they're assigned to. Org-scoped (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: access.eventWhere,
       select: { id: true },
     });
     if (!event) {

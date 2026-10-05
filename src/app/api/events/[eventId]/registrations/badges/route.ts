@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp } from "@/lib/security";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { isPaymentAdmissible } from "@/lib/check-in";
@@ -52,15 +51,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to print badges.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/badges:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.badges.print", { route: "events/[eventId]/registrations/badges:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:badges", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only print badges for events they're assigned to (badge PDFs carry entry
       // barcodes). Org-scoped (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: gate.eventWhere,
       select: { id: true, badgeVerticalOffset: true, settings: true, requiresDtcmBarcode: true },
     });
 

@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveShareEvent } from "@/lib/share-link-access";
 import { registrationViewBodySchema, toViewInput, viewErrorResponse } from "@/lib/registration-share-http";
@@ -21,9 +21,9 @@ export async function PUT(req: Request, { params }: RouteParams): Promise<NextRe
     const [{ eventId, viewId }, body] = await Promise.all([params, req.json().catch(() => null)]);
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/registration-shares/[viewId]:PUT", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]:PUT", eventId);
+    const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares/[viewId]:PUT", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]:PUT", eventId, gate.eventWhere);
     if (r.error) return r.error;
 
     const parsed = registrationViewBodySchema.safeParse(body);
@@ -51,9 +51,9 @@ export async function DELETE(_req: Request, { params }: RouteParams): Promise<Ne
     const { eventId, viewId } = await params;
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session, { route: "events/[eventId]/registration-shares/[viewId]:DELETE", eventId });
-    if (denied) return denied;
-    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]:DELETE", eventId);
+    const gate = requirePermission(session, "registrations.share", { route: "events/[eventId]/registration-shares/[viewId]:DELETE", eventId });
+    if (!gate.ok) return gate.response;
+    const r = await resolveShareEvent(session, "events/[eventId]/registration-shares/[viewId]:DELETE", eventId, gate.eventWhere);
     if (r.error) return r.error;
     const scope = { eventId: r.event.id, slug: r.event.slug, organizationId: r.event.organizationId, userId: session.user.id };
     return await runWithTenant(r.event.organizationId, async () => {

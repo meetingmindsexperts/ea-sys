@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
@@ -53,11 +52,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, {
-      allow: REGISTRATION_DESK_ALLOW,
-      route: "events/[eventId]/dtcm-pool:GET",
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "dtcm.assign", { route: "events/[eventId]/dtcm-pool:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     if (!canViewEntryBarcode(session.user.role)) {
       apiLogger.warn(
@@ -72,7 +68,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       { route: "events:dtcm-pool:GET", userId: session.user.id },
       async () => {
         const event = await db.event.findFirst({
-          where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+          where: gate.eventWhere,
           select: { id: true, requiresDtcmBarcode: true },
         });
         if (!event) {
@@ -103,11 +99,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session, {
-      allow: REGISTRATION_DESK_ALLOW,
-      route: "events/[eventId]/dtcm-pool:POST",
-    });
-    if (denied) return denied;
+    const gate = requirePermission(session, "dtcm.assign", { route: "events/[eventId]/dtcm-pool:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     // Before the rate limit, so a refused role never spends another caller's
     // budget — the same ordering the registrations export uses.
@@ -149,7 +142,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       { route: "events:dtcm-pool:POST", userId: session.user.id },
       async () => {
         const event = await db.event.findFirst({
-          where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+          where: gate.eventWhere,
           select: { id: true, requiresDtcmBarcode: true },
         });
         if (!event) {

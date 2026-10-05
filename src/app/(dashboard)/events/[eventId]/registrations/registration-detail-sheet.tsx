@@ -212,9 +212,20 @@ export function RegistrationDetailSheet({
   // would invite an organizer to ask desk staff to "just open it".
   const showSupportingDocument = canViewSupportingDocument(userSession?.user?.role);
   const { data: regTypes = [] } = useTickets(eventId);
+  const { data: eventForMode } = useEvent(eventId);
+  // WEBINARS on a NON-webinar event is desk-limited too (review M-3): its
+  // conference tier is ONSITE-equivalent, so hide the organizer-only actions
+  // whose APIs would 403/404 anyway. While the event is loading, WEBINARS
+  // gets the safe desk-limited view.
+  const isDeskOperator =
+    isBaseDeskOperator ||
+    (userSession?.user?.role === "WEBINARS" && eventForMode?.eventType !== "WEBINAR");
   // Active custom email templates — added as "Send Email" dropdown options so a
   // single registration can be sent a saved template, not just the built-ins.
-  const { data: emailTemplatesData } = useEmailTemplates(eventId);
+  // Fetched only when that menu can show: desk operators never see it, and
+  // ONSITE (and WEBINARS on a conference) may not read the templates, so the
+  // request would only put a 404 in the console.
+  const { data: emailTemplatesData } = useEmailTemplates(eventId, !isDeskOperator);
   const customTemplates = (
     (emailTemplatesData?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
   ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
@@ -464,14 +475,6 @@ export function RegistrationDetailSheet({
   // immediately appear in the dropdown for other sheets.
   const eventTagsQuery = useEventTags(eventId);
   // For the hybrid attendance-mode toggle (only meaningful on HYBRID events).
-  const { data: eventForMode } = useEvent(eventId);
-  // WEBINARS on a NON-webinar event is desk-limited too (review M-3): its
-  // conference tier is ONSITE-equivalent, so hide the organizer-only actions
-  // whose APIs would 403/404 anyway. While the event is loading, WEBINARS
-  // gets the safe desk-limited view.
-  const isDeskOperator =
-    isBaseDeskOperator ||
-    (userSession?.user?.role === "WEBINARS" && eventForMode?.eventType !== "WEBINAR");
   const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
   // The Survey Invitation is offered only when the event has a survey built.
   const surveyConfig = (eventForMode as { surveyConfig?: unknown } | undefined)?.surveyConfig;

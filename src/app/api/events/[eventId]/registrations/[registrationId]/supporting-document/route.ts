@@ -3,7 +3,7 @@
  *
  * /uploads/resident-letters/ is BLOCKED on the public catch-all, so this is the
  * only way to read one. Mirrors the speaker-document file route: registration
- * bound to the event via buildEventAccessWhere, then the on-disk path verified
+ * bound to the event via the gate's event filter, then the on-disk path verified
  * to sit inside public/uploads/resident-letters/ before the read.
  *
  * The stored column is validated on the way IN (`isSupportingDocumentPath` in the
@@ -18,9 +18,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
-import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
 import { SUPPORTING_DOCUMENT_PATH_PREFIX, isSupportingDocumentPath } from "@/lib/supporting-document";
 
 type RouteParams = {
@@ -47,11 +46,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // actually does, and since Aug 13 an organizer can name the requested
     // document anything, including "Passport copy".
     //
-    // denyReviewer first (it owns the refusal logging for the restricted set),
-    // then the narrower predicate for the roles it would otherwise admit.
-    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/supporting-document:GET" });
-    if (denied) return denied;
-    if (!canViewSupportingDocument(session.user.role)) {
+    // The registrations read first (it owns the refusal logging for roles
+    // outside it), then `supportingDocs.view`, the narrower field key.
+    const gate = requirePermission(session, "registrations.read", { route: "events/[eventId]/registrations/[registrationId]/supporting-document:GET", eventId });
+    if (!gate.ok) return gate.response;
+    if (!can(gate.principal, "supportingDocs.view")) {
       apiLogger.warn(
         { eventId, registrationId, userId: session.user.id, role: session.user.role },
         "supporting-document-file:role-refused",
@@ -60,7 +59,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer } from "@/lib/auth-guards";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -19,8 +19,8 @@ interface RouteParams {
  * PDF, in ONE email) for a single registration — the same packet the payment
  * flow sends automatically. Idempotent: reuses the existing invoice + receipt
  * rows, or creates whichever is missing (so it also heals a legacy/partially-
- * issued registration) before emailing. Finance-gated (denyReviewer blocks
- * REVIEWER/SUBMITTER/REGISTRANT/MEMBER/ONSITE), org-scoped.
+ * issued registration) before emailing. Finance-gated (`invoices.send`, which
+ * MEMBER, ONSITE and WEBINARS do not hold), event-scoped.
  */
 export async function POST(_req: Request, { params }: RouteParams) {
   const { eventId, registrationId } = await params;
@@ -31,8 +31,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations/[registrationId]/documents/resend:POST" });
     if ("error" in orgGuard) return orgGuard.error;
-    const denied = denyReviewer(session, { route: "events/[eventId]/registrations/[registrationId]/documents/resend:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "invoices.send", { route: "events/[eventId]/registrations/[registrationId]/documents/resend:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     const rl = checkRateLimit({ key: `resend-documents:${session.user.id}`, limit: 30, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) {
@@ -44,7 +44,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: orgGuard.orgId },
+      where: gate.eventWhere,
       select: { id: true, organizationId: true },
     });
     if (!event) {

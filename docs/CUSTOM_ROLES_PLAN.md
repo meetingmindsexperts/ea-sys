@@ -1,7 +1,7 @@
 # Customizable Roles: permission-based access for org staff
 
-> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 11 of 17
-> domains swept (130 route files on `requirePermission`, pinned by
+> **Status (Oct 2, 2026): PHASES 0 AND 1 COMPLETE; PHASE 2 IN PROGRESS, 12 of 17
+> domains swept (152 route files on `requirePermission`, pinned by
 > `scripts/check-permission-guards.sh`); see §6 Phase 2 "Progress" and
 > "Behaviour changes so far".** Revision 4 (Sep 30, 2026). Owner rulings this
 > revision: roles are **several and additive**, unioned over whole
@@ -849,6 +849,50 @@ Domain by domain:
   re-addressed, exported, imported and deleted contacts with a clean Contacts
   page; MEMBER reads and exports, 403 on create; CRM_USER reads, 403 on export
   and create.
+- **Registrations desk SWEPT Oct 5, 2026** (22 files: the list and its CSV,
+  add, a registration's detail, edit and delete, activity, barcode image,
+  check-in and undo, recorded payment, email and email change, the paid
+  documents resend, the supporting document; badges and their preview; bulk
+  tags and type; import from contacts and from a spreadsheet, the completion
+  emails; the tag list; spare DTCM codes; registration share links; the Onsite
+  Staff tab). Keys: `registrations.read` (list, detail, activity, tags; the
+  list hides, the others refuse, as recorded), `.create`, `.update`, `.delete`,
+  `.export` (the CSV), `.checkin`, `.badges.print`, `.bulk`, `.import`,
+  `.email`, `payments.record`, `dtcm.assign`, `invoices.send` (the paid
+  documents resend), `events.staff.assign` (organisation-wide, so the Onsite
+  Staff route keeps its organisation-bound event lookup), and two NEW keys:
+  `registrations.email.change` (ADMIN, ORGANIZER, WEBINARS on webinars; the
+  desk roles hold `.update` but never could change the address) and
+  `registrations.share` (ADMIN and ORGANIZER, like `submissions.share`). The
+  barcode image and the supporting document gate on `registrations.read` and
+  then check the field key (`barcode.view`, `supportingDocs.view`) with
+  `can()`. The list takes a session, an API key or a mobile token
+  (`principalFromCaller`). `registrations-export-audit.test.ts` now drives the
+  export refusal through the real gate (MEMBER) instead of a mock of the
+  removed call. **Changes on purpose, re-recorded:** (1) WEBINARS reaches the
+  barcode image on every event where it works the desk (owner; it 404'd on
+  conferences while its printed badges carried the same code); (2) the
+  platform operator is refused the barcode image and supporting documents,
+  because an organisation-wide field key needs an organisation (`can()`); it
+  read both on any tenant's events before. **Found and fixed during
+  verification:** the registration detail sheet requested the event's email
+  templates for every role, and since the communications sweep (Oct 2) that
+  is a 404 for ONSITE: the claim in that entry that "no ONSITE screen uses
+  templates" was wrong. The templates only feed the Send Email menu, which
+  desk operators never see, so the sheet now fetches them only when that
+  menu can show (which also removes the older 404 for WEBINARS on a
+  conference). **Recorded, not changed:** the barcode PNG is served
+  `private, max-age=3600`, so on a shared desk computer the next person
+  signed in can see a cached image for an hour; and the platform operator
+  still reaches check-in, payments, DTCM codes, badges and the tag list on
+  any tenant's event (no `requireOrgId`), part of the parked operator call.
+  Verified with the chrome-devtools MCP (no email sent): ADMIN added, edited,
+  tagged, checked in (button and API) and undid, printed badges, read the
+  barcode, activity and CSV, created, renamed, regenerated and deleted a
+  share view, and assigned an ONSITE account; ONSITE (assigned) and MEMBER
+  worked the desk with clean Registrations and Check-In pages, MEMBER 403 on
+  the CSV, barcode and DTCM codes; WEBINARS on a conference got the barcode
+  image and 404 on the email change.
 
 **Behaviour changes so far.** Everything else in the swept domains answers as
 it did before, byte for byte in the route matrix. These changed on purpose,
@@ -860,10 +904,11 @@ each approved by the owner:
 | Abstracts (part A) | Review criteria (G3) no longer readable by CRM, HR, unassigned Onsite, or Webinars on conferences |
 | Abstracts (part B) | SECURITY: registrants can no longer read, edit or create abstracts and proposals; Member, Onsite and Webinars can no longer write them; reviewers send a status only; `managementToken` no longer returned; anonymised reviews no longer readable org-wide |
 | Accommodation | Hotels and bookings (guest names) no longer readable by CRM, HR, Onsite, or Webinars on conferences |
-| Communications | Onsite no longer reads its assigned event's email templates |
+| Communications | Onsite no longer reads its assigned event's email templates (its registration sheet requested them; fixed Oct 5 so the sheet no longer asks) |
 | Certificates | Template and run lookups bound to the URL's event (same statuses) |
 | Webinar | The attendance CSV (attendee emails) downloads only for Admin, Organizer and Webinars; Member and Onsite see attendance on screen only |
 | Faculty extras | Member reads survey answers (a widening) |
+| Registrations desk | Webinars sees the barcode image on conferences (a widening, matching its badges); the platform operator no longer reads tenants' barcode images or supporting documents |
 
 Recorded and left as found, each an owner call: the platform operator
 (SUPER_ADMIN with no organisation) can write on routes that never had

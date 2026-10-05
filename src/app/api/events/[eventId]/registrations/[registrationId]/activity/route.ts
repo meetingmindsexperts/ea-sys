@@ -11,8 +11,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildRegistrationActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { canManageReimbursements } from "@/lib/reimbursement/constants";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenantLane } from "@/lib/tenant-lane";
 
 interface RouteParams {
@@ -31,21 +30,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // team-only (MEMBER/ONSITE included; REVIEWER/SUBMITTER/REGISTRANT are
     // org-null, so an org ternary here would drop the org filter entirely
     // and open a cross-tenant read).
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations/[registrationId]/activity:GET" });
-    if (denied) {
-      apiLogger.warn({
-        msg: "registration-activity:role-denied",
-        eventId,
-        registrationId,
-        userId: session.user.id,
-        role: session.user.role,
-      });
-      return denied;
-    }
+    const gate = requirePermission(session, "registrations.read", { route: "events/[eventId]/registrations/[registrationId]/activity:GET", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenantLane(session.user.organizationId, { route: "registrations:activity", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!event) {

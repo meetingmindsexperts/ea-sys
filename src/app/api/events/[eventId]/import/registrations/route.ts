@@ -5,8 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { recordImport } from "@/lib/audit-data-transfer";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { updateRegistration } from "@/services/registration-service";
 import { buildImportPatch, updatedRowMessage } from "@/lib/import-upsert";
@@ -85,8 +84,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/import/registrations:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/import/registrations:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.import", { route: "events/[eventId]/import/registrations:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
@@ -165,7 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Verify event belongs to org, and pull settings so sponsor names in the
     // CSV can be resolved against Event.settings.sponsors[] without N+1.
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true, settings: true },
     });
     if (!event) {

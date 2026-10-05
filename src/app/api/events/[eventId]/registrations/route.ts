@@ -7,9 +7,8 @@ import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { getOrgContext } from "@/lib/api-auth";
-import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import {
   computeCancelledCreditState,
@@ -17,7 +16,6 @@ import {
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
 import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
-import { denyRegistrationExport } from "@/lib/registration-export-visibility";
 import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -147,6 +145,18 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // A session, an API key or a mobile token. The CSV is a NARROWER boundary
+    // than the list: a MEMBER pages through it on screen but may not take the
+    // whole book away as a file (`registrations.export`; see
+    // registration-export-visibility.ts for why that is not the finance or
+    // barcode boundary). Refused before the query runs.
+    const caller = principalFromCaller(await auth(), orgCtx);
+    const listRoute = "events/[eventId]/registrations:GET";
+    const gate = new URL(req.url).searchParams.get("export") === "csv"
+      ? requirePermission(caller, "registrations.export", { route: listRoute, eventId })
+      : requirePermission(caller, "registrations.read", { route: listRoute, eventId, onMissing: "hide" });
+    if (!gate.ok) return gate.response;
+
     return await runWithTenant(orgCtx.organizationId, async () => {
     const { searchParams } = new URL(req.url);
 
@@ -156,19 +166,6 @@ export async function GET(req: Request, { params }: RouteParams) {
     // door scanner.
     const wantsCsv = searchParams.get("export") === "csv";
     if (wantsCsv) {
-      // Export is a NARROWER boundary than read: a MEMBER may page through the
-      // list on screen but may not take the whole book away as a file. See
-      // registration-export-visibility.ts for why this isn't `canViewFinance`
-      // or `canViewEntryBarcode`.
-      const exportDenied = denyRegistrationExport({
-        role: orgCtx.role,
-        userId: orgCtx.userId,
-        organizationId: orgCtx.organizationId,
-        eventId,
-        fromApiKey: orgCtx.role === null,
-      });
-      if (exportDenied) return exportDenied;
-
       // A bulk PII pull gets its own budget, matching the contacts export.
       const rl = checkRateLimit({
         key: `registrations-export:${eventId}:${orgCtx.userId ?? orgCtx.organizationId}`,
@@ -315,22 +312,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Parallelize event validation and registrations fetch
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
-        // Assignment-scoped for ONSITE (per-event desk staff): buildEventAccessWhere
-        // returns an org-scoped where for admin/organizer/API-key callers but a
-        // settings.onsiteUserIds-gated where for ONSITE, so an ONSITE user only
-        // reads registrations for events they're assigned to. API-key auth has
-        // role/userId null → org-scoped (unchanged).
-        //
-        // This route already built the access user correctly by hand; it now
-        // shares `accessUserFrom` with its sessions/speakers siblings, which did
-        // NOT, so the three can no longer disagree about who a caller is.
-        where: buildEventAccessWhere(
-          accessUserFrom(orgCtx),
-          eventId,
-          // Desk surface: MEMBER-parity scope for WEBINARS; no-op for every
-          // other role.
-          { surface: "desk" },
-        ),
+        // The grant's own filter: assignment-scoped for ONSITE, every org
+        // event for WEBINARS (the desk), org-wide for staff and API keys.
+        where: gate.eventWhere,
         // taxRate feeds the hand-flipped-PAID fallback in the cancelled
         // "needs credit note" computation below (mirrors the detail route).
         // taxLabel is carried for the CSV export's financials call so the
@@ -730,16 +714,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/registrations:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "events/[eventId]/registrations:POST" });
-    if (denied) return denied;
+    // The desk roles (MEMBER, ONSITE where assigned, WEBINARS) add registrations.
+    const gate = requirePermission(session, "registrations.create", { route: "events/[eventId]/registrations:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     // Event-assignment gate: an ONSITE user may only create registrations on the
-    // events they're assigned to (settings.onsiteUserIds), not every event in the
-    // org. buildEventAccessWhere is org-scoped (no-op) for admin/organizer.
+    // events they're assigned to, through the grant's own filter.
     const accessibleEvent = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
+      where: gate.eventWhere,
       select: { id: true },
     });
     if (!accessibleEvent) {

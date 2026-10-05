@@ -3,8 +3,7 @@ import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -34,12 +33,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Restricted roles (REVIEWER/SUBMITTER/REGISTRANT/MEMBER/ONSITE) must not
     // rewrite tags — tags drive bulk-email cohorts and certificate eligibility.
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/registrations/bulk-tags:PATCH" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.bulk", { route: "events/[eventId]/registrations/bulk-tags:PATCH", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: gate.eventWhere,
       select: { id: true },
     });
 

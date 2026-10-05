@@ -24,7 +24,6 @@ const {
   mockRedactFinancial,
   mockCanViewBarcode,
   mockRedactBarcode,
-  mockDenyExport,
   mockCheckRateLimit,
 } = vi.hoisted(() => ({
   mockGetOrgContext: vi.fn(),
@@ -38,7 +37,6 @@ const {
   mockRedactFinancial: vi.fn((p: unknown) => p),
   mockCanViewBarcode: vi.fn(() => true),
   mockRedactBarcode: vi.fn((p: unknown) => p),
-  mockDenyExport: vi.fn<(...a: unknown[]) => { status: number; json: () => Promise<unknown> } | null>(() => null),
   mockCheckRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
 }));
 
@@ -93,7 +91,8 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: vi.fn() }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: vi.fn(), REGISTRATION_DESK_ALLOW: [] }));
-vi.mock("@/lib/registration-export-visibility", () => ({ denyRegistrationExport: mockDenyExport }));
+// The export gate is the REAL `requirePermission` (`registrations.export`),
+// driven by the org context's role; `auth()` returns no session here.
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4", checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/api-errors", () => ({
   rateLimited: (rl: { retryAfterSeconds: number }) => ({ status: 429, json: async () => ({ code: "RATE_LIMITED", retryAfterSeconds: rl.retryAfterSeconds }) }),
@@ -146,7 +145,6 @@ beforeEach(() => {
   mockCanViewBarcode.mockReturnValue(true);
   mockRedactFinancial.mockImplementation((p: unknown) => p);
   mockRedactBarcode.mockImplementation((p: unknown) => p);
-  mockDenyExport.mockReturnValue(null);
   mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mockGetOrgContext.mockResolvedValue({
     organizationId: "org_1",
@@ -321,7 +319,8 @@ describe("registrations page export URL", () => {
 
 describe("export gate + rate limit", () => {
   it("403s before touching the database when the role may not export", async () => {
-    mockDenyExport.mockReturnValue({ status: 403, json: async () => ({ code: "EXPORT_FORBIDDEN" }) });
+    // MEMBER reads the list but holds no `registrations.export`.
+    mockGetOrgContext.mockResolvedValue({ organizationId: "org_1", userId: "usr_2", role: "MEMBER", fromApiKey: false });
     const res = (await call("export=csv")) as unknown as { status: number };
     expect(res.status).toBe(403);
     // The point of gating pre-flight: no unbounded query, no audit row.
@@ -338,8 +337,10 @@ describe("export gate + rate limit", () => {
   });
 
   it("leaves the ordinary JSON list ungated and unthrottled", async () => {
-    await call("");
-    expect(mockDenyExport).not.toHaveBeenCalled();
+    // The same MEMBER that may not export still gets the JSON list.
+    mockGetOrgContext.mockResolvedValue({ organizationId: "org_1", userId: "usr_2", role: "MEMBER", fromApiKey: false });
+    const res = (await call("")) as unknown as { status: number };
+    expect(res.status).toBe(200);
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
   });
 });

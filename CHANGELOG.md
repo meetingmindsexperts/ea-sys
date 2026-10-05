@@ -379,6 +379,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The webinar practice guide gains the real in-page join and the waiting-for-host
   screenshots, and a "Signature is invalid" troubleshooting row.
 
+### Changed: the registration desk checks permissions instead of roles (October 5)
+
+- Custom roles Phase 2: the registrations list and export, adding, editing
+  and deleting a registration, check-in and undo, recording a payment, badges,
+  barcodes, bulk changes, imports, shared registration views, spare DTCM codes
+  and the Onsite Staff tab. Nobody's desk access changes, with two exceptions:
+  the webinar team now sees a registration's barcode image on conferences too,
+  matching the badges it already prints there; and the platform operator no
+  longer opens other organisations' barcodes or uploaded supporting documents.
+
+### Fixed: onsite staff no longer see an error loading a registration (October 5)
+
+- Since October 2 the registration page asked for the event's email templates
+  even for onsite desk staff, who may not read them, leaving an error in the
+  browser console. The templates only fill the Send Email menu, which desk
+  staff never see, so the page no longer asks for them.
+
 ### Changed: the contact store checks permissions instead of roles (October 5)
 
 - Custom roles Phase 2: the organisation's contacts (list, detail, create,

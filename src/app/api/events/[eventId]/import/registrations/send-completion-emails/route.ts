@@ -6,8 +6,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit, hashVerificationToken } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail, emailTemplates } from "@/lib/email";
@@ -30,8 +29,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]/import/registrations/send-completion-emails:POST" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "events/[eventId]/import/registrations/send-completion-emails:POST" });
-    if (denied) return denied;
+    const gate = requirePermission(session, "registrations.import", { route: "events/[eventId]/import/registrations/send-completion-emails:POST", eventId });
+    if (!gate.ok) return gate.response;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
@@ -59,7 +58,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Parallelize event access check + registrations lookup
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: gate.eventWhere,
         select: {
           id: true, name: true, slug: true, startDate: true,
           venue: true, city: true, country: true,
