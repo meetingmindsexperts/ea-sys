@@ -518,6 +518,10 @@ export function TiptapEditor({ content, onChange, placeholder, minHeightClass = 
   const [sourceHtml, setSourceHtml] = useState("");
 
   const editor = useEditor({
+    // Every caller loads this editor client-only (next/dynamic, ssr: false),
+    // so render after mount. Without it Tiptap warns on each instance that it
+    // "detected SSR" and may mismatch hydration.
+    immediatelyRender: false,
     extensions: [
       StarterKit,
       DivBlock,

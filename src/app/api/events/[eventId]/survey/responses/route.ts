@@ -31,11 +31,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import {
-  surveyConfigSchema,
-  type SurveyConfig,
-  type SurveyAnswerValue,
-} from "@/lib/survey/schema";
+import { type SurveyConfig, type SurveyAnswerValue } from "@/lib/survey/schema";
+import { parseStoredSurveyConfig, resolveReportSurvey } from "@/services/survey-service";
 import { aggregateSurvey } from "@/lib/survey/aggregate";
 
 interface RouteParams {
@@ -45,6 +42,8 @@ interface RouteParams {
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(25).max(200).default(50),
+  // Which survey (Oct 6, 2026). Absent = the certificate survey, as before.
+  surveyId: z.string().min(1).max(64).optional(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -75,14 +74,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const { page, pageSize } = queryParsed.data;
+    const { page, pageSize, surveyId } = queryParsed.data;
 
     // Confirm caller can access this event AND grab the survey config in
     // one go. surveyConfig is needed to render the column header set
     // (question id → label) on the reporting page.
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, surveyConfig: true, organizationId: true },
+      select: { id: true, name: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true, organizationId: true },
     });
 
     if (!event) {
@@ -94,65 +93,58 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Parse the stored config now; if it doesn't match the current
-    // schema (older format), fall back to an empty config so the page
-    // still renders the raw response count + identity columns —
-    // operator gets SOME visibility instead of a 500.
-    let config: SurveyConfig = [];
-    if (event.surveyConfig) {
-      const parsed = surveyConfigSchema.safeParse(event.surveyConfig);
-      if (parsed.success) {
-        config = parsed.data;
-      } else {
-        apiLogger.warn({
-          msg: "survey-responses:stored-config-invalid",
-          eventId,
-          errors: parsed.error.flatten(),
-        });
-      }
-    }
-
-    // Parallelize the three reads we need: count + aggregate over ALL
-    // responses (no pagination for the aggregates — they're cheap
-    // jsonb scans and the operator needs the full picture) + the
-    // page slice for the table view.
     const skip = (page - 1) * pageSize;
     // Tenancy (Domain #16): SurveyResponse (+ the nested swept
-    // Registration/Attendee selects) read in the RESOURCE org — this route
-    // authorizes via gate.eventWhere, so an org-null SUPER_ADMIN
+    // Registration/Attendee selects) and Survey read in the RESOURCE org —
+    // this route authorizes via gate.eventWhere, so an org-null SUPER_ADMIN
     // legitimately reaches it and a session-org wrap would fail-close.
-    const [totalCount, allResponsesForAggregate, pageResponses] = await runWithTenant(event.organizationId, () => Promise.all([
-      db.surveyResponse.count({ where: { eventId } }),
-      // For aggregates we only need id + submittedAt + answers; avoids
-      // dragging registration relations through for the histogram math.
-      db.surveyResponse.findMany({
-        where: { eventId },
-        select: { id: true, submittedAt: true, answers: true },
-      }),
-      db.surveyResponse.findMany({
-        where: { eventId },
-        orderBy: { submittedAt: "desc" },
-        skip,
-        take: pageSize,
-        select: {
-          id: true,
-          submittedAt: true,
-          answers: true,
-          registration: {
-            select: {
-              id: true,
-              attendee: {
-                select: {
-                  firstName: true,
-                  lastName: true,
-                  email: true,
+    const loaded = await runWithTenant(event.organizationId, async () => {
+      const report = await resolveReportSurvey(event, surveyId);
+      if (!report) return null;
+      const reads = await Promise.all([
+        db.surveyResponse.count({ where: report.where }),
+        // For aggregates we only need id + submittedAt + answers; avoids
+        // dragging registration relations through for the histogram math.
+        db.surveyResponse.findMany({
+          where: report.where,
+          select: { id: true, submittedAt: true, answers: true },
+        }),
+        db.surveyResponse.findMany({
+          where: report.where,
+          orderBy: { submittedAt: "desc" },
+          skip,
+          take: pageSize,
+          select: {
+            id: true,
+            submittedAt: true,
+            answers: true,
+            registration: {
+              select: {
+                id: true,
+                attendee: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                  },
                 },
               },
             },
           },
-        },
-      }),
-    ]));
+        }),
+      ]);
+      return { report, reads };
+    });
+    if (!loaded) {
+      apiLogger.warn({ msg: "survey-responses:survey-not-found", eventId, surveyId });
+      return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+    }
+    const [totalCount, allResponsesForAggregate, pageResponses] = loaded.reads;
+
+    // Parse the stored config; an older shape falls back to an empty config
+    // so the page still renders the count + identity columns.
+    const config: SurveyConfig =
+      parseStoredSurveyConfig(loaded.report.rawConfig, { eventId, surveyId: loaded.report.survey?.id }) ?? [];
 
     // Aggregate input: SurveyResponseLike[]. `answers` comes back as
     // Prisma's JsonValue — cast through unknown to our Record type;
@@ -171,6 +163,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       event: { id: event.id, name: event.name },
+      survey: loaded.report.survey,
       config,
       totalCount,
       aggregates,

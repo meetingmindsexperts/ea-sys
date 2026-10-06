@@ -44,7 +44,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import crypto from "crypto";
-import { db, tenantTransaction } from "@/lib/db";
+import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -55,11 +55,11 @@ import {
   hashVerificationToken,
 } from "@/lib/security";
 import {
-  surveyConfigSchema,
-  validateAnswers,
-  type SurveyConfig,
-  SURVEY_COMPLETED_TAG,
-} from "@/lib/survey/schema";
+  getSurvey,
+  parseStoredSurveyConfig,
+  resolveLinkSurvey,
+  submitSurveyResponse,
+} from "@/services/survey-service";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -89,30 +89,6 @@ function hashIp(ip: string): string | null {
   return crypto.createHash("sha256").update(`ip:${ip}:${pepper}`).digest("hex");
 }
 
-/**
- * Parse and shape-validate the stored surveyConfig JSON column.
- * Returns null (treat as "no survey") when the column is null or
- * the stored shape no longer matches the current Zod schema (e.g.
- * an older event from before the schema tightened). Logs the mis-
- * match so an organizer-side validation pass can find + fix.
- */
-function readSurveyConfig(
-  raw: unknown,
-  eventId: string,
-): SurveyConfig | null {
-  if (raw === null || raw === undefined) return null;
-  const result = surveyConfigSchema.safeParse(raw);
-  if (!result.success) {
-    apiLogger.warn({
-      msg: "survey:invalid-stored-config",
-      eventId,
-      errors: result.error.flatten(),
-    });
-    return null;
-  }
-  return result.data;
-}
-
 // Registration select for the `?token=` submit, fed into finalizeSubmission().
 const SUBMIT_REGISTRATION_SELECT = {
   id: true,
@@ -127,6 +103,8 @@ const SUBMIT_REGISTRATION_SELECT = {
       name: true,
       slug: true,
       surveyConfig: true,
+      surveyIntroHtml: true,
+      surveyThankYouHtml: true,
       emailHeaderImage: true,
       emailFooterImage: true,
       emailFooterHtml: true,
@@ -158,94 +136,41 @@ async function finalizeSubmission(
   const eventId = registration.event.id;
   const registrationId = registration.id;
 
-  const config = readSurveyConfig(registration.event.surveyConfig, eventId);
-  if (!config) {
+  // Until links name their survey (step 3) the personal link opens the
+  // event's certificate survey (src/services/survey-service.ts).
+  const linkSurvey = await resolveLinkSurvey(registration.event);
+  if (!linkSurvey) {
     apiLogger.warn({ msg: "survey:submit-no-config", eventId, registrationId });
-    return NextResponse.json(
-      { error: "No survey is configured for this event." },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "No survey is configured for this event." }, { status: 404 });
   }
 
-  const answerResult = validateAnswers(config, rawAnswers);
-  if (!answerResult.ok) {
-    apiLogger.warn({
-      msg: "survey:submit-answers-invalid",
+  // The ONE submit path (also the webinar page's, next step): it writes the
+  // response, marks completion only for the certificate survey, and consumes
+  // the single-use token in the same transaction.
+  const result = await submitSurveyResponse({
+    survey: {
+      id: linkSurvey.surveyId,
       eventId,
-      registrationId,
-      errors: answerResult.errors,
-    });
-    return NextResponse.json(
-      { error: "Some answers are invalid", details: { errors: answerResult.errors } },
-      { status: 400 },
-    );
-  }
-
-  // Pre-tx dedup — the @unique on SurveyResponse.registrationId is the
-  // race-safe net; this just avoids a tx round-trip on the common
-  // "reload after submit" case.
-  if (registration.surveyCompletedAt) {
-    apiLogger.info({ msg: "survey:submit-already-completed", eventId, registrationId });
-    await db.verificationToken
-      .delete({ where: { token: tokenHash } })
-      .catch((err) => apiLogger.warn({
-        err,
-        msg: "survey:already-completed-token-cleanup-failed",
-        eventId,
-        registrationId,
-      }));
-    return NextResponse.json({ ok: true, alreadyCompleted: true });
-  }
-
-  const now = new Date();
-  const ipHash = hashIp(getClientIp(req));
-  const mergedTags = Array.from(
-    new Set([...(registration.attendee.tags ?? []), SURVEY_COMPLETED_TAG]),
-  );
-
-  try {
-    await tenantTransaction(async (tx) => {
-      await tx.surveyResponse.create({
-        data: {
-          eventId,
-          registrationId,
-          // tenancy (Domain #16): stamp the event's org on the response row.
-          organizationId: registration.event.organizationId,
-          answers: answerResult.answers as Prisma.InputJsonValue,
-          ipHash,
-          submittedAt: now,
-        },
-      });
-      await tx.registration.update({
-        where: { id: registrationId },
-        data: { surveyCompletedAt: now },
-      });
-      await tx.attendee.update({
-        where: { id: registration.attendee.id },
-        data: { tags: mergedTags },
-      });
-      await tx.verificationToken.delete({ where: { token: tokenHash } });
-    });
-  } catch (txErr) {
-    // P2002 = unique constraint on SurveyResponse.registrationId — a
-    // race between two clicks; idempotent success.
-    if (
-      txErr instanceof Prisma.PrismaClientKnownRequestError &&
-      txErr.code === "P2002"
-    ) {
-      apiLogger.info({ msg: "survey:submit-race-dedup", eventId, registrationId });
-      await db.verificationToken
-        .delete({ where: { token: tokenHash } })
-        .catch((err) => apiLogger.warn({
-          err,
-          msg: "survey:race-dedup-token-cleanup-failed",
-          eventId,
-          registrationId,
-        }));
-      return NextResponse.json({ ok: true, alreadyCompleted: true });
+      gatesCertificates: linkSurvey.gatesCertificates,
+      config: linkSurvey.config,
+    },
+    registration: {
+      id: registrationId,
+      surveyCompletedAt: registration.surveyCompletedAt,
+      attendee: { id: registration.attendee.id, tags: registration.attendee.tags },
+    },
+    organizationId: registration.event.organizationId,
+    rawAnswers,
+    ipHash: hashIp(getClientIp(req)),
+    consumeTokenHash: tokenHash,
+  });
+  if (!result.ok) {
+    if (result.code === "NO_SURVEY" || result.code === "NOT_YET_ANSWERABLE") {
+      return NextResponse.json({ error: result.message }, { status: 404 });
     }
-    throw txErr;
+    return NextResponse.json({ error: result.message, details: { errors: result.errors } }, { status: 400 });
   }
+  if (result.alreadyCompleted) return NextResponse.json({ ok: true, alreadyCompleted: true });
 
   // Thank-you email is DEFERRED to the cert-issue worker's survey-thankyou
   // sweep (runSurveyThankYouSweep) — NOT sent inline here. The sweep holds the
@@ -255,13 +180,6 @@ async function finalizeSubmission(
   if (!registration.attendee.email) {
     apiLogger.warn({ msg: "survey:thankyou-no-email", eventId, registrationId });
   }
-
-  apiLogger.info({
-    msg: "survey:submit-success",
-    eventId,
-    registrationId,
-    answeredCount: Object.keys(answerResult.answers).length,
-  });
   return NextResponse.json({ ok: true });
 }
 
@@ -295,13 +213,24 @@ export async function GET(req: Request, { params }: RouteParams) {
       }
       const event = await db.event.findFirst({
         where: await publicEventWhere(req, slug),
-        select: { id: true, name: true, slug: true, bannerImage: true, bannerImageMobile: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true },
+        select: { id: true, name: true, slug: true, organizationId: true, bannerImage: true, bannerImageMobile: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true },
       });
       if (!event) {
+        apiLogger.warn({ msg: "survey:preview-event-not-found", slug });
         return NextResponse.json({ error: "Survey not found" }, { status: 404 });
       }
-      const config = readSurveyConfig(event.surveyConfig, event.id);
-      if (!config) {
+      // The builder previews any of the event's surveys (?surveyId=); without
+      // one it is the survey the personal link opens. Survey is a tenant-
+      // scoped table: read it inside the event's org store.
+      const previewSurveyId = searchParams.get("surveyId");
+      const previewSurvey = await runWithTenant(event.organizationId, async () => {
+        if (!previewSurveyId) return resolveLinkSurvey(event);
+        const s = await getSurvey(event.id, previewSurveyId, event);
+        return s ? { surveyId: s.id, gatesCertificates: s.gatesCertificates, config: s.config, introHtml: s.introHtml, thankYouHtml: s.thankYouHtml } : null;
+      });
+      const config = previewSurvey ? parseStoredSurveyConfig(previewSurvey.config, { eventId: event.id }) : null;
+      if (!config || !previewSurvey) {
+        apiLogger.info({ msg: "survey:preview-no-survey", eventId: event.id });
         return NextResponse.json(
           { error: "No survey is configured for this event yet." },
           { status: 404 },
@@ -310,8 +239,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({
         mode: "preview",
         event: { name: event.name, slug: event.slug, bannerImage: event.bannerImage, bannerImageMobile: event.bannerImageMobile },
-        introHtml: event.surveyIntroHtml,
-        thankYouHtml: event.surveyThankYouHtml,
+        introHtml: previewSurvey.introHtml,
+        thankYouHtml: previewSurvey.thankYouHtml,
         config,
       });
     }
@@ -456,11 +385,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const config = readSurveyConfig(
-      registration.event.surveyConfig,
-      registration.event.id,
-    );
-    if (!config) {
+    const linkSurvey = await resolveLinkSurvey(registration.event);
+    const config = linkSurvey
+      ? parseStoredSurveyConfig(linkSurvey.config, { eventId: registration.event.id })
+      : null;
+    if (!config || !linkSurvey) {
       apiLogger.warn({
         msg: "survey:get-no-config",
         eventId: registration.event.id,
@@ -486,7 +415,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           bannerImage: registration.event.bannerImage,
           bannerImageMobile: registration.event.bannerImageMobile,
         },
-        thankYouHtml: registration.event.surveyThankYouHtml,
+        thankYouHtml: linkSurvey.thankYouHtml,
       });
     }
 
@@ -501,8 +430,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         bannerImage: registration.event.bannerImage,
         bannerImageMobile: registration.event.bannerImageMobile,
       },
-      introHtml: registration.event.surveyIntroHtml,
-      thankYouHtml: registration.event.surveyThankYouHtml,
+      introHtml: linkSurvey.introHtml,
+      thankYouHtml: linkSurvey.thankYouHtml,
       config,
     });
     });

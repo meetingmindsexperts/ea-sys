@@ -271,6 +271,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
       },
     ],
     emailTemplates: [],
+    surveys: [],
     ...overrides,
   };
 }
@@ -842,6 +843,39 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(ssData.sessionId).toBe("new-sess-1");
       expect(ssData.speakerId).toBe("new-sp-1"); // Remapped from sp-1
       expect(ssData.role).toBe("keynote");
+    });
+
+    it("clones surveys (questions, messages, the reserved CME slot) but never answers", async () => {
+      setupSuccessfulClone({
+        surveys: [
+          { id: "svy-cert", name: "Post-event survey", config: [{ id: "q1", type: "rating_1_to_5", label: "Overall", required: true }], introHtml: "<p>i</p>", thankYouHtml: null, isActive: true, sortOrder: 0, gatesCertificates: true, responseMode: "ONCE" },
+          { id: "svy-fb", name: "Webinar feedback", config: [{ id: "q1", type: "text", label: "Comments", required: false }], introHtml: null, thankYouHtml: null, isActive: false, sortOrder: 1, gatesCertificates: false, responseMode: "ONCE" },
+        ],
+      });
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy", organizationId: "org-1" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        sponsor: { create: vi.fn().mockResolvedValue({ id: "spn" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+        sessionTopic: { create: vi.fn().mockResolvedValue({ id: "top" }) },
+        emailTemplate: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        survey: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
+      };
+      await txFn(mockTx);
+
+      const data = mockTx.survey.createMany.mock.calls[0][0].data;
+      expect(data).toHaveLength(2);
+      expect(data[0]).toMatchObject({ eventId: "new-evt", organizationId: "org-1", name: "Post-event survey", gatesCertificates: true, introHtml: "<p>i</p>" });
+      expect(data[1]).toMatchObject({ name: "Webinar feedback", gatesCertificates: false, isActive: false });
+      expect(data[0]).not.toHaveProperty("id");
     });
 
     it("clones custom email templates onto the new event", async () => {

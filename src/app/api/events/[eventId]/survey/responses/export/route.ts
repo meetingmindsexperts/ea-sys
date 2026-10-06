@@ -23,10 +23,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { requirePermission } from "@/lib/permissions/require-permission";
-import {
-  surveyConfigSchema,
-  type SurveyAnswerValue,
-} from "@/lib/survey/schema";
+import { type SurveyAnswerValue } from "@/lib/survey/schema";
+import { parseStoredSurveyConfig, resolveReportSurvey } from "@/services/survey-service";
 import { toCsv } from "@/lib/survey/aggregate";
 
 interface RouteParams {
@@ -57,7 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, surveyConfig: true, organizationId: true },
+      select: { id: true, name: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true, organizationId: true },
     });
 
     if (!event) {
@@ -69,28 +67,23 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const configParsed = event.surveyConfig
-      ? surveyConfigSchema.safeParse(event.surveyConfig)
-      : null;
-    if (!configParsed || !configParsed.success) {
-      apiLogger.warn({
-        msg: "survey-export:no-config",
-        eventId,
-        userId: session.user.id,
-      });
-      return NextResponse.json(
-        { error: "No survey is configured for this event." },
-        { status: 404 },
-      );
+    // Which survey (Oct 6, 2026): ?surveyId=, else the certificate survey.
+    const surveyIdParam = new URL(req.url).searchParams.get("surveyId") ?? undefined;
+    if (surveyIdParam !== undefined && (surveyIdParam.length === 0 || surveyIdParam.length > 64)) {
+      apiLogger.warn({ msg: "survey-export:invalid-survey-id", eventId });
+      return NextResponse.json({ error: "Invalid survey" }, { status: 400 });
     }
-    const config = configParsed.data;
 
-    // Tenancy (Domain #16): swept SurveyResponse (+ nested swept
+    // Tenancy (Domain #16): swept Survey / SurveyResponse (+ nested swept
     // Registration/Attendee) read in the RESOURCE org — gate.eventWhere
     // serves org-null SUPER_ADMIN, so session-org would fail-close for them.
-    const responses = await runWithTenant(event.organizationId, () =>
-      db.surveyResponse.findMany({
-        where: { eventId },
+    const loaded = await runWithTenant(event.organizationId, async () => {
+      const report = await resolveReportSurvey(event, surveyIdParam);
+      if (!report) return { outcome: "not-found" as const };
+      const config = parseStoredSurveyConfig(report.rawConfig, { eventId, surveyId: report.survey?.id });
+      if (!config) return { outcome: "no-config" as const };
+      const responses = await db.surveyResponse.findMany({
+        where: report.where,
         orderBy: { submittedAt: "asc" }, // ascending = chronological export
         select: {
           id: true,
@@ -104,8 +97,25 @@ export async function GET(req: Request, { params }: RouteParams) {
             },
           },
         },
-      }),
-    );
+      });
+      return { outcome: "ok" as const, report, config, responses };
+    });
+    if (loaded.outcome === "not-found") {
+      apiLogger.warn({ msg: "survey-export:survey-not-found", eventId, surveyId: surveyIdParam });
+      return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+    }
+    if (loaded.outcome === "no-config") {
+      apiLogger.warn({
+        msg: "survey-export:no-config",
+        eventId,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "No survey is configured for this event." },
+        { status: 404 },
+      );
+    }
+    const { config, responses } = loaded;
 
     const csv = toCsv(
       config,
@@ -119,7 +129,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       })),
     );
 
-    const filename = `survey-${sanitizeFilenameStem(event.name)}-${eventId.slice(0, 8)}.csv`;
+    // An extra survey's file carries its own name so two downloads never
+    // look alike; the certificate survey keeps the old name.
+    const stem = loaded.report.survey && !loaded.report.survey.gatesCertificates
+      ? `${sanitizeFilenameStem(event.name)}-${sanitizeFilenameStem(loaded.report.survey.name)}`
+      : sanitizeFilenameStem(event.name);
+    const filename = `survey-${stem}-${eventId.slice(0, 8)}.csv`;
 
     recordExport(req, {
       entityType: "SurveyResponse",
@@ -136,6 +151,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       eventId,
       userId: session.user.id,
       rowCount: responses.length,
+      surveyId: loaded.report.survey?.id,
     });
 
     return new Response(csv, {

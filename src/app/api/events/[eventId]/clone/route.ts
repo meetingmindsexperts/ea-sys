@@ -92,6 +92,11 @@ export async function POST(
         sponsors: true,
         // Custom/edited email templates (Communications → Email Templates).
         emailTemplates: true,
+        // Surveys are a TABLE since Oct 6 2026 (several per event). The three
+        // Event survey columns below are still copied (the mirror kept for one
+        // release), but the survey link and builder read this table, so a
+        // clone that skipped it would silently arrive with no survey.
+        surveys: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
         hotels: { include: { roomTypes: true } },
         eventSessions: {
           // `take: 0` rather than `includeAgenda && {...}`: the conditional
@@ -455,6 +460,25 @@ export async function POST(
               htmlContent: t.htmlContent,
               textContent: t.textContent,
               isActive: t.isActive,
+            })),
+          });
+        }
+
+        // Surveys: questions, messages, open/closed and the certificate flag
+        // (the reserved CME slot stays the CME slot). Never answers or links.
+        if (source.surveys.length > 0) {
+          await tx.survey.createMany({
+            data: source.surveys.map((sv) => ({
+              eventId: event.id,
+              organizationId: event.organizationId,
+              name: sv.name,
+              config: sv.config as Prisma.InputJsonValue,
+              introHtml: sv.introHtml,
+              thankYouHtml: sv.thankYouHtml,
+              isActive: sv.isActive,
+              sortOrder: sv.sortOrder,
+              gatesCertificates: sv.gatesCertificates,
+              responseMode: sv.responseMode,
             })),
           });
         }

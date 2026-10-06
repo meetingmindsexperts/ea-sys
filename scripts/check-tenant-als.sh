@@ -67,6 +67,7 @@ SWEPT_ROUTE_DIRS=(
   # under the Reg-core SWEPT_ROUTE_FILES entry. (The sibling survey/share-link
   # route was deleted Sep 17, 2026 when the shareable link was retired.)
   "src/app/api/events/[eventId]/survey/responses"         # Survey sweep — reporting + export (Aug 3, 2026)
+  "src/app/api/events/[eventId]/surveys"                  # Several surveys per event — list/create + read/update/delete (Oct 6, 2026)
   # Reimbursement sweep (Domain #17, Aug 3, 2026) — the dashboard console
   # (list/add + detail/reopen/delete + doc stream + send) wraps in the
   # RESOURCE org (buildEventAccessWhere serves org-null SUPER_ADMIN); the 3

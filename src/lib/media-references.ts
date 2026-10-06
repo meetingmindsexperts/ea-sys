@@ -43,8 +43,9 @@ const CONTENT_FIELDS = [
   ["sessionProposalWelcomeHtml", "session proposal welcome content"],
   ["registrationTermsHtml", "registration terms"],
   ["abstractGuidelinesHtml", "abstract guidelines"],
-  ["surveyIntroHtml", "survey intro"],
-  ["surveyThankYouHtml", "survey thank-you message"],
+  // Survey intro / thank-you live on the Survey table since Oct 6, 2026 (the
+  // Event columns are only a mirror of the CME survey for one release), so
+  // they are scanned there, every survey of the event, below.
   ["emailFooterHtml", "email footer content"],
 ] as const;
 
@@ -52,7 +53,7 @@ export async function findMediaReferences(
   url: string,
   organizationId: string
 ): Promise<MediaReference[]> {
-  const [brandingEvents, contentEvents, templates, org] = await Promise.all([
+  const [brandingEvents, contentEvents, templates, org, surveys] = await Promise.all([
     db.event.findMany({
       where: {
         organizationId,
@@ -78,8 +79,6 @@ export async function findMediaReferences(
         sessionProposalWelcomeHtml: true,
         registrationTermsHtml: true,
         abstractGuidelinesHtml: true,
-        surveyIntroHtml: true,
-        surveyThankYouHtml: true,
         emailFooterHtml: true,
       },
     }),
@@ -93,6 +92,13 @@ export async function findMediaReferences(
     db.organization.findFirst({
       where: { id: organizationId, logo: url },
       select: { name: true },
+    }),
+    db.survey.findMany({
+      where: {
+        organizationId,
+        OR: [{ introHtml: { contains: url } }, { thankYouHtml: { contains: url } }],
+      },
+      select: { name: true, introHtml: true, thankYouHtml: true, event: { select: { name: true } } },
     }),
   ]);
 
@@ -109,6 +115,10 @@ export async function findMediaReferences(
   }
   for (const t of templates) {
     refs.push({ kind: "email-template", label: `${t.event.name} — email template "${t.name}"` });
+  }
+  for (const sv of surveys) {
+    if (sv.introHtml?.includes(url)) refs.push({ kind: "event-content", label: `${sv.event.name} — survey "${sv.name}" intro` });
+    if (sv.thankYouHtml?.includes(url)) refs.push({ kind: "event-content", label: `${sv.event.name} — survey "${sv.name}" thank-you message` });
   }
   if (org) refs.push({ kind: "organization-logo", label: `${org.name} — organization logo` });
   return refs;

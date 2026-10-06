@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCan } from "@/hooks/use-can";
 import {
@@ -57,6 +57,8 @@ import { ResetSurveyDialog, canResetSurvey } from "@/components/survey/reset-sur
 
 interface ResponsesPayload {
   event: { id: string; name: string };
+  /** The survey reported on (null = an event still on the old columns). */
+  survey: { id: string; name: string; gatesCertificates: boolean; isActive: boolean } | null;
   config: SurveyConfig;
   totalCount: number;
   aggregates: QuestionAggregate[];
@@ -81,15 +83,18 @@ const PAGE_SIZE = 50;
 export default function SurveyResponsesPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // Which survey (Oct 6, 2026). Absent = the certificate survey, as before.
+  const surveyId = useSearchParams().get("surveyId");
+  const surveyQuery = surveyId ? `surveyId=${encodeURIComponent(surveyId)}` : "";
 
   const [data, setData] = useState<ResponsesPayload | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { data: session } = useSession();
-  const canReset = canResetSurvey(session?.user?.role);
-  // The survey editor saves through the event PUT.
-  const canEditSurvey = useCan("events.update", eventId) === "allowed";
+  // Reset clears a certificate-survey completion; extra surveys have none.
+  const canReset = canResetSurvey(session?.user?.role) && data?.survey?.gatesCertificates !== false;
+  const canEditSurvey = useCan("surveys.manage", eventId) === "allowed";
   const [resetTarget, setResetTarget] = useState<{ registrationId: string; name: string } | null>(null);
 
   // ── Load ─────────────────────────────────────────────────────────────
@@ -100,7 +105,7 @@ export default function SurveyResponsesPage() {
       setError(null);
       try {
         const res = await fetch(
-          `/api/events/${eventId}/survey/responses?page=${targetPage}&pageSize=${PAGE_SIZE}`,
+          `/api/events/${eventId}/survey/responses?page=${targetPage}&pageSize=${PAGE_SIZE}${surveyQuery ? `&${surveyQuery}` : ""}`,
         );
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -116,7 +121,7 @@ export default function SurveyResponsesPage() {
         setLoading(false);
       }
     },
-    [eventId],
+    [eventId, surveyQuery],
   );
 
   useEffect(() => {
@@ -126,8 +131,8 @@ export default function SurveyResponsesPage() {
   // ── Derived ──────────────────────────────────────────────────────────
 
   const exportUrl = useMemo(
-    () => `/api/events/${eventId}/survey/responses/export`,
-    [eventId],
+    () => `/api/events/${eventId}/survey/responses/export${surveyQuery ? `?${surveyQuery}` : ""}`,
+    [eventId, surveyQuery],
   );
 
   // ── Render ───────────────────────────────────────────────────────────
@@ -163,17 +168,19 @@ export default function SurveyResponsesPage() {
     <div className="container max-w-6xl py-8">
       <div className="mb-6">
         <Link
-          href={`/events/${eventId}`}
+          href={`/events/${eventId}/survey`}
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3 w-3 mr-1" />
-          Back to event
+          All surveys
         </Link>
       </div>
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Survey Responses</h1>
+          <h1 className="text-2xl font-bold">
+            {data.survey ? `${data.survey.name}: responses` : "Survey Responses"}
+          </h1>
           <p className="text-muted-foreground mt-1">
             {data.totalCount === 0
               ? "No responses yet."
@@ -182,7 +189,13 @@ export default function SurveyResponsesPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {canEditSurvey && (
-            <Link href={`/events/${eventId}/survey`}>
+            <Link
+              href={
+                !data.survey || data.survey.gatesCertificates
+                  ? `/events/${eventId}/survey/certificate`
+                  : `/events/${eventId}/survey/${data.survey.id}`
+              }
+            >
               <Button variant="outline" size="sm">
                 <PenLine className="h-3.5 w-3.5 mr-1.5" />
                 Edit survey

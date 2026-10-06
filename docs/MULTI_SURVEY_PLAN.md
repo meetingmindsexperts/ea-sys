@@ -291,7 +291,10 @@ survey, so a webinar's feedback survey can sit beside a CME survey.
 
 | # | Question | Decision |
 |---|---|---|
-| O2 | Move the certificate flag after responses? | **No.** Refused (409) once the certificate survey has responses. |
+| O2 | Move the certificate flag after responses? | **Superseded the same day by L1: the flag never moves at all.** |
+| L1 | How protected is the CME survey? | **Reserved and locked** (owner: "cme survey should be unaffected by all means, even if you have to keep it reserved or lock it"). Each event has at most one certificate survey, in a reserved slot written only by `saveCertificateSurvey()` (route `PUT /surveys/certificate`) and the old Event-column path. No other write sets, moves or clears the flag: extra surveys are always ordinary, the update input has no flag, and the routes refuse a request that sends one (`.strict()`). The certificate survey cannot be deleted from the new screens even with no answers; it can be edited and opened or closed as today. Its link, gates, the certificate worker and the thank-you sweep are unchanged. |
+| L3 | Where does the CME survey's content come from during the build? | **The Event columns, this release** (review of step 2). The migration runs at push time, about 10 minutes before the container swap, while the old code still saves CME edits only to `Event.surveyConfig / surveyIntroHtml / surveyThankYouHtml`. So the personal link, the builder and the reports read the CME survey's questions, messages and open/closed state from those columns (`overlayCertificateFromEvent`), which the new code mirrors on every save. The link behaves exactly as before by construction. Creating the CME survey takes a row lock on its event (`SELECT … FOR UPDATE`), so two first saves cannot make two; a partial unique index would say it in the database but Prisma cannot represent one and CI's schema check would refuse it. The cleanup release that drops the columns must first re-run the catch-up copy, then remove the overlay. |
+| L2 | Can an extra survey block the CME survey? | **No, by ordering.** Until step 3 drops `SurveyResponse.registrationId @unique`, a person can hold one response in total, so answering an extra survey would block their CME survey. Therefore no extra survey is answerable before step 3 ships: the personal link opens only the certificate survey in step 2, and the webinar popup (step 4) must not ship before step 3. |
 | O4 | Thank-you email for non-certificate surveys? | **No.** On-page thank-you only. |
 | W1 | Which survey pops up when a webinar ends? | **Picked in the Webinar Console** ("End-of-webinar survey"), stored as `settings.webinar.endSurveyId`. The same survey's personal link goes into the webinar thank-you email. |
 | W2 | How firm is the popup? | **Closable, comes back.** It opens when the host ends the webinar or the room closes, has a "Later" button, leaves a banner on the page and reopens on the next visit until submitted. |
@@ -377,6 +380,9 @@ steps 4 and 5 are the webinar survey. Nothing changes for attendees until step 3
   resolves to the certificate survey (logs `survey:legacy-token`).
 - Public route resolves the survey from the token, adds the `isActive` gate
   ("This survey is closed"), submits through `submitSurveyResponse()`.
+- Before the composite unique: backfill `dedupKey = registrationId` (and
+  `surveyId`) on any response written by the old code during the step 2 swap
+  window, which carries neither.
 - Drop `registrationId @unique`, add `@@unique([surveyId, dedupKey])` and
   `@@index([registrationId])` in the same migration (step 1 left the index out
   because the unique already covers it; the accepted swap gap in §7 applies).

@@ -10,6 +10,7 @@ const mockDb = vi.hoisted(() => ({
   event: { findMany: vi.fn() },
   emailTemplate: { findMany: vi.fn() },
   organization: { findFirst: vi.fn() },
+  survey: { findMany: vi.fn() },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
@@ -22,6 +23,7 @@ function noHits() {
   mockDb.event.findMany.mockResolvedValue([]);
   mockDb.emailTemplate.findMany.mockResolvedValue([]);
   mockDb.organization.findFirst.mockResolvedValue(null);
+  mockDb.survey.findMany.mockResolvedValue([]);
 }
 
 beforeEach(() => {
@@ -85,6 +87,16 @@ describe("findMediaReferences", () => {
     }
     expect(mockDb.emailTemplate.findMany.mock.calls[0][0].where.event.organizationId).toBe(ORG);
     expect(mockDb.organization.findFirst.mock.calls[0][0].where.id).toBe(ORG);
+    expect(mockDb.survey.findMany.mock.calls[0][0].where.organizationId).toBe(ORG);
+  });
+
+  it("reports an image inside any survey's intro or thank-you, named by survey (Oct 6, 2026)", async () => {
+    mockDb.survey.findMany.mockResolvedValueOnce([
+      { name: "Webinar feedback", introHtml: `<img src="${URL}" />`, thankYouHtml: null, event: { name: "ESH Monthly" } },
+    ]);
+    expect(await findMediaReferences(URL, ORG)).toEqual([
+      { kind: "event-content", label: 'ESH Monthly — survey "Webinar feedback" intro' },
+    ]);
   });
 });
 

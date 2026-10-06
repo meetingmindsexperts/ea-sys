@@ -30,6 +30,13 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
     },
     surveyResponse: {
       create: vi.fn(),
+      count: vi.fn().mockResolvedValue(0),
+    },
+    // The event's certificate survey (Oct 6, 2026). Null by default: the
+    // route then falls back to the old Event columns, the shape every test
+    // below was written against.
+    survey: {
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     event: {
       findFirst: vi.fn(),
@@ -550,5 +557,57 @@ describe("retired shareable link", () => {
   it("is refused before the submit rate limit, so an old QR cannot spend a room's budget", async () => {
     await POST(makePostReq({ share: "share-token-abc", email: "sara@hospital.com" }), PARAMS);
     expect(mockRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("the personal link opens the event's certificate survey (multi-survey step 2, Oct 6, 2026)", () => {
+  const CERT = {
+    id: "svy-cert",
+    eventId: "evt-1",
+    name: "Post-event survey",
+    config: SAMPLE_CONFIG,
+    introHtml: "<p>Survey-table intro</p>",
+    thankYouHtml: "<p>Survey-table thanks</p>",
+    isActive: true,
+    sortOrder: 0,
+    gatesCertificates: true,
+    responseMode: "ONCE",
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+
+  it("GET serves the CME survey's content exactly as before (the Event columns), even if the Survey row differs", async () => {
+    // A Survey row left stale by an edit on the old screens during a deploy
+    // must never change what the personal link shows.
+    mockDb.survey.findFirst.mockResolvedValueOnce({ ...CERT, introHtml: "<p>stale row intro</p>", thankYouHtml: "<p>stale row thanks</p>" });
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    const res = await GET(makeGetReq("raw"), PARAMS);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.introHtml).toBe("<p>Intro</p>");
+    expect(body.thankYouHtml).toBe("<p>Thanks from the organizing committee</p>");
+  });
+
+  it("POST writes the response against the certificate survey and still marks completion", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(CERT);
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    const res = await POST(makePostReq({ token: "raw", answers: { q1: 5, q2: "Academia", q3: "Great!" } }), PARAMS);
+    expect(res.status).toBe(200);
+    const data = mockDb.surveyResponse.create.mock.calls[0][0].data;
+    expect(data.surveyId).toBe("svy-cert");
+    expect(data.dedupKey).toBe("reg-1");
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg-1" }, data: { surveyCompletedAt: expect.any(Date) } });
+  });
+
+  it("a cleared or closed CME survey (Event columns null) reads as no survey (404), as before", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(CERT);
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
+    mockDb.registration.findFirst.mockResolvedValueOnce(
+      baseRegistration({ event: { ...baseRegistration().event, surveyConfig: null } }),
+    );
+    const res = await GET(makeGetReq("raw"), PARAMS);
+    expect(res.status).toBe(404);
   });
 });

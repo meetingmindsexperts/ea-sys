@@ -1,164 +1,66 @@
 "use client";
 
 /**
- * Admin Survey Builder UI — per-event question editor.
+ * An event's surveys (Oct 6, 2026; docs/MULTI_SURVEY_PLAN.md).
  *
  *   /events/[eventId]/survey
  *
- * Each event has at most one survey, stored as ordered JSON on
- * `Event.surveyConfig`. The builder:
- *
- *   - lets the admin add / edit / reorder (up/down) / delete questions
- *   - per-question: type (single_select / rating_1_to_5 / text),
- *     label, required flag, options (single_select only), maxLength
- *     (text only)
- *   - saves via PUT /api/events/[eventId] with `{ surveyConfig: [...] }`
- *     or `{ surveyConfig: null }` to clear
- *
- * Q1 the question `id` is generated via `newQuestionId()` exactly once
- * at create time and preserved across renames + reorders — this is
- * the answer-linkage key. NEVER re-derive from array index.
- *
- * Q2 we don't use Tiptap here — labels are short strings, not rich
- * text. (Per the plan §"Per-event content editor UI conventions".)
- *
- * Q3 drag-to-reorder is explicitly deferred. Up/down arrow buttons.
+ * The certificate (CME) survey sits first in its reserved slot, locked: it is
+ * the only survey that marks a registration complete for certificates, and it
+ * can never be deleted or swapped. Extra surveys (webinar feedback, a needs
+ * survey, …) are listed below it; they record answers and never affect
+ * certificates. Each opens in the builder at ./[surveyId].
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useCan } from "@/hooks/use-can";
-import {
-  ArrowLeft,
-  ArrowDown,
-  ArrowUp,
-  BarChart3,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Loader2,
-  Plus,
-  Save,
-  Trash2,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useParams } from "next/navigation";
+import { ArrowLeft, BarChart3, ClipboardList, Loader2, Lock, Pencil, Plus } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import {
-  newQuestionId,
-  surveyConfigSchema,
-  type SurveyQuestion,
-} from "@/lib/survey/schema";
+import { useCan } from "@/hooks/use-can";
 
-// Lazy-load the WYSIWYG editor (heavy; client-only) — same pattern as the
-// Content page and Email Templates.
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
-  {
-    ssr: false,
-    loading: () => <div className="h-[300px] animate-pulse rounded-md border bg-muted" />,
-  },
-);
-
-const QUESTION_TYPE_LABELS: Record<SurveyQuestion["type"], string> = {
-  single_select: "Single select",
-  rating_1_to_5: "Rating (1–5)",
-  text: "Free text",
-};
-
-// Tiptap emits "<p></p>" (and similar) for an empty document — treat that
-// as empty so the public form falls back to its default copy. Used for both
-// the intro and the thank-you message.
-function richTextIsEmpty(html: string): boolean {
-  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() === "";
+interface SurveyListRow {
+  id: string;
+  name: string;
+  config: unknown;
+  isActive: boolean;
+  gatesCertificates: boolean;
+  responseCount: number;
+  updatedAt: string;
 }
 
-function defaultQuestion(type: SurveyQuestion["type"]): SurveyQuestion {
-  const id = newQuestionId();
-  switch (type) {
-    case "single_select":
-      return { id, type, label: "", required: true, options: ["", ""] };
-    case "rating_1_to_5":
-      return { id, type, label: "", required: true };
-    case "text":
-      return { id, type, label: "", required: false };
-  }
+function questionCount(config: unknown): number {
+  return Array.isArray(config) ? config.length : 0;
 }
 
-export default function SurveyBuilderPage() {
+export default function SurveysPage() {
   const params = useParams();
   const eventId = params.eventId as string;
-  // The survey saves through the event PUT, so that route's key decides.
   const canEdit = useCan("surveys.manage", eventId) === "allowed";
-
-  const [eventName, setEventName] = useState<string>("");
-  const [eventSlug, setEventSlug] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [introHtml, setIntroHtml] = useState<string>("");
-  const [thankYouHtml, setThankYouHtml] = useState<string>("");
-
-  // ── Load ─────────────────────────────────────────────────────────────
+  const [eventName, setEventName] = useState("");
+  const [surveys, setSurveys] = useState<SurveyListRow[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
       try {
-        const res = await fetch(`/api/events/${eventId}`);
+        const res = await fetch(`/api/events/${eventId}/surveys`);
         if (!res.ok) {
-          toast.error("Could not load the event.");
+          console.warn("surveys:list-failed", res.status);
+          toast.error("Could not load the surveys.");
           return;
         }
         const data = await res.json();
         if (cancelled) return;
-        setEventName(data.name ?? "");
-        setEventSlug(data.slug ?? "");
-        setIntroHtml(data.surveyIntroHtml ?? "");
-        setThankYouHtml(data.surveyThankYouHtml ?? "");
-        const stored = data.surveyConfig;
-        if (Array.isArray(stored)) {
-          // Validate against the current Zod schema before adopting —
-          // an older format (e.g. pre-shape-change) would otherwise
-          // round-trip and crash the builder when an admin clicked Save.
-          const parsed = surveyConfigSchema.safeParse(stored);
-          if (parsed.success) {
-            setQuestions(parsed.data);
-          } else {
-            console.warn("survey:stored-config-invalid", parsed.error.flatten());
-            toast.error(
-              "The saved survey has an unrecognized format. Please rebuild it.",
-            );
-            setQuestions([]);
-          }
-        } else {
-          setQuestions([]);
-        }
+        setEventName(data.event?.name ?? "");
+        setSurveys(data.surveys ?? []);
       } catch (err) {
-        console.error("survey:load-failed", err);
-        toast.error("Failed to load the survey.");
+        console.error("surveys:list-failed", err);
+        toast.error("Could not load the surveys.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -168,627 +70,133 @@ export default function SurveyBuilderPage() {
     };
   }, [eventId]);
 
-  // ── Mutations (immutable updates) ────────────────────────────────────
-
-  const addQuestion = useCallback((type: SurveyQuestion["type"]) => {
-    // Defensive try/catch — if defaultQuestion (which calls
-    // newQuestionId → globalThis.crypto.randomUUID) ever throws,
-    // surface the error in console + toast rather than letting
-    // React's error boundary swallow it silently. This was the
-    // "no logs" failure mode that blocked the builder before the
-    // schema.ts fix removed the Node-only `crypto` import.
-    try {
-      const q = defaultQuestion(type);
-      setQuestions((prev) => [...prev, q]);
-      setExpanded((prev) => new Set(prev).add(q.id));
-    } catch (err) {
-      console.error("survey:add-question-failed", { type, err });
-      toast.error(
-        "Couldn't add the question — open the browser console for details.",
-      );
-    }
-  }, []);
-
-  const removeQuestion = useCallback((id: string) => {
-    setQuestions((prev) => prev.filter((q) => q.id !== id));
-  }, []);
-
-  const moveQuestion = useCallback((id: string, dir: -1 | 1) => {
-    setQuestions((prev) => {
-      const i = prev.findIndex((q) => q.id === id);
-      if (i < 0) return prev;
-      const j = i + dir;
-      if (j < 0 || j >= prev.length) return prev;
-      const next = prev.slice();
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
-  }, []);
-
-  const updateQuestion = useCallback(
-    (id: string, patch: Partial<SurveyQuestion>) => {
-      setQuestions((prev) =>
-        prev.map((q) => {
-          if (q.id !== id) return q;
-          // Preserve discriminator — `type` changes go through a
-          // separate path so we never produce an ill-typed mix.
-          return { ...q, ...patch } as SurveyQuestion;
-        }),
-      );
-    },
-    [],
-  );
-
-  const changeQuestionType = useCallback(
-    (id: string, type: SurveyQuestion["type"]) => {
-      setQuestions((prev) =>
-        prev.map((q) => {
-          if (q.id !== id) return q;
-          // Preserve id + label + required (label especially — an
-          // admin who typo'd "type" doesn't want to lose their
-          // wording). Drop type-specific fields by re-deriving
-          // from defaultQuestion(type).
-          const fresh = defaultQuestion(type);
-          return { ...fresh, id: q.id, label: q.label, required: q.required };
-        }),
-      );
-    },
-    [],
-  );
-
-  const toggleExpanded = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  // ── Save ─────────────────────────────────────────────────────────────
-
-  const handleSave = useCallback(
-    async (mode: "save" | "clear") => {
-      if (mode === "save") {
-        const parsed = surveyConfigSchema.safeParse(questions);
-        if (!parsed.success) {
-          // Surface the full flattened error to the console so the
-          // operator (and any future engineer) can see EVERY failing
-          // field, not just the first one in the toast. Matches the
-          // "every failure path must log" rule.
-          console.warn("survey:save-client-validation-failed", parsed.error.flatten());
-          const first = parsed.error.issues[0];
-          toast.error(
-            first ? `${first.path.join(".") || "Survey"}: ${first.message}` : "Please fix the survey before saving.",
-          );
-          return;
-        }
-      }
-      setSaving(true);
-      try {
-        const res = await fetch(`/api/events/${eventId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            surveyConfig: mode === "clear" ? null : questions,
-            // Persist the intro alongside the questions. Empty editor
-            // (only whitespace / empty <p>) saves as null so the public
-            // form falls back to its default intro copy.
-            surveyIntroHtml: richTextIsEmpty(introHtml) ? null : introHtml,
-            // Same rule for the thank-you shown after submitting.
-            surveyThankYouHtml: richTextIsEmpty(thankYouHtml) ? null : thankYouHtml,
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          toast.error(
-            typeof data.error === "string"
-              ? data.error
-              : "Failed to save the survey.",
-          );
-          return;
-        }
-        toast.success(mode === "clear" ? "Survey cleared." : "Survey saved.");
-        if (mode === "clear") setQuestions([]);
-      } catch (err) {
-        console.error("survey:save-failed", err);
-        toast.error("Failed to save the survey.");
-      } finally {
-        setSaving(false);
-      }
-    },
-    [eventId, questions, introHtml, thankYouHtml],
-  );
-
-  const dirtyCount = questions.length;
-  const previewLink = useMemo(() => {
-    if (!eventSlug) return null;
-    return `/e/${encodeURIComponent(eventSlug)}/survey`;
-  }, [eventSlug]);
-
-  // ── Render ───────────────────────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="container py-8">
-        <div className="flex items-center justify-center h-64">
+        <div className="flex h-64 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       </div>
     );
   }
 
+  const certificate = surveys.find((s) => s.gatesCertificates) ?? null;
+  const extras = surveys.filter((s) => !s.gatesCertificates);
+
   return (
     <div className="container max-w-4xl py-8">
       <div className="mb-6">
-        <Link
-          href={`/events/${eventId}`}
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3 w-3 mr-1" />
+        <Link href={`/events/${eventId}`} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="mr-1 h-3 w-3" />
           Back to event
         </Link>
       </div>
 
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Survey</h1>
-          <p className="text-muted-foreground mt-1">
-            Post-event feedback questions for <span className="font-medium">{eventName}</span>.
+          <h1 className="text-2xl font-bold">Surveys</h1>
+          <p className="mt-1 text-muted-foreground">
+            Feedback and certificate surveys for <span className="font-medium">{eventName}</span>.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Link href={`/events/${eventId}/survey/responses`}>
-            <Button variant="outline" size="sm">
-              <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
-              View responses
+        {canEdit && (
+          <Link href={`/events/${eventId}/survey/new`}>
+            <Button size="sm">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              New survey
             </Button>
           </Link>
-          {previewLink ? (
-            <Link
-              href={`${previewLink}?preview=1`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Button variant="outline" size="sm">
-                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                Preview
-              </Button>
-            </Link>
-          ) : null}
-          {canEdit && (
-          <Button
-            onClick={() => void handleSave("save")}
-            disabled={saving || dirtyCount === 0}
-            size="sm"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save className="h-3.5 w-3.5 mr-1.5" />
-                Save survey
-              </>
-            )}
-          </Button>
-          )}
-        </div>
-      </div>
-
-      {/* How it works — gated by a small disclosure so it doesn't shout */}
-      <Card className="mb-6 border-dashed">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">How surveys work</CardTitle>
-          <CardDescription className="text-xs">
-            Send the survey from{" "}
-            <Link href={`/events/${eventId}/communications`} className="font-medium text-primary hover:underline">
-              Communications
-            </Link>{" "}
-            with the <span className="font-medium">Survey Invitation</span> email. Each registrant
-            gets their own personal link, already tied to their name and email, and you choose
-            how many days it stays valid. Completing the survey adds the{" "}
-            <code className="text-xs">survey-completed</code> tag to their record — useful as
-            a filter when issuing CME certificates.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      {/* Intro + thank-you messages — organizer-authored rich text around the
-          public form. Both optional; each falls back to default copy. Side by
-          side on wide screens because they are the two ends of one page. */}
-      <div className="mb-6 grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Intro message</CardTitle>
-            <CardDescription className="text-xs">
-              Shown at the top of the survey, above the questions: context or instructions.
-              Leave blank to use the default intro.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TiptapEditor
-              content={introHtml}
-              onChange={setIntroHtml}
-              placeholder="Your feedback helps us improve future events…"
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Thank-you message</CardTitle>
-            <CardDescription className="text-xs">
-              Shown once someone submits the survey, and if they open a later invitation
-              after already answering. Leave blank to use the default thank-you.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TiptapEditor
-              content={thankYouHtml}
-              onChange={setThankYouHtml}
-              placeholder="Thank you for your feedback! Your certificate will follow by email…"
-            />
-          </CardContent>
-        </Card>
-        {canEdit && (
-          <p className="text-xs text-muted-foreground lg:col-span-2">
-            Both are saved with the survey when you click{" "}
-            <span className="font-medium">Save survey</span>.
-          </p>
         )}
       </div>
 
-      {questions.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground mb-4">
-              {canEdit ? "No questions yet. Add your first question to get started." : "No questions yet."}
-            </p>
-            {canEdit && (
-            <div className="inline-flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => addQuestion("rating_1_to_5")}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add rating
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => addQuestion("single_select")}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add single select
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => addQuestion("text")}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add free text
-              </Button>
+      {/* The reserved, locked CME slot */}
+      <Card className="mb-6 border-primary/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Certificate (CME) survey
+            <Badge variant="secondary" className="gap-1 text-xs">
+              <Lock className="h-3 w-3" />
+              Reserved
+            </Badge>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Completing this survey is what issues CME certificates. It is locked: it cannot be deleted or swapped for
+            another survey.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {certificate ? (
+            <SurveyRow eventId={eventId} survey={certificate} canEdit={canEdit} />
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed p-4">
+              <p className="text-sm text-muted-foreground">No certificate survey yet.</p>
+              {canEdit && (
+                <Link href={`/events/${eventId}/survey/certificate`}>
+                  <Button variant="outline" size="sm">
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Set up the certificate survey
+                  </Button>
+                </Link>
+              )}
             </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {questions.map((q, idx) => (
-            <QuestionCard
-              key={q.id}
-              question={q}
-              index={idx}
-              isFirst={idx === 0}
-              isLast={idx === questions.length - 1}
-              expanded={expanded.has(q.id)}
-              onToggle={() => toggleExpanded(q.id)}
-              onMove={(dir) => moveQuestion(q.id, dir)}
-              onRemove={() => removeQuestion(q.id)}
-              onUpdate={(patch) => updateQuestion(q.id, patch)}
-              onChangeType={(type) => changeQuestionType(q.id, type)}
-              canEdit={canEdit}
-            />
-          ))}
-
-          {canEdit && (
-          <div className="flex flex-wrap gap-2 pt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => addQuestion("rating_1_to_5")}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add rating
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => addQuestion("single_select")}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add single select
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => addQuestion("text")}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add free text
-            </Button>
-            <div className="flex-1" />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleSave("clear")}
-              disabled={saving}
-              className="text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              Clear survey
-            </Button>
-          </div>
           )}
-        </div>
-      )}
+        </CardContent>
+      </Card>
+
+      {/* Extra surveys */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Other surveys</CardTitle>
+          <CardDescription className="text-xs">
+            Webinar feedback, a needs survey, speaker feedback. Answers are recorded and exported, and never affect
+            certificates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {extras.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-6 text-center">
+              <ClipboardList className="h-6 w-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No other surveys yet.</p>
+            </div>
+          ) : (
+            extras.map((s) => <SurveyRow key={s.id} eventId={eventId} survey={s} canEdit={canEdit} />)
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-// ── Per-question card ────────────────────────────────────────────────
-
-interface QuestionCardProps {
-  question: SurveyQuestion;
-  index: number;
-  isFirst: boolean;
-  isLast: boolean;
-  expanded: boolean;
-  onToggle: () => void;
-  onMove: (dir: -1 | 1) => void;
-  onRemove: () => void;
-  onUpdate: (patch: Partial<SurveyQuestion>) => void;
-  onChangeType: (type: SurveyQuestion["type"]) => void;
-  canEdit: boolean;
-}
-
-function QuestionCard({
-  question,
-  index,
-  isFirst,
-  isLast,
-  expanded,
-  onToggle,
-  onMove,
-  onRemove,
-  onUpdate,
-  onChangeType,
-  canEdit,
-}: QuestionCardProps) {
+function SurveyRow({ eventId, survey, canEdit }: { eventId: string; survey: SurveyListRow; canEdit: boolean }) {
+  const editHref = survey.gatesCertificates ? `/events/${eventId}/survey/certificate` : `/events/${eventId}/survey/${survey.id}`;
   return (
-    <Card>
-      <CardHeader className="py-3 px-4">
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex-1 text-left -m-1 p-1 rounded hover:bg-muted/50"
-            aria-expanded={expanded}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {index + 1}.
-              </span>
-              <Badge variant="secondary" className="text-xs">
-                {QUESTION_TYPE_LABELS[question.type]}
-              </Badge>
-              {question.required ? (
-                <Badge variant="outline" className="text-xs">
-                  Required
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-xs text-muted-foreground">
-                  Optional
-                </Badge>
-              )}
-              <span className="flex-1 text-sm font-medium truncate">
-                {question.label || (
-                  <span className="text-muted-foreground italic">Untitled question</span>
-                )}
-              </span>
-              {expanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
-          </button>
-          {canEdit && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              disabled={isFirst}
-              onClick={() => onMove(-1)}
-              aria-label="Move up"
-            >
-              <ArrowUp className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              disabled={isLast}
-              onClick={() => onMove(1)}
-              aria-label="Move down"
-            >
-              <ArrowDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={onRemove}
-              aria-label="Delete question"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          )}
-        </div>
-      </CardHeader>
-      {expanded ? (
-        <CardContent className="px-4 pb-4 pt-0 space-y-4 border-t">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr,200px] gap-3 pt-3">
-            <div>
-              <Label htmlFor={`q-${question.id}-label`} className="text-xs mb-1.5 block">
-                Question text
-              </Label>
-              <Textarea
-                id={`q-${question.id}-label`}
-                value={question.label}
-                onChange={(e) => onUpdate({ label: e.target.value })}
-                placeholder="e.g. Please rate the overall conference experience."
-                rows={2}
-                maxLength={500}
-              />
-            </div>
-            <div>
-              <Label className="text-xs mb-1.5 block">Type</Label>
-              <Select
-                value={question.type}
-                onValueChange={(value) =>
-                  onChangeType(value as SurveyQuestion["type"])
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="rating_1_to_5">Rating (1–5)</SelectItem>
-                  <SelectItem value="single_select">Single select</SelectItem>
-                  <SelectItem value="text">Free text</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex items-center justify-between mt-3">
-                <Label htmlFor={`q-${question.id}-required`} className="text-xs">
-                  Required
-                </Label>
-                <Switch
-                  id={`q-${question.id}-required`}
-                  checked={question.required}
-                  onCheckedChange={(checked) => onUpdate({ required: checked })}
-                />
-              </div>
-            </div>
-          </div>
-
-          {question.type === "single_select" ? (
-            <OptionsEditor
-              options={question.options}
-              onChange={(options) => onUpdate({ options })}
-            />
-          ) : null}
-
-          {question.type === "text" ? (
-            <div className="grid grid-cols-1 sm:grid-cols-[200px,1fr] gap-3 items-end">
-              <div>
-                <Label htmlFor={`q-${question.id}-maxlen`} className="text-xs mb-1.5 block">
-                  Max length (optional)
-                </Label>
-                <Input
-                  id={`q-${question.id}-maxlen`}
-                  type="number"
-                  min={1}
-                  max={10000}
-                  value={question.maxLength ?? ""}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === "") {
-                      onUpdate({ maxLength: undefined });
-                      return;
-                    }
-                    const n = Number(raw);
-                    if (Number.isInteger(n) && n >= 1 && n <= 10000) {
-                      onUpdate({ maxLength: n });
-                    }
-                  }}
-                  placeholder="2000"
-                />
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {(question.maxLength ?? 0) > 200
-                  ? "Renders as a multi-line textarea."
-                  : "Renders as a single-line input."}
-              </div>
-            </div>
-          ) : null}
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
-
-function OptionsEditor({
-  options,
-  onChange,
-}: {
-  options: string[];
-  onChange: (next: string[]) => void;
-}) {
-  return (
-    <div>
-      <Label className="text-xs mb-1.5 block">
-        Options{" "}
-        <span className="text-muted-foreground">(2 minimum, 20 maximum)</span>
-      </Label>
-      <div className="space-y-2">
-        {options.map((opt, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground tabular-nums w-6">
-              {i + 1}.
-            </span>
-            <Input
-              value={opt}
-              onChange={(e) => {
-                const next = options.slice();
-                next[i] = e.target.value;
-                onChange(next);
-              }}
-              placeholder={`Option ${i + 1}`}
-              maxLength={200}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:text-destructive shrink-0"
-              disabled={options.length <= 2}
-              onClick={() => {
-                onChange(options.filter((_, j) => j !== i));
-              }}
-              aria-label={`Remove option ${i + 1}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        ))}
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 font-medium">
+          {survey.name}
+          <Badge variant={survey.isActive ? "outline" : "secondary"} className="text-xs">
+            {survey.isActive ? "Open" : "Closed"}
+          </Badge>
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {questionCount(survey.config)} question{questionCount(survey.config) === 1 ? "" : "s"} ·{" "}
+          {survey.responseCount} answer{survey.responseCount === 1 ? "" : "s"}
+        </p>
       </div>
-      {options.length < 20 ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2"
-          onClick={() => onChange([...options, ""])}
-        >
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Add option
-        </Button>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-2">
+        <Link href={`/events/${eventId}/survey/responses?surveyId=${encodeURIComponent(survey.id)}`}>
+          <Button variant="outline" size="sm">
+            <BarChart3 className="mr-1.5 h-3.5 w-3.5" />
+            Responses
+          </Button>
+        </Link>
+        <Link href={editHref}>
+          <Button variant="outline" size="sm">
+            <Pencil className="mr-1.5 h-3.5 w-3.5" />
+            {canEdit ? "Edit" : "View"}
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }

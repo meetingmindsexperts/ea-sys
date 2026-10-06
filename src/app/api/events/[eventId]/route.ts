@@ -33,6 +33,7 @@ import {
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
+import { applyLegacyEventSurveyWrite } from "@/services/survey-service";
 import { readWebinarSettings } from "@/lib/webinar";
 import {
   updateSession as updateSessionService,
@@ -760,6 +761,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });
+
+    // The old survey fields (kept for one release for clients still on them,
+    // docs/MULTI_SURVEY_PLAN.md §14 step 2) land on the certificate survey,
+    // which is what the survey link and the builder now read. Failure-isolated
+    // like the follow-through below: the event already saved.
+    if (surveyConfig !== undefined || surveyIntroHtml !== undefined || surveyThankYouHtml !== undefined) {
+      try {
+        await runWithTenant(orgGuard.orgId, () =>
+          applyLegacyEventSurveyWrite(
+            { eventId, organizationId: orgGuard.orgId, userId: session.user.id, source: "rest" },
+            { config: surveyConfig, introHtml: surveyIntroHtml, thankYouHtml: surveyThankYouHtml },
+          ),
+        );
+      } catch (err) {
+        apiLogger.error({ err, msg: "event:legacy-survey-write-failed", eventId });
+      }
+    }
 
     // Post-commit follow-through for a shift: Zoom meetings and, on a webinar,
     // the reminder-email schedule. Both are external or lock-holding work that
