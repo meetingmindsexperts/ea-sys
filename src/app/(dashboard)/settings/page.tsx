@@ -65,6 +65,7 @@ import {
   LogOut,
   Wallet,
   ShieldCheck,
+  ListOrdered,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -639,6 +640,14 @@ export default function SettingsPage() {
             <TabsTrigger value="roles" className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4" />
               Roles
+            </TabsTrigger>
+          )}
+          {/* Approvals are who signs off, not what someone can do, so they
+              have their own tab (owner, Oct 6, 2026). Budgets only. */}
+          {isSuperAdmin && procurementEnabled && (
+            <TabsTrigger value="approvals" className="flex items-center gap-2">
+              <ListOrdered className="h-4 w-4" />
+              Approvals
             </TabsTrigger>
           )}
           {isOrganizerOrAbove && (
@@ -1317,9 +1326,16 @@ export default function SettingsPage() {
         {isSuperAdmin && rolesTabEnabled && (
           <TabsContent value="roles">
             {/* Two kinds, two cards, two dialogs (owner, Oct 5, 2026). */}
-            {customRolesEnabled && <PermissionSetsCard kind="custom" />}
-            {procurementEnabled && <PermissionSetsCard kind="procurement" />}
-            {procurementEnabled && <ApprovalChainCard />}
+            <div className="space-y-6">
+              {customRolesEnabled && <PermissionSetsCard kind="custom" />}
+              {procurementEnabled && <PermissionSetsCard kind="procurement" />}
+            </div>
+          </TabsContent>
+        )}
+
+        {isSuperAdmin && procurementEnabled && (
+          <TabsContent value="approvals">
+            <ApprovalChainCard />
           </TabsContent>
         )}
 

@@ -196,7 +196,7 @@ whatever their base role.
 | Author a budget (create, edit, submit, new version) | SUPER_ADMIN · ADMIN · ORGANIZER, or `procurement.budgets.create` / `.edit` |
 | Manage the product catalogue | SUPER_ADMIN · ADMIN, or `procurement.catalogue.manage` |
 | Raise a spend request | the per-person request grant, or `procurement.requests.create` (the final approver's account is refused as a requester) |
-| Approve or reject | the per-person approval ceiling in AED, or unlimited; the ceiling always lives on the person, never on a role. When the super admin saves an approval chain (Settings, Roles, Sep 28 2026), the chain names WHO decides spend requests (2 to 4 people in order, the last unlimited) and budgets and moves (one approver), whatever the amount; each must still hold approval access |
+| Approve or reject | the per-person approval ceiling in AED, or unlimited; the ceiling always lives on the person, never on a role. When the super admin saves an approval chain (Settings, Approvals tab since Oct 6 2026; first shipped under Roles on Sep 28 2026), the chain names WHO decides spend requests (2 to 4 people in order, the last unlimited) and budgets and moves (one approver), whatever the amount; each must still hold approval access |
 | Stand in for the last level of a chain | the person the super admin names as stand-in (spend requests) or backup (budgets), checked live at each decision; may hold the settle grant; needs Budgets access |
 | Set the approval chains | SUPER_ADMIN only; the super admin is never an approver |
 | Sign off a closed budget | the per-person settle grant, or `procurement.budgets.signoff`; a signer who approved some of the event's purchases may sign off, and the close-out names them |

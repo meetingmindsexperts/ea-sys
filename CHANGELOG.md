@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: approvals have their own Settings tab (October 6)
+
+- The spend request approval chain and the budget approver moved from
+  Settings, Roles to a new Settings, Approvals tab (super admin, Budgets on).
+  Roles now holds only the custom roles and the Budgets roles: a role is what
+  someone can do, an approval chain is who signs off. No data or API change.
+
 ### Added: event staff assignments as a table (October 5)
 
 - Custom roles Phase 4, release 1. Which events an Onsite (desk) user may

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Settings → Roles: the approval chains (Sep 28, 2026).
+ * Settings → Approvals: the approval chains (Sep 28, 2026).
  *
  *   Spend requests   2 to 4 people in order, whatever the amount, the last the
  *                    final approver; the order is issued after the last
@@ -75,8 +75,8 @@ export function ApprovalChainCard() {
   });
 
   return (
-    <>
-      <Card className="mt-6 overflow-hidden pt-0">
+    <div className="space-y-6">
+      <Card className="overflow-hidden pt-0">
         <CardHeader className="border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent pt-6 pb-5">
           <CardTitle className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/15 text-primary">
@@ -97,7 +97,7 @@ export function ApprovalChainCard() {
         </CardContent>
       </Card>
 
-      <Card className="mt-6 overflow-hidden pt-0">
+      <Card className="overflow-hidden pt-0">
         <CardHeader className="border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent pt-6 pb-5">
           <CardTitle className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/15 text-primary">
@@ -116,7 +116,7 @@ export function ApprovalChainCard() {
           {data && <ChainEditor kind="BUDGET" saved={data.chains.BUDGET} candidates={data.candidates} />}
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }
 
