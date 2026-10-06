@@ -70,6 +70,13 @@ export const UPLOAD_SEGMENT = {
    * the request's quote-file route, which binds the file to the row.
    */
   procurementQuotes: "procurement-quotes",
+  /**
+   * Webinar handouts (Oct 6, 2026): slides and reading for a webinar's
+   * attendees. Private (owner): streamed only to a signed-in registrant of
+   * that webinar through the handout route, so a forwarded link opens for
+   * no one else.
+   */
+  webinarHandouts: "webinar-handouts",
 } as const;
 
 export type UploadSegment = (typeof UPLOAD_SEGMENT)[keyof typeof UPLOAD_SEGMENT];
@@ -92,6 +99,7 @@ export const UPLOAD_PREFIX = {
   emailAttachments: uploadPrefix(UPLOAD_SEGMENT.emailAttachments),
   supportingDocuments: uploadPrefix(UPLOAD_SEGMENT.supportingDocuments),
   procurementQuotes: uploadPrefix(UPLOAD_SEGMENT.procurementQuotes),
+  webinarHandouts: uploadPrefix(UPLOAD_SEGMENT.webinarHandouts),
 } as const;
 
 /**

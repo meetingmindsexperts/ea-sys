@@ -6,6 +6,8 @@ import { useSession } from "next-auth/react";
 import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError } from "@/lib/api-fetch";
 
+import type { WebinarHandout } from "@/lib/webinar/handouts";
+
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
@@ -2493,6 +2495,7 @@ export interface WebinarConsoleData {
     endSurveyId?: string;
     thankYouSurveyLink?: boolean;
     qaUpvote?: boolean;
+    handouts?: WebinarHandout[];
   };
   anchorSession: {
     id: string;
@@ -2534,6 +2537,49 @@ export function useUpdateWebinarSettings(eventId: string) {
         `/api/events/${eventId}/webinar`,
         { method: "PUT", body: JSON.stringify(data), headers: { "Content-Type": "application/json" } },
       ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+/** Webinar handouts (Oct 6, 2026): each change returns the new list and refreshes the console. */
+export function useUploadWebinarHandout(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      return fetchApi<{ handouts: WebinarHandout[] }>(`/api/events/${eventId}/webinar/handouts`, { method: "POST", body });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+export function useReorderWebinarHandouts(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: string[]) =>
+      fetchApi<{ handouts: WebinarHandout[] }>(`/api/events/${eventId}/webinar/handouts`, {
+        method: "PATCH",
+        body: JSON.stringify({ order }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+export function useDeleteWebinarHandout(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (handoutId: string) =>
+      fetchApi<{ handouts: WebinarHandout[] }>(`/api/events/${eventId}/webinar/handouts/${encodeURIComponent(handoutId)}`, {
+        method: "DELETE",
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },

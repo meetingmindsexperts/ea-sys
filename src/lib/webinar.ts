@@ -101,6 +101,9 @@ export interface WebinarSettings {
   /** Attendees may upvote the questions shown to everyone (Oct 6, 2026);
    *  unset means yes. The Webinar Console's Q&A switch. */
   qaUpvote?: boolean;
+  /** Files for attendees, in display order (Oct 6, 2026); see
+   *  src/lib/webinar/handouts.ts. Written only by the handouts routes. */
+  handouts?: import("./webinar/handouts").WebinarHandout[];
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** ISO time the producer last opened the room. The auto-close job only

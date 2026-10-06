@@ -12,6 +12,9 @@
  *   embed keeps the full width on a laptop (it sizes itself and is fragile
  *   about fit).
  * - Neither: no grid.
+ *
+ * `showPanelists` means "the left column has something": the panelists card,
+ * the handouts card under it (Oct 6, 2026), or both.
  */
 export interface WebinarVideoLayout {
   grid: string | undefined;

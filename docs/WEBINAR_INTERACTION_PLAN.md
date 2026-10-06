@@ -1,6 +1,6 @@
 # Webinar interaction on the Custom stream page
 
-**Status: §3 Q&A upvote BUILT (October 6, 2026); the rest PLANNED.** Written
+**Status: §3 Q&A upvote and §4 handouts BUILT (October 6, 2026); the rest PLANNED.** Written
 after the owner compared EA-SYS with another platform's host control panel
 ("how much of this can we do?"). Decisions still open are in §8.
 
@@ -19,7 +19,7 @@ them. What they can do today is what EA-SYS builds on the page itself.
 |---|---|---|
 | Q&A: moderated, submission | **Built** (Oct 1, 2026). Attendees ask beside the video (`WebinarViewerQuestion`); moderators choose which questions everyone sees (Webinar Console, Q&A tab, `isPublic`). | Done |
 | Q&A upvote | **Built** (Oct 6, 2026) | §3 |
-| Handouts | Not built | §4, small |
+| Handouts | **Built** (Oct 6, 2026) | §4 |
 | Polls | Not built for Custom stream. Zoom polls are pulled after the event (`WebinarPoll`), but only reach people inside Zoom. | §5, medium |
 | Public chat, auto-mute | Not built | §6, large |
 | Private chat (attendee and presenter) | Not built | §7, large |
@@ -85,6 +85,22 @@ producer chose: slides, a PDF, a reading list.
   existing uploads path.
 - **Tests:** a foreign media id refused at save; not served to an anonymous
   visitor.
+
+**As built (Oct 6, 2026), with the owner's two decisions:** the event media
+library takes images only (2 MB), so handouts do not use it. They are their
+own files, **private** (owner: "signed-in registrants") under the
+`webinar-handouts/{eventId}/` prefix, which the public `/uploads` route
+refuses; **PDF, PPTX or DOCX up to 8 MB** each (owner; under the box's 10 MB
+nginx limit), checked by extension and first bytes, at most 10. The list lives
+in `settings.webinar.handouts` (src/lib/webinar/handouts.ts), written only by
+`updateHandouts` under a row lock. Console: a Handouts card on the Setup tab
+(add, reorder, remove with confirmation; read-only without
+`webinar.manage`). Attendee page: a Handouts card under the panelists,
+refreshed every minute; the list and each download go through routes with
+the Q&A gate (signed-in registrant or org staff), a download reads only
+through this event's own prefix, PDFs open in the browser and Office files
+download. Handouts stay available after the event is marked COMPLETED.
+Tests in `webinar-handouts.test.ts`.
 
 ## 5. Polls
 

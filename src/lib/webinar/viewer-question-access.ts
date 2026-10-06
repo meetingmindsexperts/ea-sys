@@ -51,9 +51,13 @@ export async function loadQuestionContext(
   req: Request,
   slug: string,
   sessionId: string,
+  /** Handouts stay downloadable after the event is marked COMPLETED. */
+  opts: { includeCompleted?: boolean } = {},
 ): Promise<{ id: string; organizationId: string; webinar: WebinarSettings | null } | null> {
+  const statuses: ("DRAFT" | "PUBLISHED" | "LIVE" | "COMPLETED")[] = ["DRAFT", "PUBLISHED", "LIVE"];
+  if (opts.includeCompleted) statuses.push("COMPLETED");
   const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
+    where: await publicEventWhere(req, slug, { statuses }),
     select: { id: true, organizationId: true, eventType: true, settings: true },
   });
   if (!event) return null;

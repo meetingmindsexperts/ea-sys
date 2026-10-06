@@ -67,12 +67,23 @@ import {
   Eye,
   EyeOff,
   ThumbsUp,
+  FileText,
+  Upload,
+  ArrowUp,
+  ArrowDown,
   Palette,
   ClipboardList,
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
+import {
+  HANDOUT_ACCEPT,
+  MAX_HANDOUTS,
+  MAX_HANDOUT_MB,
+  formatHandoutSize,
+  type WebinarHandout,
+} from "@/lib/webinar/handouts";
 import {
   useWebinar,
   useUpdateWebinarSettings,
@@ -84,6 +95,9 @@ import {
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
   useEventSurveys,
+  useUploadWebinarHandout,
+  useReorderWebinarHandouts,
+  useDeleteWebinarHandout,
   useProvisionWebinar,
   useWebinarSequence,
   useReenqueueWebinarSequence,
@@ -398,6 +412,7 @@ export default function WebinarConsolePage() {
                 endSurveyId={data?.webinar?.endSurveyId ?? ""}
                 emailLink={data?.webinar?.thankYouSurveyLink !== false}
               />
+              <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
             </div>
             <div className="space-y-6">
               <GoLiveCard
@@ -2890,6 +2905,147 @@ function GoLiveCard({
           </p>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Webinar handouts (Oct 6, 2026; docs/WEBINAR_INTERACTION_PLAN.md §4): files
+ * for attendees, listed beside the video. Private: only signed-in registrants
+ * of this webinar can open them. PDF, PPTX or DOCX, 8 MB each, up to 10.
+ * Producers (webinar.manage) add, reorder and remove; others see the list.
+ */
+function HandoutsCard({ eventId, handouts }: { eventId: string; handouts: WebinarHandout[] }) {
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const upload = useUploadWebinarHandout(eventId);
+  const reorder = useReorderWebinarHandouts(eventId);
+  const remove = useDeleteWebinarHandout(eventId);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [pendingDelete, setPendingDelete] = useState<WebinarHandout | null>(null);
+  const busy = upload.isPending || reorder.isPending || remove.isPending;
+
+  const onPick = async (files: FileList | null) => {
+    const picked = Array.from(files ?? []);
+    if (fileInput.current) fileInput.current.value = "";
+    for (const file of picked) {
+      if (file.size > MAX_HANDOUT_MB * 1024 * 1024) {
+        toast.error(`"${file.name}" is over the ${MAX_HANDOUT_MB} MB limit.`);
+        continue;
+      }
+      try {
+        await upload.mutateAsync(file);
+        toast.success(`Added "${file.name}"`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : `Could not add "${file.name}"`);
+        return;
+      }
+    }
+  };
+
+  const move = async (index: number, delta: -1 | 1) => {
+    const order = handouts.map((h) => h.id);
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target], order[index]];
+    try {
+      await reorder.mutateAsync(order);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reorder the handouts");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await remove.mutateAsync(pendingDelete.id);
+      toast.success(`Removed "${pendingDelete.name}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove the handout");
+    } finally {
+      setPendingDelete(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={FileText} tone="sky">
+          Handouts
+        </ConsoleTitle>
+        <CardDescription>
+          Slides and reading for attendees, listed beside the video. Only people registered for this webinar, signed
+          in, can open them. PDF, PPTX or DOCX, up to {MAX_HANDOUT_MB} MB each.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {handouts.length === 0 ? (
+          <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">No handouts yet.</p>
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {handouts.map((h, i) => (
+              <li key={h.id} className="flex items-center gap-3 px-3 py-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium" title={h.name}>
+                    {h.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{formatHandoutSize(h.size)}</p>
+                </div>
+                {canManage && (
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" disabled={busy || i === 0} onClick={() => void move(i, -1)} aria-label={`Move ${h.name} up`}>
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" disabled={busy || i === handouts.length - 1} onClick={() => void move(i, 1)} aria-label={`Move ${h.name} down`}>
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:text-red-700" disabled={busy} onClick={() => setPendingDelete(h)} aria-label={`Remove ${h.name}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {canManage && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              {handouts.length}/{MAX_HANDOUTS}
+            </span>
+            <input
+              ref={fileInput}
+              type="file"
+              accept={HANDOUT_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={(e) => void onPick(e.target.files)}
+              aria-label="Choose handout files"
+            />
+            <Button size="sm" variant="outline" disabled={busy || handouts.length >= MAX_HANDOUTS} onClick={() => fileInput.current?.click()}>
+              {upload.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+              Add handout
+            </Button>
+          </div>
+        )}
+      </CardContent>
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this handout?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{pendingDelete?.name}&quot; disappears from the attendee page and the file is deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={remove.isPending} onClick={() => void confirmDelete()}>
+              {remove.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Remove
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

@@ -28,6 +28,7 @@ import {
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
 import { AskQuestionBox } from "@/components/webinar/ask-question-box";
+import { HandoutsCard, useWebinarHandouts } from "@/components/webinar/handouts-card";
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
 import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
@@ -426,8 +427,11 @@ export default function PublicSessionPage() {
   // Webinar video tab: panelists on the left, video in the middle, Q&A on the
   // right (owner, Oct 6, 2026). The column cases live in webinarVideoLayout.
   const panelists = isWebinarEvent && session ? collectPanelists(session) : [];
+  // Handouts sit under the panelists (Oct 6, 2026), so either fills the left column.
+  const handouts = useWebinarHandouts(slug, sessionId, isWebinarEvent && authState.kind === "ok");
   const showPanelists = panelists.length > 0;
-  const layout = webinarVideoLayout({ showQa, showPanelists });
+  const showLeftColumn = showPanelists || handouts.length > 0;
+  const layout = webinarVideoLayout({ showQa, showPanelists: showLeftColumn });
   // The end-of-webinar survey (step 4 of several surveys, Oct 6, 2026) appears
   // once the webinar is over for this viewer: the host ended it in Zoom, or the
   // room is closed and the scheduled end has passed (a room closed earlier is a
@@ -758,9 +762,10 @@ export default function PublicSessionPage() {
                  Oct 2, 2026). Custom-stream viewers are not in Zoom, so
                  Zoom's own Q&A cannot reach them. */}
             <div className={layout.grid}>
-            {showPanelists && (
-              <aside className={`${layout.panelistsCol} lg:sticky lg:top-4`}>
-                <PanelistsCard panelists={panelists} />
+            {showLeftColumn && (
+              <aside className={`${layout.panelistsCol} space-y-4 lg:sticky lg:top-4`}>
+                {showPanelists && <PanelistsCard panelists={panelists} />}
+                <HandoutsCard slug={slug} sessionId={sessionId} handouts={handouts} />
               </aside>
             )}
             <div className={`min-w-0 space-y-4 ${layout.videoCol}`}>
