@@ -17,19 +17,23 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
-      // Coloured success / error / warning / info toasts with a close button
-      // and a card look (owner, Oct 6, 2026: "looking bland"). The `!` is
-      // needed because Sonner styles toasts through its own stylesheet.
-      richColors
+      // Toasts in the organisation's theme colour with white text (owner,
+      // Oct 6, 2026); errors stay red so a failure never reads as a success.
+      // `--primary` is the org colour (set by OrgTheme). The `!` is needed
+      // because Sonner styles toasts through its own stylesheet.
       closeButton
       toastOptions={{
         classNames: {
-          toast: "!rounded-xl !border !px-4 !py-3.5 !shadow-lg !gap-3",
-          title: "!text-sm !font-semibold",
-          description: "!text-[13px] !leading-snug !opacity-90",
-          icon: "!size-5",
-          actionButton: "!rounded-md !font-medium",
-          closeButton: "!border !bg-background !text-muted-foreground hover:!text-foreground",
+          // Sonner marks each toast with data-type; keying the red off it
+          // outranks the brand colour by specificity, not stylesheet order.
+          toast:
+            "!rounded-xl !border !border-primary !bg-primary !px-4 !py-3.5 !text-white !shadow-lg !gap-3 data-[type=error]:!border-red-600 data-[type=error]:!bg-red-600",
+          title: "!text-sm !font-semibold !text-white",
+          description: "!text-[13px] !leading-snug !text-white/90",
+          icon: "!size-5 !text-white",
+          actionButton: "!rounded-md !bg-white !font-medium !text-primary",
+          cancelButton: "!rounded-md !bg-white/20 !text-white",
+          closeButton: "!border-white/40 !bg-white !text-slate-700 hover:!text-slate-900",
         },
       }}
       icons={{
