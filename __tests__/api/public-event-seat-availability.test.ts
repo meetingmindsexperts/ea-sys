@@ -73,7 +73,7 @@ function ticketType(id: string, quantity: number, soldCount: number, tiers: Tier
   };
 }
 
-async function payload(ticketTypes: ReturnType<typeof ticketType>[]) {
+async function payload(ticketTypes: ReturnType<typeof ticketType>[], eventOverrides: Record<string, unknown> = {}) {
   mockDb.event.findFirst
     .mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" }) // scope lookup
     .mockResolvedValueOnce({
@@ -104,12 +104,14 @@ async function payload(ticketTypes: ReturnType<typeof ticketType>[]) {
       organization: { name: "MMG", logo: null },
       ticketTypes,
       tracks: [],
+      ...eventOverrides,
     });
   const res = await GET(new Request("http://t/api/public/events/oopvf"), {
     params: Promise.resolve({ slug: "oopvf" }),
   });
   expect(res.status).toBe(200);
   return (await res.json()) as {
+    abstractSettings: { allowAbstractSubmissions: boolean };
     ticketTypes: Array<{
       available: number;
       seatLimited: boolean;
@@ -154,5 +156,17 @@ describe("public event API — tier availability is capped by the type's limit",
     const [type] = body.ticketTypes;
     expect(type.pricingTiers[0]).toMatchObject({ available: 999989, seatLimited: false, soldOut: false });
     expect(type.seatLimited).toBe(false);
+  });
+});
+
+describe("public event API — the call for abstracts", () => {
+  it("is open on a conference with the setting on", async () => {
+    const body = await payload([], { settings: { allowAbstractSubmissions: true } });
+    expect(body.abstractSettings.allowAbstractSubmissions).toBe(true);
+  });
+
+  it("is closed on a WEBINAR even with the setting on (no Call for Abstracts card)", async () => {
+    const body = await payload([], { eventType: "WEBINAR", settings: { allowAbstractSubmissions: true } });
+    expect(body.abstractSettings.allowAbstractSubmissions).toBe(false);
   });
 });

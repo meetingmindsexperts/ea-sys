@@ -61,7 +61,10 @@ vi.mock("@/lib/webinar", () => ({
   // Real-shaped: the detail route's webinar anchor redirect reads this.
   readWebinarSettings: (settings: unknown) =>
     (settings as { webinar?: unknown } | null)?.webinar ?? null,
-  readWebinarPageBranding: () => ({ logoUrl: null, backgroundUrl: null, footerImageUrl: null }),
+  readWebinarPageBranding: (settings: unknown) => {
+    const w = ((settings as { webinar?: Record<string, string> } | null)?.webinar ?? {}) as Record<string, string>;
+    return { logoUrl: w.pageLogoUrl ?? null, backgroundUrl: w.pageBackgroundUrl ?? null, footerImageUrl: w.pageFooterImageUrl ?? null };
+  },
 }));
 
 import { GET as SESSIONS_GET } from "@/app/api/events/[eventId]/sessions/route";
@@ -267,6 +270,24 @@ describe("webinar anchor auto-heal — non-anchor session URLs redirect (Aug 4, 
     const body = await res.json();
     expect(body.redirectToSessionId).toBeUndefined();
     expect(body.session.id).toBe("s1");
+  });
+
+  it("serves webinar page branding on a WEBINAR and none on a CONFERENCE", async () => {
+    const branded = { webinar: { pageLogoUrl: "/uploads/l.png", pageBackgroundUrl: "/uploads/b.jpg" } };
+    const base = { id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", bannerImage: null, timezone: "Asia/Dubai", organizationId: "org1", organization: { name: "Org" } };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", name: "Talk", description: null, startTime: new Date(0), endTime: new Date(0),
+      location: null, capacity: null, status: "SCHEDULED", track: null,
+      speakers: [], topics: [], zoomMeeting: null,
+    });
+
+    mockDb.event.findFirst.mockResolvedValue({ ...base, eventType: "WEBINAR", settings: branded });
+    const webinar = await (await DETAIL_GET(req(), detailParams)).json();
+    expect(webinar.event.webinarBranding).toEqual({ logoUrl: "/uploads/l.png", backgroundUrl: "/uploads/b.jpg", footerImageUrl: null });
+
+    mockDb.event.findFirst.mockResolvedValue({ ...base, eventType: "CONFERENCE", settings: branded });
+    const conference = await (await DETAIL_GET(req(), detailParams)).json();
+    expect(conference.event.webinarBranding).toBeNull();
   });
 
   it("CONFERENCE events never redirect (multi-session by design)", async () => {

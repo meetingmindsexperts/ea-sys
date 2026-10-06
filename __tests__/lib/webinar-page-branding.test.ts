@@ -11,6 +11,14 @@ describe("readWebinarPageBranding", () => {
     ).toEqual({ logoUrl: "/uploads/l.png", backgroundUrl: "/uploads/b.jpg", footerImageUrl: "https://x/f.png" });
   });
 
+  it("drops anything that is not an upload or https URL (written by a path without the route's validation)", () => {
+    expect(
+      readWebinarPageBranding({
+        webinar: { pageLogoUrl: "http://tracker.example/p.gif", pageBackgroundUrl: "data:image/png;base64,AAAA", pageFooterImageUrl: 42 },
+      }),
+    ).toEqual({ logoUrl: null, backgroundUrl: null, footerImageUrl: null });
+  });
+
   it("treats a cleared upload (empty string) and missing settings as none", () => {
     expect(readWebinarPageBranding({ webinar: { pageLogoUrl: "" } })).toEqual({ logoUrl: null, backgroundUrl: null, footerImageUrl: null });
     expect(readWebinarPageBranding(null)).toEqual({ logoUrl: null, backgroundUrl: null, footerImageUrl: null });

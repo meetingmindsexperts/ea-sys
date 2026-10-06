@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `settings.webinar` (`pageLogoUrl`, `pageBackgroundUrl`,
   `pageFooterImageUrl`), validated as an upload or https URL, copied on
   clone. No migration.
+- Follow-up (code review): the public read drops any image URL that is not
+  an upload or https (the general settings save and clone skip the webinar
+  route's check); the background is fixed only on desktop (iPhones zoomed
+  it); in Zoom mode the panelists column starts at 1280 px so the embed keeps
+  a laptop's width. Below 1280 px the video always comes first, panelists
+  after it.
 
 ### Fixed: no call for abstracts on webinars (October 6)
 

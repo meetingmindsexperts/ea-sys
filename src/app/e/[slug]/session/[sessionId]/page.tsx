@@ -29,6 +29,7 @@ import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
 import { AskQuestionBox } from "@/components/webinar/ask-question-box";
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
+import { webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -422,20 +423,10 @@ export default function PublicSessionPage() {
     Boolean(joinInfo?.liveStreamEnabled) &&
     authState.kind === "ok";
   // Webinar video tab: panelists on the left, video in the middle, Q&A on the
-  // right (owner, Oct 6, 2026). Three columns from xl; below that the video
-  // and Q&A share a row and the panelists drop under the video.
+  // right (owner, Oct 6, 2026). The column cases live in webinarVideoLayout.
   const panelists = isWebinarEvent && session ? collectPanelists(session) : [];
   const showPanelists = panelists.length > 0;
-  const videoGridClass =
-    showQa && showPanelists
-      ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[322px_minmax(0,1fr)_370px]"
-      : showQa
-        ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[minmax(0,1fr)_370px]"
-        : showPanelists
-          ? "grid items-start gap-4 lg:grid-cols-[322px_minmax(0,1fr)]"
-          : undefined;
-  const videoColClass = showPanelists && !showQa ? "order-1 lg:order-2" : "order-1 xl:order-2";
-  const panelistsColClass = showQa ? "order-3 xl:order-1" : "order-2 lg:order-1";
+  const layout = webinarVideoLayout({ showQa, showPanelists });
 
   if (loading) {
     return (
@@ -557,10 +548,10 @@ export default function PublicSessionPage() {
     <div
       className={
         isWebinarEvent
-          ? "flow-root min-h-screen bg-slate-100 bg-cover bg-fixed bg-center"
+          ? "flow-root min-h-screen bg-slate-100 bg-cover bg-center lg:bg-fixed"
           : "min-h-screen bg-gradient-to-br from-slate-50 to-blue-50"
       }
-      style={backgroundUrl ? { backgroundImage: `url("${encodeURI(backgroundUrl)}")` } : undefined}
+      style={webinarBackgroundStyle(backgroundUrl)}
     >
       {isWebinarEvent ? null : (
       <div className="bg-white border-b">
@@ -741,13 +732,13 @@ export default function PublicSessionPage() {
                  so a viewer never leaves the stream to ask (owner feedback,
                  Oct 2, 2026). Custom-stream viewers are not in Zoom, so
                  Zoom's own Q&A cannot reach them. */}
-            <div className={videoGridClass}>
+            <div className={layout.grid}>
             {showPanelists && (
-              <aside className={`${panelistsColClass} lg:sticky lg:top-4`}>
+              <aside className={`${layout.panelistsCol} lg:sticky lg:top-4`}>
                 <PanelistsCard panelists={panelists} />
               </aside>
             )}
-            <div className={`min-w-0 space-y-4 ${videoColClass}`}>
+            <div className={`min-w-0 space-y-4 ${layout.videoCol}`}>
             {showWaitingRoom && lobby ? (
               <WaitingRoom
                 startsAt={lobby.startsAt}
@@ -931,7 +922,7 @@ export default function PublicSessionPage() {
             )}
             </div>
             {showQa && (
-              <aside className="order-2 xl:order-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+              <aside className={`${layout.qaCol} lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto`}>
                 <AskQuestionBox slug={slug} sessionId={sessionId} />
               </aside>
             )}

@@ -10,7 +10,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
-import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
+import { isUploadOrHttpsUrl, readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { redactZoomHostFields } from "@/lib/zoom-visibility";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
@@ -25,7 +25,7 @@ const imageUrlField = (label: string) =>
     .string()
     .max(500)
     .optional()
-    .refine((v) => !v || v.startsWith("/uploads/") || v.startsWith("https://"), {
+    .refine((v) => !v || isUploadOrHttpsUrl(v), {
       message: `${label} must be an uploaded image or an https URL`,
     });
 

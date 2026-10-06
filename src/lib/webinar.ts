@@ -114,13 +114,25 @@ export interface WebinarPageBranding {
   footerImageUrl: string | null;
 }
 
-/** The attendee-page images; an empty string (a cleared upload) reads as null. */
+/** An uploaded file (/uploads/…) or an https address: the only image URLs the
+ *  webinar settings accept. Shared by the settings save and the public read. */
+export function isUploadOrHttpsUrl(value: string): boolean {
+  return value.startsWith("/uploads/") || value.startsWith("https://");
+}
+
+/**
+ * The attendee-page images. A cleared upload (empty string) reads as null, and
+ * so does anything that is not an upload or https URL: the general event
+ * settings save and clone can write settings.webinar without the webinar
+ * route's validation, so the public read checks again (code review, Oct 6).
+ */
 export function readWebinarPageBranding(settings: unknown): WebinarPageBranding {
   const w = readWebinarSettings(settings);
+  const safe = (v: unknown) => (typeof v === "string" && isUploadOrHttpsUrl(v) ? v : null);
   return {
-    logoUrl: w?.pageLogoUrl || null,
-    backgroundUrl: w?.pageBackgroundUrl || null,
-    footerImageUrl: w?.pageFooterImageUrl || null,
+    logoUrl: safe(w?.pageLogoUrl),
+    backgroundUrl: safe(w?.pageBackgroundUrl),
+    footerImageUrl: safe(w?.pageFooterImageUrl),
   };
 }
 
