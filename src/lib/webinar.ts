@@ -101,6 +101,10 @@ export interface WebinarSettings {
   /** Attendees may upvote the questions shown to everyone (Oct 6, 2026);
    *  unset means yes. The Webinar Console's Q&A switch. */
   qaUpvote?: boolean;
+  /** Live polls on the attendee page (Oct 6, 2026): the organiser's switch on
+   *  the console's Polls tab. Off unless turned on; while off nothing reaches
+   *  attendees and no poll can be launched. */
+  livePolls?: boolean;
   /** Files for attendees, in display order (Oct 6, 2026); see
    *  src/lib/webinar/handouts.ts. Written only by the handouts routes. */
   handouts?: import("./webinar/handouts").WebinarHandout[];

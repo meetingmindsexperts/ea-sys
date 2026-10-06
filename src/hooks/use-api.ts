@@ -7,6 +7,7 @@ import type { StoredAttachmentRef } from "@/lib/email-attachment-limits";
 import { ApiError } from "@/lib/api-fetch";
 
 import type { WebinarHandout } from "@/lib/webinar/handouts";
+import type { LivePollOption, PollTally } from "@/lib/webinar/live-polls";
 
 // Generic fetch wrapper with error handling.
 // Automatically injects x-org-id header for SUPER_ADMIN org switching.
@@ -2495,6 +2496,7 @@ export interface WebinarConsoleData {
     endSurveyId?: string;
     thankYouSurveyLink?: boolean;
     qaUpvote?: boolean;
+    livePolls?: boolean;
     handouts?: WebinarHandout[];
   };
   anchorSession: {
@@ -2701,6 +2703,65 @@ export function useWebinarViewerQuestions(eventId: string, enabled: boolean) {
       fetchApi<{ questions: WebinarViewerQuestionRow[] }>(`/api/events/${eventId}/webinar/questions`),
     enabled: !!eventId && enabled,
     refetchInterval: 10_000,
+  });
+}
+
+/** A live poll in the console, with its tally (Oct 6, 2026). */
+export interface LivePollRow {
+  id: string;
+  question: string;
+  options: LivePollOption[];
+  allowMultiple: boolean;
+  status: "DRAFT" | "OPEN" | "CLOSED";
+  showResults: boolean;
+  openedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  tally: PollTally;
+}
+
+/** The webinar's live polls; refreshed every 5 s while the Polls tab is open. */
+export function useLivePolls(eventId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["webinar-live-polls", eventId],
+    queryFn: () => fetchApi<{ polls: LivePollRow[] }>(`/api/events/${eventId}/webinar/polls`).then((d) => d.polls),
+    enabled: !!eventId && enabled,
+    refetchInterval: 5_000,
+  });
+}
+
+export function useCreateLivePoll(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: { question: string; options: string[]; allowMultiple: boolean }) =>
+      fetchApi<{ id: string }>(`/api/events/${eventId}/webinar/polls`, {
+        method: "POST",
+        body: JSON.stringify(draft),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webinar-live-polls", eventId] }),
+  });
+}
+
+export function useUpdateLivePoll(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pollId, ...body }: { pollId: string } & ({ action: "launch" | "close" } | { showResults: boolean })) =>
+      fetchApi<{ ok: true }>(`/api/events/${eventId}/webinar/polls/${encodeURIComponent(pollId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["webinar-live-polls", eventId] }),
+  });
+}
+
+export function useDeleteLivePoll(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pollId: string) =>
+      fetchApi<{ ok: true }>(`/api/events/${eventId}/webinar/polls/${encodeURIComponent(pollId)}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webinar-live-polls", eventId] }),
   });
 }
 

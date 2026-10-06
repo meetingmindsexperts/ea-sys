@@ -83,3 +83,19 @@ CREATE POLICY webinarquestionvote_tenant_isolation ON "WebinarQuestionVote"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- LivePoll / LivePollVote (Oct 6, 2026): live polls on the custom-stream page.
+-- Same flat template; writers stamp organizationId from the event.
+ALTER TABLE "LivePoll" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS livepoll_tenant_isolation ON "LivePoll";
+CREATE POLICY livepoll_tenant_isolation ON "LivePoll"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+ALTER TABLE "LivePollVote" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS livepollvote_tenant_isolation ON "LivePollVote";
+CREATE POLICY livepollvote_tenant_isolation ON "LivePollVote"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

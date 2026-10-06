@@ -545,6 +545,7 @@ model Event {
   zoomAttendances              ZoomAttendance[]
   webinarPresences             WebinarPresence[]
   webinarViewerQuestions       WebinarViewerQuestion[]
+  livePolls                    LivePoll[]
   promoCodes                   PromoCode[]
   sponsors                     Sponsor[]
   scheduledEmails              ScheduledEmail[]

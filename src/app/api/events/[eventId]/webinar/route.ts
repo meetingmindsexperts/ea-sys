@@ -57,6 +57,8 @@ const updateWebinarSchema = z.object({
   thankYouSurveyLink: z.boolean().optional(),
   // Attendees may upvote public questions (unset means yes).
   qaUpvote: z.boolean().optional(),
+  // Live polls on the attendee page (off unless turned on).
+  livePolls: z.boolean().optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───

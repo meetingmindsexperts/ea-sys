@@ -476,6 +476,7 @@ model EventSession {
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
   webinarViewerQuestions WebinarViewerQuestion[]
+  livePolls              LivePoll[]
 
   @@index([eventId])
   @@index([startTime])
@@ -788,6 +789,56 @@ model WebinarQuestionVote {
   registration Registration          @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@unique([questionId, registrationId])
+  @@index([registrationId])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+/// A poll the producer runs live on the webinar's custom-stream page (Oct 6,
+/// 2026; docs/WEBINAR_INTERACTION_PLAN.md §5). Named apart from WebinarPoll,
+/// which holds the polls pulled from Zoom afterwards. status: DRAFT / OPEN /
+/// CLOSED; at most one OPEN per session (launching closes the others).
+model LivePoll {
+  id             String    @id @default(cuid())
+  eventId        String
+  organizationId String?
+  sessionId      String
+  question       String    @db.Text
+  /// [{ id, label }], 2 to 6 options, in display order.
+  options        Json
+  allowMultiple  Boolean   @default(false)
+  status         String    @default("DRAFT")
+  /// Attendees see the results (off until the producer shows them).
+  showResults    Boolean   @default(false)
+  openedAt       DateTime?
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  event   Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session EventSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  votes   LivePollVote[]
+
+  @@index([sessionId, status])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+/// One registrant's answer to a live poll; final once given.
+model LivePollVote {
+  id             String   @id @default(cuid())
+  pollId         String
+  registrationId String
+  eventId        String
+  organizationId String?
+  /// Option ids chosen (one unless the poll allows several).
+  choices        Json
+  createdAt      DateTime @default(now())
+
+  poll         LivePoll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, registrationId])
   @@index([registrationId])
   @@index([eventId])
   @@index([organizationId])

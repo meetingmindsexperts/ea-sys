@@ -7,6 +7,8 @@ import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { QUESTION_MAX_LENGTH, qaUpvoteEnabled, sortByVotes } from "@/lib/webinar/questions";
 import { loadQuestionContext as loadContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
+import { livePollsEnabled } from "@/lib/webinar/live-polls";
+import { viewerPoll } from "@/lib/webinar/live-polls-server";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -167,12 +169,22 @@ export async function GET(req: Request, { params }: RouteParams) {
         voteCount: countById.get(q.id) ?? 0,
         votedByMe: votedIds.has(q.id),
       }));
+      // The current live poll rides this same refresh (no extra request per
+      // viewer); nothing when the organiser has polls switched off.
+      const poll = await viewerPoll({
+        eventId: event.id,
+        sessionId,
+        enabled: livePollsEnabled(event.webinar),
+        registrationId: asker.kind === "attendee" ? asker.registrationId : null,
+      });
       return NextResponse.json({
         questions: mine,
         published: upvote ? sortByVotes(published) : published,
         upvote,
         // Staff testing the page can read but not vote (votes are per registration).
         canVote: upvote && asker.kind === "attendee",
+        poll,
+        canAnswerPoll: asker.kind === "attendee",
       });
     });
   } catch (error) {

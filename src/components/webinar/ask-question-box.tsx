@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { QUESTION_MAX_LENGTH, type ViewerQuestionStatus } from "@/lib/webinar/questions";
+import { LivePollCard, type ViewerPollData } from "./live-poll-card";
 
 interface MyQuestion {
   id: string;
@@ -48,6 +49,9 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
   const [canVote, setCanVote] = useState(false);
   const [upvote, setUpvote] = useState(false);
   const [voting, setVoting] = useState<string | null>(null);
+  // The live poll rides this refresh (Oct 6, 2026); null when none is showing.
+  const [poll, setPoll] = useState<ViewerPollData | null>(null);
+  const [canAnswerPoll, setCanAnswerPoll] = useState(false);
   // Bumped on every vote: a refresh that started before the latest vote is
   // dropped, so a slow poll cannot put an old count back on screen.
   const voteVersion = useRef(0);
@@ -63,12 +67,16 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         published?: PublishedQuestion[];
         upvote?: boolean;
         canVote?: boolean;
+        poll?: ViewerPollData | null;
+        canAnswerPoll?: boolean;
       };
       if (startedAt !== voteVersion.current) return;
       setMine(data.questions);
       setPublished(data.published ?? []);
       setUpvote(Boolean(data.upvote));
       setCanVote(Boolean(data.canVote));
+      setPoll(data.poll ?? null);
+      setCanAnswerPoll(Boolean(data.canAnswerPoll));
     } catch (err) {
       console.warn("ask-question:load-failed", err);
     }
@@ -139,6 +147,21 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
 
   return (
     <div className="space-y-4">
+      {poll && (
+        <LivePollCard
+          // A new poll starts with a clean selection.
+          key={poll.id}
+          slug={slug}
+          sessionId={sessionId}
+          poll={poll}
+          canAnswer={canAnswerPoll}
+          onAnswered={(pollId, choices) => {
+            // A refresh already in flight must not put the unanswered poll back.
+            voteVersion.current += 1;
+            setPoll((prev) => (prev && prev.id === pollId ? { ...prev, myChoices: choices } : prev));
+          }}
+        />
+      )}
       <Card className="py-4">
         <CardContent className="space-y-3 px-4 py-2">
           <div className="flex items-center gap-2">

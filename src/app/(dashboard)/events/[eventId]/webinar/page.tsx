@@ -67,6 +67,8 @@ import {
   Eye,
   EyeOff,
   ThumbsUp,
+  Plus,
+  X,
   FileText,
   Upload,
   ArrowUp,
@@ -77,6 +79,13 @@ import {
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
 import { useServerClock } from "@/hooks/use-server-clock";
+import {
+  MAX_POLL_OPTIONS,
+  MIN_POLL_OPTIONS,
+  POLL_OPTION_MAX,
+  POLL_QUESTION_MAX,
+  percentOf,
+} from "@/lib/webinar/live-polls";
 import {
   HANDOUT_ACCEPT,
   MAX_HANDOUTS,
@@ -96,6 +105,11 @@ import {
   useWebinarPresence,
   useEventSurveys,
   useUploadWebinarHandout,
+  useLivePolls,
+  useCreateLivePoll,
+  useUpdateLivePoll,
+  useDeleteLivePoll,
+  type LivePollRow,
   useReorderWebinarHandouts,
   useDeleteWebinarHandout,
   useProvisionWebinar,
@@ -366,6 +380,12 @@ export default function WebinarConsolePage() {
               )}
             </TabsTrigger>
           )}
+          {showViewerQaTab && (
+            <TabsTrigger value="polls" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Polls
+            </TabsTrigger>
+          )}
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
             Branding
@@ -464,6 +484,12 @@ export default function WebinarConsolePage() {
         {showViewerQaTab && (
           <TabsContent value="qa" className="mt-4">
             <ViewerQuestionsPanel eventId={eventId} upvote={data?.webinar?.qaUpvote !== false} />
+          </TabsContent>
+        )}
+
+        {showViewerQaTab && (
+          <TabsContent value="polls" className="mt-4">
+            <LivePollsPanel eventId={eventId} enabled={data?.webinar?.livePolls === true} />
           </TabsContent>
         )}
 
@@ -2252,6 +2278,274 @@ function matchesViewerFilter(q: WebinarViewerQuestionRow, filter: ViewerQuestion
   if (filter === "ALL") return true;
   if (filter === "SHOWN") return q.isPublic && q.status !== "DISMISSED";
   return q.status === filter;
+}
+
+const POLL_STATUS_LABEL: Record<LivePollRow["status"], string> = { DRAFT: "Draft", OPEN: "Open", CLOSED: "Closed" };
+
+/**
+ * Live polls (Oct 6, 2026; docs/WEBINAR_INTERACTION_PLAN.md §5). The
+ * organiser's "Enable live polls" switch (off by default), drafts prepared
+ * ahead, Launch (closes any other open poll), Close, show results to
+ * attendees, live counts refreshed every 5 seconds, and a CSV per poll.
+ * Producers (webinar.manage) change things; others watch.
+ */
+function LivePollsPanel({ eventId, enabled }: { eventId: string; enabled: boolean }) {
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
+  const canExport = useCan("webinar.attendance.export", eventId) === "allowed";
+  const { data: polls = [], isLoading, isError } = useLivePolls(eventId, true);
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  const create = useCreateLivePoll(eventId);
+  const update = useUpdateLivePoll(eventId);
+  const remove = useDeleteLivePoll(eventId);
+  const [question, setQuestion] = useState("");
+  const [options, setOptions] = useState<string[]>(["", ""]);
+  const [allowMultiple, setAllowMultiple] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<LivePollRow | null>(null);
+
+  const toggleEnabled = async (next: boolean) => {
+    try {
+      await updateSettings.mutateAsync({ livePolls: next });
+      toast.success(next ? "Live polls are on for this webinar" : "Live polls are off");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change live polls");
+    }
+  };
+
+  const saveDraft = async () => {
+    try {
+      await create.mutateAsync({ question, options: options.map((o) => o.trim()), allowMultiple });
+      setQuestion("");
+      setOptions(["", ""]);
+      setAllowMultiple(false);
+      toast.success("Poll saved as a draft");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the poll");
+    }
+  };
+
+  const act = async (pollId: string, body: { action: "launch" | "close" } | { showResults: boolean }, done: string) => {
+    try {
+      await update.mutateAsync({ pollId, ...body });
+      toast.success(done);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the poll");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await remove.mutateAsync(pendingDelete.id);
+      toast.success("Poll deleted");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not delete the poll");
+    } finally {
+      setPendingDelete(null);
+    }
+  };
+
+  const draftReady =
+    question.trim().length >= 3 && options.filter((o) => o.trim()).length === options.length && options.length >= MIN_POLL_OPTIONS;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <ConsoleTitle icon={BarChart3} tone="sky">
+            Live polls
+          </ConsoleTitle>
+          <CardDescription>
+            Ask the audience a question during the webinar. Attendees answer beside the video, once; you see the counts
+            here as they come in, and choose whether attendees see the results.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+            <label htmlFor="live-polls-enabled" className="space-y-0.5">
+              <span className="block text-sm font-medium">Enable live polls</span>
+              <span className="block text-xs text-muted-foreground">
+                Off: nothing reaches attendees and no poll can be launched. Drafts can still be prepared.
+              </span>
+            </label>
+            <Switch
+              id="live-polls-enabled"
+              checked={enabled}
+              disabled={!canManage || updateSettings.isPending}
+              onCheckedChange={(next) => void toggleEnabled(next)}
+            />
+          </div>
+
+          {canManage && (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">New poll</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="poll-question">Question</Label>
+                <Input
+                  id="poll-question"
+                  value={question}
+                  maxLength={POLL_QUESTION_MAX}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder="Which treatment do you use first?"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Options</Label>
+                {options.map((o, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      value={o}
+                      maxLength={POLL_OPTION_MAX}
+                      onChange={(e) => setOptions((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))}
+                      placeholder={`Option ${i + 1}`}
+                      aria-label={`Option ${i + 1}`}
+                    />
+                    {options.length > MIN_POLL_OPTIONS && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-9 w-9 shrink-0"
+                        onClick={() => setOptions((prev) => prev.filter((_, j) => j !== i))}
+                        aria-label={`Remove option ${i + 1}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {options.length < MAX_POLL_OPTIONS && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setOptions((prev) => [...prev, ""])}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add option
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={allowMultiple} onCheckedChange={setAllowMultiple} aria-label="Allow more than one answer" />
+                  Allow more than one answer
+                </label>
+                <Button size="sm" onClick={() => void saveDraft()} disabled={!draftReady || create.isPending}>
+                  {create.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Save draft
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isError && <p className="text-sm text-red-600">Could not load the polls. Retrying…</p>}
+      {!isLoading && polls.length === 0 && (
+        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No polls yet.</p>
+      )}
+
+      <ul className="space-y-3">
+        {polls.map((p) => (
+          <li key={p.id} className={`rounded-lg border p-4 ${p.status === "OPEN" ? "border-primary/50 bg-primary/5" : ""}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant={p.status === "OPEN" ? "default" : "outline"}>{POLL_STATUS_LABEL[p.status]}</Badge>
+                  {p.allowMultiple && <span className="text-xs text-muted-foreground">Several answers allowed</span>}
+                  {p.showResults && <span className="text-xs font-medium text-primary">Results shown to attendees</span>}
+                </div>
+                <p className="font-medium whitespace-pre-wrap break-words">{p.question}</p>
+              </div>
+              <span className="text-sm tabular-nums text-muted-foreground">
+                {p.tally.voters} {p.tally.voters === 1 ? "answer" : "answers"}
+              </span>
+            </div>
+            <ul className="mt-3 space-y-2">
+              {p.options.map((o) => {
+                const count = p.tally.counts[o.id] ?? 0;
+                const pct = percentOf(count, p.tally.voters);
+                return (
+                  <li key={o.id} className="space-y-1">
+                    <div className="flex justify-between gap-2 text-sm">
+                      <span>{o.label}</span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {count} · {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+              {canManage && p.status !== "OPEN" && (
+                <Button
+                  size="sm"
+                  disabled={update.isPending || !enabled}
+                  title={enabled ? undefined : "Turn on Enable live polls first"}
+                  onClick={() => void act(p.id, { action: "launch" }, p.status === "CLOSED" ? "Poll reopened" : "Poll launched")}
+                >
+                  {p.status === "CLOSED" ? "Reopen" : "Launch"}
+                </Button>
+              )}
+              {canManage && p.status === "OPEN" && (
+                <Button size="sm" variant="outline" disabled={update.isPending} onClick={() => void act(p.id, { action: "close" }, "Poll closed")}>
+                  Close poll
+                </Button>
+              )}
+              {canManage && p.status !== "DRAFT" && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={p.showResults}
+                    disabled={update.isPending}
+                    onCheckedChange={(next) =>
+                      void act(p.id, { showResults: next }, next ? "Results shown to attendees" : "Results hidden from attendees")
+                    }
+                    aria-label="Show results to attendees"
+                  />
+                  Show results to attendees
+                </label>
+              )}
+              <span className="flex-1" />
+              {canExport && p.tally.voters > 0 && (
+                <Button size="sm" variant="ghost" asChild>
+                  <a href={`/api/events/${eventId}/webinar/polls/${encodeURIComponent(p.id)}/export`}>
+                    <Download className="h-4 w-4 mr-1" />
+                    CSV
+                  </a>
+                </Button>
+              )}
+              {canManage && p.tally.voters === 0 && p.status !== "OPEN" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-600 hover:text-red-700"
+                  onClick={() => setPendingDelete(p)}
+                  aria-label={`Delete poll ${p.question}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this poll?</AlertDialogTitle>
+            <AlertDialogDescription>&quot;{pendingDelete?.question}&quot; has no answers and will be removed.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={remove.isPending} onClick={() => void confirmDelete()}>
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
 }
 
 /**

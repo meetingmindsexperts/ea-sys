@@ -1,6 +1,6 @@
 # Webinar interaction on the Custom stream page
 
-**Status: §3 Q&A upvote and §4 handouts BUILT (October 6, 2026); the rest PLANNED.** Written
+**Status: §3 Q&A upvote, §4 handouts and §5 polls BUILT (October 6, 2026); chat PLANNED.** Written
 after the owner compared EA-SYS with another platform's host control panel
 ("how much of this can we do?"). Decisions still open are in §8.
 
@@ -20,7 +20,7 @@ them. What they can do today is what EA-SYS builds on the page itself.
 | Q&A: moderated, submission | **Built** (Oct 1, 2026). Attendees ask beside the video (`WebinarViewerQuestion`); moderators choose which questions everyone sees (Webinar Console, Q&A tab, `isPublic`). | Done |
 | Q&A upvote | **Built** (Oct 6, 2026) | §3 |
 | Handouts | **Built** (Oct 6, 2026) | §4 |
-| Polls | Not built for Custom stream. Zoom polls are pulled after the event (`WebinarPoll`), but only reach people inside Zoom. | §5, medium |
+| Polls | **Built** (Oct 6, 2026) for Custom stream. Zoom polls are still pulled after the event (`WebinarPoll`) for people inside Zoom. | §5 |
 | Public chat, auto-mute | Not built | §6, large |
 | Private chat (attendee and presenter) | Not built | §7, large |
 | Attendee mics, mics + cams | **Not possible in Custom stream**: there is nothing to unmute in a video feed. Exists only in Zoom embed mode, controlled by Zoom (panelists, or promoting an attendee). | Not planned |
@@ -133,6 +133,21 @@ video; results update live in the console and can be shown back to attendees.
   from the console, plus a column in the attendance export.
 - **Tests:** one vote per person per poll, votes refused when closed, results
   hidden until the producer shows them.
+
+**As built (Oct 6, 2026):** migration `20261006200000` (`LivePoll`,
+`LivePollVote`, RLS, swept). Owner: an **"Enable live polls" switch per
+webinar, off by default** (`settings.webinar.livePolls`); while off nothing
+reaches attendees and nothing can be launched, drafts can still be prepared.
+Console: a Polls tab beside Q&A (custom stream): drafts (2 to 6 options,
+optionally several answers), Launch (closes any other open poll in the same
+write), Close, Reopen, "Show results to attendees" per poll, counts refreshed
+every 5 s, delete only while nobody answered, CSV per poll (counts, then each
+person's answer; `webinar.attendance.export`, recorded as an export). Attendee
+page: the poll rides the Q&A refresh (no new request; appears within 15 s),
+one answer, final; a closed poll stays visible only while its results are
+shown. Results are cached per poll for 5 s so 1,000 viewers do not each read
+every vote. Not done: the attendance-export column (§5 export bullet).
+Tests in `live-polls.test.ts` (lib and api).
 
 ## 6. Public chat
 
