@@ -73,8 +73,10 @@ SELECT
   e."surveyConfig"::jsonb, e."surveyIntroHtml", e."surveyThankYouHtml",
   true, 0, true, 'ONCE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM "Event" e
-WHERE jsonb_typeof(e."surveyConfig"::jsonb) = 'array'
-  AND jsonb_array_length(e."surveyConfig"::jsonb) > 0
+WHERE -- CASE, not AND: Postgres may evaluate AND operands in any order, and
+  -- jsonb_array_length() raises on a non-array (a cleared survey is JSON null).
+  CASE WHEN jsonb_typeof(e."surveyConfig"::jsonb) = 'array'
+       THEN jsonb_array_length(e."surveyConfig"::jsonb) > 0 ELSE false END
 ON CONFLICT ("id") DO NOTHING;
 
 -- Every existing response belongs to its event's survey; one response per
