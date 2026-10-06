@@ -120,12 +120,12 @@ describe("public: ask a question", () => {
     expect((await ask(req({ question: "Hello there" }), publicParams)).status).toBe(404);
   });
 
-  it("lists the viewer's own questions and the shown ones, with shortened names, never dismissed", async () => {
+  it("lists the viewer's own questions and the shown ones, anonymously, never dismissed", async () => {
     mockAuth.mockResolvedValue(attendee);
     mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "D", lastName: "L" } });
     mockDb.webinarViewerQuestion.findMany
       .mockResolvedValueOnce([{ id: "q1", question: "Mine", status: "NEW", isPublic: false }])
-      .mockResolvedValueOnce([{ id: "q2", question: "Shown", status: "ANSWERED", askerName: "Dana Maria Lee" }]);
+      .mockResolvedValueOnce([{ id: "q2", question: "Shown", status: "ANSWERED" }]);
     const res = await listMine(req(), publicParams);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -134,8 +134,11 @@ describe("public: ask a question", () => {
       sessionId: "s1", eventId: "ev1", isPublic: true, status: { not: "DISMISSED" },
     });
     expect(body.published).toEqual([
-      { id: "q2", question: "Shown", status: "ANSWERED", askerName: "Dana L.", voteCount: 0, votedByMe: false },
+      { id: "q2", question: "Shown", status: "ANSWERED", voteCount: 0, votedByMe: false },
     ]);
+    // Anonymous to attendees (owner): the asker is never selected, so it cannot leak.
+    expect(mockDb.webinarViewerQuestion.findMany.mock.calls[1][0].select.askerName).toBeUndefined();
+    expect(JSON.stringify(body.published)).not.toContain("Dana");
     expect(body).toMatchObject({ upvote: true, canVote: true });
   });
 });

@@ -2258,7 +2258,7 @@ function matchesViewerFilter(q: WebinarViewerQuestionRow, filter: ViewerQuestion
  * viewers, who are not in Zoom, at full width with filters. Newest first,
  * refreshed every 10 seconds (the same query the tab badge reads, so React
  * Query shares one poll). Only questions shown here appear in the attendees'
- * Q&A panel beside the video, with first name and initial.
+ * Q&A panel beside the video, anonymously (attendees never see who asked).
  */
 function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: boolean }) {
   const eventTz = useEventTz();
@@ -2300,7 +2300,7 @@ function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: bo
         </ConsoleTitle>
         <CardDescription>
           From people watching the custom stream, newest first, refreshed every 10 seconds. Only
-          questions you show appear in the Q&amp;A panel beside the attendees&apos; video, with first name and initial;
+          questions you show appear in the Q&amp;A panel beside the attendees&apos; video, without the asker&apos;s name;
           dismissing a question also hides it.
         </CardDescription>
       </CardHeader>

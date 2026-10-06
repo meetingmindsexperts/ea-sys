@@ -19,7 +19,6 @@ interface PublishedQuestion {
   id: string;
   question: string;
   status: ViewerQuestionStatus;
-  askerName: string;
   createdAt: string;
   voteCount: number;
   votedByMe: boolean;
@@ -35,7 +34,7 @@ const MY_STATUS_LABEL: Record<ViewerQuestionStatus, string> = {
  * The Q&A panel for custom-stream viewers (Oct 1, 2026; beside the video since Oct 2). They watch a one-way
  * stream, so Zoom's Q&A cannot reach them. Three parts: the box to ask, the
  * viewer's own questions with a status, and the questions the organizer has
- * chosen to show everyone (asker shown as first name and initial), which
+ * chosen to show everyone (anonymous: never who asked), which
  * attendees can upvote (Oct 6, 2026; most votes first). Refreshed every 15
  * seconds.
  */
@@ -220,7 +219,8 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
                           {q.voteCount}
                         </span>
                       ))}
-                    <span>{mineIds.has(q.id) ? "You" : q.askerName}</span>
+                    {/* Anonymous to attendees (owner): only the viewer's own question says so. */}
+                    {mineIds.has(q.id) && <span>Your question</span>}
                     {q.status === "ANSWERED" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
                         <CheckCircle2 className="h-3 w-3" />

@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { QUESTION_MAX_LENGTH, publicAskerName, qaUpvoteEnabled, sortByVotes } from "@/lib/webinar/questions";
+import { QUESTION_MAX_LENGTH, qaUpvoteEnabled, sortByVotes } from "@/lib/webinar/questions";
 import { loadQuestionContext as loadContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -132,7 +132,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           where: { sessionId, eventId: event.id, isPublic: true, status: { not: "DISMISSED" } },
           orderBy: { createdAt: "desc" },
           take: 100,
-          select: { id: true, question: true, status: true, askerName: true, createdAt: true },
+          // Never the asker (owner, Oct 6, 2026): questions are anonymous to
+          // attendees. The name is recorded and shown only in the console.
+          select: { id: true, question: true, status: true, createdAt: true },
         }),
       ]);
       // Upvotes (Oct 6, 2026): each public question's count and whether this
@@ -161,9 +163,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           : [[], []];
       const countById = new Map(counts.map((c) => [c.questionId, c._count._all]));
       const votedIds = new Set(myVotes.map((v) => v.questionId));
-      const published = shown.map(({ askerName, ...q }) => ({
+      const published = shown.map((q) => ({
         ...q,
-        askerName: publicAskerName(askerName),
         voteCount: countById.get(q.id) ?? 0,
         votedByMe: votedIds.has(q.id),
       }));
