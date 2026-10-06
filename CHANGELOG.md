@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: only admins can connect claude.ai to EA-SYS (October 6)
+
+- Approving a claude.ai (MCP OAuth) connection now needs the Admin or Super
+  Admin role; Organizers can no longer approve one. A connection is also
+  re-checked on every request, so a grant made by someone who may no longer
+  connect (or who was demoted) stops working. Production had one connection,
+  a Super Admin's, so nothing in use changes. The MCP tool set itself is
+  unchanged (door parity stays parked).
+
 ### Changed: event edits and certificate or survey sends check their own permission (October 6)
 
 - Saving an event now checks each field that actually changes against its

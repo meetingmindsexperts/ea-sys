@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockValidateOAuth, mockRateLimit, mockLogger } = vi.hoisted(() => ({
-  mockDb: { user: { findUnique: vi.fn() } },
+  mockDb: { user: { findUnique: vi.fn() }, userPermissionSet: { findMany: vi.fn().mockResolvedValue([]) } },
   mockValidateOAuth: vi.fn(),
   mockRateLimit: vi.fn(),
   mockLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -54,8 +54,33 @@ beforeEach(() => {
 
 describe("MCP OAuth grantee status", () => {
   it("lets an active grantee through authentication", async () => {
-    mockDb.user.findUnique.mockResolvedValue({ role: "ORGANIZER", organizationId: "org-1", deactivatedAt: null });
+    mockDb.user.findUnique.mockResolvedValue({ role: "ADMIN", organizationId: "org-1", deactivatedAt: null });
     expect((await POST(req())).status).toBe(429);
+  });
+
+  // Owner, Oct 6, 2026: only admins approve a claude.ai connection, and a
+  // grant made earlier by someone who may no longer connect stops working.
+  it("refuses an Organizer's grant with 401 and logs it", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ role: "ORGANIZER", organizationId: "org-1", deactivatedAt: null });
+    const res = await POST(req());
+    expect(res.status).toBe(401);
+    expect(mockRateLimit).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "mcp:oauth-grantee-cannot-connect", role: "ORGANIZER" }));
+  });
+
+  it("lets a grantee whose custom role grants mcp.connect through", async () => {
+    mockDb.user.findUnique.mockResolvedValue({ role: "ORGANIZER", organizationId: "org-1", deactivatedAt: null });
+    mockDb.userPermissionSet.findMany.mockResolvedValueOnce([
+      { permissionSet: { permissions: [{ permission: "mcp.connect", scope: null }] } },
+    ]);
+    const prev = process.env.CUSTOM_ROLES_ENABLED;
+    process.env.CUSTOM_ROLES_ENABLED = "true";
+    try {
+      expect((await POST(req())).status).toBe(429);
+    } finally {
+      if (prev === undefined) delete process.env.CUSTOM_ROLES_ENABLED;
+      else process.env.CUSTOM_ROLES_ENABLED = prev;
+    }
   });
 
   it("refuses a deactivated grantee with 401 and logs it", async () => {

@@ -297,7 +297,6 @@ const ORGANIZER_ORG: PermissionKey[] = [
   ...BUDGET_AUTHOR,
   "procurement.suppliers.financials.view",
   "agent.use",
-  "mcp.connect",
   "finance.view",
   "barcode.view",
   "honorarium.view",
@@ -307,6 +306,10 @@ const ORGANIZER_ORG: PermissionKey[] = [
 
 /** What ADMIN holds above ORGANIZER: the organisation, and the module-wide CRM and procurement powers. */
 const ADMIN_EXTRA: PermissionKey[] = [
+  // Approving a claude.ai (OAuth) connection: admins only (owner, Oct 6,
+  // 2026). The connection carries the whole MCP tool set (door parity parked
+  // Sep 22), so it stays with the people who hold everything anyway.
+  "mcp.connect",
   "org.settings",
   "org.credentials",
   "users.invite",

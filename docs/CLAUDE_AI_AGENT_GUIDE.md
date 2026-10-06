@@ -6,7 +6,7 @@ You can run EA-SYS from a claude.ai chat. Ask in plain English ("register Dr Had
 
 ## 1. Connect once
 
-You need an EA-SYS login with the Admin, Organizer or Super Admin role. Members, onsite staff and the CRM and HR roles cannot connect.
+You need an EA-SYS login with the Admin or Super Admin role (since Oct 6, 2026; Organizers could connect before). Organizers, members, onsite staff and the CRM and HR roles cannot connect.
 
 1. In claude.ai, open **Settings**, then **Integrations** (on some accounts it is called **Connectors**), then **Add custom connector**.
 2. Name it **MMG** and paste this address: `https://events.meetingmindsgroup.com/api/mcp`

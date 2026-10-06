@@ -97,7 +97,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── RBAC: `mcp.connect` (SUPER_ADMIN, ADMIN, ORGANIZER) grants access ──
+  // ── RBAC: `mcp.connect` (SUPER_ADMIN, ADMIN; owner Oct 6, 2026) ──
   const role = session.user.role;
   if (!can(principalFromSession(session), "mcp.connect")) {
     apiLogger.warn({ msg: "mcp-oauth:decision-role-refused", role, userId: session.user.id });

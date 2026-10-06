@@ -7,6 +7,9 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { buildMcpServer } from "@/lib/agent/mcp-server-builder";
 import { principalFromApiKey } from "@/lib/permissions/require-permission";
+import { can, principalFromUser } from "@/lib/permissions/can";
+import { readUserGrants } from "@/lib/permissions/permission-set-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { Grant } from "@/lib/permissions/system-roles";
 
 // ── Session store for stateful MCP clients (like n8n) ──────────────────────
@@ -94,6 +97,25 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
         msg: "mcp:oauth-grantee-org-mismatch",
         organizationId: oauth.organizationId,
         userId: oauth.userId,
+      });
+      return null;
+    }
+    // The grantee must STILL be allowed to connect (`mcp.connect`, admins
+    // since Oct 6, 2026, or a custom role granting it). A grant approved
+    // before the rule narrowed, or by someone since demoted, stops here on
+    // the next request, as a demotion does elsewhere.
+    const mayConnect =
+      !!grantee &&
+      (can(principalFromUser({ id: oauth.userId, role: grantee.role, organizationId: grantee.organizationId }), "mcp.connect") ||
+        (await runWithTenant(oauth.organizationId, () => readUserGrants(oauth.organizationId, oauth.userId))).some(
+          (g) => g.permission === "mcp.connect",
+        ));
+    if (!mayConnect) {
+      apiLogger.warn({
+        msg: "mcp:oauth-grantee-cannot-connect",
+        organizationId: oauth.organizationId,
+        userId: oauth.userId,
+        role: grantee?.role ?? null,
       });
       return null;
     }

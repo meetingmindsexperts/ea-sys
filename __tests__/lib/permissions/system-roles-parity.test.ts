@@ -134,7 +134,9 @@ const ROWS: Row[] = [
   { predicate: "canPurgeCrm", keys: ["crm.purge"], old: (r, k) => canPurgeCrm(r, k) },
   // Organisation (§6): session-only surfaces, so a key is refused.
   { predicate: "canUseAgent", keys: ["agent.use"], old: (r, k) => !k && canUseAgent(r) },
-  { predicate: "canWrite (MCP consent, event activity)", keys: ["mcp.connect", "activity.read"], old: (r, k) => !k && canWrite(r) },
+  { predicate: "canWrite (event activity)", keys: ["activity.read"], old: (r, k) => !k && canWrite(r) },
+  // MCP consent left canWrite on Oct 6, 2026 (owner): admins only.
+  { predicate: "MCP consent (admins)", keys: ["mcp.connect"], old: (r, k) => !k && isOrgAdmin(r) },
   { predicate: "isOrgAdmin (denyNonOrgAdmin)", keys: ["org.settings", "org.credentials", "apiKeys.manage", "activity.org.read", "users.manage", "users.invite"], old: (r, k) => !k && isOrgAdmin(r) },
   { predicate: "denyNonRoleAdmin (SUPER_ADMIN)", keys: ["roles.manage"], old: (r, k) => !k && r === "SUPER_ADMIN" },
 ];
