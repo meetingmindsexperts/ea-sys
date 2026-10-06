@@ -412,7 +412,6 @@ export default function WebinarConsolePage() {
                 endSurveyId={data?.webinar?.endSurveyId ?? ""}
                 emailLink={data?.webinar?.thankYouSurveyLink !== false}
               />
-              <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
             </div>
             <div className="space-y-6">
               <GoLiveCard
@@ -425,6 +424,8 @@ export default function WebinarConsolePage() {
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
               />
+              {/* Handouts in the right rail (owner, Oct 6, 2026). */}
+              <HandoutsCard eventId={eventId} handouts={data?.webinar?.handouts ?? []} />
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
             </div>
           </div>
@@ -2978,8 +2979,8 @@ function HandoutsCard({ eventId, handouts }: { eventId: string; handouts: Webina
           Handouts
         </ConsoleTitle>
         <CardDescription>
-          Slides and reading for attendees, listed beside the video. Only people registered for this webinar, signed
-          in, can open them. PDF, PPTX or DOCX, up to {MAX_HANDOUT_MB} MB each.
+          Files for attendees beside the video. Only signed-in registrants can open them. PDF, PPTX or DOCX, up to{" "}
+          {MAX_HANDOUT_MB} MB each.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
