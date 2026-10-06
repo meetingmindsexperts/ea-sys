@@ -19,7 +19,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireOrgId } from "@/lib/require-org";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { requirePermission, type PermissionGate } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { pollDraftSchema } from "@/lib/webinar/live-polls";
 import { pollContextFor } from "@/lib/webinar/live-polls-server";
@@ -32,7 +32,13 @@ const patchSchema = z.union([
   pollDraftSchema.strict(),
 ]);
 
-async function gateFor(session: Session, eventId: string, route: string) {
+type ManageGate = Extract<PermissionGate, { ok: true }>;
+
+async function gateFor(
+  session: Session,
+  eventId: string,
+  route: string,
+): Promise<{ error: NextResponse } | { orgId: string; gate: ManageGate }> {
   const orgGuard = requireOrgId(session, { route });
   if ("error" in orgGuard) return { error: orgGuard.error };
   const gate = requirePermission(session, "webinar.manage", { route, eventId });
@@ -40,7 +46,7 @@ async function gateFor(session: Session, eventId: string, route: string) {
   return { orgId: orgGuard.orgId, gate };
 }
 
-export async function PATCH(req: Request, { params }: RouteParams) {
+export async function PATCH(req: Request, { params }: RouteParams): Promise<NextResponse> {
   const ROUTE = "events/[eventId]/webinar/polls/[pollId]:PATCH";
   try {
     const [session, { eventId, pollId }, body] = await Promise.all([auth(), params, req.json().catch(() => ({}))]);
@@ -127,7 +133,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: RouteParams) {
+export async function DELETE(_req: Request, { params }: RouteParams): Promise<NextResponse> {
   const ROUTE = "events/[eventId]/webinar/polls/[pollId]:DELETE";
   try {
     const [session, { eventId, pollId }] = await Promise.all([auth(), params]);

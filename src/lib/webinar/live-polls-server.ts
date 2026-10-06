@@ -122,15 +122,20 @@ export async function viewerPoll(args: {
   });
   if (!poll || (poll.status === "CLOSED" && !poll.showResults)) return null;
   const options = readPollOptions(poll.options);
-  const [mine, results] = await Promise.all([
-    args.registrationId
-      ? db.livePollVote.findUnique({
-          where: { pollId_registrationId: { pollId: poll.id, registrationId: args.registrationId } },
-          select: { choices: true },
-        })
-      : Promise.resolve(null),
-    poll.showResults ? cachedTally(poll.id, options) : Promise.resolve(null),
-  ]);
+  const mine = args.registrationId
+    ? await db.livePollVote.findUnique({
+        where: { pollId_registrationId: { pollId: poll.id, registrationId: args.registrationId } },
+        select: { choices: true },
+      })
+    : null;
+  // Results never stand in for the question (review of polls, HIGH): while a
+  // poll is open, a registrant sees them only after answering, so showing
+  // results mid-poll (or reopening a poll whose results were shown) never
+  // stops anyone voting. Once closed, or for staff who cannot answer, they
+  // show as soon as the producer shows them.
+  const resultsVisible =
+    poll.showResults && (poll.status === "CLOSED" || mine !== null || args.registrationId === null);
+  const results = resultsVisible ? await cachedTally(poll.id, options) : null;
   return {
     id: poll.id,
     question: poll.question,

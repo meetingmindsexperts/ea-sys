@@ -79,7 +79,8 @@ export function LivePollCard({
         </div>
         <p className="text-sm font-medium whitespace-pre-wrap break-words">{poll.question}</p>
 
-        {poll.results ? (
+        {/* Results never replace the question for someone who can still answer. */}
+        {poll.results && (!open || answered || !canAnswer) ? (
           <ul className="space-y-2">
             {poll.options.map((o) => {
               const pct = percentOf(poll.results!.counts[o.id] ?? 0, poll.results!.voters);

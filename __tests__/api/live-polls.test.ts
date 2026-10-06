@@ -208,3 +208,26 @@ describe("the poll on the Q&A refresh", () => {
     expect(mockDb.livePoll.findFirst).not.toHaveBeenCalled();
   });
 });
+
+describe("results never block answering (review of polls, HIGH)", () => {
+  const getQuestions = () => listQuestions(new Request("http://x"), { params: Promise.resolve({ slug: "web", sessionId: "s1" }) });
+  const OPEN_SHOWN = { id: "p1", question: "Q", options: OPTS, allowMultiple: false, status: "OPEN", showResults: true };
+
+  it("an open poll with results shown: no results for a registrant who has not answered yet", async () => {
+    asRegistrant();
+    mockDb.livePoll.findFirst.mockResolvedValue(OPEN_SHOWN);
+    mockDb.livePollVote.findUnique.mockResolvedValue(null);
+    const body = (await (await getQuestions()).json()) as { poll: { myChoices: unknown; results: unknown } };
+    expect(body.poll).toMatchObject({ myChoices: null, results: null });
+    expect(mockDb.livePollVote.findMany).not.toHaveBeenCalled();
+  });
+
+  it("the same poll after answering: results arrive", async () => {
+    asRegistrant();
+    mockDb.livePoll.findFirst.mockResolvedValue({ ...OPEN_SHOWN, id: "p9" });
+    mockDb.livePollVote.findUnique.mockResolvedValue({ choices: ["a"] });
+    mockDb.livePollVote.findMany.mockResolvedValue([{ choices: ["a"] }]);
+    const body = (await (await getQuestions()).json()) as { poll: { results: unknown } };
+    expect(body.poll.results).toEqual({ counts: { a: 1, b: 0 }, voters: 1 });
+  });
+});
