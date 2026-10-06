@@ -68,9 +68,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       const counts = questions.length
         ? await db.webinarQuestionVote.groupBy({
             by: ["questionId"],
-            // questionId only: the ids are already bound to this event's
-            // session, and the count then comes from the index alone.
-            where: { questionId: { in: questions.map((q) => q.id) } },
+            // The ids are already bound to this event's session. A cancelled
+            // registration's vote stops counting, as on the attendee page.
+            where: { questionId: { in: questions.map((q) => q.id) }, registration: { status: { not: "CANCELLED" } } },
             _count: { _all: true },
           })
         : [];

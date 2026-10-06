@@ -489,11 +489,11 @@ unaffected on every path. LOWs:
 - Documented: do not roll back below step 3 once extra surveys have answers
   (docs/ROLLBACK.md); a re-sent thank-you replaces the earlier thank-you link
   (the raw token is never stored, so it cannot be reused).
-- Open: someone holding two registrations linked to one account (a delegate
-  registration and a speaker companion) who answered on the page could still
-  get a link on the other registration's thank-you, so answer twice. Not
-  confirmed that companions carry the `userId`; fix if it shows up: exclude by
-  attendee email across the event. And before the platform instance launches,
+- Checked, no fix needed (Oct 6, 2026): someone holding two registrations
+  linked to one account could answer twice (page, then the thank-you on the
+  other registration). Production has **zero** people with two non-cancelled
+  registrations on one event, and only 2 of 89 speaker companions carry a
+  `userId`. Revisit only if that changes: exclude by attendee email. And before the platform instance launches,
   check that the worker's thank-you send reads the Survey row inside a tenant
   context (on master tenant scoping is a passthrough).
 

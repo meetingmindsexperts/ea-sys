@@ -82,7 +82,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           voted = true;
         }
       }
-      const voteCount = await db.webinarQuestionVote.count({ where: { questionId } });
+      const voteCount = await db.webinarQuestionVote.count({
+        where: { questionId, registration: { status: { not: "CANCELLED" } } },
+      });
       apiLogger.info({ eventId: event.id, questionId, voted }, "webinar-question-vote:toggled");
       return NextResponse.json({ voted, voteCount });
     });

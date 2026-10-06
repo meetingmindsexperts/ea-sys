@@ -147,10 +147,9 @@ export async function GET(req: Request, { params }: RouteParams) {
               db.webinarQuestionVote.groupBy({
                 by: ["questionId"],
                 // No eventId filter: the ids come from the event- and
-                // session-bound query above, and questionId alone lets
-                // Postgres count from the unique index (review: at ~1,000
-                // viewers polling, the extra column forced a table read per vote).
-                where: { questionId: { in: shownIds } },
+                // session-bound query above. A cancelled registration's vote
+                // stops counting (a person who re-registers votes once).
+                where: { questionId: { in: shownIds }, registration: { status: { not: "CANCELLED" } } },
                 _count: { _all: true },
               }),
               asker.kind === "attendee"

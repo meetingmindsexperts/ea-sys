@@ -152,8 +152,11 @@ describe("producer: list and mark", () => {
     expect(res.status).toBe(200);
     expect(mockDb.webinarViewerQuestion.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", sessionId: "s1" });
     expect((await res.json()).questions).toEqual([{ id: "q1", voteCount: 0 }, { id: "q2", voteCount: 3 }]);
-    // questionId only, so the count is answered from the unique index (review MED-1).
-    expect(mockDb.webinarQuestionVote.groupBy.mock.calls[0][0].where).toEqual({ questionId: { in: ["q1", "q2"] } });
+    // Bound by question ids; a cancelled registration's vote never counts.
+    expect(mockDb.webinarQuestionVote.groupBy.mock.calls[0][0].where).toEqual({
+      questionId: { in: ["q1", "q2"] },
+      registration: { status: { not: "CANCELLED" } },
+    });
   });
 
   it("marks a question answered, bound to the event", async () => {
@@ -283,6 +286,7 @@ describe("public: upvote a shown question (Oct 6, 2026)", () => {
     mockDb.webinarQuestionVote.groupBy.mockResolvedValue([{ questionId: "old", _count: { _all: 2 } }]);
     mockDb.webinarQuestionVote.findMany.mockResolvedValue([{ questionId: "old" }]);
     const body = await (await listMine(req(), publicParams)).json();
+    expect(mockDb.webinarQuestionVote.groupBy.mock.calls[0][0].where.registration).toEqual({ status: { not: "CANCELLED" } });
     expect(body.published.map((q: { id: string }) => q.id)).toEqual(["old", "new", "mid"]);
     expect(body.published[0]).toMatchObject({ voteCount: 2, votedByMe: true });
   });
