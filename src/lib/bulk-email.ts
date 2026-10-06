@@ -34,7 +34,8 @@ import {
 } from "./survey/expiry";
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
-import { resolveInvitationSurvey, surveyTokenIdentifier } from "@/services/survey-service";
+import { resolveInvitationSurvey, responseWhereForSurvey, surveyTokenIdentifier } from "@/services/survey-service";
+import { surveyRespondedSchema } from "./survey/responded-filter";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
@@ -229,6 +230,12 @@ export interface BulkEmailFilters {
    * goes there unchanged. Rides inside `filters` like surveyExpiryDays.
    */
   surveyId?: string;
+  /**
+   * Registrations only: who did ("yes") or did not ("no") answer this survey,
+   * from its response rows (several surveys, Phase 2). Applied at fire time,
+   * so a scheduled chase reaches whoever still has not answered then.
+   */
+  surveyResponded?: { surveyId: string; answered: "yes" | "no" };
   /**
    * `emailType: "template"` only — slug of the saved custom EmailTemplate
    * to send. Rides inside `filters` (rather than a top-level param) for
@@ -604,6 +611,8 @@ export const bulkEmailSchema = z.object({
       sessionRole: z.nativeEnum(SessionRole).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
       surveyId: z.string().min(1).max(64).optional(),
+      // Registrations only: who did / did not answer a survey (Phase 2).
+      surveyResponded: surveyRespondedSchema.optional(),
       templateSlug: z.string().min(1).max(100).optional(),
       certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
       bcc: z.array(z.string().email()).max(10).optional(),
@@ -843,6 +852,8 @@ export interface BulkEmailViability {
   /** survey-invitation only: the survey the links open (id null = an event
    *  with no Survey row, which the legacy two-part link handles). */
   surveyTarget: { id: string | null; name: string; gatesCertificates: boolean } | null;
+  /** filters.surveyResponded: the survey whose response rows decide the audience. */
+  respondedSurvey: { id: string; eventId: string; gatesCertificates: boolean; answered: "yes" | "no" } | null;
 }
 
 /**
@@ -1103,7 +1114,26 @@ export async function precheckBulkEmailViability(
     }
   }
 
-  return { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget };
+  // Responded / not responded (Phase 2): registrations only, and the survey
+  // must be this event's. Refused here so the enqueue route answers at once.
+  let respondedSurvey: BulkEmailViability["respondedSurvey"] = null;
+  if (filters?.surveyResponded) {
+    if (recipientType !== "registrations") {
+      apiLogger.warn({ msg: "bulk-email:survey-responded-wrong-audience", eventId, recipientType });
+      throw new BulkEmailError("The survey filter applies to registrations only.", 400, INVALID_FILTER_CODE);
+    }
+    const row = await db.survey.findFirst({
+      where: { id: filters.surveyResponded.surveyId, eventId },
+      select: { id: true, eventId: true, gatesCertificates: true },
+    });
+    if (!row) {
+      apiLogger.warn({ msg: "bulk-email:survey-responded-not-this-event", eventId, surveyId: filters.surveyResponded.surveyId });
+      throw new BulkEmailError("That survey does not belong to this event.", 400, INVALID_FILTER_CODE);
+    }
+    respondedSurvey = { ...row, answered: filters.surveyResponded.answered };
+  }
+
+  return { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget, respondedSurvey };
 }
 
 /**
@@ -1188,7 +1218,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // schedule routes (review M2) so a misconfigured send is rejected there
   // synchronously; this call is the fire-time backstop and also loads the
   // event + cert templates + agreement mode for the send below.
-  const { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget } = await precheckBulkEmailViability(input);
+  const { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget, respondedSurvey } = await precheckBulkEmailViability(input);
   // The picked files, read from storage ONCE per send (references in, bytes
   // out); the precheck above already refused a missing or foreign one.
   const attachmentBytesResult = await resolveStoredAttachments(attachments, eventId);
@@ -1400,6 +1430,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           : {}),
         // Drop faculty companions (the isFaculty ticket type) — email delegates only.
         ...(filters?.excludeFaculty ? EXCLUDE_FACULTY_WHERE : {}),
+        // Who did / did not answer a survey, from its response rows (Phase 2;
+        // the same rule as matchesSurveyResponded on the dashboard counts).
+        ...(respondedSurvey
+          ? {
+              surveyResponses:
+                respondedSurvey.answered === "yes"
+                  ? { some: responseWhereForSurvey(respondedSurvey) }
+                  : { none: responseWhereForSurvey(respondedSurvey) },
+            }
+          : {}),
       },
       select: {
         id: true,

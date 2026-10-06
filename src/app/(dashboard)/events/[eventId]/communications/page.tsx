@@ -1,5 +1,6 @@
 "use client";
 
+import { matchesSurveyResponded } from "@/lib/survey/responded-filter";
 import { useCan } from "@/hooks/use-can";
 
 import { useState } from "react";
@@ -75,6 +76,8 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
 interface RegistrationItem {
+  /** Surveys answered (list route; the dialog's survey filter count). */
+  answeredSurveyIds?: string[];
   id: string;
   serialId: number | null;
   status: string;
@@ -468,6 +471,7 @@ export default function CommunicationsPage() {
         if (!f.tags.some((t) => tags.includes(t))) return false;
       }
       if (f.excludeFaculty && r.ticketType?.isFaculty) return false;
+      if (!matchesSurveyResponded(r.answeredSurveyIds, f.surveyResponded)) return false;
       return true;
     }).length;
   }

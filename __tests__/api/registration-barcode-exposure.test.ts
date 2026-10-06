@@ -10,6 +10,8 @@ const { mockDb, mockOrgCtx, mockRateLimit, capturedBarcodeWhere } = vi.hoisted((
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn(), findFirst: vi.fn() },
+    // The surveys each row answered (several surveys, Phase 2).
+    surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockOrgCtx: vi.fn(),
   mockRateLimit: vi.fn(),

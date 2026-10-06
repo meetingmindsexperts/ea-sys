@@ -242,7 +242,7 @@ two-deploy sequence; recorded rather than hidden.
 | Phase | What ships | Effort |
 |---|---|---|
 | 1. Several surveys | `Survey` table and backfill, surveys list plus per-survey builder (questions, intro, thank-you, active, certificate flag), public route by token, legacy token fallback, survey picker and saved-template picker on the send, `{{surveyName}}`, per-survey responses and CSV, clone copies surveys (never responses or tokens), media references, tenancy package. ONCE only. | 2.5 days |
-| 2. Responded filter (O1) | Registrations list filter and bulk email audience filter, with the dialog count matching the send (list rows carry the survey ids each registration answered). | 0.5 to 1 day |
+| 2. Responded filter (O1) | **BUILT Oct 6, 2026.** Registrations list filter and bulk email audience filter, with the dialog count matching the send (list rows carry the survey ids each registration answered). | 0.5 to 1 day |
 | 3. Session ratings | ONCE_PER_SESSION: session picker on the public page, session column and per-session results, session list setting. | 1 to 1.5 days |
 | 4. Repeatable | REPEATABLE mode and the ordinal column in the CSV. | 0.5 day |
 
@@ -496,6 +496,24 @@ unaffected on every path. LOWs:
   attendee email across the event. And before the platform instance launches,
   check that the worker's thank-you send reads the Survey row inside a tenant
   context (on master tenant scoping is a passthrough).
+
+### Phase 2 as built (Oct 6, 2026): the responded filter
+
+- One rule, `src/lib/survey/responded-filter.ts`: the Registrations page
+  filter and both bulk email counts (Registrations, Communications) use
+  `matchesSurveyResponded` on each row's `answeredSurveyIds`; the send uses the
+  equivalent Prisma where (`surveyResponses: some | none` of
+  `responseWhereForSurvey`, so the CME survey counts its legacy rows like its
+  results do). Checked locally: 54 not answered / 2 answered on the page, in
+  the dialog and in the send's own query.
+- The registrations list reads the event's response rows once per request.
+- Bulk email `filters.surveyResponded { surveyId, answered: yes | no }`,
+  registrations only, the survey must be this event's (refused at enqueue).
+  Applied at fire time, so a scheduled chase reaches whoever still has not
+  answered then. Scheduled sends cannot edit filters, so it is kept as saved.
+- UI: a "Survey" dropdown (Answered / Not answered for each survey) in the
+  Registrations filter bar and in the bulk email dialog's filters, for people
+  who can read surveys; the page's choice seeds the dialog.
 
 ### Effort and order
 

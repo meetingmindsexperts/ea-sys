@@ -539,7 +539,26 @@ export async function GET(req: Request, { params }: RouteParams) {
       taxRate: event.taxRate != null ? Number(event.taxRate) : null,
       taxLabel: event.taxLabel ?? null,
     };
-    const withMoney = flagged.map((r) => ({ ...r, rowMoney: computeRegistrationRowMoney(r, moneyCtx) }));
+    // The surveys each registration answered (several surveys, Phase 2): feeds
+    // the "Responded / Not responded" filter and the bulk email count, so they
+    // agree with the send (src/lib/survey/responded-filter.ts). One read of
+    // the event's response rows, never one per registration.
+    const responseRows = await db.surveyResponse.findMany({
+      where: { eventId, surveyId: { not: null } },
+      select: { registrationId: true, surveyId: true },
+    });
+    const answeredByReg = new Map<string, string[]>();
+    for (const row of responseRows) {
+      if (!row.surveyId) continue;
+      const list = answeredByReg.get(row.registrationId);
+      if (list) list.push(row.surveyId);
+      else answeredByReg.set(row.registrationId, [row.surveyId]);
+    }
+    const withMoney = flagged.map((r) => ({
+      ...r,
+      rowMoney: computeRegistrationRowMoney(r, moneyCtx),
+      answeredSurveyIds: answeredByReg.get(r.id) ?? [],
+    }));
 
     let payload = withMoney;
     if (redactsFinance) {

@@ -11,6 +11,8 @@ const { mockDb, mockOrgCtx, mockRateLimit } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn(), findFirst: vi.fn() },
+    // The surveys each row answered (several surveys, Phase 2).
+    surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockOrgCtx: vi.fn(),
   mockRateLimit: vi.fn(),
@@ -104,5 +106,20 @@ describe("sponsor filter follows the redaction (G9, CUSTOM_ROLES_PLAN)", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: "SPONSOR_FILTER_FORBIDDEN" });
     expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("registrations list answeredSurveyIds (several surveys, Phase 2)", () => {
+  it("each row carries the surveys it answered, from one read of the event's response rows", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "ORGANIZER", userId: "u1" });
+    mockDb.surveyResponse.findMany.mockResolvedValueOnce([
+      { registrationId: "r1", surveyId: "svy-cme" },
+      { registrationId: "r1", surveyId: "svy-fb" },
+      { registrationId: "someone-else", surveyId: "svy-fb" },
+    ]);
+    const body = await (await LIST_GET(req(), params)).json();
+    expect(body[0].answeredSurveyIds).toEqual(["svy-cme", "svy-fb"]);
+    expect(mockDb.surveyResponse.findMany).toHaveBeenCalledTimes(1);
+    expect(mockDb.surveyResponse.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", surveyId: { not: null } });
   });
 });

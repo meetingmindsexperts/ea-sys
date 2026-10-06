@@ -2,7 +2,7 @@
 
 import { useCan } from "@/hooks/use-can";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
 import {
   DropdownMenu,
@@ -59,7 +59,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags, useSponsors } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags, useSponsors, useEventSurveys } from "@/hooks/use-api";
+import { matchesSurveyResponded, type SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { TagFilter } from "@/components/registrations/tag-filter";
@@ -190,6 +191,8 @@ export default function RegistrationsPage() {
   const canReadTickets = useCan("tickets.read", eventId) === "allowed";
   const canShareViews = useCan("registrations.share", eventId) === "allowed";
   const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
+  const canReadSurveys = useCan("surveys.read", eventId) === "allowed";
+  const { data: eventSurveys = [] } = useEventSurveys(eventId, canReadSurveys);
   const ticketsQuery = useTickets(eventId, canReadTickets);
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
@@ -240,6 +243,9 @@ export default function RegistrationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [ticketFilter, setTicketFilter] = useState<string>("all");
+  // "Answered / Not answered <survey>" (several surveys, Phase 2): client-side
+  // from each row's answeredSurveyIds, the same rule as the send.
+  const [surveyFilter, setSurveyFilter] = useState<SurveyRespondedFilter | null>(null);
 
   // Sheet state for registration details
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null);
@@ -347,8 +353,9 @@ export default function RegistrationsPage() {
     const matchesStatus = statusFilter === "all" || r.status === statusFilter;
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
     const matchesTicket = ticketFilter === "all" || r.ticketType?.id === ticketFilter;
+    const matchesSurvey = matchesSurveyResponded(r.answeredSurveyIds, surveyFilter);
 
-    return matchesSearch && matchesStatus && matchesPayment && matchesTicket;
+    return matchesSearch && matchesStatus && matchesPayment && matchesTicket && matchesSurvey;
   });
 
   // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
@@ -375,6 +382,7 @@ export default function RegistrationsPage() {
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
       if (f.tags && f.tags.length > 0 && !f.tags.some((t) => r.attendee.tags.includes(t))) return false;
       if (f.excludeFaculty && r.ticketType?.isFaculty) return false;
+      if (!matchesSurveyResponded(r.answeredSurveyIds, f.surveyResponded)) return false;
       return true;
     }).length;
   };
@@ -768,6 +776,29 @@ export default function RegistrationsPage() {
                 </SelectContent>
               </Select>
             )}
+            {canReadSurveys && eventSurveys.length > 0 && (
+              <Select
+                value={surveyFilter ? `${surveyFilter.answered}:${surveyFilter.surveyId}` : "all"}
+                onValueChange={(v) => {
+                  const [answered, ...rest] = v.split(":");
+                  setSurveyFilter(v === "all" ? null : { answered: answered as "yes" | "no", surveyId: rest.join(":") });
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[200px]" aria-label="Survey">
+                  <SelectValue placeholder="Survey" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any survey status</SelectItem>
+                  {eventSurveys.map((sv) => (
+                    <Fragment key={sv.id}>
+                      <SelectItem value={`yes:${sv.id}`}>Answered: {sv.name}</SelectItem>
+                      <SelectItem value={`no:${sv.id}`}>Not answered: {sv.name}</SelectItem>
+                    </Fragment>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <TagFilter
               tags={tagsQuery.data?.tags}
               isLoading={tagsQuery.isLoading}
@@ -782,6 +813,7 @@ export default function RegistrationsPage() {
                 setStatusFilter("all");
                 setPaymentFilter("all");
                 setTicketFilter("all");
+                setSurveyFilter(null);
               }}
             >
               <RefreshCw className="h-4 w-4" />
@@ -1092,7 +1124,7 @@ export default function RegistrationsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 Matches a registration #, the full registration ID, or the attendee email.
-                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0 || sponsorFilter !== "")
+                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0 || sponsorFilter !== "" || surveyFilter)
                   ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
                   : ""}
               </p>
@@ -1213,6 +1245,7 @@ export default function RegistrationsPage() {
         paymentStatusFilter={paymentFilter}
         ticketTypeFilter={ticketFilter}
         tagsFilter={tagFilter}
+        surveyRespondedFilter={surveyFilter}
         badgeOptions={badgeOptionsForEmail}
         recipientCountFor={countRegistrationsForEmail}
       />

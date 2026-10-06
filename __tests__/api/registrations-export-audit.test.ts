@@ -31,6 +31,8 @@ const {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn() },
     invoice: { groupBy: vi.fn().mockResolvedValue([]) },
+    // The surveys each row answered (several surveys, Phase 2).
+    surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
   },
   mockRecordExport: vi.fn(),
   mockCanViewFinance: vi.fn(() => true),

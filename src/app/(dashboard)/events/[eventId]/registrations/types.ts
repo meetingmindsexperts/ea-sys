@@ -120,6 +120,8 @@ export interface Accommodation {
 
 export interface Registration {
   id: string;
+  /** Surveys this registration answered (list route only; Phase 2 filter). */
+  answeredSurveyIds?: string[];
   /**
    * Linked User account id, set once the registrant signs up + completes
    * their own details. NULL when the row was created by an admin (CSV

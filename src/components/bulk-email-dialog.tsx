@@ -4,7 +4,9 @@ import { templateUsesRsvpToken } from "@/lib/rsvp/button";
 import { bulkTemplateSlugFor } from "@/lib/bulk-email-audience";
 import { bulkEmailTypeOptionsFor } from "@/lib/email-template-registry";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { useCan } from "@/hooks/use-can";
+import type { SurveyRespondedFilter } from "@/lib/survey/responded-filter";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +81,8 @@ export interface BulkEmailEffectiveFilters {
   tags?: string[];
   /** Registrations recipient only — drop faculty companion registrations. */
   excludeFaculty?: boolean;
+  /** Registrations recipient only — who did / did not answer a survey (Phase 2). */
+  surveyResponded?: SurveyRespondedFilter;
   agreementSigned?: string;
   hasSession?: string;
   sessionRole?: string;
@@ -134,6 +138,8 @@ interface BulkEmailDialogProps {
    */
   badgeTypesFilter?: string[];
   tagsFilter?: string[];
+  /** Registrations recipient only — the page's survey filter, seeded into the dialog. */
+  surveyRespondedFilter?: SurveyRespondedFilter | null;
   /**
    * Registrations recipient only — the distinct badge-type values available
    * on this event, used to populate the in-dialog Badge type checkbox list.
@@ -234,6 +240,7 @@ export function BulkEmailDialog({
   ticketTypeFilter,
   badgeTypesFilter,
   tagsFilter,
+  surveyRespondedFilter,
   badgeOptions,
   agreementSignedFilter,
   hasSessionFilter,
@@ -261,6 +268,9 @@ export function BulkEmailDialog({
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
   const [localExcludeFaculty, setLocalExcludeFaculty] = useState(false);
+  const [localSurveyResponded, setLocalSurveyResponded] = useState<SurveyRespondedFilter | null>(
+    surveyRespondedFilter ?? null,
+  );
   // certificate only — the CertificateTemplate ids to issue (multi-select).
   const [certTemplateIds, setCertTemplateIds] = useState<string[]>([]);
   // Certificate sends only — where the cover email comes from. Picking a
@@ -307,6 +317,7 @@ export function BulkEmailDialog({
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
       setLocalExcludeFaculty(false);
+      setLocalSurveyResponded(surveyRespondedFilter ?? null);
       setCertTemplateIds([]);
       setCoverSource("default");
       setScheduledAudience("matching");
@@ -316,7 +327,8 @@ export function BulkEmailDialog({
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
           (badgeTypesFilter?.length ?? 0) > 0 ||
-          (tagsFilter?.length ?? 0) > 0,
+          (tagsFilter?.length ?? 0) > 0 ||
+          !!surveyRespondedFilter,
       );
     }
   }
@@ -340,7 +352,13 @@ export function BulkEmailDialog({
   // survey-invitation only — which survey the links open (step 3 of several
   // surveys, Oct 6, 2026). "" = the CME survey, what every send did before.
   const [surveyChoice, setSurveyChoice] = useState<string>("");
-  const { data: eventSurveys = [] } = useEventSurveys(eventId, open && emailType === "survey-invitation");
+  // Read for the survey-invitation picker and, on registration sends, for the
+  // "Answered / Not answered" filter. Only for people who can read surveys.
+  const canReadSurveys = useCan("surveys.read", eventId) === "allowed";
+  const { data: eventSurveys = [] } = useEventSurveys(
+    eventId,
+    open && canReadSurveys && (emailType === "survey-invitation" || recipientType === "registrations"),
+  );
   // Sendable = open with questions. The CME survey first.
   const sendableSurveys = eventSurveys
     .filter((sv) => sv.isActive && Array.isArray(sv.config) && sv.config.length > 0)
@@ -454,7 +472,8 @@ export function BulkEmailDialog({
     (localTicketTypeIds.length > 0 ? 1 : 0) +
     (localBadgeTypes.length > 0 ? 1 : 0) +
     (localTags.length > 0 ? 1 : 0) +
-    (localExcludeFaculty ? 1 : 0);
+    (localExcludeFaculty ? 1 : 0) +
+    (localSurveyResponded ? 1 : 0);
   const effectiveFilters: BulkEmailEffectiveFilters = {
     status: statusFilter,
     paymentStatus:
@@ -463,6 +482,7 @@ export function BulkEmailDialog({
     badgeTypes: isRegistrations && localBadgeTypes.length ? localBadgeTypes : undefined,
     tags: isRegistrations && localTags.length ? localTags : undefined,
     excludeFaculty: isRegistrations && localExcludeFaculty ? true : undefined,
+    surveyResponded: isRegistrations && localSurveyResponded ? localSurveyResponded : undefined,
     agreementSigned: agreementSignedFilter,
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
@@ -666,6 +686,9 @@ export function BulkEmailDialog({
           : {}),
         ...(recipientType === "registrations" && localExcludeFaculty
           ? { excludeFaculty: true }
+          : {}),
+        ...(recipientType === "registrations" && localSurveyResponded
+          ? { surveyResponded: localSurveyResponded }
           : {}),
         // Tier-1 speaker filters (speakers recipient only).
         ...(recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all"
@@ -1256,6 +1279,37 @@ export function BulkEmailDialog({
                       Send to anyone who has <strong>any</strong> of these tags.
                     </p>
                   </div>
+
+                  {/* Survey responded / not (several surveys, Phase 2). */}
+                  {canReadSurveys && eventSurveys.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-email-survey-responded">Survey</Label>
+                      <Select
+                        value={localSurveyResponded ? `${localSurveyResponded.answered}:${localSurveyResponded.surveyId}` : "all"}
+                        onValueChange={(v) => {
+                          const [answered, ...rest] = v.split(":");
+                          setLocalSurveyResponded(v === "all" ? null : { answered: answered as "yes" | "no", surveyId: rest.join(":") });
+                        }}
+                      >
+                        <SelectTrigger id="bulk-email-survey-responded" aria-label="Survey">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Any survey status</SelectItem>
+                          {eventSurveys.map((sv) => (
+                            <Fragment key={sv.id}>
+                              <SelectItem value={`yes:${sv.id}`}>Answered: {sv.name}</SelectItem>
+                              <SelectItem value={`no:${sv.id}`}>Not answered: {sv.name}</SelectItem>
+                            </Fragment>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Checked again when the email goes out, so a scheduled reminder reaches only those who still have
+                        not answered.
+                      </p>
+                    </div>
+                  )}
                   </div>
                 </div>
               )}
@@ -1369,6 +1423,12 @@ export function BulkEmailDialog({
             )}
             {recipientType === "registrations" && localExcludeFaculty && (
               <p className="text-muted-foreground">Excluding faculty / speakers</p>
+            )}
+            {recipientType === "registrations" && localSurveyResponded && (
+              <p className="text-muted-foreground">
+                {localSurveyResponded.answered === "yes" ? "Answered" : "Not answered"}:{" "}
+                {eventSurveys.find((sv) => sv.id === localSurveyResponded.surveyId)?.name ?? "the chosen survey"}
+              </p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>
