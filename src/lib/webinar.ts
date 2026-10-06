@@ -91,6 +91,9 @@ export interface WebinarSettings {
   pageBackgroundUrl?: string;
   /** Full-width image under the video area (sponsor strip, sign-off). */
   pageFooterImageUrl?: string;
+  /** The survey that pops up on the attendee page when the webinar ends, and
+   *  whose link goes into the thank-you email (step 4/5 of several surveys). */
+  endSurveyId?: string;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** ISO time the producer last opened the room. The auto-close job only

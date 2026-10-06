@@ -2490,6 +2490,7 @@ export interface WebinarConsoleData {
     pageLogoUrl?: string;
     pageBackgroundUrl?: string;
     pageFooterImageUrl?: string;
+    endSurveyId?: string;
   };
   anchorSession: {
     id: string;

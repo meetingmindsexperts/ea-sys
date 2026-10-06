@@ -64,3 +64,22 @@ export function webinarVideoLayout({
 export function webinarBackgroundStyle(url: string | null): { backgroundImage: string } | undefined {
   return url ? { backgroundImage: `url(${JSON.stringify(url)})` } : undefined;
 }
+
+/**
+ * Whether the webinar is over for this viewer, which is when the end-of-webinar
+ * survey appears (step 4 of several surveys, Oct 6, 2026): the host ended it in
+ * Zoom, or the room is closed and the scheduled end has passed. A room closed
+ * BEFORE the scheduled end is a pause, not the end (review of step 4: the room
+ * route marks the session COMPLETED on close, so `lobbyEnded` turns true during
+ * a pause too). Never while the room is open: an overrun past the scheduled end
+ * keeps it hidden.
+ */
+export function isWebinarOver(s: {
+  hostEnded: boolean;
+  roomOpen: boolean;
+  /** The scheduled end time has passed. */
+  pastScheduledEnd: boolean;
+}): boolean {
+  return s.hostEnded || (!s.roomOpen && s.pastScheduledEnd);
+}
+

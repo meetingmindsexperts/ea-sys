@@ -428,6 +428,24 @@ picker for survey sends (not needed for the webinar survey).
   not registered, survey inactive, already answered), the popup trigger rules as
   a pure helper.
 
+**Step 4 as built (Oct 6, 2026):** `settings.webinar.endSurveyId` picked on
+the console's Setup tab; `…/sessions/[sessionId]/end-survey` (GET survey +
+answered, POST submit through `submitSurveyResponse`); the popup
+(`EndOfWebinarSurvey`) and the shared `QuestionCard`. Rules from its review:
+- **Never the CME survey** (L1): from the popup any registrant, attended or
+  not, could complete it and be issued a certificate (auto-issue keys on
+  `surveyCompletedAt` alone). The picker leaves it out, the webinar PUT
+  refuses it (and closed surveys), and the route refuses it again.
+- **A pause is not the end:** the room route marks the session COMPLETED on
+  close, so a closed room counts as the end only after the scheduled end
+  (`isWebinarOver`); the host ending it in Zoom counts at once. The route also
+  refuses answers until the session is COMPLETED or past its end and not LIVE.
+- **Known limits, for later:** once an event is marked COMPLETED its attendee
+  page stops loading (detail, lobby and zoom-join filter it out), so the popup
+  lasts only until then; step 5's email link covers later answers. A host who
+  ends in Zoom and restarts leaves the banner up until the viewer clicks
+  Rejoin.
+
 ### Step 5: the link in the thank-you email
 
 - When `endSurveyId` is set, the webinar thank-you send (end + 30 min, through

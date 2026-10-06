@@ -29,7 +29,8 @@ import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
 import { AskQuestionBox } from "@/components/webinar/ask-question-box";
 import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
-import { webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
+import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
+import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -427,6 +428,18 @@ export default function PublicSessionPage() {
   const panelists = isWebinarEvent && session ? collectPanelists(session) : [];
   const showPanelists = panelists.length > 0;
   const layout = webinarVideoLayout({ showQa, showPanelists });
+  // The end-of-webinar survey (step 4 of several surveys, Oct 6, 2026) appears
+  // once the webinar is over for this viewer: the host ended it in Zoom, or the
+  // room is closed and the scheduled end has passed (a room closed earlier is a
+  // pause). Never while it is live. See isWebinarOver.
+  const webinarEnded =
+    isWebinarEvent &&
+    authState.kind === "ok" &&
+    isWebinarOver({
+      hostEnded,
+      roomOpen,
+      pastScheduledEnd: lobby?.endsAt ? new Date(lobby.endsAt).getTime() < Date.now() : false,
+    });
 
   if (loading) {
     return (
@@ -714,6 +727,10 @@ export default function PublicSessionPage() {
             onLeave={() => setIsJoining(false)}
           />
         </div>
+
+        {isWebinarEvent && authState.kind === "ok" && (
+          <EndOfWebinarSurvey slug={slug} sessionId={sessionId} ended={webinarEnded} />
+        )}
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">

@@ -67,6 +67,7 @@ import {
   Eye,
   EyeOff,
   Palette,
+  ClipboardList,
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
@@ -81,6 +82,7 @@ import {
   type WebinarViewerQuestionRow,
   useUpdateWebinarViewerQuestion,
   useWebinarPresence,
+  useEventSurveys,
   useProvisionWebinar,
   useWebinarSequence,
   useReenqueueWebinarSequence,
@@ -388,6 +390,11 @@ export default function WebinarConsolePage() {
                 eventSlug={data?.event?.slug ?? null}
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
+              />
+              <EndSurveyCard
+                key={`end-survey:${data?.webinar?.endSurveyId ?? ""}`}
+                eventId={eventId}
+                endSurveyId={data?.webinar?.endSurveyId ?? ""}
               />
             </div>
             <div className="space-y-6">
@@ -2835,6 +2842,90 @@ function GoLiveCard({
             room / Go live”.
           </p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * End-of-webinar survey (step 4 of several surveys, Oct 6, 2026): the survey
+ * that pops up on the attendee page when the webinar ends (host ends it in
+ * Zoom, or the room is closed after the scheduled end). Closable, it comes
+ * back until answered. The same survey's link goes into the thank-you email.
+ * Any open extra survey can be chosen, never the CME survey (any registrant
+ * could complete it from the popup and be issued a certificate).
+ */
+function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId: string }) {
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  const { data: surveys = [], isLoading } = useEventSurveys(eventId);
+  const [choice, setChoice] = useState(endSurveyId || "none");
+  // Never the CME survey (review of step 4): in the popup any registrant,
+  // attended or not, could complete it and be issued a certificate. It stays
+  // with its personal link.
+  const usable = surveys.filter(
+    (sv) => !sv.gatesCertificates && sv.isActive && Array.isArray(sv.config) && sv.config.length > 0,
+  );
+  const saved = endSurveyId ? surveys.find((sv) => sv.id === endSurveyId) : null;
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ endSurveyId: choice === "none" ? "" : choice });
+      toast.success(choice === "none" ? "No survey after the webinar" : "End-of-webinar survey saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save the end-of-webinar survey");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={ClipboardList} tone="emerald">
+          End-of-webinar survey
+        </ConsoleTitle>
+        <CardDescription>
+          Pops up for attendees on the webinar page when it ends. They can close it and it comes back until they
+          answer. Answers are recorded with the survey and export from the Surveys page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="end-survey">Survey</Label>
+          <Select value={choice} onValueChange={setChoice} disabled={isLoading}>
+            <SelectTrigger id="end-survey" className="w-full">
+              <SelectValue placeholder={isLoading ? "Loading surveys…" : "Choose a survey"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No survey</SelectItem>
+              {usable.map((sv) => (
+                <SelectItem key={sv.id} value={sv.id}>
+                  {sv.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            The certificate (CME) survey is not offered here: it is sent with its personal link, so only people you
+            choose can complete it.
+          </p>
+          {saved && !saved.isActive && (
+            <p className="text-sm text-amber-700">The chosen survey is closed, so nothing pops up until it is opened.</p>
+          )}
+          {usable.length === 0 && !isLoading && (
+            <p className="text-sm text-muted-foreground">
+              No open survey with questions yet. Build one under{" "}
+              <Link href={`/events/${eventId}/survey`} className="font-medium text-primary hover:underline">
+                Surveys
+              </Link>
+              .
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end border-t pt-3">
+          <Button onClick={handleSave} disabled={updateSettings.isPending || choice === (endSurveyId || "none")}>
+            {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

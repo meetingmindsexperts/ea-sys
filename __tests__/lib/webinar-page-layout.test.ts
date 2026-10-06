@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
+import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 
 describe("webinarVideoLayout", () => {
   it("Q&A + panelists: three columns from xl, panelists left and under the video below xl", () => {
@@ -38,5 +38,22 @@ describe("webinarBackgroundStyle", () => {
 
   it("no URL, no style", () => {
     expect(webinarBackgroundStyle(null)).toBeUndefined();
+  });
+});
+
+describe("isWebinarOver (when the end-of-webinar survey may appear)", () => {
+  const base = { hostEnded: false, roomOpen: true, pastScheduledEnd: false };
+  it("is false while the webinar is live, even after the scheduled end (an overrun)", () => {
+    expect(isWebinarOver(base)).toBe(false);
+    expect(isWebinarOver({ ...base, pastScheduledEnd: true })).toBe(false);
+  });
+  it("a room closed BEFORE the scheduled end is a pause, not the end", () => {
+    expect(isWebinarOver({ ...base, roomOpen: false })).toBe(false);
+  });
+  it("is true when the host ends it in Zoom", () => {
+    expect(isWebinarOver({ ...base, hostEnded: true })).toBe(true);
+  });
+  it("is true when the room is closed and the scheduled end has passed (also on a later visit)", () => {
+    expect(isWebinarOver({ ...base, roomOpen: false, pastScheduledEnd: true })).toBe(true);
   });
 });

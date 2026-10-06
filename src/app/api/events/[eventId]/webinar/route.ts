@@ -50,6 +50,9 @@ const updateWebinarSchema = z.object({
   pageLogoUrl: imageUrlField("Page logo"),
   pageBackgroundUrl: imageUrlField("Page background"),
   pageFooterImageUrl: imageUrlField("Footer image"),
+  // The survey that pops up when the webinar ends (step 4 of several surveys,
+  // Oct 6, 2026). Empty string clears it.
+  endSurveyId: z.string().max(64).optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───
@@ -195,6 +198,32 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const existingWebinar = readWebinarSettings(event.settings) ?? {};
     const nextWebinar: WebinarSettings = { ...existingWebinar, ...validated.data };
+
+    // The end-of-webinar survey must be one of this event's surveys.
+    if (validated.data.endSurveyId) {
+      const survey = await db.survey.findFirst({
+        where: { id: validated.data.endSurveyId, eventId: event.id },
+        select: { id: true, gatesCertificates: true, isActive: true },
+      });
+      if (!survey) {
+        apiLogger.warn({ eventId: event.id, surveyId: validated.data.endSurveyId }, "webinar:end-survey-not-this-event");
+        return NextResponse.json({ error: "That survey does not belong to this event." }, { status: 400 });
+      }
+      // The CME survey is reached only through the personal link the
+      // organiser sends (L1): in the popup any registrant, attended or not,
+      // could complete it and be issued a certificate.
+      if (survey.gatesCertificates) {
+        apiLogger.warn({ eventId: event.id, surveyId: survey.id }, "webinar:end-survey-cme-refused");
+        return NextResponse.json(
+          { error: "The certificate (CME) survey cannot pop up after the webinar. Send it with its personal link instead." },
+          { status: 400 },
+        );
+      }
+      if (!survey.isActive) {
+        apiLogger.warn({ eventId: event.id, surveyId: survey.id }, "webinar:end-survey-closed");
+        return NextResponse.json({ error: "That survey is closed. Open it first." }, { status: 400 });
+      }
+    }
 
     // Save-time HLS validation (waiting-room review #5 follow-up): switching
     // the viewing mode to "hls" requires the anchor session's live stream to

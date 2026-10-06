@@ -17,6 +17,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUpdateEventSettings } = vi.hoisted(
     event: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
     eventSession: { findFirst: vi.fn(), updateMany: vi.fn() },
     zoomMeeting: { findFirst: vi.fn() },
+    survey: { findFirst: vi.fn() },
   },
 }));
 
@@ -150,6 +151,17 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(res.status).toBe(200);
     const patch = (mockUpdateEventSettings.mock.calls[0] as unknown[])[1] as (c: Record<string, unknown>) => Record<string, unknown>;
     expect((patch({ webinar: {} }).webinar as Record<string, unknown>).pageBackgroundUrl).toBe("https://cdn.example.com/b.jpg");
+  });
+
+  it("refuses the CME survey as the end-of-webinar survey, and accepts an open extra one (review of step 4)", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy-cert", gatesCertificates: true, isActive: true });
+    const refused = await callPut({ endSurveyId: "svy-cert" });
+    expect(refused.status).toBe(400);
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy-fb", gatesCertificates: false, isActive: false });
+    expect((await callPut({ endSurveyId: "svy-fb" })).status).toBe(400); // closed
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy-fb", gatesCertificates: false, isActive: true });
+    expect((await callPut({ endSurveyId: "svy-fb" })).status).toBe(200);
   });
 
   it("refuses a branding image that is neither an upload nor https", async () => {
