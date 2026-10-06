@@ -11,7 +11,14 @@ import { can, principalFromUser } from "@/lib/permissions/can";
 import type { Grant } from "@/lib/permissions/system-roles";
 
 // ── Session store for stateful MCP clients (like n8n) ──────────────────────
-const sessions = new Map<string, { transport: WebStandardStreamableHTTPServerTransport; orgId: string; createdAt: number }>();
+// A session is bound to the credential that opened it and to what that
+// credential could do then (review L1, Oct 6, 2026). Reusing a session id with
+// another credential is refused, and a credential whose role or grants changed
+// is told to reconnect, so a narrowed key never keeps its old tool set.
+const sessions = new Map<
+  string,
+  { transport: WebStandardStreamableHTTPServerTransport; orgId: string; credential: string; access: string; createdAt: number }
+>();
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
 
 function cleanExpiredSessions() {
@@ -21,9 +28,27 @@ function cleanExpiredSessions() {
   }
 }
 
+/** What the session's server was built from: the actor's role and the key's grants. */
+function accessFingerprint(a: AuthResult): string {
+  return JSON.stringify([a.actorRole, a.fromApiKey, a.apiKeyGrants ?? null]);
+}
+
+/** A stale-session reply; spec-compliant clients reconnect on it. */
+function sessionGone(req: Request, message: string): Response {
+  return withCors(
+    req,
+    new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32600, message }, id: null }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
 type AuthResult = {
   organizationId: string;
   keyPrefix: string;
+  /** What a session is bound to: the API key's id, or the OAuth person and client (tokens rotate on refresh). */
+  credentialId: string;
   /**
    * The granting user's role for an OAuth grant; null for an API key.
    *
@@ -56,6 +81,7 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
     return {
       organizationId: apiKey.organizationId,
       keyPrefix: apiKey.keyPrefix,
+      credentialId: `key:${apiKey.apiKeyId}`,
       rateLimitTier: apiKey.rateLimitTier,
       actorRole: null,
       fromApiKey: true,
@@ -117,6 +143,7 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
     return {
       organizationId: oauth.organizationId,
       keyPrefix: "oauth-" + key.slice(0, 10),
+      credentialId: `oauth:${oauth.userId}:${oauth.clientId}`,
       rateLimitTier: oauth.rateLimitTier,
       actorRole: grantee?.role ?? null,
       fromApiKey: false,
@@ -241,6 +268,20 @@ async function handleMcp(req: Request): Promise<Response> {
   const sessionId = req.headers.get("mcp-session-id");
   if (sessionId && sessions.has(sessionId)) {
     const session = sessions.get(sessionId)!;
+    if (session.orgId !== authResult.organizationId || session.credential !== authResult.credentialId) {
+      apiLogger.warn({
+        msg: "mcp:session-credential-mismatch",
+        sessionId: sessionId.slice(0, 8),
+        organizationId: authResult.organizationId,
+        keyPrefix: authResult.keyPrefix,
+      });
+      return sessionGone(req, "This session belongs to another connection. Please reconnect the EA-SYS integration.");
+    }
+    if (session.access !== accessFingerprint(authResult)) {
+      apiLogger.info({ msg: "mcp:session-access-changed", sessionId: sessionId.slice(0, 8), organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix });
+      sessions.delete(sessionId);
+      return sessionGone(req, "Your access changed. Please disconnect and reconnect the EA-SYS integration.");
+    }
     const response = await session.transport.handleRequest(req);
     // Disable nginx buffering for SSE
     if (response.headers.get("content-type")?.includes("text/event-stream")) {
@@ -302,6 +343,8 @@ async function handleMcp(req: Request): Promise<Response> {
     sessions.set(transport.sessionId, {
       transport,
       orgId: authResult.organizationId,
+      credential: authResult.credentialId,
+      access: accessFingerprint(authResult),
       createdAt: Date.now(),
     });
   }
@@ -326,9 +369,16 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  // Session termination
+  // Session termination, by the credential that opened the session only
+  // (review L1): a session id alone must not end someone else's session.
   const sessionId = req.headers.get("mcp-session-id");
   if (sessionId && sessions.has(sessionId)) {
+    const authResult = await authenticate(req);
+    const session = sessions.get(sessionId)!;
+    if (!authResult || session.orgId !== authResult.organizationId || session.credential !== authResult.credentialId) {
+      apiLogger.warn({ msg: "mcp:session-delete-refused", sessionId: sessionId.slice(0, 8), authenticated: !!authResult });
+      return withCors(req, new Response(null, { status: authResult ? 404 : 401 }));
+    }
     sessions.delete(sessionId);
     return withCors(req, new Response(null, { status: 204 }));
   }
