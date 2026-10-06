@@ -10,11 +10,10 @@
  * reporting; this surfaces the summary (and any skips — e.g. a company still
  * referenced by an active deal) rather than pretending it all went.
  */
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { canPurgeCrm } from "@/crm/lib/crm-roles";
 import { usePurgeArchived } from "@/crm/hooks/use-crm-api";
 
 const LABEL: Record<"deals" | "companies" | "contacts", { noun: string; confirm: string }> = {
@@ -40,10 +39,10 @@ export function EmptyArchiveButton({
   /** Only meaningful in the archived view — the caller passes showArchived. */
   visible: boolean;
 }) {
-  const { data: session } = useSession();
   const purge = usePurgeArchived();
+  const canPurge = useCan("crm.purge") === "allowed";
 
-  if (!canPurgeCrm(session?.user?.role) || !visible) return null;
+  if (!canPurge || !visible) return null;
 
   const { noun, confirm: confirmCopy } = LABEL[entity];
 

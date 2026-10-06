@@ -14,8 +14,8 @@
  * it will be honoured.
  */
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
   Archive,
@@ -59,7 +59,6 @@ import {
   useSetDealArchived,
   useUpdateDeal,
 } from "@/crm/hooks/use-crm-api";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
@@ -104,8 +103,7 @@ export function DealDetailBody({
   /** Called after the deal is archived or closed (won/lost) — navigate away. */
   onClosed?: () => void;
 }) {
-  const { data: session } = useSession();
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canDelete = useCan("crm.delete") === "allowed";
 
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDue, setTaskDue] = useState("");

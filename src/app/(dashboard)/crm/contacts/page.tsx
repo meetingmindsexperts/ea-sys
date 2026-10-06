@@ -15,6 +15,7 @@
  * so a filtered, sorted book is shareable, bookmarkable and survives refresh/back.
  */
 import Link from "next/link";
+import { useCan } from "@/hooks/use-can";
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -44,7 +45,6 @@ import { useCrmCompanies, useCrmContacts,
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { cn } from "@/lib/utils";
 import {
   CONTACT_STATUS_COLORS,
@@ -59,7 +59,7 @@ import { contactScoreColor } from "@/crm/lib/contact-score";
 
 function ContactsInner() {
   const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
 
   const { get, set } = useCrmFilters();
   const q = get("q");

@@ -18,8 +18,8 @@
  * complete toggle), matching canOwnDeals everywhere else.
  */
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { formatDistanceToNow } from "date-fns";
 import {
   AlertTriangle,
@@ -52,7 +52,6 @@ import {
   useCrmTasks,
   useUpdateTask,
 } from "@/crm/hooks/use-crm-api";
-import { canOwnDeals, canViewCrmInbox } from "@/crm/lib/crm-roles";
 import { formatDealValue, personName, type CrmBoardDeal, type CrmTaskRow } from "@/crm/lib/crm-types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -71,10 +70,8 @@ function endOfDueDay(dueAt: string): Date {
 }
 
 export function CrmOverview() {
-  const { data: session } = useSession();
-  const role = session?.user?.role;
-  const canWrite = canOwnDeals(role);
-  const showInbox = canViewCrmInbox(role);
+  const canWrite = useCan("crm.write") === "allowed";
+  const showInbox = useCan("crm.inbox.read") === "allowed";
 
   const router = useRouter();
 

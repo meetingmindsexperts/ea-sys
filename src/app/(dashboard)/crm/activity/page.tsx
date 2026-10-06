@@ -14,6 +14,7 @@
  * screen. Money + prose are redacted server-side for MEMBER.
  */
 import { Suspense } from "react";
+import { useCan } from "@/hooks/use-can";
 import {
   Activity as ActivityIcon,
   Archive,
@@ -38,8 +39,6 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmListSkeleton } from "@/crm/components/crm-skeletons";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmActivityFeed } from "@/crm/hooks/use-crm-api";
-import { useSession } from "next-auth/react";
-import { canExportCrm } from "@/crm/lib/crm-roles";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { cn } from "@/lib/utils";
 import {
@@ -95,8 +94,7 @@ function ActivityInner() {
 
   // Admin and above only. The API is the authority (requireCrmExport); hiding
   // the button just avoids handing everyone else a download that 403s.
-  const { data: session } = useSession();
-  const canExport = canExportCrm(session?.user?.role);
+  const canExport = useCan("crm.export") === "allowed";
 
   // Export honours the current URL filters (same param names the feed reads).
   const exportHref = (() => {

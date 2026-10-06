@@ -28,7 +28,7 @@ import { Prisma, type CrmContact, type CrmContactStatus, type CrmLifecycleStage 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
 
 /** Fields worth showing in the change log when a contact is edited. */
 const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "mobile", "country", "notes", "lifecycleStage", "status", "tags", "companyId", "ownerId"] as const;
@@ -127,7 +127,7 @@ async function assertOwner(organizationId: string, ownerId?: string | null): Pro
     apiLogger.warn({ msg: "crm-contact:bad-owner-relation", organizationId, ownerId });
     return { ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" };
   }
-  if (!canOwnDeals(u.role)) {
+  if (!(await mayOwnCrmRecords(organizationId, u))) {
     apiLogger.warn({ msg: "crm-contact:owner-role-not-allowed", organizationId, ownerId, role: u.role });
     return {
       ok: false,

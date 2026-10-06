@@ -17,7 +17,7 @@
  *    roles the server would 403 anyway.
  */
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { ArrowDown, ArrowUp, Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +39,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CrmStage } from "@/crm/lib/crm-types";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import {
   useCreateStage,
   useDeleteStage,
@@ -59,8 +58,7 @@ export function ManageStagesDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: session } = useSession();
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canDelete = useCan("crm.delete") === "allowed";
 
   const createStage = useCreateStage();
   const updateStage = useUpdateStage();

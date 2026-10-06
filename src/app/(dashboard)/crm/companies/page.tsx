@@ -16,8 +16,8 @@
  * refresh or a back-button. This used to be local React state, which lost all three.
  */
 import { Suspense, useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Archive, Building2, Plus, Search, TriangleAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,12 +47,10 @@ import {
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { formatDealValue, type CrmCompanyRow } from "@/crm/lib/crm-types";
 
 function CompaniesInner() {
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
 
   const { get, set } = useCrmFilters();
   const q = get("q");

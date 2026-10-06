@@ -12,8 +12,8 @@
  * created the row rather than blocking it). Merging is a human job (a v1 gap).
  */
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
   Archive,
@@ -32,7 +32,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCrmCompany, useUpdateCompany, useSetCompanyArchived } from "@/crm/hooks/use-crm-api";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import {
@@ -59,8 +58,7 @@ export function CompanyDetailBody({
   canWrite: boolean;
   onArchived?: () => void;
 }) {
-  const { data: session } = useSession();
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canDelete = useCan("crm.delete") === "allowed";
   const { data: company, isLoading, isError } = useCrmCompany(companyId);
   const update = useUpdateCompany(companyId);
   const setArchived = useSetCompanyArchived(companyId);

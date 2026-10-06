@@ -22,7 +22,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
-import { canViewCrm, canViewDealValues, canOwnDeals } from "@/crm/lib/crm-roles";
+import { crmCan } from "@/crm/lib/crm-visibility";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
 import { companyDealValueBreakdown, type RollupDeal } from "@/crm/lib/company-rollup";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
@@ -174,10 +174,12 @@ export function registerCrmMcpTools(
 ): void {
   // Registering nothing is the right failure mode: a tool the caller may not use
   // should not appear in their tool list at all, rather than 403 on call.
-  if (!canViewCrm(actor.role, actor.fromApiKey)) return;
+  // The caller's CRM keys (custom roles Phase 6): what each route asks.
+  const caller = { organizationId, userId: null, role: actor.role, fromApiKey: actor.fromApiKey };
+  if (!crmCan(caller, "crm.read")) return;
   const auditSource = actor.source ?? "mcp";
-  const canSeeValues = canViewDealValues(actor.role, actor.fromApiKey);
-  const canWrite = canOwnDeals(actor.role, actor.fromApiKey);
+  const canSeeValues = crmCan(caller, "crm.dealValues.view");
+  const canWrite = crmCan(caller, "crm.write");
 
   /**
    * Registrar for the MUTATING tools. A caller who may read the board but not

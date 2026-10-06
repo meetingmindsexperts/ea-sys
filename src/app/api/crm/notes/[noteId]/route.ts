@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
+import { crmCan } from "@/crm/lib/crm-visibility";
 import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateNote, deleteNote } from "@/crm/services/note-service";
-import { isOrgAdmin } from "@/lib/team-roles";
 
 const updateNoteSchema = z.object({
   body: z.string().min(1).max(10000).optional(),
@@ -29,7 +29,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     // An admin may DELETE any note but may never REWRITE one; note-service enforces which.
-    isAdmin: isOrgAdmin(ctx.role) || ctx.fromApiKey,
+    // Organisation administrators (org.settings) and API keys.
+    isAdmin: crmCan(ctx, "org.settings") || ctx.fromApiKey,
     source: ctx.fromApiKey ? "api" : "rest",
   });
 
@@ -49,7 +50,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ noteI
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     // An admin may DELETE any note but may never REWRITE one; note-service enforces which.
-    isAdmin: isOrgAdmin(ctx.role) || ctx.fromApiKey,
+    // Organisation administrators (org.settings) and API keys.
+    isAdmin: crmCan(ctx, "org.settings") || ctx.fromApiKey,
     source: ctx.fromApiKey ? "api" : "rest",
   });
 

@@ -25,6 +25,8 @@ vi.mock("@/lib/db", () => ({
     contact: { findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
+    // Owner eligibility reads the person's custom roles too (custom roles Phase 6).
+    userPermissionSet: { findMany: vi.fn().mockResolvedValue([]) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     crmNotification: { create: vi.fn().mockResolvedValue({}) },

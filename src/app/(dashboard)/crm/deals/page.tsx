@@ -18,7 +18,6 @@ import { useCan } from "@/hooks/use-can";
  */
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Archive, Columns3, Handshake, Mail, Plus, Tag, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,7 +44,6 @@ import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { CRM_CTA, CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, sumStageValue } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
 
@@ -63,9 +61,7 @@ const ALL_DEAL_TYPE = "__all__";
 const FILTER_KEYS = ["event", "owner", "status", "pipeline", "dealType", "dateField", "from", "to", "min", "max", "archived"];
 
 function DealsPageInner() {
-  const { data: session } = useSession();
-  const role = session?.user?.role;
-  const canWrite = canOwnDeals(role);
+  const canWrite = useCan("crm.write") === "allowed";
   const canSeeValues = useCan("crm.dealValues.view") === "allowed";
 
   const { get, set, clear, anyActive } = useCrmFilters();

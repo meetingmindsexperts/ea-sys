@@ -10,7 +10,6 @@ import { useCan } from "@/hooks/use-can";
  * and the CSV export drops the value columns entirely — the SERVER enforces both.
  */
 import { Suspense } from "react";
-import { useSession } from "next-auth/react";
 import { BarChart3, Download, Layers, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,7 +37,6 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport, useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canExportCrm } from "@/crm/lib/crm-roles";
 import { CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import {
   CRM_REPORT_DIMENSIONS,
@@ -66,11 +64,10 @@ function money(v: number | null, currency: string | null, mixed?: boolean): stri
 }
 
 function ReportsInner() {
-  const { data: session } = useSession();
   const canSeeValues = useCan("crm.dealValues.view") === "allowed";
   // Admin and above only. The API is the authority (requireCrmExport); hiding
   // the button just avoids handing everyone else a download that 403s.
-  const canExport = canExportCrm(session?.user?.role);
+  const canExport = useCan("crm.export") === "allowed";
 
   const { get, set, clear, anyActive } = useCrmFilters();
   // The dimension is a VIEW choice, not a filter: it rides in the URL like the

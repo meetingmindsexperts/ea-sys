@@ -31,7 +31,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { mayOwnCrmRecords } from "@/crm/services/crm-owner-eligibility";
 // The ONE CRM tag normalizer (trim, dedupe, first-casing-wins) — shared with
 // contacts + imports so a deal's tags dedupe by exactly the same rule (no
 // second implementation). See crm-contact-service.
@@ -179,9 +179,9 @@ async function validateRelations(
     checks.push(
       db.user
         .findFirst({ where: { id: rel.ownerId, organizationId }, select: { id: true, role: true } })
-        .then((r) => {
+        .then(async (r) => {
           if (!r) return { ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" } as Fail;
-          if (!canOwnDeals(r.role)) {
+          if (!(await mayOwnCrmRecords(organizationId, r))) {
             return {
               ok: false,
               code: "OWNER_ROLE_NOT_ALLOWED",

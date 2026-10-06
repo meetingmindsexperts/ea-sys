@@ -9,11 +9,10 @@
  * (purge is archived-only — the server enforces both, this is UX). The button
  * is deliberately destructive-styled and behind a typed confirm.
  */
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { canPurgeCrm } from "@/crm/lib/crm-roles";
 import { usePurgeCrmRecord } from "@/crm/hooks/use-crm-api";
 
 const CASCADE_COPY: Record<"deal" | "company" | "contact", string> = {
@@ -36,12 +35,12 @@ export function PurgeRecordButton({
   /** Navigate away after a successful purge — the record no longer exists. */
   onPurged?: () => void;
 }) {
-  const { data: session } = useSession();
   const purge = usePurgeCrmRecord();
+  const canPurge = useCan("crm.purge") === "allowed";
 
   // Purge is SUPER_ADMIN + archived-only. Hide otherwise — the server refuses it
   // regardless, this just doesn't dangle a button nobody can use.
-  if (!canPurgeCrm(session?.user?.role) || !archived) return null;
+  if (!canPurge || !archived) return null;
 
   return (
     <Button

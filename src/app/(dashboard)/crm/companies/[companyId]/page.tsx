@@ -8,19 +8,17 @@
  * the back link and sends you to the list after archiving.
  */
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { CompanyDetailBody } from "@/crm/components/company-detail-body";
 
 export default function CrmCompanyPage() {
   const params = useParams();
   const companyId = Array.isArray(params.companyId) ? params.companyId[0] : (params.companyId ?? "");
   const router = useRouter();
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-6">

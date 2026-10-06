@@ -8,7 +8,7 @@
  * is just a list.
  */
 import { Suspense, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { Archive, ArchiveRestore, CheckCircle2, CheckSquare, Circle, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { useCrmTasks, useDeleteTask, useRestoreTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { CreateTaskDialog } from "@/crm/components/create-task-dialog";
-import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +35,8 @@ function endOfDueDay(dueAt: string): Date {
 }
 
 function TasksPageInner() {
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
+  const canDelete = useCan("crm.delete") === "allowed";
 
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [status, setStatus] = useState<"OPEN" | "DONE">("OPEN");

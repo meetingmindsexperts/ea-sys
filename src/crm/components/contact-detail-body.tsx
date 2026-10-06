@@ -10,8 +10,8 @@
  * store (they attend) — linked, never duplicated. `onArchived` navigates the page away.
  */
 import { useState } from "react";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
   Archive,
@@ -28,7 +28,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCrmContactDetail, useSetCrmContactArchived, useUpdateCrmContact } from "@/crm/hooks/use-crm-api";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import {
@@ -60,8 +59,7 @@ export function ContactDetailBody({
   canWrite: boolean;
   onArchived?: () => void;
 }) {
-  const { data: session } = useSession();
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canDelete = useCan("crm.delete") === "allowed";
   const { data: contact, isLoading, isError } = useCrmContactDetail(crmContactId);
   const setArchived = useSetCrmContactArchived(crmContactId);
   const updateContact = useUpdateCrmContact(crmContactId);

@@ -9,20 +9,18 @@
  * after an archive or close.
  */
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCrmDeal } from "@/crm/hooks/use-crm-api";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { DealDetailBody } from "@/crm/components/deal-detail-body";
 
 export default function CrmDealPage() {
   const params = useParams();
   const dealId = Array.isArray(params.dealId) ? params.dealId[0] : (params.dealId ?? "");
   const router = useRouter();
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
 
   const { data: deal, isLoading, isError } = useCrmDeal(dealId);
 

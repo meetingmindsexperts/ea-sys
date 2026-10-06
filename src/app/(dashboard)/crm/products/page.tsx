@@ -8,7 +8,7 @@
  * a MEMBER sees the catalog but prices render "—" (redacted server-side).
  */
 import { useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { Archive, ArchiveRestore, Loader2, Package, Pencil, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { useCrmProducts, useSetCrmProductArchived } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
-import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { CrmProductDialog } from "@/crm/components/crm-product-dialog";
@@ -27,8 +26,7 @@ import { formatDealValue, PRODUCT_SOURCE_LABELS, type CrmProductRow } from "@/cr
 const ALL_CATEGORIES = "__all__";
 
 export default function CrmProductsPage() {
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string>(ALL_CATEGORIES);
@@ -158,8 +156,7 @@ function ProductRow({
   canWrite: boolean;
   categories: string[];
 }) {
-  const { data: session } = useSession();
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canDelete = useCan("crm.delete") === "allowed";
   const [editOpen, setEditOpen] = useState(false);
   const setArchived = useSetCrmProductArchived(product.id);
   const archived = !!product.archivedAt;

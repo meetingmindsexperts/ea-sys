@@ -9,14 +9,13 @@
  * (an ORGANIZER may edit but not archive — same as every CRM record).
  */
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useCan } from "@/hooks/use-can";
 import { Archive, ArchiveRestore, FileText, Loader2, Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useCrmEmailTemplates, useSetCrmEmailTemplateArchived } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
-import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmEmailTemplateDialog } from "@/crm/components/crm-email-template-dialog";
 import type { CrmEmailTemplateRow } from "@/crm/lib/crm-types";
@@ -27,9 +26,8 @@ function preview(html: string): string {
 }
 
 export default function CrmTemplatesPage() {
-  const { data: session } = useSession();
-  const canWrite = canOwnDeals(session?.user?.role);
-  const canDelete = canDeleteCrm(session?.user?.role);
+  const canWrite = useCan("crm.write") === "allowed";
+  const canDelete = useCan("crm.delete") === "allowed";
 
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);

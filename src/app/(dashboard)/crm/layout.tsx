@@ -14,11 +14,10 @@
  * survives. Tab state that lives only in React would break all three.
  */
 import Link from "next/link";
+import { useCan } from "@/hooks/use-can";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Activity, BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { canViewCrmInbox } from "@/crm/lib/crm-roles";
 import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
 
 const TABS = [
@@ -39,8 +38,8 @@ const TABS = [
 
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const tabs = TABS.filter((t) => !t.staffOnly || canViewCrmInbox(session?.user?.role));
+  const canSeeInbox = useCan("crm.inbox.read") === "allowed";
+  const tabs = TABS.filter((t) => !t.staffOnly || canSeeInbox);
 
   return (
     <div className="flex flex-col">
