@@ -12,11 +12,10 @@ import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 /**
  * Per-event ONSITE (registration-desk) staff assignment.
  *
- * ONSITE is org-bound but scoped per-event via `EventStaffAssignment` (Phase 4;
- * `Event.settings.onsiteUserIds` is written alongside for one release)
- * (mirrors `reviewerUserIds` — see buildEventAccessWhere). A temp desk worker
- * sees ONLY the events they're assigned to here. These endpoints add/remove a
- * user id from that array; the central management UI lives in org
+ * ONSITE is org-bound but scoped per-event via `EventStaffAssignment` rows
+ * (Phase 4; the old `Event.settings.onsiteUserIds` JSON is no longer read or
+ * written). A temp desk worker sees ONLY the events they're assigned to here.
+ * These endpoints add/remove that row; the central management UI lives in org
  * Settings → Onsite Staff and calls these per event toggle.
  *
  * Guarded by `events.staff.assign` (ADMIN / ORGANIZER / SUPER_ADMIN), an
@@ -44,13 +43,13 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
-      select: { id: true, settings: true },
+      select: { id: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const onsiteUserIds = await eventStaffUserIds(event.id, event.settings);
+    const onsiteUserIds = await eventStaffUserIds(event.id);
     const onsiteStaff = onsiteUserIds.length
       ? await db.user.findMany({
           where: { id: { in: onsiteUserIds } },

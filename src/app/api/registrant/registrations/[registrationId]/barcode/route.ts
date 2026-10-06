@@ -75,7 +75,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         // H8: a registrant is owner-scoped (their own row only). An org-staff
         // caller must have EVENT ACCESS to the registration's event —
         // `buildEventAccessWhere` (no eventId) makes this ASSIGNMENT-scoped for
-        // ONSITE (settings.onsiteUserIds) instead of org-wide, so an ONSITE
+        // ONSITE (EventStaffAssignment) instead of org-wide, so an ONSITE
         // temp assigned to Event A can no longer pull a barcode for Event B.
         ...(ownerScoped
           ? { userId: authedUser.id }

@@ -1283,10 +1283,20 @@ to 9 weeks and not 5 to 7. **Rollback:** per domain, revert the commit.
 - Verified in the browser: remove and re-add from Settings, Onsite Staff
   write and clear both stores; with the JSON entry deleted by hand, the
   assigned Onsite user still opens the desk through the row alone.
-- **Release 2 (after one deploy cycle):** stop writing and reading
-  `settings.onsiteUserIds` (drop the JSON arm of `assignedToEventWhere`, the
-  JSON half of `event-staff.ts`, and the fallbacks). Settings → Onsite Staff
-  becomes Event Staff when Phase 5 lets other roles hold an ASSIGNED grant.
+- **Release 2: DONE Oct 6, 2026.** `settings.onsiteUserIds` is no longer
+  written or read: `assignedToEventWhere` is the row alone, `event-staff.ts`
+  writes only the table, and `eventFactsOf`, the agent's facts loader and both
+  Onsite Staff routes read only the rows. Before it, a read-only check on
+  production found 0 JSON assignments and 0 rows, so nothing could be
+  stranded. A leftover id in an old event's JSON now grants nothing; the route
+  matrix pins this by planting one on the unassigned `conf` fixture, and the
+  snapshot did not move. `removeUserFromEventSettings` still strips the key on
+  a user delete (litter removal) and an event clone still empties it. Verified
+  in the browser: unassigning in Settings deleted the row and left the JSON
+  naming the user, who then got 404 on the event, its registration types,
+  sessions and speakers; reassigning restored all four and the check-in desk.
+  Settings → Onsite Staff becomes Event Staff when other roles hold an
+  ASSIGNED grant.
 
 ### Phase 5: The role editor (1 to 2 weeks)
 

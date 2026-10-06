@@ -8,7 +8,7 @@ import { ONSITE_ACCOUNT_ROLES } from "@/lib/team-roles";
 /**
  * Org-level view that powers the Settings → Onsite Staff tab: every ONSITE
  * account in the org, each with the list of events it's assigned to (via
- * `Event.settings.onsiteUserIds`), plus the org's events to pick from.
+ * `EventStaffAssignment`), plus the org's events to pick from.
  *
  * Assignment itself is written per-event through
  * `POST/DELETE /api/events/[eventId]/onsite-staff`; new accounts are created
@@ -37,18 +37,13 @@ export async function GET() {
       }),
       db.event.findMany({
         where: { organizationId: orgId },
-        select: { id: true, name: true, startDate: true, settings: true, staffAssignments: { select: { userId: true } } },
+        select: { id: true, name: true, startDate: true, staffAssignments: { select: { userId: true } } },
         orderBy: { startDate: "desc" },
       }),
     ]);
-    // Assigned staff from either store during the Phase 4 transition.
-    const assigned = (e: (typeof events)[number]) =>
-      new Set([
-        ...(e.staffAssignments ?? []).map((a) => a.userId),
-        ...((((e.settings as Record<string, unknown>)?.onsiteUserIds as string[]) ?? [])),
-      ]);
+    const assigned = (e: (typeof events)[number]) => new Set(e.staffAssignments.map((a) => a.userId));
 
-    // Map each ONSITE user to the events whose onsiteUserIds include them.
+    // Map each ONSITE user to the events they hold an EventStaffAssignment on.
     const onsiteStaff = users.map((u) => ({
       id: u.id,
       firstName: u.firstName,

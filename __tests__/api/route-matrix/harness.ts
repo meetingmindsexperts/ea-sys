@@ -65,13 +65,18 @@ interface FixtureEvent {
   eventType: "CONFERENCE" | "WEBINAR";
   slug: string;
   settings: { onsiteUserIds?: string[]; reviewerUserIds?: string[] };
+  /** `EventStaffAssignment` rows: the only assignment store (Phase 4 release 2). */
+  staffUserIds: string[];
   speakerUserIds: string[];
   registrantUserIds: string[];
 }
 
 /**
  * Four events, each separating callers a real route must separate:
- * - `conf`     a conference nobody is assigned to;
+ * - `conf`     a conference nobody is assigned to. It carries a LEFTOVER
+ *              `settings.onsiteUserIds` naming ONSITE with no row, so any route
+ *              still reading the JSON would admit ONSITE here and move the
+ *              matrix;
  * - `assigned` a conference with every per-event link (ONSITE and WEBINARS on
  *              the desk list, a reviewer, a submitter's speaker row, a
  *              registrant's registration);
@@ -81,14 +86,15 @@ interface FixtureEvent {
  *              org-bound one must not.
  */
 const links = {
-  settings: { onsiteUserIds: [U.onsite, U.webinars], reviewerUserIds: [U.reviewer] },
+  settings: { reviewerUserIds: [U.reviewer] },
+  staffUserIds: [U.onsite, U.webinars],
   speakerUserIds: [U.submitter],
   registrantUserIds: [U.registrant],
 };
 export const EVENTS: readonly FixtureEvent[] = [
-  { id: "conf", organizationId: ORG, eventType: "CONFERENCE", slug: "conf", settings: {}, speakerUserIds: [], registrantUserIds: [] },
+  { id: "conf", organizationId: ORG, eventType: "CONFERENCE", slug: "conf", settings: { onsiteUserIds: [U.onsite] }, staffUserIds: [], speakerUserIds: [], registrantUserIds: [] },
   { id: "assigned", organizationId: ORG, eventType: "CONFERENCE", slug: "assigned", ...links },
-  { id: "webinar", organizationId: ORG, eventType: "WEBINAR", slug: "webinar", settings: {}, speakerUserIds: [], registrantUserIds: [] },
+  { id: "webinar", organizationId: ORG, eventType: "WEBINAR", slug: "webinar", settings: {}, staffUserIds: [], speakerUserIds: [], registrantUserIds: [] },
   { id: "foreign", organizationId: OTHER_ORG, eventType: "CONFERENCE", slug: "foreign", ...links },
 ];
 export const EVENT_IDS = EVENTS.map((e) => e.id);
@@ -145,10 +151,9 @@ export function matchesEvent(where: Where | undefined, ev: FixtureEvent): boolea
       case "registrations":
         if (!matchesSome(cond, ev.registrantUserIds, "registrations")) return false;
         break;
-      // Assigned staff as rows (Phase 4). The fixtures model the state after
-      // the backfill: every JSON assignment also has its row.
+      // Assigned staff as rows (Phase 4), the only store since release 2.
       case "staffAssignments":
-        if (!matchesSome(cond, ev.settings.onsiteUserIds ?? [], "staffAssignments")) return false;
+        if (!matchesSome(cond, ev.staffUserIds, "staffAssignments")) return false;
         break;
       case "OR":
         if (!(cond as Where[]).some((w) => matchesEvent(w, ev))) return false;

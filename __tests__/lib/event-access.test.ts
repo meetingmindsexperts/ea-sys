@@ -118,7 +118,7 @@ describe("buildEventAccessWhere", () => {
   // ── ONSITE (org-bound + per-event assignment) ───────────────────────
 
   describe("ONSITE role", () => {
-    it("scopes by org AND onsiteUserIds assignment (no eventId)", () => {
+    it("scopes by org AND its EventStaffAssignment row (no eventId)", () => {
       const result = buildEventAccessWhere({
         id: "onsite-1",
         role: "ONSITE",
@@ -157,7 +157,7 @@ describe("buildEventAccessWhere", () => {
         role: "ONSITE",
         organizationId: "org-1",
       });
-      expect(result).toHaveProperty("OR", assignedToEventWhere("onsite-1").OR);
+      expect(result).toHaveProperty("staffAssignments", { some: { userId: "onsite-1" } });
     });
   });
 

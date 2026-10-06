@@ -13,13 +13,10 @@ export async function loadEventFacts(eventId: string, organizationId: string): P
   try {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId },
-      select: { organizationId: true, eventType: true, settings: true, staffAssignments: { select: { userId: true } } },
+      select: { organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
-    const facts = eventFactsOf(event);
-    if (!facts || !event) return facts;
-    // Assigned staff from either store during the Phase 4 transition.
-    const staff = new Set([...(facts.staffUserIds ?? []), ...(event.staffAssignments ?? []).map((a) => a.userId)]);
-    return { ...facts, staffUserIds: [...staff] };
+    if (!event) return null;
+    return eventFactsOf({ ...event, staffUserIds: event.staffAssignments.map((a) => a.userId) });
   } catch (err) {
     apiLogger.error({ err, eventId, organizationId, msg: "agent:event-facts-failed" });
     return null;

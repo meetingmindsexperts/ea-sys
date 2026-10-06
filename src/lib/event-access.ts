@@ -113,13 +113,14 @@ export function buildEventAccessWhere(
     };
   }
 
-  // ONSITE: registration-desk staff, org-bound BUT scoped per-event via
-  // Event.settings.onsiteUserIds (mirrors the REVIEWER per-event model). Sees
+  // ONSITE: registration-desk staff, org-bound BUT scoped per-event via its
+  // EventStaffAssignment rows (Phase 4; the settings.onsiteUserIds JSON is no
+  // longer read). Sees
   // ONLY events it's been assigned to — a temp desk worker for one conference
   // no longer sees every org event. This narrows *event visibility* only; the
   // write guard (denyReviewer), finance hiding (canViewFinance), and nav
   // (proxy.ts) are unchanged. The org filter stops a leaked id from another org
-  // from matching; the settings check is the per-event assignment.
+  // from matching; the assignment row is the per-event check.
   if (user.role === "ONSITE") {
     return {
       ...(eventId && { id: eventId }),

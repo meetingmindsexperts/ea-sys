@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: Onsite assignments read from the table only (October 6)
+
+- Custom roles Phase 4, release 2. Which events an Onsite user may work is
+  now read and written only through `EventStaffAssignment`; the old
+  `Event.settings.onsiteUserIds` JSON is ignored. Production held no
+  assignments in either store, so nobody's access changes. A stale id left
+  in an event's settings no longer grants anything.
+
 ### Changed: Webinar Console layout; new webinars start in Custom stream (October 6)
 
 - Go live is its own card at the top of the Setup tab's right rail: room

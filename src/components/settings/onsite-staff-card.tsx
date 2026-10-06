@@ -151,8 +151,8 @@ export function OnsiteStaffCard() {
 
   const deleteMutation = useMutation({
     mutationFn: async (s: OnsiteStaff) => {
-      // Strip the id from every event's onsiteUserIds first so no stale id
-      // lingers in settings (best-effort), then delete the account.
+      // Unassign from every event first (best-effort), then delete the
+      // account; the assignment rows also cascade with the user.
       for (const eid of s.eventIds) {
         try {
           await unassignFromEvent(eid, s.id);

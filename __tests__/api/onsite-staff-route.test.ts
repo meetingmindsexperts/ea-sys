@@ -32,7 +32,6 @@ vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 import { POST, DELETE } from "@/app/api/events/[eventId]/onsite-staff/route";
 
 const params = Promise.resolve({ eventId: "ev1" });
-type PatchFn = (cur: Record<string, unknown>) => Record<string, unknown>;
 
 function postReq(body: Record<string, unknown>) {
   return new Request("http://localhost/api/events/ev1/onsite-staff", {
@@ -50,18 +49,13 @@ beforeEach(() => {
 });
 
 describe("POST /events/[id]/onsite-staff — assign a temp to an event", () => {
-  it("appends the user to onsiteUserIds (dedup, preserves other keys)", async () => {
+  it("writes the assignment row only (the settings JSON is no longer touched)", async () => {
     const res = await POST(postReq({ userId: "onsite1" }), { params });
     expect(res.status).toBeLessThan(400);
-    expect(updateEventSettingsSpy).toHaveBeenCalledTimes(1);
-    // The row (Phase 4) and the JSON it replaces are both written.
     expect(mockDb.eventStaffAssignment.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ create: { eventId: "ev1", organizationId: "org1", userId: "onsite1", assignedById: "admin1" } }),
     );
-    const patch = updateEventSettingsSpy.mock.calls[0][1] as PatchFn;
-    expect(patch({ onsiteUserIds: ["x"], foo: 1 })).toEqual({ onsiteUserIds: ["x", "onsite1"], foo: 1 });
-    expect(patch({})).toEqual({ onsiteUserIds: ["onsite1"] });
-    expect(patch({ onsiteUserIds: ["onsite1"] })).toEqual({ onsiteUserIds: ["onsite1"] }); // no dup
+    expect(updateEventSettingsSpy).not.toHaveBeenCalled();
   });
 
   it("404 when the target is not an ONSITE account in the caller's org", async () => {
@@ -96,12 +90,12 @@ describe("POST /events/[id]/onsite-staff — assign a temp to an event", () => {
 });
 
 describe("DELETE /events/[id]/onsite-staff — remove a temp from an event", () => {
-  it("removes the user from onsiteUserIds (they lose access to that event)", async () => {
+  it("deletes the assignment row (they lose access to that event)", async () => {
     const req = new Request("http://localhost/api/events/ev1/onsite-staff?userId=onsite1", { method: "DELETE" });
     const res = await DELETE(req, { params });
     expect(res.status).toBeLessThan(400);
-    const patch = updateEventSettingsSpy.mock.calls[0][1] as PatchFn;
-    expect(patch({ onsiteUserIds: ["onsite1", "keep"] })).toEqual({ onsiteUserIds: ["keep"] });
+    expect(mockDb.eventStaffAssignment.deleteMany).toHaveBeenCalledWith({ where: { eventId: "ev1", userId: "onsite1" } });
+    expect(updateEventSettingsSpy).not.toHaveBeenCalled();
   });
 
   it("400 when userId is missing", async () => {

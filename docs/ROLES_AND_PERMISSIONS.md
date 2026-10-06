@@ -79,7 +79,7 @@ or pooled on, a SUBMITTER writes its own DRAFT rows, staff decide.
 |---|---|
 | SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER | every event in the org |
 | SUPER_ADMIN with no org | every event (platform operator) |
-| ONSITE | org events whose `settings.onsiteUserIds` contains the user |
+| ONSITE | org events where the user holds an `EventStaffAssignment` row (the `settings.onsiteUserIds` JSON is not read since Oct 6, 2026) |
 | WEBINARS | `eventType = WEBINAR` on the manage surface; every org event on the desk surface (events list and detail, registrations list, create, detail, check-in, badges, payments, activity) |
 | CRM_USER, HR_USER | no event at all |
 | REVIEWER | events whose `settings.reviewerUserIds` contains the user |

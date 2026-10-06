@@ -55,7 +55,7 @@ export interface Principal {
 export interface EventFacts {
   organizationId: string;
   eventType: string;
-  /** Assigned staff: `EventStaffAssignment` rows plus `settings.onsiteUserIds` (Phase 4 transition). */
+  /** Assigned staff: the event's `EventStaffAssignment` rows. */
   staffUserIds?: readonly string[] | null;
 }
 

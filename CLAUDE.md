@@ -425,7 +425,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
 - Admins/Organizers see all org events
 - Reviewers see only events where their userId is in `event.settings.reviewerUserIds` (no org filter)
-- **ONSITE** sees only events where their userId is in `event.settings.onsiteUserIds` (org-bound AND assigned — the per-event registration-desk model). Every ONSITE-reachable desk route (registrations list/create, detail PUT, check-in, badge, payments) routes its event lookup through `buildEventAccessWhere`, so it's assignment-gated, not just org-gated.
+- **ONSITE** sees only events where they hold an `EventStaffAssignment` row (since Oct 6, 2026; the `event.settings.onsiteUserIds` JSON it replaced is no longer read or written) (org-bound AND assigned — the per-event registration-desk model). Every ONSITE-reachable desk route (registrations list/create, detail PUT, check-in, badge, payments) routes its event lookup through `buildEventAccessWhere`, so it's assignment-gated, not just org-gated.
 - Submitters see only events where they have a linked Speaker record (`speakers.some.userId`)
 - Registrants see only events where they have a linked Registration record (`registrations.some.userId`)
 

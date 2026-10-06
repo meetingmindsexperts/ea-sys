@@ -1,7 +1,8 @@
 /**
- * Assigned event staff (custom roles Phase 4): the filter reads either store
- * during the transition, and every write goes to both, so a deploy or a
- * rollback never strands an assignment.
+ * Assigned event staff (custom roles Phase 4, release 2): the
+ * `EventStaffAssignment` table is the only store. The `settings.onsiteUserIds`
+ * JSON it replaced is neither written nor read, so a leftover id there grants
+ * nothing.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -17,38 +18,32 @@ vi.mock("@/lib/event-settings", () => ({ updateEventSettings: mockUpdateEventSet
 import { assignEventStaff, eventStaffUserIds, unassignEventStaff } from "@/lib/event-staff";
 import { assignedToEventWhere } from "@/lib/event-staff-where";
 
-/** Runs the settings patch the helper passed, against `cur`. */
-const patched = (cur: Record<string, unknown>) => mockUpdateEventSettings.mock.calls.at(-1)![1](cur);
-
 describe("event staff", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("matches an event through its row or through the JSON it replaces", () => {
-    expect(assignedToEventWhere("u1")).toEqual({
-      OR: [{ staffAssignments: { some: { userId: "u1" } } }, { settings: { path: ["onsiteUserIds"], array_contains: "u1" } }],
-    });
+  it("matches an event through its assignment row only", () => {
+    expect(assignedToEventWhere("u1")).toEqual({ staffAssignments: { some: { userId: "u1" } } });
+    expect(JSON.stringify(assignedToEventWhere("u1"))).not.toContain("onsiteUserIds");
   });
 
-  it("assigns into both stores, once", async () => {
+  it("assigns into the table, once, and leaves the settings JSON alone", async () => {
     await assignEventStaff({ eventId: "e1", organizationId: "o1", userId: "u1", assignedById: "a1" });
     expect(mockDb.eventStaffAssignment.upsert).toHaveBeenCalledWith({
       where: { eventId_userId: { eventId: "e1", userId: "u1" } },
       create: { eventId: "e1", organizationId: "o1", userId: "u1", assignedById: "a1" },
       update: {},
     });
-    expect(patched({ onsiteUserIds: ["u1", "u2"], x: 1 })).toEqual({ onsiteUserIds: ["u1", "u2"], x: 1 });
-    expect(patched({})).toEqual({ onsiteUserIds: ["u1"] });
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
   });
 
-  it("unassigns from both stores", async () => {
+  it("unassigns from the table and leaves the settings JSON alone", async () => {
     await unassignEventStaff({ eventId: "e1", userId: "u1" });
     expect(mockDb.eventStaffAssignment.deleteMany).toHaveBeenCalledWith({ where: { eventId: "e1", userId: "u1" } });
-    expect(patched({ onsiteUserIds: ["u1", "u2"] })).toEqual({ onsiteUserIds: ["u2"] });
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
   });
 
-  it("lists the union of both stores", async () => {
+  it("lists the table's rows", async () => {
     mockDb.eventStaffAssignment.findMany.mockResolvedValue([{ userId: "u1" }, { userId: "u3" }]);
-    expect(await eventStaffUserIds("e1", { onsiteUserIds: ["u1", "u2", 7] })).toEqual(["u1", "u3", "u2"]);
-    expect(await eventStaffUserIds("e1", null)).toEqual(["u1", "u3"]);
+    expect(await eventStaffUserIds("e1")).toEqual(["u1", "u3"]);
   });
 });
