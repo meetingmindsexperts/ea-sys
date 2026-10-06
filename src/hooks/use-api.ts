@@ -2491,6 +2491,7 @@ export interface WebinarConsoleData {
     pageBackgroundUrl?: string;
     pageFooterImageUrl?: string;
     endSurveyId?: string;
+    thankYouSurveyLink?: boolean;
   };
   anchorSession: {
     id: string;

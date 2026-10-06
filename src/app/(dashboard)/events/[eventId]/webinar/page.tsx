@@ -392,9 +392,10 @@ export default function WebinarConsolePage() {
                 anchor={anchor ?? null}
               />
               <EndSurveyCard
-                key={`end-survey:${data?.webinar?.endSurveyId ?? ""}`}
+                key={`end-survey:${data?.webinar?.endSurveyId ?? ""}:${data?.webinar?.thankYouSurveyLink !== false}`}
                 eventId={eventId}
                 endSurveyId={data?.webinar?.endSurveyId ?? ""}
+                emailLink={data?.webinar?.thankYouSurveyLink !== false}
               />
             </div>
             <div className="space-y-6">
@@ -2855,10 +2856,20 @@ function GoLiveCard({
  * Any open extra survey can be chosen, never the CME survey (any registrant
  * could complete it from the popup and be issued a certificate).
  */
-function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId: string }) {
+function EndSurveyCard({
+  eventId,
+  endSurveyId,
+  emailLink,
+}: {
+  eventId: string;
+  endSurveyId: string;
+  /** The thank-you email carries the survey link (unset in settings = yes). */
+  emailLink: boolean;
+}) {
   const updateSettings = useUpdateWebinarSettings(eventId);
   const { data: surveys = [], isLoading } = useEventSurveys(eventId);
   const [choice, setChoice] = useState(endSurveyId || "none");
+  const [sendInEmail, setSendInEmail] = useState(emailLink);
   // Never the CME survey (review of step 4): in the popup any registrant,
   // attended or not, could complete it and be issued a certificate. It stays
   // with its personal link.
@@ -2869,7 +2880,7 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
 
   const handleSave = async () => {
     try {
-      await updateSettings.mutateAsync({ endSurveyId: choice === "none" ? "" : choice });
+      await updateSettings.mutateAsync({ endSurveyId: choice === "none" ? "" : choice, thankYouSurveyLink: sendInEmail });
       toast.success(choice === "none" ? "No survey after the webinar" : "End-of-webinar survey saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save the end-of-webinar survey");
@@ -2884,8 +2895,7 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
         </ConsoleTitle>
         <CardDescription>
           Pops up for attendees on the webinar page when it ends. They can close it and it comes back until they
-          answer. The thank-you email also carries each person&apos;s own link, unless they already answered.
-          Answers are recorded with the survey and export from the Surveys page.
+          answer. Answers are recorded with the survey and export from the Surveys page.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -2910,8 +2920,7 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
           </p>
           {saved && !saved.isActive && (
             <p className="text-sm text-amber-700">
-              The chosen survey is closed, so nothing pops up and the thank-you email goes without the link until it
-              is opened.
+              The chosen survey is closed, so nothing pops up and no link is emailed until it is opened.
             </p>
           )}
           {usable.length === 0 && !isLoading && (
@@ -2924,8 +2933,22 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
             </p>
           )}
         </div>
+        {choice !== "none" && (
+          <label htmlFor="end-survey-email" className="flex items-start justify-between gap-4 rounded-lg border p-3">
+            <span className="space-y-0.5">
+              <span className="block text-sm font-medium">Also send the link in the thank-you email</span>
+              <span className="block text-xs text-muted-foreground">
+                Each person gets their own link, unless they already answered on the page.
+              </span>
+            </span>
+            <Switch id="end-survey-email" checked={sendInEmail} onCheckedChange={setSendInEmail} />
+          </label>
+        )}
         <div className="flex justify-end border-t pt-3">
-          <Button onClick={handleSave} disabled={updateSettings.isPending || choice === (endSurveyId || "none")}>
+          <Button
+            onClick={handleSave}
+            disabled={updateSettings.isPending || (choice === (endSurveyId || "none") && sendInEmail === emailLink)}
+          >
             {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Save
           </Button>

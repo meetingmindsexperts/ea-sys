@@ -53,6 +53,8 @@ const updateWebinarSchema = z.object({
   // The survey that pops up when the webinar ends (step 4 of several surveys,
   // Oct 6, 2026). Empty string clears it.
   endSurveyId: z.string().max(64).optional(),
+  // Whether the thank-you email carries that survey's link (step 5).
+  thankYouSurveyLink: z.boolean().optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───

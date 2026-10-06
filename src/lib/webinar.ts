@@ -94,6 +94,10 @@ export interface WebinarSettings {
   /** The survey that pops up on the attendee page when the webinar ends, and
    *  whose link goes into the thank-you email (step 4/5 of several surveys). */
   endSurveyId?: string;
+  /** Whether the thank-you email carries the end-of-webinar survey link. The
+   *  organiser's switch in the Webinar Console; unset means yes, so choosing a
+   *  survey sends it unless they turn it off (Oct 6, 2026). */
+  thankYouSurveyLink?: boolean;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** ISO time the producer last opened the room. The auto-close job only

@@ -357,6 +357,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (slug === "webinar-thank-you" && !thankYouSurvey) {
       mergedVars.surveyBlock = "";
       mergedVars.surveyBlockText = "";
+      mergedVars.surveyLink = "";
+      mergedVars.surveyName = "";
     }
 
     // Tokens typed into the compose box must resolve in the PREVIEW exactly

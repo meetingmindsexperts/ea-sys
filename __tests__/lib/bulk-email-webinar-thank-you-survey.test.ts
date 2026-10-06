@@ -54,6 +54,7 @@ vi.mock("@/lib/email-barcode", () => ({
 vi.mock("@/lib/payment-reminder", () => ({ buildPaymentReminderVars: vi.fn() }));
 
 import { executeBulkEmail } from "@/lib/bulk-email";
+import { withThankYouSurveyBlock } from "@/lib/webinar-thank-you-survey";
 
 const EVENT = (webinar: Record<string, unknown>) => ({
   id: "evt-1",
@@ -212,5 +213,39 @@ describe("webinar thank-you: the end-of-webinar survey link", () => {
     const { htmlContent } = sent();
     expect(htmlContent).not.toContain("{{surveyBlock}}");
     expect(htmlContent).not.toContain("Take the survey");
+  });
+
+  it("the organiser turned the email link off: no link, nothing minted, the survey not even read", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT({ endSurveyId: "svy-fb", thankYouSurveyLink: false }));
+    await executeBulkEmail(INPUT);
+    expect(sent().htmlContent).not.toContain("Take the survey");
+    expect(mockDb.survey.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.create).not.toHaveBeenCalled();
+  });
+
+  it("switched on explicitly behaves as unset", async () => {
+    mockDb.event.findFirst.mockResolvedValue(EVENT({ endSurveyId: "svy-fb", thankYouSurveyLink: true }));
+    await executeBulkEmail(INPUT);
+    expect(sent().htmlContent).toContain("Take the survey");
+  });
+});
+
+describe("withThankYouSurveyBlock: each part on its own (review of steps 1 to 5)", () => {
+  it("a token only in the text part: the text is left alone, the HTML gains the block", () => {
+    const out = withThankYouSurveyBlock({ htmlContent: "<p>Hi</p>", textContent: "Hi\n{{surveyBlockText}}" });
+    expect(out.textContent).toBe("Hi\n{{surveyBlockText}}");
+    expect(out.htmlContent).toBe("<p>Hi</p>\n{{surveyBlock}}");
+  });
+
+  it("a token only in the HTML: the HTML is left alone, the text gains the line before the signature", () => {
+    const out = withThankYouSurveyBlock({ htmlContent: "<p>Hi</p>{{surveyBlock}}", textContent: "Hi\n{{organizerSignature}}" });
+    expect(out.htmlContent).toBe("<p>Hi</p>{{surveyBlock}}");
+    expect(out.textContent).toBe("Hi\n{{surveyBlockText}}\n{{organizerSignature}}");
+  });
+
+  it("a part using {{surveyLink}} directly is left as written; a null text part stays null", () => {
+    const out = withThankYouSurveyBlock({ htmlContent: '<a href="{{surveyLink}}">Go</a>', textContent: null });
+    expect(out.htmlContent).toBe('<a href="{{surveyLink}}">Go</a>');
+    expect(out.textContent).toBeNull();
   });
 });

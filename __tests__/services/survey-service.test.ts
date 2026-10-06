@@ -24,6 +24,7 @@ const { mockDb } = vi.hoisted(() => ({
     event: { update: vi.fn() },
     auditLog: { create: vi.fn() },
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -201,6 +202,23 @@ describe("deleting a survey", () => {
     const res = await deleteSurvey(SCOPE, "svy1");
     expect(res).toEqual({ ok: true, surveyId: "svy1" });
     expect(mockDb.survey.delete).toHaveBeenCalledWith({ where: { id: "svy1" } });
+  });
+
+  it("clears a webinar's end-of-webinar choice pointing at it, and only that key (review of steps 1 to 5)", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", eventId: "ev1", gatesCertificates: false, name: "Feedback" });
+    mockDb.$executeRaw.mockResolvedValueOnce(1);
+    await deleteSurvey(SCOPE, "svy1");
+    const [strings, ...values] = mockDb.$executeRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(strings.join("?")).toContain(`settings #- '{webinar,endSurveyId}'`);
+    expect(strings.join("?")).toContain(`settings->'webinar'->>'endSurveyId' = ?`);
+    expect(values).toEqual(["ev1", "svy1"]);
+  });
+
+  it("a refused delete clears nothing", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", eventId: "ev1", gatesCertificates: false, name: "Feedback" });
+    mockDb.surveyResponse.count.mockResolvedValueOnce(2);
+    await deleteSurvey(SCOPE, "svy1");
+    expect(mockDb.$executeRaw).not.toHaveBeenCalled();
   });
 });
 

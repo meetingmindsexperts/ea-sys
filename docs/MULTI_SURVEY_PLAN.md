@@ -472,8 +472,30 @@ template carrying them never trips the unresolved-token guard. Rules:
 - A saved thank-you without `{{surveyBlock}}` or `{{surveyLink}}` gets the
   block before `{{organizerSignature}}` (else at the end), only for people who
   have a link; everyone else's email is the template as saved.
-- Tests: `bulk-email-webinar-thank-you-survey.test.ts` (7, the answered and
-  CME guards mutation-checked).
+- **The organiser's switch** (owner, Oct 6, 2026): "Also send the link in the
+  thank-you email" on the console card (`settings.webinar.thankYouSurveyLink`;
+  unset means on, `false` sends the thank-you without it, and the survey is not
+  even read).
+- Tests: `bulk-email-webinar-thank-you-survey.test.ts` (the answered and CME
+  guards mutation-checked, the switch, per-part placement).
+
+**Full review of steps 1 to 5 (Oct 6, 2026):** no HIGH or MED; the CME survey
+unaffected on every path. LOWs:
+- Fixed: deleting a survey clears it as a webinar's `endSurveyId` (one
+  `#-` statement, so other settings are never overwritten); the template
+  placement checks the HTML and text parts separately (a text-only token no
+  longer doubled the link); the preview blanks `{{surveyLink}}` too when there
+  is nothing to link.
+- Documented: do not roll back below step 3 once extra surveys have answers
+  (docs/ROLLBACK.md); a re-sent thank-you replaces the earlier thank-you link
+  (the raw token is never stored, so it cannot be reused).
+- Open: someone holding two registrations linked to one account (a delegate
+  registration and a speaker companion) who answered on the page could still
+  get a link on the other registration's thank-you, so answer twice. Not
+  confirmed that companions carry the `userId`; fix if it shows up: exclude by
+  attendee email across the event. And before the platform instance launches,
+  check that the worker's thank-you send reads the Survey row inside a tenant
+  context (on master tenant scoping is a passthrough).
 
 ### Effort and order
 

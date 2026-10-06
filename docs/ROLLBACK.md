@@ -142,6 +142,12 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   safe (and is why the policy exists) is a destructive migration; never ship one. **Next drill
   should cross a migration boundary.**
 
+- **Surveys: do not roll back below `598f9318` (multi-survey step 3, Oct 6, 2026)** once
+  extra surveys have answers. The step 2 image's CME reset deletes a person's survey answers
+  by registration, so it would also delete their answers to other surveys (the webinar
+  feedback survey). CME behaviour stays correct either way. If such a rollback is
+  unavoidable, avoid CME resets until rolled forward. (Full review of the survey build.)
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

@@ -24,8 +24,14 @@ export interface ThankYouSurvey {
 
 /** The survey the thank-you links to, or null when there is none to link. */
 export async function resolveThankYouSurvey(event: { id: string; settings: unknown }): Promise<ThankYouSurvey | null> {
-  const surveyId = readWebinarSettings(event.settings)?.endSurveyId;
+  const webinar = readWebinarSettings(event.settings);
+  const surveyId = webinar?.endSurveyId;
   if (!surveyId) return null;
+  // The organiser turned the link off in the Webinar Console.
+  if (webinar?.thankYouSurveyLink === false) {
+    apiLogger.info({ msg: "webinar-thank-you:survey-link-off", eventId: event.id, surveyId });
+    return null;
+  }
   const row = await db.survey.findFirst({
     where: { id: surveyId, eventId: event.id },
     select: { id: true, name: true, isActive: true, gatesCertificates: true, config: true },
@@ -68,19 +74,23 @@ export function buildThankYouSurveyBlock(link: string): { html: string; text: st
 /**
  * A saved thank-you template predates the block, so a block that resolved to
  * something is placed in it: before the signature when the template has one,
- * else at the end. A template that already places {{surveyBlock}} or
- * {{surveyLink}} is left as the organiser wrote it.
+ * else at the end. Each part (HTML, plain text) is checked on its own, so a
+ * part that already places the survey is left as the organiser wrote it and
+ * a part that does not still gets the link (review of steps 1 to 5).
  */
+const SURVEY_TOKENS = ["{{surveyBlock}}", "{{surveyBlockText}}", "{{surveyLink}}"];
+
+function placeSurveyToken(body: string, token: string): string {
+  if (SURVEY_TOKENS.some((t) => body.includes(t))) return body;
+  return body.includes("{{organizerSignature}}")
+    ? body.replace("{{organizerSignature}}", `${token}\n{{organizerSignature}}`)
+    : `${body}\n${token}`;
+}
+
 export function withThankYouSurveyBlock<T extends { htmlContent: string; textContent: string | null }>(tpl: T): T {
-  const has = (s: string | null) => !!s && (s.includes("{{surveyBlock}}") || s.includes("{{surveyLink}}"));
-  if (has(tpl.htmlContent) || has(tpl.textContent)) return tpl;
-  const place = (body: string, token: string) =>
-    body.includes("{{organizerSignature}}")
-      ? body.replace("{{organizerSignature}}", `${token}\n{{organizerSignature}}`)
-      : `${body}\n${token}`;
   return {
     ...tpl,
-    htmlContent: place(tpl.htmlContent, "{{surveyBlock}}"),
-    textContent: tpl.textContent === null ? null : place(tpl.textContent, "{{surveyBlockText}}"),
+    htmlContent: placeSurveyToken(tpl.htmlContent, "{{surveyBlock}}"),
+    textContent: tpl.textContent === null ? null : placeSurveyToken(tpl.textContent, "{{surveyBlockText}}"),
   };
 }

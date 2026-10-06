@@ -523,6 +523,14 @@ export async function deleteSurvey(scope: SurveyScope, surveyId: string): Promis
     const answered = await tx.surveyResponse.count({ where: responseWhereForSurvey(survey) });
     if (answered > 0) return { outcome: "has-responses" as const, answered };
     await tx.survey.delete({ where: { id: surveyId } });
+    // A webinar's end-of-webinar choice pointing at it is cleared too, in one
+    // statement so a console save of other settings is never overwritten.
+    const clearedEndSurvey = await tx.$executeRaw`
+      UPDATE "Event" SET settings = settings #- '{webinar,endSurveyId}'
+      WHERE id = ${scope.eventId} AND settings->'webinar'->>'endSurveyId' = ${surveyId}`;
+    if (clearedEndSurvey > 0) {
+      apiLogger.info({ msg: "survey:end-survey-choice-cleared", eventId: scope.eventId, surveyId });
+    }
     await tx.auditLog.create({
       data: {
         eventId: scope.eventId,
