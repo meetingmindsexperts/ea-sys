@@ -13,3 +13,19 @@ export function publicAskerName(fullName: string): string {
   if (parts.length === 1) return parts[0];
   return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
 }
+
+/**
+ * Whether attendees may upvote public questions (Oct 6, 2026;
+ * docs/WEBINAR_INTERACTION_PLAN.md §3). The producer's switch in the Webinar
+ * Console, `settings.webinar.qaUpvote`; unset means on.
+ */
+export function qaUpvoteEnabled(webinar: { qaUpvote?: boolean } | null | undefined): boolean {
+  return webinar?.qaUpvote !== false;
+}
+
+/** Public questions, most-wanted first: votes, then newest. */
+export function sortByVotes<T extends { voteCount: number; createdAt: Date | string }>(questions: T[]): T[] {
+  return [...questions].sort(
+    (a, b) => b.voteCount - a.voteCount || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}

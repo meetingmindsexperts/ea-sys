@@ -64,7 +64,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
         take: 500,
         select: { id: true, askerName: true, question: true, status: true, isPublic: true, createdAt: true, answeredAt: true },
       });
-      return NextResponse.json({ questions });
+      // Attendee upvotes (Oct 6, 2026), one grouped read for the whole list.
+      const counts = questions.length
+        ? await db.webinarQuestionVote.groupBy({
+            by: ["questionId"],
+            where: { eventId: ctx.eventId, questionId: { in: questions.map((q) => q.id) } },
+            _count: { _all: true },
+          })
+        : [];
+      const countById = new Map(counts.map((c) => [c.questionId, c._count._all]));
+      return NextResponse.json({
+        questions: questions.map((q) => ({ ...q, voteCount: countById.get(q.id) ?? 0 })),
+      });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-questions:list-failed");

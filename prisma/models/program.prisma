@@ -763,12 +763,34 @@ model WebinarViewerQuestion {
   event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  votes        WebinarQuestionVote[]
 
   @@index([sessionId, isPublic])
   @@index([sessionId, createdAt])
   @@index([eventId])
   @@index([organizationId])
   @@index([registrationId])
+}
+
+/// An attendee's upvote on a question the moderators made public (Oct 6, 2026;
+/// docs/WEBINAR_INTERACTION_PLAN.md §3). One per person per question; voting
+/// again removes it. eventId is a plain column (the question already cascades
+/// from the event).
+model WebinarQuestionVote {
+  id             String   @id @default(cuid())
+  questionId     String
+  registrationId String
+  eventId        String
+  organizationId String?
+  createdAt      DateTime @default(now())
+
+  question     WebinarViewerQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  registration Registration          @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, registrationId])
+  @@index([registrationId])
+  @@index([eventId])
+  @@index([organizationId])
 }
 
 enum RecordingStatus {

@@ -66,6 +66,7 @@ import {
   Radio,
   Eye,
   EyeOff,
+  ThumbsUp,
   Palette,
   ClipboardList,
 } from "lucide-react";
@@ -446,7 +447,7 @@ export default function WebinarConsolePage() {
 
         {showViewerQaTab && (
           <TabsContent value="qa" className="mt-4">
-            <ViewerQuestionsPanel eventId={eventId} />
+            <ViewerQuestionsPanel eventId={eventId} upvote={data?.webinar?.qaUpvote !== false} />
           </TabsContent>
         )}
 
@@ -2244,13 +2245,26 @@ function matchesViewerFilter(q: WebinarViewerQuestionRow, filter: ViewerQuestion
  * Query shares one poll). Only questions shown here appear in the attendees'
  * Q&A panel beside the video, with first name and initial.
  */
-function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
+function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: boolean }) {
   const eventTz = useEventTz();
   const { data, isLoading, isError } = useWebinarViewerQuestions(eventId, true);
   const update = useUpdateWebinarViewerQuestion(eventId);
+  const updateSettings = useUpdateWebinarSettings(eventId);
   const [filter, setFilter] = useState<ViewerQuestionFilter>("NEW");
+  const [byVotes, setByVotes] = useState(false);
   const questions = data?.questions ?? [];
-  const shown = questions.filter((q) => matchesViewerFilter(q, filter));
+  const filtered = questions.filter((q) => matchesViewerFilter(q, filter));
+  // Most-wanted first: votes, then newest (the list arrives newest first).
+  const shown = byVotes ? [...filtered].sort((a, b) => b.voteCount - a.voteCount) : filtered;
+
+  const toggleUpvote = async (next: boolean) => {
+    try {
+      await updateSettings.mutateAsync({ qaUpvote: next });
+      toast.success(next ? "Attendees can upvote shown questions" : "Upvotes switched off");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change upvotes");
+    }
+  };
 
   const mark = async (id: string, change: { status?: "NEW" | "ANSWERED" | "DISMISSED"; isPublic?: boolean }) => {
     try {
@@ -2273,6 +2287,21 @@ function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+          <label htmlFor="qa-upvote" className="space-y-0.5">
+            <span className="block text-sm font-medium">Let attendees upvote shown questions</span>
+            <span className="block text-xs text-muted-foreground">
+              One vote per person per question, so the most-wanted question is easy to pick.
+            </span>
+          </label>
+          <Switch
+            id="qa-upvote"
+            checked={upvote}
+            disabled={updateSettings.isPending}
+            onCheckedChange={(next) => void toggleUpvote(next)}
+          />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter questions">
           {VIEWER_QUESTION_FILTERS.map((f) => {
             const count = questions.filter((q) => matchesViewerFilter(q, f.key)).length;
@@ -2292,6 +2321,17 @@ function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
               </Button>
             );
           })}
+        </div>
+          <Button
+            size="sm"
+            variant={byVotes ? "secondary" : "ghost"}
+            className="h-8 text-xs"
+            aria-pressed={byVotes}
+            onClick={() => setByVotes((v) => !v)}
+          >
+            <ThumbsUp className="h-3.5 w-3.5 mr-1" />
+            {byVotes ? "Sorted by votes" : "Sort by votes"}
+          </Button>
         </div>
 
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -2316,6 +2356,12 @@ function ViewerQuestionsPanel({ eventId }: { eventId: string }) {
                   {q.status === "DISMISSED" ? <span className="ml-1 font-medium">· Dismissed</span> : null}
                   {q.isPublic && q.status !== "DISMISSED" ? (
                     <span className="ml-1 font-medium text-primary">· Shown to attendees</span>
+                  ) : null}
+                  {q.voteCount > 0 ? (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium text-foreground">
+                      <ThumbsUp className="h-3 w-3" />
+                      {q.voteCount}
+                    </span>
                   ) : null}
                 </span>
                 <div className="flex flex-wrap gap-1">

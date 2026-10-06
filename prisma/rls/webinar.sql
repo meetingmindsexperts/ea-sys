@@ -73,3 +73,13 @@ CREATE POLICY webinarviewerquestion_tenant_isolation ON "WebinarViewerQuestion"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- WebinarQuestionVote (Oct 6, 2026): attendee upvotes on public viewer
+-- questions. Same flat template; the vote route stamps organizationId from the
+-- event.
+ALTER TABLE "WebinarQuestionVote" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS webinarquestionvote_tenant_isolation ON "WebinarQuestionVote";
+CREATE POLICY webinarquestionvote_tenant_isolation ON "WebinarQuestionVote"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

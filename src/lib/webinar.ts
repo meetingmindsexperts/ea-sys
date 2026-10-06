@@ -98,6 +98,9 @@ export interface WebinarSettings {
    *  organiser's switch in the Webinar Console; unset means yes, so choosing a
    *  survey sends it unless they turn it off (Oct 6, 2026). */
   thankYouSurveyLink?: boolean;
+  /** Attendees may upvote the questions shown to everyone (Oct 6, 2026);
+   *  unset means yes. The Webinar Console's Q&A switch. */
+  qaUpvote?: boolean;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** ISO time the producer last opened the room. The auto-close job only

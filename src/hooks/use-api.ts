@@ -2492,6 +2492,7 @@ export interface WebinarConsoleData {
     pageFooterImageUrl?: string;
     endSurveyId?: string;
     thankYouSurveyLink?: boolean;
+    qaUpvote?: boolean;
   };
   anchorSession: {
     id: string;
@@ -2642,6 +2643,8 @@ export interface WebinarViewerQuestionRow {
   isPublic: boolean;
   createdAt: string;
   answeredAt: string | null;
+  /** Attendee upvotes (Oct 6, 2026). */
+  voteCount: number;
 }
 
 /** Questions from custom-stream viewers; polled every 10 s while shown. */

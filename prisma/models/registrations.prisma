@@ -320,6 +320,7 @@ model Registration {
   zoomAttendances          ZoomAttendance[]
   webinarPresences         WebinarPresence[]
   webinarViewerQuestions   WebinarViewerQuestion[]
+  webinarQuestionVotes     WebinarQuestionVote[]
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
   // Speakers imported from this registration (0 or 1 in practice; the link

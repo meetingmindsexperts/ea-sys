@@ -3,12 +3,10 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canWrite } from "@/lib/can-write";
-import { QUESTION_MAX_LENGTH, publicAskerName } from "@/lib/webinar/questions";
-import { readWebinarSettings } from "@/lib/webinar";
+import { QUESTION_MAX_LENGTH, publicAskerName, qaUpvoteEnabled, sortByVotes } from "@/lib/webinar/questions";
+import { loadQuestionContext as loadContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -16,58 +14,13 @@ const askSchema = z.object({
   question: z.string().trim().min(3, "Please type a question").max(QUESTION_MAX_LENGTH),
 });
 
-type Asker =
-  | { kind: "staff"; name: string }
-  | { kind: "attendee"; name: string; registrationId: string };
-
 /**
  * Questions from custom-stream viewers (Oct 1, 2026). A viewer of the HLS
  * stream is not in Zoom, so Zoom's Q&A cannot reach them; this is the box on
- * the session page, read by producers in the Webinar Console.
- *
- * Same gate as the presence heartbeat and zoom-join: signed in, and either a
- * non-cancelled registrant of the event or org staff testing the page. The
- * asker's name comes from the registration, never from the request body.
+ * the session page, read by producers in the Webinar Console. The gate (who
+ * may ask, which session) lives in src/lib/webinar/viewer-question-access.ts,
+ * shared with the vote route.
  */
-async function resolveAsker(
-  userId: string,
-  eventId: string,
-  user: { role?: string | null; organizationId?: string | null; firstName?: string | null; lastName?: string | null },
-  eventOrgId: string,
-): Promise<Asker | null> {
-  if (canWrite(user.role) && user.organizationId === eventOrgId) {
-    return { kind: "staff", name: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Staff" };
-  }
-  const registration = await db.registration.findFirst({
-    where: { eventId, userId, status: { not: "CANCELLED" } },
-    select: { id: true, attendee: { select: { firstName: true, lastName: true } } },
-  });
-  if (!registration?.attendee) return null;
-  return {
-    kind: "attendee",
-    name: `${registration.attendee.firstName} ${registration.attendee.lastName}`.trim() || "Attendee",
-    registrationId: registration.id,
-  };
-}
-
-/**
- * The event, if this session takes viewer questions: only the anchor session
- * of a WEBINAR event, the one session whose questions the producers' console
- * lists (code review, Oct 1, 2026: questions accepted elsewhere reached
- * nobody).
- */
-async function loadContext(req: Request, slug: string, sessionId: string) {
-  const event = await db.event.findFirst({
-    where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
-    select: { id: true, organizationId: true, eventType: true, settings: true },
-  });
-  if (!event) return null;
-  if (event.eventType !== "WEBINAR" || readWebinarSettings(event.settings)?.sessionId !== sessionId) {
-    apiLogger.warn({ slug, sessionId, eventType: event.eventType }, "webinar-question:not-the-webinar-room");
-    return null;
-  }
-  return { id: event.id, organizationId: event.organizationId };
-}
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -180,8 +133,41 @@ export async function GET(req: Request, { params }: RouteParams) {
           select: { id: true, question: true, status: true, askerName: true, createdAt: true },
         }),
       ]);
-      const published = shown.map(({ askerName, ...q }) => ({ ...q, askerName: publicAskerName(askerName) }));
-      return NextResponse.json({ questions: mine, published });
+      // Upvotes (Oct 6, 2026): each public question's count and whether this
+      // viewer voted, in two grouped reads, never one query per question.
+      const upvote = qaUpvoteEnabled(event.webinar);
+      const shownIds = shown.map((q) => q.id);
+      const [counts, myVotes] =
+        upvote && shownIds.length > 0
+          ? await Promise.all([
+              db.webinarQuestionVote.groupBy({
+                by: ["questionId"],
+                where: { questionId: { in: shownIds }, eventId: event.id },
+                _count: { _all: true },
+              }),
+              asker.kind === "attendee"
+                ? db.webinarQuestionVote.findMany({
+                    where: { questionId: { in: shownIds }, registrationId: asker.registrationId },
+                    select: { questionId: true },
+                  })
+                : Promise.resolve([] as { questionId: string }[]),
+            ])
+          : [[], []];
+      const countById = new Map(counts.map((c) => [c.questionId, c._count._all]));
+      const votedIds = new Set(myVotes.map((v) => v.questionId));
+      const published = shown.map(({ askerName, ...q }) => ({
+        ...q,
+        askerName: publicAskerName(askerName),
+        voteCount: countById.get(q.id) ?? 0,
+        votedByMe: votedIds.has(q.id),
+      }));
+      return NextResponse.json({
+        questions: mine,
+        published: upvote ? sortByVotes(published) : published,
+        upvote,
+        // Staff testing the page can read but not vote (votes are per registration).
+        canVote: upvote && asker.kind === "attendee",
+      });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-question:list-failed");

@@ -55,6 +55,8 @@ const updateWebinarSchema = z.object({
   endSurveyId: z.string().max(64).optional(),
   // Whether the thank-you email carries that survey's link (step 5).
   thankYouSurveyLink: z.boolean().optional(),
+  // Attendees may upvote public questions (unset means yes).
+  qaUpvote: z.boolean().optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───

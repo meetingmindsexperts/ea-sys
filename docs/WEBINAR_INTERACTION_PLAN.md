@@ -1,8 +1,8 @@
 # Webinar interaction on the Custom stream page
 
-**Status: PLANNED, NOT BUILT (October 6, 2026).** Written after the owner
-compared EA-SYS with another platform's host control panel ("how much of this
-can we do?"). Nothing here is implemented yet. Decisions still open are in §8.
+**Status: §3 Q&A upvote BUILT (October 6, 2026); the rest PLANNED.** Written
+after the owner compared EA-SYS with another platform's host control panel
+("how much of this can we do?"). Decisions still open are in §8.
 
 **Who this is for.** The owner, to choose what to build and in what order, and
 whoever builds it.
@@ -18,7 +18,7 @@ them. What they can do today is what EA-SYS builds on the page itself.
 | Host control | Custom stream page today | Plan |
 |---|---|---|
 | Q&A: moderated, submission | **Built** (Oct 1, 2026). Attendees ask beside the video (`WebinarViewerQuestion`); moderators choose which questions everyone sees (Webinar Console, Q&A tab, `isPublic`). | Done |
-| Q&A upvote | Not built | §3, small |
+| Q&A upvote | **Built** (Oct 6, 2026) | §3 |
 | Handouts | Not built | §4, small |
 | Polls | Not built for Custom stream. Zoom polls are pulled after the event (`WebinarPoll`), but only reach people inside Zoom. | §5, medium |
 | Public chat, auto-mute | Not built | §6, large |
@@ -60,6 +60,16 @@ votes so the most-wanted question is easy to pick.
   default on.
 - **Tests:** one vote per person, toggle, private questions refuse votes,
   another session's question refused.
+
+**As built (Oct 6, 2026):** migration `20261006180000` (table, RLS policy in
+`prisma/rls/webinar.sql`, swept for the tenancy gate); the gate shared with the
+ask route in `src/lib/webinar/viewer-question-access.ts`; votes are per
+registration (staff testing the page can read counts, not vote), and a
+double-click race counts once. The attendee list is sorted by votes then
+newest on each refresh (not on click, so a question never jumps under the
+pointer); the console shows counts and a "Sort by votes" button. The switch
+sits at the top of the console's Q&A tab. Tests in
+`webinar-viewer-questions.test.ts`.
 
 ## 4. Handouts
 
