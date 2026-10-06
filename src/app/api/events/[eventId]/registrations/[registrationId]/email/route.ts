@@ -510,6 +510,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           qrCode: registration.qrCode,
           serialId: registration.serialId,
           attendanceMode: registration.attendanceMode,
+          eventType: event.eventType,
         });
         if (bc) {
           vars.entryBarcode = bc.html;

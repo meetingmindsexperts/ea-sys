@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eventUsesEntryBarcode } from "@/lib/entry-barcode-policy";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
@@ -77,6 +78,7 @@ export async function GET(req: Request) {
             bannerImage: true,
             taxRate: true,
             taxLabel: true,
+            eventType: true,
           },
         },
         attendee: true,
@@ -94,7 +96,11 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(registrations);
+    // A webinar has no entry barcode (owner, Oct 6, 2026): the portal shows one
+    // only when qrCode is present, so it is left out for webinars here.
+    return NextResponse.json(
+      registrations.map((r) => (eventUsesEntryBarcode(r.event.eventType) ? r : { ...r, qrCode: null })),
+    );
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registrant registrations" });

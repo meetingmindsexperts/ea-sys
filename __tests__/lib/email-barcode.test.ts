@@ -89,3 +89,18 @@ describe("buildEntryBarcode", () => {
     await expect(buildEntryBarcode({ qrCode: "ABC", attendanceMode: "IN_PERSON" })).rejects.toThrow("boom");
   });
 });
+
+describe("webinars have no entry barcode (owner, Oct 6, 2026)", () => {
+  beforeEach(() => vi.mocked(renderBarcodePng).mockClear());
+
+  it("a webinar registration never renders one, even with a qrCode", async () => {
+    expect(await buildEntryBarcode({ qrCode: "ABC", serialId: 1, attendanceMode: "IN_PERSON", eventType: "WEBINAR" })).toBeNull();
+    expect(renderBarcodePng).not.toHaveBeenCalled();
+  });
+
+  it("conferences and hybrids are unchanged; an unknown type keeps the barcode", async () => {
+    for (const eventType of ["CONFERENCE", "HYBRID", null, undefined]) {
+      expect(await buildEntryBarcode({ qrCode: "ABC", serialId: 1, attendanceMode: "IN_PERSON", eventType })).not.toBeNull();
+    }
+  });
+});

@@ -2255,6 +2255,8 @@ export interface RegistrationConfirmationParams {
    */
   attendanceMode?: "IN_PERSON" | "VIRTUAL";
   eventId?: string;
+  /** The event's type; looked up from the registration when omitted. A webinar shows no entry barcode. */
+  eventType?: string | null;
   /**
    * Organization that owns the event. Threaded into the EmailLog row's
    * `organizationId` column so the Email History card on the
@@ -2623,10 +2625,23 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   let barcodeAttachment: NonNullable<SendEmailParams["attachments"]>[number] | null = null;
   if (templateUsesEntryBarcode(template.htmlContent, template.textContent)) {
     try {
+      // The event type decides whether a barcode exists at all (none for a
+      // webinar). Looked up here when the caller did not pass it, so no
+      // caller can forget it.
+      const eventType =
+        params.eventType !== undefined
+          ? params.eventType
+          : ((
+              await (await import("./db")).db.registration.findFirst({
+                where: { id: params.registrationId },
+                select: { event: { select: { eventType: true } } },
+              })
+            )?.event.eventType ?? null);
       const bc = await buildEntryBarcode({
         qrCode: params.qrCode,
         serialId: params.serialId,
         attendanceMode: params.attendanceMode,
+        eventType,
       });
       if (bc) {
         vars.entryBarcode = bc.html;

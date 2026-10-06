@@ -90,6 +90,14 @@ describe("H8 — registrant barcode route assignment-scoping", () => {
   const barcodeParams = { params: Promise.resolve({ registrationId: "r1" }) };
   const barcodeReq = () => new Request("http://localhost/x");
 
+  it("a webinar registration has no barcode: 404 even with a qrCode (owner, Oct 6, 2026)", async () => {
+    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      user: { id: "reg-user", role: "REGISTRANT", organizationId: null },
+    });
+    mockDb.registration.findFirst.mockResolvedValue({ qrCode: "ABC", serialId: 1, event: { eventType: "WEBINAR" } });
+    expect((await BARCODE_GET(barcodeReq(), barcodeParams)).status).toBe(404);
+  });
+
   it("scopes an org-staff caller through buildEventAccessWhere (ONSITE → its assignment, NOT org-wide)", async () => {
     (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       user: { id: "o1", role: "ONSITE", organizationId: "org1" },

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eventUsesEntryBarcode } from "@/lib/entry-barcode-policy";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
@@ -81,12 +82,18 @@ export async function GET(req: Request, { params }: RouteParams) {
           ? { userId: authedUser.id }
           : { event: eventWhereFor(principalFromUser(authedUser), "registrations.read") }),
       },
-      select: { qrCode: true, serialId: true },
+      select: { qrCode: true, serialId: true, event: { select: { eventType: true } } },
     });
 
     if (!registration) {
       apiLogger.warn({ userId: authedUser.id, registrationId, ownerScoped }, "registrant-barcode:not-found-or-no-access");
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    // A webinar has no entry barcode (owner, Oct 6, 2026).
+    if (!eventUsesEntryBarcode(registration.event?.eventType)) {
+      apiLogger.warn({ userId: authedUser.id, registrationId }, "registrant-barcode:webinar-has-none");
+      return NextResponse.json({ error: "No barcode for this registration" }, { status: 404 });
     }
 
     // qrCode only — DTCM barcodes are never exposed on the public portal.

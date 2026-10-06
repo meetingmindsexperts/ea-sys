@@ -18,6 +18,7 @@
  * `entryBarcode` is registered in `DEFAULT_RAW_HTML_KEYS` so it renders unescaped.
  */
 import { renderBarcodePng, entryBarcodeValue } from "./barcode";
+import { eventUsesEntryBarcode } from "./entry-barcode-policy";
 
 /** Var key for the raw-HTML barcode block (must be in DEFAULT_RAW_HTML_KEYS). */
 export const ENTRY_BARCODE_VAR = "entryBarcode";
@@ -74,10 +75,12 @@ export async function buildEntryBarcode(params: {
    */
   serialId?: number | null;
   attendanceMode?: "IN_PERSON" | "VIRTUAL" | null;
+  /** The event's type: a webinar never shows an entry barcode (owner, Oct 6, 2026). */
+  eventType?: string | null;
 }): Promise<EntryBarcode | null> {
   // Virtual attendees have no entry barcode; neither does a registration
-  // missing its qrCode (e.g. virtual rows never mint one).
-  if (params.attendanceMode === "VIRTUAL" || !params.qrCode) return null;
+  // missing its qrCode (e.g. virtual rows never mint one), nor any webinar.
+  if (params.attendanceMode === "VIRTUAL" || !params.qrCode || !eventUsesEntryBarcode(params.eventType)) return null;
 
   const encoded = entryBarcodeValue(params.qrCode, params.serialId);
   const png = await renderBarcodePng(encoded, { includetext: true });

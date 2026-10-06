@@ -1,5 +1,6 @@
 "use client";
 
+import { eventUsesEntryBarcode } from "@/lib/entry-barcode-policy";
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useParams } from "next/navigation";
 import { EventBannerBand } from "@/components/public/event-banner";
@@ -635,7 +636,10 @@ function ConfirmationContent() {
                 {[
                   "Save the date and add it to your calendar",
                   "Watch for updates from the organizer",
-                  "Bring your barcode for check-in",
+                  // A webinar has no entry barcode (owner, Oct 6, 2026).
+                  eventUsesEntryBarcode(branding?.eventType)
+                    ? "Bring your barcode for check-in"
+                    : "Your joining link arrives by email before the webinar",
                 ].map((tip, i) => (
                   <div key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
                     <div className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">

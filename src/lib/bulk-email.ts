@@ -814,6 +814,8 @@ export type BulkEmailViabilityInput = Pick<
 // so the send loads the event exactly once.
 const VIABILITY_EVENT_SELECT = {
   id: true,
+  // A webinar never shows an entry barcode (src/lib/entry-barcode-policy.ts).
+  eventType: true,
   organizationId: true,
   slug: true,
   name: true,
@@ -2163,6 +2165,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           qrCode: recipient.qrCode,
           serialId: recipient.serialId,
           attendanceMode: recipient.attendanceMode,
+          eventType: event.eventType,
         });
         if (bc) {
           vars.entryBarcode = bc.html;
