@@ -102,6 +102,17 @@ through this event's own prefix, PDFs open in the browser and Office files
 download. Handouts stay available after the event is marked COMPLETED.
 Tests in `webinar-handouts.test.ts`.
 
+**Review of handouts (Oct 6, 2026): 0 HIGH; every MED and LOW fixed.** One
+reader for both downloads (`src/lib/webinar/handout-download.ts`): this
+event's folder only, a missing file is a 404, no second copy of the bytes, 60
+downloads an hour per person. Every delete is guarded to the event's own
+folder. The provisioner no longer writes its snapshot of `handouts` back, and
+the general event-settings save keeps the stored list (`keepStoredHandouts`),
+so neither can lose or plant an entry. An upload whose list write fails
+removes its file; deleting an event removes its handout files. Staff open a
+handout from the console card (read access is enough), and the attendee page
+fetches handouts only once its sign-in check has settled.
+
 ## 5. Polls
 
 The producer launches a question during the webinar; attendees answer beside the

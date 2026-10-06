@@ -104,3 +104,25 @@ export function formatHandoutSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/**
+ * The general event-settings save (event PUT) replaces `settings.webinar`
+ * wholesale when a caller sends it. Handouts are written only by the handouts
+ * routes, so that save keeps the stored list whatever it was sent: a caller
+ * can neither wipe it (orphaning the files) nor plant an entry pointing at
+ * another event's file (review of handouts, Oct 6, 2026).
+ */
+export function keepStoredHandouts(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const nextWebinar = next.webinar;
+  if (!nextWebinar || typeof nextWebinar !== "object" || Array.isArray(nextWebinar)) return next;
+  const curWebinar = current.webinar && typeof current.webinar === "object" ? (current.webinar as { handouts?: unknown }) : {};
+  const { handouts: _sent, ...rest } = nextWebinar as Record<string, unknown>;
+  void _sent;
+  return {
+    ...next,
+    webinar: curWebinar.handouts !== undefined ? { ...rest, handouts: curWebinar.handouts } : rest,
+  };
+}

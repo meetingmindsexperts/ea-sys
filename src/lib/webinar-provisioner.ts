@@ -357,6 +357,10 @@ export async function provisionWebinar(
     // that landed while we provisioned isn't clobbered, and drop the
     // provisioning sentinel in the same write.
     const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar)) as Record<string, unknown>;
+    // Handouts belong to the handouts routes (Oct 6, 2026): the snapshot's copy
+    // would undo a handout added or removed while we provisioned (a lost file,
+    // or an entry pointing at a deleted one). The locked current value keeps it.
+    delete cleanWebinar.handouts;
     await updateEventSettings(event.id, (cur) => {
       const merged = { ...asWebinarObject(cur), ...cleanWebinar };
       delete merged.provisioningAt;

@@ -50,16 +50,20 @@ vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof moc
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/public-event", () => ({ publicEventWhere: vi.fn(async () => ({})) }));
-vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }), getClientIp: () => "1.2.3.4" }));
+const { rate } = vi.hoisted(() => ({ rate: { allowed: true } }));
+vi.mock("@/lib/security", () => ({ checkRateLimit: () => ({ allowed: rate.allowed, retryAfterSeconds: 60 }), getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/storage", () => mockStorage);
 
 import { POST as upload, PATCH as reorder } from "@/app/api/events/[eventId]/webinar/handouts/route";
-import { DELETE as remove } from "@/app/api/events/[eventId]/webinar/handouts/[handoutId]/route";
+import { DELETE as remove, GET as staffOpen } from "@/app/api/events/[eventId]/webinar/handouts/[handoutId]/route";
+import { StorageError } from "@/lib/storage-errors";
+import { removeHandoutFiles } from "@/lib/webinar/handout-download";
 import { GET as list } from "@/app/api/public/events/[slug]/sessions/[sessionId]/handouts/route";
 import { GET as download } from "@/app/api/public/events/[slug]/sessions/[sessionId]/handouts/[handoutId]/route";
 import {
   MAX_HANDOUTS,
   handoutBytesMatch,
+  keepStoredHandouts,
   readHandouts,
   resolveHandoutType,
   sanitizeHandoutName,
@@ -97,6 +101,7 @@ function written(): WebinarHandout[] | null {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rate.allowed = true;
   state.settings = { webinar: { sessionId: "s1", handouts: [H("h1"), H("h2")] } };
   mockDb.event.findFirst.mockImplementation(async () => ({
     id: "ev1",
@@ -170,7 +175,7 @@ describe("console: add a handout", () => {
     const res = await upload(multipart(pdfFile()), staffParams);
     expect(res.status).toBe(400);
     expect(mockDb.$executeRaw).not.toHaveBeenCalled();
-    expect(mockStorage.deleteStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/new.pdf", "/uploads/webinar-handouts/");
+    expect(mockStorage.deleteStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/new.pdf", "/uploads/webinar-handouts/ev1/");
   });
 
   it("only on a webinar", async () => {
@@ -202,7 +207,8 @@ describe("console: reorder and remove", () => {
     const res = await remove(new Request("http://x"), { params: Promise.resolve({ eventId: "ev1", handoutId: "h1" }) });
     expect(res.status).toBe(200);
     expect(written()!.map((h) => h.id)).toEqual(["h2"]);
-    expect(mockStorage.deleteStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/h1.pdf", "/uploads/webinar-handouts/");
+    // Guarded to this event's own folder, never the handouts root.
+    expect(mockStorage.deleteStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/h1.pdf", "/uploads/webinar-handouts/ev1/");
   });
 
   it("removing an unknown handout is a 404 and deletes nothing", async () => {
@@ -269,5 +275,73 @@ describe("attendee: list and download", () => {
   it("org staff testing the page can open them", async () => {
     mockAuth.mockResolvedValue(organizer);
     expect((await get("h2")).status).toBe(200);
+  });
+});
+
+describe("review of handouts (Oct 6, 2026)", () => {
+  const asRegistrant = () => {
+    mockAuth.mockResolvedValue(attendee);
+    mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "A", lastName: "B" } });
+  };
+  const get = (handoutId: string) =>
+    download(new Request("http://x"), { params: Promise.resolve({ slug: "web", sessionId: "s1", handoutId }) });
+
+  it("a cancelled registration never counts: the lookup excludes CANCELLED, oldest first", async () => {
+    asRegistrant();
+    await get("h1");
+    expect(mockDb.registration.findFirst.mock.calls[0][0]).toMatchObject({
+      where: { eventId: "ev1", userId: "u1", status: { not: "CANCELLED" } },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+
+  it("downloads are rate limited per person (429, nothing read)", async () => {
+    asRegistrant();
+    rate.allowed = false;
+    expect((await get("h1")).status).toBe(429);
+    expect(mockStorage.readStoredFile).not.toHaveBeenCalled();
+  });
+
+  it("a listed file missing from storage is a 404, not a 500", async () => {
+    asRegistrant();
+    mockStorage.readStoredFile.mockRejectedValue(new StorageError("not-found", "gone"));
+    expect((await get("h1")).status).toBe(404);
+  });
+
+  it("staff open a handout from the console (read access is enough), through the same folder check", async () => {
+    mockAuth.mockResolvedValue(member);
+    const res = await staffOpen(new Request("http://x"), { params: Promise.resolve({ eventId: "ev1", handoutId: "h2" }) });
+    expect(res.status).toBe(200);
+    expect(mockStorage.readStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/h2.pdf", "/uploads/webinar-handouts/ev1/");
+  });
+
+  it("an upload whose list write throws removes the stored file again", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.$executeRaw.mockRejectedValueOnce(new Error("db down"));
+    const res = await upload(multipart(pdfFile()), staffParams);
+    expect(res.status).toBe(500);
+    expect(mockStorage.deleteStoredFile).toHaveBeenCalledWith("/uploads/webinar-handouts/ev1/new.pdf", "/uploads/webinar-handouts/ev1/");
+  });
+
+  it("the general settings save keeps the stored handouts: it can neither wipe nor plant them", () => {
+    const current = { webinar: { sessionId: "s1", handouts: [H("h1")] }, other: 1 };
+    const wiped = keepStoredHandouts(current, { ...current, webinar: { sessionId: "s1", lobbyMessage: "hi" } });
+    expect((wiped.webinar as { handouts: unknown[] }).handouts).toEqual([H("h1")]);
+    const planted = keepStoredHandouts(current, {
+      ...current,
+      webinar: { sessionId: "s1", handouts: [H("x", { storedPath: "/uploads/webinar-handouts/OTHER/x.pdf" })] },
+    });
+    expect((planted.webinar as { handouts: unknown[] }).handouts).toEqual([H("h1")]);
+    // No stored list and none sent: nothing invented.
+    expect(keepStoredHandouts({}, { webinar: { handouts: [H("x")] } }).webinar).toEqual({});
+    // A save without a webinar object is untouched.
+    expect(keepStoredHandouts(current, { other: 2 })).toEqual({ other: 2 });
+  });
+
+  it("deleting an event removes its handout files, each only from its own folder, and never throws", async () => {
+    mockStorage.deleteStoredFile.mockRejectedValueOnce(new Error("s3 down"));
+    await expect(removeHandoutFiles("ev1", [H("h1"), H("h2")])).resolves.toBeUndefined();
+    expect(mockStorage.deleteStoredFile).toHaveBeenCalledTimes(2);
+    expect(mockStorage.deleteStoredFile).toHaveBeenLastCalledWith("/uploads/webinar-handouts/ev1/h2.pdf", "/uploads/webinar-handouts/ev1/");
   });
 });

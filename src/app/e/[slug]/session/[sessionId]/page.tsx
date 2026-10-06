@@ -428,7 +428,9 @@ export default function PublicSessionPage() {
   // right (owner, Oct 6, 2026). The column cases live in webinarVideoLayout.
   const panelists = isWebinarEvent && session ? collectPanelists(session) : [];
   // Handouts sit under the panelists (Oct 6, 2026), so either fills the left column.
-  const handouts = useWebinarHandouts(slug, sessionId, isWebinarEvent && authState.kind === "ok");
+  // Only once the join check has settled, so a signed-out visitor never
+  // fires a refused request (review of handouts).
+  const handouts = useWebinarHandouts(slug, sessionId, !loading && isWebinarEvent && authState.kind === "ok");
   const showPanelists = panelists.length > 0;
   const showLeftColumn = showPanelists || handouts.length > 0;
   const layout = webinarVideoLayout({ showQa, showPanelists: showLeftColumn });

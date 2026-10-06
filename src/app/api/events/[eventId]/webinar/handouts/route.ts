@@ -23,7 +23,7 @@ import { checkRateLimit } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { runWithTenant } from "@/lib/tenant-context";
 import { deleteStoredFile, uploadFile } from "@/lib/storage";
-import { UPLOAD_PREFIX, UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
+import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import {
   HANDOUT_TYPES,
   MAX_HANDOUTS,
@@ -35,6 +35,7 @@ import {
   type WebinarHandout,
 } from "@/lib/webinar/handouts";
 import { updateHandouts } from "@/lib/webinar/handouts-store";
+import { handoutFolder } from "@/lib/webinar/handout-download";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -113,14 +114,24 @@ export async function POST(req: Request, { params }: RouteParams) {
         size: buffer.length,
         uploadedAt: new Date().toISOString(),
       };
-      const result = await updateHandouts(event.id, (current) =>
-        current.length >= MAX_HANDOUTS ? "too-many" : [...current, handout],
-      );
-      if (!result.ok) {
-        // The file was stored before the list refused it: remove it again.
-        await deleteStoredFile(storedPath, UPLOAD_PREFIX.webinarHandouts).catch((err) =>
+      const removeStoredFile = () =>
+        deleteStoredFile(storedPath, handoutFolder(event.id)).catch((err) =>
           apiLogger.error({ err, eventId, storedPath }, "webinar-handouts:orphan-delete-failed"),
         );
+      let result: Awaited<ReturnType<typeof updateHandouts>>;
+      try {
+        result = await updateHandouts(event.id, (current) =>
+          current.length >= MAX_HANDOUTS ? "too-many" : [...current, handout],
+        );
+      } catch (err) {
+        // The list write failed after the file was stored: remove it again.
+        apiLogger.error({ err, eventId, storedPath }, "webinar-handouts:list-write-failed");
+        await removeStoredFile();
+        return NextResponse.json({ error: "Failed to add the handout" }, { status: 500 });
+      }
+      if (!result.ok) {
+        // The file was stored before the list refused it: remove it again.
+        await removeStoredFile();
         apiLogger.warn({ eventId, reason: result.reason }, "webinar-handouts:add-refused");
         return NextResponse.json(
           { error: result.reason === "too-many" ? `A webinar can have up to ${MAX_HANDOUTS} handouts.` : "Event not found" },

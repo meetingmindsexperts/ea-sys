@@ -2991,9 +2991,15 @@ function HandoutsCard({ eventId, handouts }: { eventId: string; handouts: Webina
               <li key={h.id} className="flex items-center gap-3 px-3 py-2">
                 <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium" title={h.name}>
+                  <a
+                    href={`/api/events/${eventId}/webinar/handouts/${encodeURIComponent(h.id)}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="block truncate text-sm font-medium hover:underline"
+                    title={`Open ${h.name}`}
+                  >
                     {h.name}
-                  </p>
+                  </a>
                   <p className="text-xs text-muted-foreground">{formatHandoutSize(h.size)}</p>
                 </div>
                 {canManage && (

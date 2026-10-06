@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
-import { readStoredFile } from "@/lib/storage";
+import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { readHandouts } from "@/lib/webinar/handouts";
+import { handoutDownloadResponse } from "@/lib/webinar/handout-download";
 import { loadQuestionContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string; handoutId: string }> };
@@ -23,6 +23,20 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ slug, sessionId, handoutId }, "webinar-handouts:download-unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
+    // Per person: a whole class clicking "Slides" at once is fine, one viewer
+    // looping the link is not (each download reads the file from storage).
+    const { allowed, retryAfterSeconds } = checkRateLimit({
+      key: `webinar-handout-download:${authSession.user.id}`,
+      limit: 60,
+      windowMs: 3600_000,
+    });
+    if (!allowed) {
+      apiLogger.warn({ userId: authSession.user.id, sessionId, handoutId }, "webinar-handouts:download-rate-limited");
+      return NextResponse.json(
+        { error: "Too many downloads this hour. Please wait a little.", retryAfterSeconds },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
+    }
     const event = await loadQuestionContext(req, slug, sessionId, { includeCompleted: true });
     if (!event) {
       apiLogger.warn({ slug, sessionId, handoutId }, "webinar-handouts:download-event-not-found");
@@ -34,25 +48,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ userId: authSession.user.id, eventId: event.id, handoutId }, "webinar-handouts:download-not-registered");
         return NextResponse.json({ error: "Not registered", code: "NOT_REGISTERED" }, { status: 403 });
       }
-      const handout = readHandouts(event.webinar).find((h) => h.id === handoutId);
-      const eventPrefix = `${UPLOAD_PREFIX.webinarHandouts}${event.id}/`;
-      if (!handout || !handout.storedPath.startsWith(eventPrefix)) {
-        apiLogger.warn({ eventId: event.id, handoutId, found: !!handout }, "webinar-handouts:download-not-found");
-        return NextResponse.json({ error: "Handout not found" }, { status: 404 });
-      }
-      const bytes = await readStoredFile(handout.storedPath, eventPrefix);
-      apiLogger.info({ eventId: event.id, handoutId, registrationId: asker.kind === "attendee" ? asker.registrationId : null }, "webinar-handouts:downloaded");
-      // PDFs open in the browser; Office files download.
-      const disposition = handout.contentType === "application/pdf" ? "inline" : "attachment";
-      return new NextResponse(new Uint8Array(bytes), {
-        status: 200,
-        headers: {
-          "Content-Type": handout.contentType,
-          "Content-Disposition": `${disposition}; filename="${handout.name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(handout.name)}`,
-          "Content-Length": String(bytes.length),
-          "Cache-Control": "private, no-store",
-          "X-Content-Type-Options": "nosniff",
-        },
+      return handoutDownloadResponse(event.id, readHandouts(event.webinar).find((h) => h.id === handoutId), {
+        handoutId,
+        registrationId: asker.kind === "attendee" ? asker.registrationId : null,
       });
     });
   } catch (error) {

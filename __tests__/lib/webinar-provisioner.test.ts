@@ -208,6 +208,29 @@ describe("provisionWebinar — M1 sentinel claim", () => {
   });
 });
 
+describe("provisionWebinar — handouts are never written back from the snapshot (review of handouts)", () => {
+  const H = (id: string) => ({ id, name: `${id}.pdf`, storedPath: `/uploads/webinar-handouts/ev1/${id}.pdf`, contentType: "application/pdf", size: 1, uploadedAt: "x" });
+
+  it("a handout added while provisioning survives the final write", async () => {
+    mockDb.eventSession.create.mockImplementation(async () => {
+      state.settings = { ...state.settings, webinar: { ...(state.settings.webinar as Record<string, unknown>), handouts: [H("added")] } };
+      return { id: "anchor1" };
+    });
+    await provisionWebinar("ev1");
+    expect((webinarSettings()?.handouts as { id: string }[]).map((h) => h.id)).toEqual(["added"]);
+  });
+
+  it("a handout removed while provisioning stays removed (the snapshot still had it)", async () => {
+    state.settings = { webinar: { handouts: [H("old")] } };
+    mockDb.eventSession.create.mockImplementation(async () => {
+      state.settings = { ...state.settings, webinar: { ...(state.settings.webinar as Record<string, unknown>), handouts: [] } };
+      return { id: "anchor1" };
+    });
+    await provisionWebinar("ev1");
+    expect(webinarSettings()?.handouts).toEqual([]);
+  });
+});
+
 describe("provisionWebinar — anchor Zoom re-attach (Aug 4, 2026)", () => {
   const ANCHOR = {
     id: "anchor1",

@@ -449,9 +449,15 @@ describe("PUT /api/events/[eventId]", () => {
     // patch; the helper merges it over the locked-current settings (covered in
     // event-settings.test.ts). The general PUT must NOT carry the settings on
     // the scalar db.event.update anymore.
-    expect(mockUpdateEventSettings).toHaveBeenCalledWith("evt-1", {
+    // Function form since Oct 6, 2026 (webinar handouts are kept from the
+    // locked current); applied to the current settings it merges the patch.
+    const [eventIdArg, patch] = mockUpdateEventSettings.mock.calls[0];
+    expect(eventIdArg).toBe("evt-1");
+    expect(typeof patch).toBe("function");
+    expect(patch({ registrationOpen: true, maxAttendees: 100 })).toEqual({
       registrationOpen: false,
       waitlistEnabled: true,
+      maxAttendees: 100,
     });
     const scalarUpdate = mockDb.event.update.mock.calls[0]?.[0];
     if (scalarUpdate) {

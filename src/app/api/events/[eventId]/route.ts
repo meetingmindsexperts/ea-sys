@@ -23,6 +23,8 @@ import {
 import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
+import { keepStoredHandouts, readHandouts } from "@/lib/webinar/handouts";
+import { removeHandoutFiles } from "@/lib/webinar/handout-download";
 import { readSessionProposalDeadline } from "@/lib/submission-deadline";
 import {
   calendarDaysBetween,
@@ -646,7 +648,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { reviewerUserIds: _protected, ...safeSettings } = settings;
       const cleanSettings = JSON.parse(JSON.stringify(safeSettings));
-      await updateEventSettings(eventId, cleanSettings);
+      // Handouts are owned by the handouts routes: keep the stored list.
+      await updateEventSettings(eventId, (current) => keepStoredHandouts(current, { ...current, ...cleanSettings }));
     }
 
     const eventUpdateData = {
@@ -972,7 +975,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Verify event belongs to user's organization (select only needed fields)
     const existingEvent = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true },
+      select: { id: true, name: true, settings: true },
     });
 
     if (!existingEvent) {
@@ -1035,6 +1038,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     apiLogger.info({ msg: "Event deleted", eventId, name: existingEvent.name, userId: session.user.id });
+    // Webinar handout files live outside the database; remove them too.
+    await removeHandoutFiles(eventId, readHandouts(readWebinarSettings(existingEvent.settings)));
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({
