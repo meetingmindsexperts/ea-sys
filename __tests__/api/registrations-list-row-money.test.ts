@@ -13,6 +13,7 @@ const { mockDb, mockOrgCtx, mockRateLimit } = vi.hoisted(() => ({
     registration: { findMany: vi.fn(), findFirst: vi.fn() },
     // The surveys each row answered (several surveys, Phase 2).
     surveyResponse: { findMany: vi.fn().mockResolvedValue([]) },
+    survey: { findFirst: vi.fn() },
   },
   mockOrgCtx: vi.fn(),
   mockRateLimit: vi.fn(),
@@ -120,6 +121,30 @@ describe("registrations list answeredSurveyIds (several surveys, Phase 2)", () =
     const body = await (await LIST_GET(req(), params)).json();
     expect(body[0].answeredSurveyIds).toEqual(["svy-cme", "svy-fb"]);
     expect(mockDb.surveyResponse.findMany).toHaveBeenCalledTimes(1);
-    expect(mockDb.surveyResponse.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", surveyId: { not: null } });
+    expect(mockDb.surveyResponse.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1" });
+    // No legacy row, so the CME survey is not even looked up.
+    expect(mockDb.survey.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("a legacy response with no surveyId counts as the CME survey, as the send does (review of Phase 2)", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "ORGANIZER", userId: "u1" });
+    mockDb.surveyResponse.findMany.mockResolvedValueOnce([{ registrationId: "r1", surveyId: null }]);
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy-cme" });
+    const body = await (await LIST_GET(req(), params)).json();
+    expect(body[0].answeredSurveyIds).toEqual(["svy-cme"]);
+    expect(mockDb.survey.findFirst.mock.calls[0][0]).toMatchObject({
+      where: { eventId: "ev1", gatesCertificates: true },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+
+  it("a desk role without survey access gets no survey ids and no read happens", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "ONSITE", userId: "o1" });
+    const res = await LIST_GET(req(), params);
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body[0]).toBeDefined();
+    expect(body[0]).not.toHaveProperty("answeredSurveyIds");
+    expect(mockDb.surveyResponse.findMany).not.toHaveBeenCalled();
   });
 });

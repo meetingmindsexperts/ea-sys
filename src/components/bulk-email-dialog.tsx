@@ -83,6 +83,12 @@ export interface BulkEmailEffectiveFilters {
   excludeFaculty?: boolean;
   /** Registrations recipient only — who did / did not answer a survey (Phase 2). */
   surveyResponded?: SurveyRespondedFilter;
+  /**
+   * Registrations, fixed-list sends only: count just these ticked rows. The
+   * server applies the filters to a fixed list too, so the count must as well
+   * (review of Phase 2: 40 ticked, filter flipped, "40 recipients", 0 mailed).
+   */
+  onlyIds?: string[];
   agreementSigned?: string;
   hasSession?: string;
   sessionRole?: string;
@@ -515,7 +521,9 @@ export function BulkEmailDialog({
       ? recipientCountFor
         ? recipientCountFor(effectiveFilters)
         : recipientCount
-      : recipientCount;
+      : isRegistrations && recipientCountFor
+        ? recipientCountFor({ ...effectiveFilters, onlyIds: effectiveRecipientIds })
+        : recipientCount;
 
   // Certificate cover-email source picker — copies the chosen source into
   // the editable Subject/Message fields. A later manual edit simply diverges

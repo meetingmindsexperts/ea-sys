@@ -76,6 +76,20 @@ vi.mock("@/lib/bulk-email", async (importOriginal) => {
   };
 });
 
+// A custom role can send email without reading surveys (no built-in role
+// does). Simulated by refusing surveys.read only, when a test asks.
+const { denySurveysRead } = vi.hoisted(() => ({ denySurveysRead: { on: false } }));
+vi.mock("@/lib/permissions/require-permission", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/permissions/require-permission")>();
+  return {
+    ...actual,
+    requirePermission: (...args: Parameters<typeof actual.requirePermission>) =>
+      denySurveysRead.on && args[1] === "surveys.read"
+        ? { ok: false as const, response: { status: 403, json: async () => ({ error: "Forbidden" }) } }
+        : actual.requirePermission(...args),
+  };
+});
+
 import { POST } from "@/app/api/events/[eventId]/emails/bulk/route";
 
 function makeReq(body: unknown) {
@@ -93,6 +107,7 @@ const validBody = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  denySurveysRead.on = false;
   mockAuth.mockResolvedValue({ user: { id: "u1", organizationId: "org_1", role: "ADMIN" } });
   mockCheckRateLimit.mockReturnValue({ allowed: true });
   mockSafeParse.mockReturnValue({ success: true, data: validBody });
@@ -225,5 +240,32 @@ describe("POST /emails/bulk — the certificate and survey sends need their own 
     expect(res.status).toBe(202);
     const where = mockDb.event.findFirst.mock.calls.at(-1)![0].where;
     expect(where).toHaveProperty("AND");
+  });
+});
+
+describe("POST /emails/bulk — the survey filter needs survey access (review of Phase 2)", () => {
+  const withFilter = { ...validBody, filters: { surveyResponded: { surveyId: "svy-1", answered: "no" } } };
+
+  it("refused (403) for a sender who cannot read surveys; nothing queued", async () => {
+    denySurveysRead.on = true;
+    mockSafeParse.mockReturnValue({ success: true, data: withFilter });
+    const res = await POST(makeReq(withFilter), { params });
+    expect(res.status).toBe(403);
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  it("allowed for one who can, and the filter is queued as sent", async () => {
+    mockSafeParse.mockReturnValue({ success: true, data: withFilter });
+    const res = await POST(makeReq(withFilter), { params });
+    expect(res.status).toBe(202);
+    expect(mockDb.scheduledEmail.create.mock.calls[0][0].data.filters).toMatchObject({
+      surveyResponded: { surveyId: "svy-1", answered: "no" },
+    });
+  });
+
+  it("a send without the filter never asks for survey access", async () => {
+    denySurveysRead.on = true;
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(202);
   });
 });

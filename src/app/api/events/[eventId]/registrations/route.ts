@@ -486,6 +486,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     // badge them "Needs credit note" (organizer request, July 20 2026).
     // One aggregate over just the candidate rows; the flag key is in
     // FINANCIAL_KEYS so non-finance roles never see it.
+    // The surveys each registration answered (several surveys, Phase 2): feeds
+    // the "Answered / Not answered" filter and the bulk email count, so they
+    // agree with the send (src/lib/survey/responded-filter.ts). Only for
+    // people who can read surveys (review: desk roles got it on every row).
+    // Started here so it runs beside the credit-note read below.
+    const canReadSurveys = can(gate.principal, "surveys.read");
+    const answeredSurveysPromise = canReadSurveys ? answeredSurveysByRegistration(eventId) : null;
+
     const cancelledPaid = registrations.filter(
       (r) => r.status === "CANCELLED" && r.paymentStatus === "PAID",
     );
@@ -539,25 +547,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       taxRate: event.taxRate != null ? Number(event.taxRate) : null,
       taxLabel: event.taxLabel ?? null,
     };
-    // The surveys each registration answered (several surveys, Phase 2): feeds
-    // the "Responded / Not responded" filter and the bulk email count, so they
-    // agree with the send (src/lib/survey/responded-filter.ts). One read of
-    // the event's response rows, never one per registration.
-    const responseRows = await db.surveyResponse.findMany({
-      where: { eventId, surveyId: { not: null } },
-      select: { registrationId: true, surveyId: true },
-    });
-    const answeredByReg = new Map<string, string[]>();
-    for (const row of responseRows) {
-      if (!row.surveyId) continue;
-      const list = answeredByReg.get(row.registrationId);
-      if (list) list.push(row.surveyId);
-      else answeredByReg.set(row.registrationId, [row.surveyId]);
-    }
+    const answeredByReg = answeredSurveysPromise ? await answeredSurveysPromise : null;
     const withMoney = flagged.map((r) => ({
       ...r,
       rowMoney: computeRegistrationRowMoney(r, moneyCtx),
-      answeredSurveyIds: answeredByReg.get(r.id) ?? [],
+      ...(answeredByReg ? { answeredSurveyIds: answeredByReg.get(r.id) ?? [] } : {}),
     }));
 
     let payload = withMoney;
@@ -809,4 +803,35 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Registration id -> the survey ids it answered, from one read of the event's
+ * response rows. A legacy row with no surveyId is the CME survey's, the same
+ * rule responseWhereForSurvey applies on the send, so page and send agree
+ * (review of Phase 2).
+ */
+async function answeredSurveysByRegistration(eventId: string): Promise<Map<string, string[]>> {
+  const rows = await db.surveyResponse.findMany({
+    where: { eventId },
+    select: { registrationId: true, surveyId: true },
+  });
+  const legacyCme = rows.some((r) => !r.surveyId)
+    ? ((
+        await db.survey.findFirst({
+          where: { eventId, gatesCertificates: true },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        })
+      )?.id ?? null)
+    : null;
+  const byReg = new Map<string, string[]>();
+  for (const row of rows) {
+    const surveyId = row.surveyId ?? legacyCme;
+    if (!surveyId) continue;
+    const list = byReg.get(row.registrationId);
+    if (!list) byReg.set(row.registrationId, [surveyId]);
+    else if (!list.includes(surveyId)) list.push(surveyId);
+  }
+  return byReg;
 }

@@ -454,7 +454,9 @@ export default function CommunicationsPage() {
       f.paymentStatus && f.paymentStatus !== "all"
         ? f.paymentStatus.split(",").map((s) => s.trim()).filter(Boolean)
         : null;
+    const only = f.onlyIds ? new Set(f.onlyIds) : null;
     return registrations.filter((r) => {
+      if (only && !only.has(r.id)) return false;
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       // Same rule the server applies to build the audience — imported, not
       // restated, so this count cannot drift from the actual send.

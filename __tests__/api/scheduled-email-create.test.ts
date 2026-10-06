@@ -19,6 +19,8 @@ const { mockAuth, mockDb, mockCheckRateLimit } = vi.hoisted(() => ({
     // The enqueue precheck reads the saved template to refuse an RSVP token
     // with no RSVP chosen (Sep 11, 2026); null = no saved copy.
     emailTemplate: { findUnique: vi.fn() },
+    // The survey filter's precheck: the survey must be this event's.
+    survey: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockCheckRateLimit: vi.fn(
@@ -98,6 +100,31 @@ beforeEach(() => {
   // Default: no dedup candidate (C3 guard finds nothing).
   mockDb.scheduledEmail.findMany.mockResolvedValue([]);
   mockDb.scheduledEmail.findUnique.mockResolvedValue(null);
+});
+
+describe("POST /emails/schedule — the survey filter survives validation (review of Phase 2)", () => {
+  it("persists filters.surveyResponded through the real schema, checked against this event", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-1", eventId: "ev_1", gatesCertificates: false });
+    const res = await POST(
+      makeReq(validBody({ recipientIds: undefined, filters: { surveyResponded: { surveyId: "svy-1", answered: "no" } } })),
+      { params },
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.scheduledEmail.create.mock.calls[0][0].data.filters).toMatchObject({
+      surveyResponded: { surveyId: "svy-1", answered: "no" },
+    });
+    expect(mockDb.survey.findFirst.mock.calls[0][0].where).toEqual({ id: "svy-1", eventId: "ev_1" });
+  });
+
+  it("another event's survey is refused before anything is queued", async () => {
+    mockDb.survey.findFirst.mockResolvedValue(null);
+    const res = await POST(
+      makeReq(validBody({ filters: { surveyResponded: { surveyId: "foreign", answered: "no" } } })),
+      { params },
+    );
+    expect(res.status).toBe(400);
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /emails/schedule — create", () => {

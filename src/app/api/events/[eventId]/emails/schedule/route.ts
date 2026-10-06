@@ -90,6 +90,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/schedule:POST", eventId })
       : null;
     if (typeGate && !typeGate.ok) return typeGate.response;
+    // Mailing by survey participation reads survey data: needs surveys.read
+    // (review of Phase 2). requirePermission logs the refusal.
+    if (data.filters?.surveyResponded) {
+      const surveyGate = requirePermission(session, "surveys.read", { route: "events/[eventId]/emails/schedule:POST", eventId });
+      if (!surveyGate.ok) return surveyGate.response;
+    }
 
     const event = await db.event.findFirst({
       where: typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere,
