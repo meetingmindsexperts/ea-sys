@@ -394,6 +394,22 @@ steps 4 and 5 are the webinar survey. Nothing changes for attendees until step 3
 - Tests: §8 items 3, 4, 6; the existing public survey route tests pass with the
   survey lookup added to their mocks.
 
+**Step 3 as built (Oct 6, 2026):** migration `20261006160000` backfills
+`dedupKey`, adds `@@unique([surveyId, dedupKey])` and the `registrationId`
+index, then drops the old unique (a gate exists at every moment);
+`EXTRA_SURVEYS_ANSWERABLE` set to true in the same change. Extra-survey links are
+`survey:{surveyId}:{registrationId}` (`surveyTokenIdentifier`). **The CME
+survey's link stays two-part (`survey:{registrationId}`), byte-identical to
+every link already sent and readable by the previous release on a rollback**
+(review of step 3); a CME re-send revokes both forms. A two-part link, or one
+naming the CME survey, opens the CME survey exactly as before
+(`resolveTokenSurvey`); a closed extra survey answers 410 "closed". Survey
+Invitation sends carry `filters.surveyId` (picker in the bulk dialog and the
+single send), `{{surveyName}}` is registered. Reset is per survey: the CME
+reset clears completion as before but deletes only the CME answer; an extra
+survey's reset deletes only that answer. **Deferred:** the saved-template
+picker for survey sends (not needed for the webinar survey).
+
 ### Step 4: the end-of-webinar popup
 
 - Webinar Console, Setup tab: "End-of-webinar survey" dropdown listing the

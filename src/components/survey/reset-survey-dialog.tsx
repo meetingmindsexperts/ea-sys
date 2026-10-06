@@ -42,14 +42,17 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onReset: () => void;
+  /** An EXTRA survey to reset (step 3, Oct 6, 2026): only that answer goes,
+   *  and certificates are not involved. Absent = the CME survey, as before. */
+  extraSurvey?: { id: string; name: string };
 }
 
-export function ResetSurveyDialog({ eventId, registrationId, personName, open, onOpenChange, onReset }: Props) {
+export function ResetSurveyDialog({ eventId, registrationId, personName, open, onOpenChange, onReset, extraSurvey }: Props) {
   const [pending, setPending] = useState(false);
 
   const certificates = useQuery<HeldCertificate[]>({
     queryKey: ["survey-reset-certificates", eventId, registrationId],
-    enabled: open && !!registrationId,
+    enabled: open && !!registrationId && !extraSurvey,
     queryFn: async () => {
       const res = await fetch(`/api/events/${eventId}/certificates/issued?registrationId=${registrationId}`);
       if (!res.ok) throw new Error(`certificates lookup failed (${res.status})`);
@@ -66,7 +69,8 @@ export function ResetSurveyDialog({ eventId, registrationId, personName, open, o
     if (!registrationId) return;
     setPending(true);
     try {
-      const res = await fetch(`/api/events/${eventId}/registrations/${registrationId}/survey`, { method: "DELETE" });
+      const query = extraSurvey ? `?surveyId=${encodeURIComponent(extraSurvey.id)}` : "";
+      const res = await fetch(`/api/events/${eventId}/registrations/${registrationId}/survey${query}`, { method: "DELETE" });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         toast.error(body.error || "Could not reset the survey.");
@@ -91,8 +95,10 @@ export function ResetSurveyDialog({ eventId, registrationId, personName, open, o
         <DialogHeader>
           <DialogTitle>Reset survey?</DialogTitle>
           <DialogDescription>
-            {personName}&apos;s answers will be deleted and they can take the survey again. Send them a new link
-            afterwards from Send Email, Survey Invitation.
+            {extraSurvey
+              ? `${personName}'s answers to "${extraSurvey.name}" will be deleted and they can answer it again. Their certificate survey is not affected.`
+              : `${personName}'s answers will be deleted and they can take the survey again.`}{" "}
+            Send them a new link afterwards from Send Email, Survey Invitation.
           </DialogDescription>
         </DialogHeader>
 

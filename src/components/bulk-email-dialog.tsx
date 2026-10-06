@@ -38,6 +38,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TagInput } from "@/components/ui/tag-input";
 import {
   useBulkEmail,
+  useEventSurveys,
   useCertificateTemplates,
   useEmailTemplates,
   usePreviewEmailBySlug,
@@ -336,6 +337,18 @@ export function BulkEmailDialog({
   const [scheduledFor, setScheduledFor] = useState<string>("");
   // survey-invitation only — TTL (days) for the minted survey link.
   const [surveyExpiryDays, setSurveyExpiryDays] = useState<string>("7");
+  // survey-invitation only — which survey the links open (step 3 of several
+  // surveys, Oct 6, 2026). "" = the CME survey, what every send did before.
+  const [surveyChoice, setSurveyChoice] = useState<string>("");
+  const { data: eventSurveys = [] } = useEventSurveys(eventId, open && emailType === "survey-invitation");
+  // Sendable = open with questions. The CME survey first.
+  const sendableSurveys = eventSurveys
+    .filter((sv) => sv.isActive && Array.isArray(sv.config) && sv.config.length > 0)
+    .sort((a, b) => Number(b.gatesCertificates) - Number(a.gatesCertificates));
+  const chosenSurveyId =
+    // Defaults only to the CME survey; never quietly to an extra one (review
+    // of step 3): with the CME survey closed, the organiser picks explicitly.
+    surveyChoice || sendableSurveys.find((sv) => sv.gatesCertificates)?.id || "";
 
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
@@ -668,6 +681,8 @@ export function BulkEmailDialog({
         ...(emailType === "survey-invitation" && parsedSurveyExpiry !== null
           ? { surveyExpiryDays: parsedSurveyExpiry }
           : {}),
+        // survey-invitation only — the survey the links open.
+        ...(emailType === "survey-invitation" && chosenSurveyId ? { surveyId: chosenSurveyId } : {}),
         // Saved custom template — slug rides in filters so scheduled sends
         // reconstruct it from the persisted ScheduledEmail.filters JSON.
         ...(isSavedTemplate && savedTemplateSlug ? { templateSlug: savedTemplateSlug } : {}),
@@ -1249,6 +1264,28 @@ export function BulkEmailDialog({
 
           {/* survey-invitation only — link expiry, typed as a whole number of
               days (Sep 17, 2026; was a 3/5/7/10 dropdown). Default 7. */}
+          {emailType === "survey-invitation" && sendableSurveys.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-email-survey-choice">Survey</Label>
+              <Select value={chosenSurveyId || undefined} onValueChange={setSurveyChoice}>
+                <SelectTrigger id="bulk-email-survey-choice" className="w-full">
+                  <SelectValue placeholder="Choose a survey" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sendableSurveys.map((sv) => (
+                    <SelectItem key={sv.id} value={sv.id}>
+                      {sv.gatesCertificates ? `${sv.name} (certificate / CME survey)` : sv.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Each recipient gets a personal link to this survey. Only the certificate survey
+                issues CME certificates.
+              </p>
+            </div>
+          )}
+
           {emailType === "survey-invitation" && (
             <div className="space-y-2">
               <Label htmlFor="bulk-email-survey-expiry">Survey link valid for (days)</Label>

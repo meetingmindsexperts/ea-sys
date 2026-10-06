@@ -33,6 +33,7 @@ import {
   type SurveyExpiryDays,
 } from "./survey/expiry";
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
+import { resolveInvitationSurvey, surveyTokenIdentifier } from "@/services/survey-service";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
@@ -220,6 +221,13 @@ export interface BulkEmailFilters {
    * back to the default on scheduled sends).
    */
   surveyExpiryDays?: SurveyExpiryDays;
+  /**
+   * survey-invitation email type only (step 3 of several surveys, Oct 6,
+   * 2026): which survey the links open. Absent = the event's CME survey, which
+   * is what every send did before, so a queued send from before this release
+   * goes there unchanged. Rides inside `filters` like surveyExpiryDays.
+   */
+  surveyId?: string;
   /**
    * `emailType: "template"` only — slug of the saved custom EmailTemplate
    * to send. Rides inside `filters` (rather than a top-level param) for
@@ -594,6 +602,7 @@ export const bulkEmailSchema = z.object({
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
+      surveyId: z.string().min(1).max(64).optional(),
       templateSlug: z.string().min(1).max(100).optional(),
       certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
       bcc: z.array(z.string().email()).max(10).optional(),
@@ -816,6 +825,8 @@ const VIABILITY_EVENT_SELECT = {
   // Organizer copy inside {{travelGrantBlock}} on a bulk confirmation resend.
   travelGrantMessageHtml: true,
   surveyConfig: true,
+  surveyIntroHtml: true,
+  surveyThankYouHtml: true,
   taxRate: true,
   taxLabel: true,
 } satisfies Prisma.EventSelect;
@@ -828,6 +839,9 @@ export interface BulkEmailViability {
   agreementMode: ReturnType<typeof pickAgreementAttachmentMode> | null;
   /** The RSVP whose personal links render as {{rsvpLink}}, when one was chosen. */
   rsvpCampaign: { id: string; name: string } | null;
+  /** survey-invitation only: the survey the links open (id null = an event
+   *  with no Survey row, which the legacy two-part link handles). */
+  surveyTarget: { id: string | null; name: string; gatesCertificates: boolean } | null;
 }
 
 /**
@@ -1012,15 +1026,16 @@ export async function precheckBulkEmailViability(
     );
   }
 
-  // Second survey precondition: the event must actually have a survey built.
+  // Second survey precondition: the chosen survey (the CME survey when none
+  // is chosen, as before) exists, is this event's, is open and has questions.
+  let surveyTarget: BulkEmailViability["surveyTarget"] = null;
   if (emailType === "survey-invitation") {
-    const sc = event.surveyConfig;
-    if (!Array.isArray(sc) || sc.length === 0) {
-      throw new BulkEmailError(
-        "No survey is configured for this event. Build the survey at Survey first.",
-        400,
-      );
+    const target = await resolveInvitationSurvey(event, filters?.surveyId);
+    if (!target.ok) {
+      apiLogger.warn({ msg: "bulk-email:survey-unavailable", eventId, surveyId: filters?.surveyId, reason: target.message });
+      throw new BulkEmailError(target.message, 400, filters?.surveyId ? INVALID_FILTER_CODE : undefined);
     }
+    surveyTarget = { id: target.surveyId, name: target.name, gatesCertificates: target.gatesCertificates };
   }
 
   // {{rsvpLink}} in a general send (Sep 10, 2026): the campaign must be this
@@ -1087,7 +1102,7 @@ export async function precheckBulkEmailViability(
     }
   }
 
-  return { event, certTemplates, agreementMode, rsvpCampaign };
+  return { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget };
 }
 
 /**
@@ -1172,7 +1187,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // schedule routes (review M2) so a misconfigured send is rejected there
   // synchronously; this call is the fire-time backstop and also loads the
   // event + cert templates + agreement mode for the send below.
-  const { event, certTemplates, agreementMode, rsvpCampaign } = await precheckBulkEmailViability(input);
+  const { event, certTemplates, agreementMode, rsvpCampaign, surveyTarget } = await precheckBulkEmailViability(input);
   // The picked files, read from storage ONCE per send (references in, bytes
   // out); the precheck above already refused a missing or foreign one.
   const attachmentBytesResult = await resolveStoredAttachments(attachments, eventId);
@@ -2002,8 +2017,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // doesn't leave orphan VerificationToken rows for recipients we
       // never managed to email. Each per-recipient try/catch keeps
       // the failure isolated.
+      // The CME survey's link is EXACTLY what it always was (`survey:{regId}`,
+      // review of step 3): byte-identical to every link already in inboxes,
+      // and still readable by the previous release on a rollback. A re-send
+      // revokes both forms. Only an extra survey's link names its survey, so
+      // minting it leaves the person's CME link (and other links) alive.
+      const isCmeLink = !surveyTarget || surveyTarget.gatesCertificates;
+      const surveyIdentifier = isCmeLink
+        ? surveyTokenIdentifier(null, recipient.id)
+        : surveyTokenIdentifier(surveyTarget?.id ?? null, recipient.id);
       await db.verificationToken.deleteMany({
-        where: { identifier: `survey:${recipient.id}` },
+        where: {
+          identifier: {
+            in: isCmeLink && surveyTarget?.id
+              ? [surveyIdentifier, surveyTokenIdentifier(surveyTarget.id, recipient.id)]
+              : [surveyIdentifier],
+          },
+        },
       });
       const rawToken = crypto.randomBytes(32).toString("hex");
       const hashedToken = hashVerificationToken(rawToken);
@@ -2011,12 +2041,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         filters?.surveyExpiryDays ?? DEFAULT_SURVEY_EXPIRY_DAYS;
       await db.verificationToken.create({
         data: {
-          identifier: `survey:${recipient.id}`,
+          identifier: surveyIdentifier,
           token: hashedToken,
           expires: new Date(Date.now() + surveyExpiryDays * DAY_MS),
         },
       });
       vars.surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
+      vars.surveyName = surveyTarget?.name ?? "";
     }
 
     if (rsvpCampaign) {

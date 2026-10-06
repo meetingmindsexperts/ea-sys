@@ -37,7 +37,10 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
     // below was written against.
     survey: {
       findFirst: vi.fn().mockResolvedValue(null),
+      // A CME answer with no Survey row creates the reserved row first.
+      create: vi.fn().mockResolvedValue({ id: "svy-made" }),
     },
+    $queryRaw: vi.fn().mockResolvedValue([]),
     event: {
       findFirst: vi.fn(),
     },
@@ -602,7 +605,6 @@ describe("the personal link opens the event's certificate survey (multi-survey s
   });
 
   it("a cleared or closed CME survey (Event columns null) reads as no survey (404), as before", async () => {
-    mockDb.survey.findFirst.mockResolvedValueOnce(CERT);
     mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
     mockDb.registration.findFirst.mockResolvedValueOnce(
       baseRegistration({ event: { ...baseRegistration().event, surveyConfig: null } }),
@@ -611,3 +613,73 @@ describe("the personal link opens the event's certificate survey (multi-survey s
     expect(res.status).toBe(404);
   });
 });
+
+describe("links that name their survey (step 3, Oct 6, 2026)", () => {
+  // clearAllMocks keeps queued one-off values; reset these so a value an
+  // earlier test queued but never consumed cannot leak in.
+  beforeEach(() => {
+    mockDb.survey.findFirst.mockReset().mockResolvedValue(null);
+    mockDb.surveyResponse.count.mockReset().mockResolvedValue(0);
+  });
+  const FB = {
+    id: "svy-fb", eventId: "evt-1", name: "Webinar feedback",
+    config: [{ id: "f1", type: "rating_1_to_5", label: "Useful?", required: true }],
+    introHtml: "<p>Feedback intro</p>", thankYouHtml: "<p>Thanks for the feedback</p>",
+    isActive: true, sortOrder: 1, gatesCertificates: false, responseMode: "ONCE",
+    createdAt: new Date(0), updatedAt: new Date(0),
+  };
+  const CERT_ROW = { ...FB, id: "svy-cert", name: "Post-event survey", gatesCertificates: true, sortOrder: 0 };
+
+  it("an extra-survey link opens that survey, even after the person finished their CME survey", async () => {
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow({ identifier: "survey:svy-fb:reg-1" }));
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration({ surveyCompletedAt: new Date() }));
+    mockDb.survey.findFirst.mockResolvedValueOnce(FB);
+    mockDb.surveyResponse.count.mockResolvedValueOnce(0);
+    const res = await GET(makeGetReq("raw"), PARAMS);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.alreadyCompleted).toBe(false);
+    expect(body.introHtml).toBe("<p>Feedback intro</p>");
+  });
+
+  it("submitting an extra survey records it against that survey and NEVER marks CME completion", async () => {
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow({ identifier: "survey:svy-fb:reg-1" }));
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    mockDb.survey.findFirst.mockResolvedValueOnce(FB);
+    mockDb.surveyResponse.count.mockResolvedValueOnce(0);
+    const res = await POST(makePostReq({ token: "raw", answers: { f1: 4 } }), PARAMS);
+    expect(res.status).toBe(200);
+    expect(mockDb.surveyResponse.create.mock.calls[0][0].data).toMatchObject({ surveyId: "svy-fb", dedupKey: "reg-1" });
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(mockDb.attendee.update).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.delete).toHaveBeenCalled();
+  });
+
+  it("a closed extra survey says so (410) instead of 'invalid link'", async () => {
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow({ identifier: "survey:svy-fb:reg-1" }));
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    mockDb.survey.findFirst.mockResolvedValueOnce({ ...FB, isActive: false });
+    const res = await GET(makeGetReq("raw"), PARAMS);
+    expect(res.status).toBe(410);
+    expect((await res.json()).error).toMatch(/closed/);
+  });
+
+  it("a link naming the CME survey behaves exactly like an old link (Event columns, completion marked)", async () => {
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow({ identifier: "survey:svy-cert:reg-1" }));
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    mockDb.survey.findFirst.mockResolvedValueOnce(CERT_ROW).mockResolvedValueOnce(CERT_ROW);
+    const res = await POST(makePostReq({ token: "raw", answers: { q1: 5, q2: "Academia", q3: "Great!" } }), PARAMS);
+    expect(res.status).toBe(200);
+    expect(mockDb.surveyResponse.create.mock.calls[0][0].data.surveyId).toBe("svy-cert");
+    expect(mockDb.registration.update).toHaveBeenCalledWith({ where: { id: "reg-1" }, data: { surveyCompletedAt: expect.any(Date) } });
+  });
+
+  it("a link naming another event's survey opens nothing (404)", async () => {
+    mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow({ identifier: "survey:svy-other:reg-1" }));
+    mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
+    mockDb.survey.findFirst.mockResolvedValueOnce(null);
+    const res = await GET(makeGetReq("raw"), PARAMS);
+    expect(res.status).toBe(404);
+  });
+});
+

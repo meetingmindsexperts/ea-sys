@@ -21,6 +21,9 @@ const { mockDb, mockSendEmail, mockGetEventTemplate } = vi.hoisted(() => ({
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     emailLog: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findUnique: vi.fn().mockResolvedValue(null) },
+    // The event's surveys (step 3). Null by default = an event with no Survey
+    // row, which mints the legacy two-part link (the CME survey).
+    survey: { findFirst: vi.fn().mockResolvedValue(null) },
   },
   mockSendEmail: vi.fn(),
   mockGetEventTemplate: vi.fn(),
@@ -180,5 +183,42 @@ describe("Survey Invitation send", () => {
     const days = (expires.getTime() - before) / (24 * 60 * 60 * 1000);
     expect(days).toBeGreaterThan(44.99);
     expect(days).toBeLessThan(45.01);
+  });
+});
+
+describe("survey-invitation links name their survey (step 3, Oct 6, 2026)", () => {
+  const ROW = (over: Record<string, unknown>) => ({
+    id: "svy-cert", eventId: "evt-1", name: "Post-event survey", config: [{ id: "q1", type: "rating_1_to_5", label: "Overall", required: true }],
+    introHtml: null, thankYouHtml: null, isActive: true, sortOrder: 0, gatesCertificates: true, responseMode: "ONCE",
+    createdAt: new Date(0), updatedAt: new Date(0), ...over,
+  });
+
+  it("the CME survey's link is byte-identical to before (survey:{regId}), and a re-send revokes both forms", async () => {
+    mockGetEventTemplate.mockResolvedValue(savedTemplate('<a href="{{surveyLink}}">Go</a>', "{{surveyLink}}"));
+    mockDb.survey.findFirst.mockResolvedValue(ROW({}));
+    await executeBulkEmail(INPUT);
+    const identifier = mockDb.verificationToken.create.mock.calls[0][0].data.identifier as string;
+    expect(identifier).toMatch(/^survey:[^:]+$/); // two parts, as every link already in inboxes
+    const revoked = mockDb.verificationToken.deleteMany.mock.calls[0][0].where.identifier.in as string[];
+    expect(revoked).toContain(identifier);
+    expect(revoked.some((i) => i.startsWith("survey:svy-cert:"))).toBe(true);
+  });
+
+  it("a chosen extra survey gets its own link", async () => {
+    mockGetEventTemplate.mockResolvedValue(savedTemplate('<a href="{{surveyLink}}">Go</a>', "{{surveyLink}}"));
+    mockDb.survey.findFirst.mockResolvedValue(ROW({ id: "svy-fb", name: "Webinar feedback", gatesCertificates: false }));
+    await executeBulkEmail({ ...INPUT, filters: { surveyId: "svy-fb" } });
+    expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toMatch(/^survey:svy-fb:/);
+    // Only that survey's old link goes: the person's CME link stays alive.
+    expect(mockDb.verificationToken.deleteMany.mock.calls[0][0].where.identifier.in).toEqual([
+      mockDb.verificationToken.create.mock.calls[0][0].data.identifier,
+    ]);
+  });
+
+  it("refuses a closed survey before anything is sent", async () => {
+    mockDb.survey.findFirst.mockResolvedValue(ROW({ id: "svy-fb", name: "Webinar feedback", gatesCertificates: false, isActive: false }));
+    await expect(executeBulkEmail({ ...INPUT, filters: { surveyId: "svy-fb" } })).rejects.toThrow(/closed/);
+    expect(mockDb.verificationToken.create).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 });

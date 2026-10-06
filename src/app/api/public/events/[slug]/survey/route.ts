@@ -57,7 +57,9 @@ import {
 import {
   getSurvey,
   parseStoredSurveyConfig,
+  parseSurveyTokenIdentifier,
   resolveLinkSurvey,
+  resolveTokenSurvey,
   submitSurveyResponse,
 } from "@/services/survey-service";
 
@@ -65,7 +67,8 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
-const TOKEN_PREFIX = "survey:";
+/** A closed extra survey's link (step 3): it existed, so not "invalid". */
+const SURVEY_CLOSED_MESSAGE = "This survey is closed. Thank you for your interest.";
 
 /**
  * What a retired shareable link (`?share=`) answers. 410 Gone, not 400: the
@@ -132,17 +135,24 @@ async function finalizeSubmission(
   registration: SubmitRegistration,
   rawAnswers: Record<string, unknown>,
   tokenHash: string,
+  tokenSurveyId: string | null,
 ): Promise<NextResponse> {
   const eventId = registration.event.id;
   const registrationId = registration.id;
 
-  // Until links name their survey (step 3) the personal link opens the
-  // event's certificate survey (src/services/survey-service.ts).
-  const linkSurvey = await resolveLinkSurvey(registration.event);
-  if (!linkSurvey) {
-    apiLogger.warn({ msg: "survey:submit-no-config", eventId, registrationId });
+  // A link minted before step 3 (no survey in it), or one naming the CME
+  // survey, opens the CME survey exactly as before; a link naming an extra
+  // survey opens that one (src/services/survey-service.ts).
+  const resolved = await resolveTokenSurvey(registration.event, tokenSurveyId);
+  if (resolved.kind === "closed") {
+    apiLogger.info({ msg: "survey:submit-survey-closed", eventId, registrationId, surveyId: tokenSurveyId });
+    return NextResponse.json({ error: SURVEY_CLOSED_MESSAGE }, { status: 410 });
+  }
+  if (resolved.kind === "none") {
+    apiLogger.warn({ msg: "survey:submit-no-config", eventId, registrationId, surveyId: tokenSurveyId });
     return NextResponse.json({ error: "No survey is configured for this event." }, { status: 404 });
   }
+  const linkSurvey = resolved.survey;
 
   // The ONE submit path (also the webinar page's, next step): it writes the
   // response, marks completion only for the certificate survey, and consumes
@@ -305,7 +315,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (!tokenRecord.identifier.startsWith(TOKEN_PREFIX)) {
+    const parsedToken = parseSurveyTokenIdentifier(tokenRecord.identifier);
+    if (!parsedToken) {
       apiLogger.warn({
         msg: "survey:get-token-wrong-prefix",
         identifier: tokenRecord.identifier,
@@ -315,7 +326,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const registrationId = tokenRecord.identifier.slice(TOKEN_PREFIX.length);
+    const { registrationId, surveyId: tokenSurveyId } = parsedToken;
 
     // Tenancy sweep: open the tenant store BEFORE the swept Registration read
     // (resolved from HOST — the token path resolves the registration by
@@ -385,7 +396,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const linkSurvey = await resolveLinkSurvey(registration.event);
+    const resolved = await resolveTokenSurvey(registration.event, tokenSurveyId);
+    if (resolved.kind === "closed") {
+      apiLogger.info({ msg: "survey:get-survey-closed", eventId: registration.event.id, registrationId, surveyId: tokenSurveyId });
+      return NextResponse.json({ error: SURVEY_CLOSED_MESSAGE }, { status: 410 });
+    }
+    const linkSurvey = resolved.kind === "ok" ? resolved.survey : null;
     const config = linkSurvey
       ? parseStoredSurveyConfig(linkSurvey.config, { eventId: registration.event.id })
       : null;
@@ -406,7 +422,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     // showing the form. We don't expose the existing answers — that
     // would let a leaked token leak the response back; the operator
     // sees it in the dashboard.
-    if (registration.surveyCompletedAt) {
+    // Already answered? The CME survey keeps its historical signal
+    // (surveyCompletedAt); an extra survey looks for its own response.
+    const alreadyAnswered = linkSurvey.gatesCertificates
+      ? registration.surveyCompletedAt !== null
+      : linkSurvey.surveyId !== null &&
+        (await db.surveyResponse.count({ where: { surveyId: linkSurvey.surveyId, registrationId } })) > 0;
+    if (alreadyAnswered) {
       return NextResponse.json({
         alreadyCompleted: true,
         event: {
@@ -535,7 +557,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (!tokenRecord.identifier.startsWith(TOKEN_PREFIX)) {
+    const parsedToken = parseSurveyTokenIdentifier(tokenRecord.identifier);
+    if (!parsedToken) {
       apiLogger.warn({
         msg: "survey:post-token-wrong-prefix",
         identifier: tokenRecord.identifier,
@@ -545,7 +568,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    registrationId = tokenRecord.identifier.slice(TOKEN_PREFIX.length);
+    registrationId = parsedToken.registrationId;
+    const tokenSurveyId = parsedToken.surveyId;
     // Capture as a const: the outer `registrationId` is a `let` (for catch
     // logging), so its non-null narrowing would be lost inside the closure below.
     const resolvedRegistrationId = registrationId;
@@ -596,7 +620,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Finalizer consumes the single-use token inside the transaction.
     stage = "finalize";
-    return await finalizeSubmission(req, registration, rawAnswers, hashedToken);
+    return await finalizeSubmission(req, registration, rawAnswers, hashedToken, tokenSurveyId);
     });
   } catch (err) {
     apiLogger.error({

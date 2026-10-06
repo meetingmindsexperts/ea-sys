@@ -16,6 +16,7 @@ const { mockDb, mockLoadCertTemplate, mockCertBulkSend } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findMany: vi.fn() },
+    survey: { findFirst: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockLoadCertTemplate: vi.fn(),

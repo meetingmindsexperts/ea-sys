@@ -499,7 +499,14 @@ export default function SurveyBuilderPage() {
                 certificates.
               </>
             ) : (
-              <>Extra surveys open for answers from the next release (personal links and the end-of-webinar popup). You can build them now.</>
+              <>
+                Send it from{" "}
+                <Link href={`/events/${eventId}/communications`} className="font-medium text-primary hover:underline">
+                  Communications
+                </Link>{" "}
+                with the <span className="font-medium">Survey Invitation</span> email and pick this survey; each
+                registrant gets a personal link. Answers are recorded and exported, and never affect certificates.
+              </>
             )}
           </p>
         </CardContent>

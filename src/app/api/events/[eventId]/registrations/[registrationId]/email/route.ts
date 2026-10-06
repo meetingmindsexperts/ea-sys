@@ -28,6 +28,8 @@ const sendEmailSchema = z.object({
   // Survey Invitation only: how many days the personal link stays valid
   // (1 to 365, default 7), the same rule as the Communications send.
   surveyExpiryDays: surveyExpiryDaysSchema.optional(),
+  // Survey Invitation: which survey (absent = the CME survey, as before).
+  surveyId: z.string().min(1).max(64).optional(),
   // Optional slug of a saved CUSTOM email template (one created under
   // Communications → Email Templates). When present, that active template is
   // sent instead of a built-in type — same as the bulk path. Renders with the
@@ -132,7 +134,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, templateSlug, customSubject, customMessage, daysUntilEvent, surveyExpiryDays } =
+    const { type, templateSlug, customSubject, customMessage, daysUntilEvent, surveyExpiryDays, surveyId } =
       validated.data;
 
     // Survey Invitation to ONE person (Sep 17, 2026). It goes through the bulk
@@ -171,7 +173,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           emailType: "survey-invitation",
           customSubject: customSubject || undefined,
           customMessage: customMessage || undefined,
-          filters: surveyExpiryDays ? { surveyExpiryDays } : undefined,
+          filters:
+            surveyExpiryDays || surveyId
+              ? { ...(surveyExpiryDays ? { surveyExpiryDays } : {}), ...(surveyId ? { surveyId } : {}) }
+              : undefined,
           organizerName:
             organizer?.firstName && organizer?.lastName
               ? `${organizer.firstName} ${organizer.lastName}`

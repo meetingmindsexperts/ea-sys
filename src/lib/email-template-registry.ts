@@ -700,6 +700,7 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     { key: "ticketType", description: "Registration type name" },
     { key: "personalMessage", description: "The message typed in the send dialog (optional)" },
     { key: "surveyLink", description: "The person's own single-use survey link, created at send time" },
+    { key: "surveyName", description: "The name of the survey being sent (e.g. Webinar feedback)" },
     { key: "organizerName", description: "The sender's name" },
     { key: "organizerSignature", description: "The sender's email signature (from their Profile)" },
     ],

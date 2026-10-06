@@ -56,18 +56,9 @@ beforeEach(() => {
   mockDb.verificationToken.delete.mockResolvedValue({});
 });
 
-describe("L2: no extra survey is answerable before step 3", () => {
-  it("refuses an answer to a non-certificate survey while the one-response-per-person unique stands", async () => {
-    expect(EXTRA_SURVEYS_ANSWERABLE).toBe(false);
-    const res = await submitSurveyResponse({
-      survey: { id: "svy-feedback", eventId: "ev1", gatesCertificates: false, config: CONFIG },
-      registration: REG,
-      organizationId: "org1",
-      rawAnswers: { q1: 4 },
-      ipHash: null,
-    });
-    expect(res).toMatchObject({ ok: false, code: "NOT_YET_ANSWERABLE" });
-    expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
+describe("L2: extra surveys take answers only now that the per-person unique is gone", () => {
+  it("step 3 opened them in the same change that moved the gate to (surveyId, dedupKey)", () => {
+    expect(EXTRA_SURVEYS_ANSWERABLE).toBe(true);
   });
 });
 
@@ -114,6 +105,21 @@ describe("submitSurveyResponse: the one writer of surveyCompletedAt", () => {
     });
     expect(res).toMatchObject({ ok: true, alreadyCompleted: true });
     expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
+  });
+
+  it("a CME answer with no Survey row creates the reserved row first, so the race gate holds", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(null);
+    mockDb.survey.create.mockResolvedValueOnce({ id: "svy-made" });
+    await submitSurveyResponse({
+      survey: { id: null, eventId: "ev1", gatesCertificates: true, config: CONFIG },
+      registration: REG,
+      organizationId: "org1",
+      rawAnswers: { q1: 5 },
+      ipHash: null,
+    });
+    expect(mockDb.$queryRaw).toHaveBeenCalledTimes(1); // the event-row lock
+    expect(mockDb.survey.create.mock.calls[0][0].data).toMatchObject({ gatesCertificates: true, eventId: "ev1" });
+    expect(mockDb.surveyResponse.create.mock.calls[0][0].data.surveyId).toBe("svy-made");
   });
 
   it("invalid answers are refused before anything is written", async () => {

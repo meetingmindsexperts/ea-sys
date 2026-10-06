@@ -57,6 +57,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return rateLimited(rl, { route: ROUTE, userId: session.user.id, limit: RESET_LIMIT, windowSeconds: 3600 });
     }
 
+    // Which survey (step 3, Oct 6, 2026): ?surveyId= names an extra survey;
+    // absent (or the CME survey's id) = the CME survey, as before.
+    const surveyIdParam = new URL(req.url).searchParams.get("surveyId") || undefined;
+    if (surveyIdParam && surveyIdParam.length > 64) {
+      apiLogger.warn({ msg: "survey-reset:invalid-survey-id", eventId });
+      return NextResponse.json({ error: "Invalid survey" }, { status: 400 });
+    }
+
     const event = await db.event.findFirst({
       where: gate.eventWhere,
       select: { id: true, organizationId: true },
@@ -69,21 +77,64 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Registration, SurveyResponse and Attendee are swept tables: work in the
     // event's own org (an org-null SUPER_ADMIN legitimately reaches this).
     return await runWithTenant(event.organizationId, async () => {
-      const registration = await db.registration.findFirst({
-        where: { id: registrationId, eventId },
-        select: {
-          id: true,
-          attendeeId: true,
-          surveyCompletedAt: true,
-          surveyResponse: { select: { id: true, answers: true } },
-          issuedCertificates: { where: { revokedAt: null }, select: { serial: true } },
-        },
-      });
+      const survey = surveyIdParam
+        ? await db.survey.findFirst({ where: { id: surveyIdParam, eventId }, select: { id: true, eventId: true, gatesCertificates: true } })
+        : null;
+      if (surveyIdParam && !survey) {
+        apiLogger.warn({ msg: "survey-reset:survey-not-found", eventId, surveyId: surveyIdParam });
+        return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+      }
+      // An extra survey: remove that one answer, nothing else. It never
+      // touched completion, the tag or certificates.
+      if (survey && !survey.gatesCertificates) {
+        const removed = await db.surveyResponse.deleteMany({ where: { surveyId: survey.id, registrationId } });
+        if (removed.count === 0) {
+          apiLogger.warn({ msg: "survey-reset:nothing-to-reset", eventId, registrationId, surveyId: survey.id });
+          return NextResponse.json(
+            { error: "This person has not answered this survey.", code: "NOTHING_TO_RESET" },
+            { status: 409 },
+          );
+        }
+        db.auditLog
+          .create({
+            data: {
+              eventId,
+              userId: session.user.id,
+              action: "SURVEY_RESET",
+              entityType: "Registration",
+              entityId: registrationId,
+              changes: { surveyId: survey.id, certificate: false, ip: getClientIp(req) },
+            },
+          })
+          .catch((err) => apiLogger.warn({ err, msg: "survey-reset:audit-log-failed", eventId, registrationId }));
+        apiLogger.info({ msg: "survey-reset:done", eventId, registrationId, surveyId: survey.id, userId: session.user.id });
+        return NextResponse.json({ success: true, keptCertificates: [] });
+      }
+
+      // The CME survey: exactly as before, but only its own answer is removed
+      // (a person may also hold answers to extra surveys since step 3).
+      const certResponseWhere = {
+        registrationId,
+        eventId,
+        OR: [{ survey: { gatesCertificates: true } }, { surveyId: null }],
+      };
+      const [registration, certResponse] = await Promise.all([
+        db.registration.findFirst({
+          where: { id: registrationId, eventId },
+          select: {
+            id: true,
+            attendeeId: true,
+            surveyCompletedAt: true,
+            issuedCertificates: { where: { revokedAt: null }, select: { serial: true } },
+          },
+        }),
+        db.surveyResponse.findFirst({ where: certResponseWhere, select: { id: true, answers: true } }),
+      ]);
       if (!registration) {
         apiLogger.warn({ msg: "survey-reset:registration-not-found", eventId, registrationId });
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
       }
-      if (!registration.surveyCompletedAt && !registration.surveyResponse) {
+      if (!registration.surveyCompletedAt && !certResponse) {
         apiLogger.warn({ msg: "survey-reset:nothing-to-reset", eventId, registrationId });
         return NextResponse.json(
           { error: "This person has not completed the survey.", code: "NOTHING_TO_RESET" },
@@ -92,12 +143,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       }
 
       const answerCount =
-        registration.surveyResponse?.answers && typeof registration.surveyResponse.answers === "object"
-          ? Object.keys(registration.surveyResponse.answers as Record<string, unknown>).length
+        certResponse?.answers && typeof certResponse.answers === "object"
+          ? Object.keys(certResponse.answers as Record<string, unknown>).length
           : 0;
 
       const { tagRemoved } = await tenantTransaction(async (tx) => {
-        await tx.surveyResponse.deleteMany({ where: { registrationId } });
+        await tx.surveyResponse.deleteMany({ where: certResponseWhere });
         await tx.registration.updateMany({
           where: { id: registrationId, eventId },
           data: {

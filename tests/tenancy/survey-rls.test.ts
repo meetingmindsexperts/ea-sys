@@ -5,9 +5,9 @@
  * app_user, on SurveyResponse (1-hop from Event).
  *
  * Domain-specific proofs:
- *   - registrationId is GLOBALLY unique (@unique — the one-response dedup
- *     gate). A cross-tenant `findUnique({ registrationId })` under the wrong
- *     lane returns NULL (the IssuedCertificate-serial / RSVP-token shape).
+ *   - registrationId was GLOBALLY unique until step 3 of several surveys per
+ *     event (Oct 6, 2026); the dedup gate is now (surveyId, dedupKey). A
+ *     cross-tenant read by registrationId under the wrong lane returns NULL.
  *   - The dashboard reporting read shape (`findMany({ where: { eventId } })`)
  *     addressed at the OTHER org's event resolves empty.
  *
@@ -59,9 +59,9 @@ describe("Survey RLS (prisma/rls/survey.sql) via the SET LOCAL extension", () =>
     expect(leaked).toBeNull();
   });
 
-  it("globally-unique registrationId is lane-scoped: findUnique({ registrationId: B }) under A misses (the dedup-gate read shape)", async () => {
+  it("registrationId reads are lane-scoped: findFirst({ registrationId: B }) under A misses (the dedup-gate read shape)", async () => {
     const leaked = await runWithTenant(ORG_A_ID, () =>
-      db.surveyResponse.findUnique({ where: { registrationId: REG_B_ID }, select: { id: true } }),
+      db.surveyResponse.findFirst({ where: { registrationId: REG_B_ID }, select: { id: true } }),
     );
     expect(leaked).toBeNull();
   });

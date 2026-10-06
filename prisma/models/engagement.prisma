@@ -401,18 +401,19 @@ model SurveyResponse {
   /// The survey answered (Oct 6, 2026). Nullable through the build: rows
   /// written by a container on the old code carry none until the backfill.
   surveyId       String?
-  /// The duplicate gate per survey: registrationId for ONCE. Replaces the
-  /// global registrationId unique in step 3 (@@unique([surveyId, dedupKey])).
+  /// The duplicate gate per survey: registrationId for ONCE, enforced by
+  /// @@unique([surveyId, dedupKey]) (step 3, Oct 6, 2026; it replaced the
+  /// global registrationId unique, so one person can answer several surveys).
   dedupKey       String?
   /// Multi-tenancy Phase-2 (Domain #16, Aug 3 2026): denormalized tenant key
   /// (nullable, no FK), backfilled 1-hop from Event; the public submit stamps
   /// it from the registration's event. Backs the flat RLS policy in
   /// prisma/rls/survey.sql (platform-only; master ignores it).
   organizationId String?
-  /// One response per registration — enforced by `@unique`. The 1:1
-  /// relation requires this on the FK side; conceptually it's also
-  /// the dedup gate (a second POST returns 200 no-op via P2002).
-  registrationId String   @unique
+  /// One response per registration PER SURVEY since step 3 (Oct 6, 2026):
+  /// the dedup gate is @@unique([surveyId, dedupKey]) (a second POST returns
+  /// 200 no-op via P2002); this column is indexed, no longer unique.
+  registrationId String
   submittedAt    DateTime @default(now())
   /// Hashed (NEXTAUTH_SECRET-peppered) source IP, for abuse triage
   /// without leaking the raw address. Optional — empty for anonymous
@@ -434,9 +435,11 @@ model SurveyResponse {
   /// both (its cascade reaches the responses in the same statement).
   survey       Survey?      @relation(fields: [surveyId], references: [id], onDelete: NoAction)
 
+  @@unique([surveyId, dedupKey])
   @@index([eventId, submittedAt])
   @@index([organizationId])
   @@index([surveyId])
+  @@index([registrationId])
 }
 
 // ── RSVP (customizable) ────────────────────────────────────────────

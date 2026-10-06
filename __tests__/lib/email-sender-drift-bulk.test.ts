@@ -29,6 +29,7 @@ const { mockDb, mockSendEmail } = vi.hoisted(() => ({
     eventSession: { findFirst: vi.fn() },
     zoomMeeting: { findFirst: vi.fn() },
     verificationToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
+    survey: { findFirst: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     emailLog: { findMany: vi.fn().mockResolvedValue([]) },
   },

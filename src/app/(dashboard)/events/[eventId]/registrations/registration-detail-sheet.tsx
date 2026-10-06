@@ -86,7 +86,7 @@ import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/suppo
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments, useEventSurveys } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 
@@ -454,6 +454,9 @@ export function RegistrationDetailSheet({
   // Survey Invitation to this one person: link lifetime in days, typed like
   // the Communications send (digits only, 1 to 365).
   const [surveyExpiryInput, setSurveyExpiryInput] = useState(String(DEFAULT_SURVEY_EXPIRY_DAYS));
+  // Which survey the invitation opens (step 3 of several surveys, Oct 6,
+  // 2026). "" = the CME survey, as before.
+  const [surveyChoice, setSurveyChoice] = useState("");
   const [resetSurveyOpen, setResetSurveyOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
@@ -479,7 +482,15 @@ export function RegistrationDetailSheet({
   const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
   // The Survey Invitation is offered only when the event has a survey built.
   const surveyConfig = (eventForMode as { surveyConfig?: unknown } | undefined)?.surveyConfig;
-  const eventHasSurvey = Array.isArray(surveyConfig) && surveyConfig.length > 0;
+  const { data: eventSurveys = [] } = useEventSurveys(eventId, open);
+  const sendableSurveys = eventSurveys
+    .filter((sv) => sv.isActive && Array.isArray(sv.config) && sv.config.length > 0)
+    .sort((a, b) => Number(b.gatesCertificates) - Number(a.gatesCertificates));
+  const chosenSurveyId =
+    // Defaults only to the CME survey; never quietly to an extra one (review
+    // of step 3): with the CME survey closed, the organiser picks explicitly.
+    surveyChoice || sendableSurveys.find((sv) => sv.gatesCertificates)?.id || "";
+  const eventHasSurvey = (Array.isArray(surveyConfig) && surveyConfig.length > 0) || sendableSurveys.length > 0;
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -539,7 +550,12 @@ export function RegistrationDetailSheet({
           );
           return;
         }
-        sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType, surveyExpiryDays: days });
+        sendEmail.mutate({
+          id: selectedRegistration.id,
+          type: selectedEmailType,
+          surveyExpiryDays: days,
+          ...(chosenSurveyId ? { surveyId: chosenSurveyId } : {}),
+        });
       } else {
         sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
       }
@@ -743,15 +759,19 @@ export function RegistrationDetailSheet({
       type,
       templateSlug,
       surveyExpiryDays,
+      surveyId,
     }: {
       id: string;
       type?: string;
       templateSlug?: string;
       surveyExpiryDays?: number;
+      surveyId?: string;
     }) =>
       apiPostJson(
         `/api/events/${eventId}/registrations/${id}/email`,
-        templateSlug ? { templateSlug } : { type, ...(surveyExpiryDays ? { surveyExpiryDays } : {}) },
+        templateSlug
+          ? { templateSlug }
+          : { type, ...(surveyExpiryDays ? { surveyExpiryDays } : {}), ...(surveyId ? { surveyId } : {}) },
       ),
     onSuccess: () => {
       toast.success("Email sent");
@@ -3413,6 +3433,23 @@ export function RegistrationDetailSheet({
             </span>
           </DialogDescription>
         </DialogHeader>
+        {selectedEmailType === "survey-invitation" && sendableSurveys.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="registration-email-survey-choice">Survey</Label>
+            <Select value={chosenSurveyId || undefined} onValueChange={setSurveyChoice}>
+              <SelectTrigger id="registration-email-survey-choice" className="w-full">
+                <SelectValue placeholder="Choose a survey" />
+              </SelectTrigger>
+              <SelectContent>
+                {sendableSurveys.map((sv) => (
+                  <SelectItem key={sv.id} value={sv.id}>
+                    {sv.gatesCertificates ? `${sv.name} (certificate / CME survey)` : sv.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {selectedEmailType === "survey-invitation" && (
           <div className="space-y-2">
             <Label htmlFor="registration-email-survey-expiry">Survey link valid for (days)</Label>

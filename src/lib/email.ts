@@ -1779,6 +1779,7 @@ export function getSamplePreviewVariables(
     // Survey-invitation template placeholder — real sends mint a per-recipient
     // token; the preview shows a representative link, not literal {{surveyLink}}.
     surveyLink: "#",
+    surveyName: "Post-event survey",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
     rsvpButton: buildRsvpButton({ rsvpLink: "#", rsvpName: "Gala Dinner" }).html,

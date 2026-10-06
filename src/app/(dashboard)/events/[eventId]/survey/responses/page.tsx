@@ -92,8 +92,7 @@ export default function SurveyResponsesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { data: session } = useSession();
-  // Reset clears a certificate-survey completion; extra surveys have none.
-  const canReset = canResetSurvey(session?.user?.role) && data?.survey?.gatesCertificates !== false;
+  const canReset = canResetSurvey(session?.user?.role);
   const canEditSurvey = useCan("surveys.manage", eventId) === "allowed";
   const [resetTarget, setResetTarget] = useState<{ registrationId: string; name: string } | null>(null);
 
@@ -362,6 +361,9 @@ export default function SurveyResponsesPage() {
         registrationId={resetTarget?.registrationId ?? null}
         personName={resetTarget?.name ?? "This person"}
         open={resetTarget !== null}
+        extraSurvey={
+          data.survey && !data.survey.gatesCertificates ? { id: data.survey.id, name: data.survey.name } : undefined
+        }
         onOpenChange={(open) => {
           if (!open) setResetTarget(null);
         }}

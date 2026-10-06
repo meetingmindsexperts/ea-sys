@@ -113,6 +113,7 @@ export const queryKeys = {
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
   webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
+  surveys: (eventId: string) => ["events", eventId, "surveys"] as const,
   webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
   webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
   webinarPresence: (eventId: string) => ["events", eventId, "webinar", "presence"] as const,
@@ -2590,6 +2591,27 @@ export function useWebinarStreamPreview(eventId: string, enabled: boolean) {
         `/api/events/${eventId}/webinar/livestream`,
       ),
     enabled,
+  });
+}
+
+/** One of an event's surveys, as the survey list returns it. */
+export interface EventSurveyListItem {
+  id: string;
+  name: string;
+  config: unknown;
+  isActive: boolean;
+  gatesCertificates: boolean;
+  responseCount: number;
+}
+
+/** An event's surveys (several per event since Oct 6, 2026): the CME survey
+ *  and any extra ones. Used by the Survey Invitation pickers. */
+export function useEventSurveys(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.surveys(eventId),
+    queryFn: () =>
+      fetchApi<{ surveys: EventSurveyListItem[] }>(`/api/events/${eventId}/surveys`).then((d) => d.surveys),
+    enabled: enabled && !!eventId,
   });
 }
 

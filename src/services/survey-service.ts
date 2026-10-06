@@ -40,13 +40,98 @@ import {
 export const DEFAULT_CERTIFICATE_SURVEY_NAME = "Post-event survey";
 
 /**
- * L2 (docs/MULTI_SURVEY_PLAN.md §13): until step 3 drops the global
- * SurveyResponse.registrationId unique, a person can hold ONE response in
- * total, so an answer to an extra survey would block their CME survey. Extra
- * surveys therefore refuse answers until step 3 sets this to true in the same
- * change that drops the unique.
+ * L2 (docs/MULTI_SURVEY_PLAN.md §13): extra surveys take answers only once a
+ * person can hold one response PER SURVEY. Step 3 (migration
+ * 20261006160000) replaced the global SurveyResponse.registrationId unique
+ * with @@unique([surveyId, dedupKey]) and set this to true in the same change,
+ * so an answer to an extra survey can never block anyone's CME survey.
  */
-export const EXTRA_SURVEYS_ANSWERABLE = false;
+export const EXTRA_SURVEYS_ANSWERABLE = true;
+
+// ── Personal links ────────────────────────────────────────────────────
+
+/**
+ * The VerificationToken identifier of a personal survey link (step 3). It names
+ * the survey as well as the person, so minting a link for one survey leaves the
+ * person's link to another alive. `surveyId` null = the legacy two-part form
+ * (an event with no Survey row), which the link resolves to the CME survey.
+ */
+export function surveyTokenIdentifier(surveyId: string | null, registrationId: string): string {
+  return surveyId ? `survey:${surveyId}:${registrationId}` : `survey:${registrationId}`;
+}
+
+/**
+ * Reads a survey link identifier. Two parts (`survey:{registrationId}`, every
+ * link minted before step 3) opens the CME survey, as it always did; three
+ * parts names the survey. Null for anything that is not a survey link.
+ */
+export function parseSurveyTokenIdentifier(identifier: string): { surveyId: string | null; registrationId: string } | null {
+  if (!identifier.startsWith("survey:")) return null;
+  const rest = identifier.slice("survey:".length);
+  const parts = rest.split(":");
+  if (parts.length === 1 && parts[0]) return { surveyId: null, registrationId: parts[0] };
+  if (parts.length === 2 && parts[0] && parts[1]) return { surveyId: parts[0], registrationId: parts[1] };
+  return null;
+}
+
+export type LinkSurvey = {
+  surveyId: string | null;
+  gatesCertificates: boolean;
+  config: unknown;
+  introHtml: string | null;
+  thankYouHtml: string | null;
+};
+
+/**
+ * The survey a personal link opens. A legacy link, or one naming the CME
+ * survey, goes through resolveLinkSurvey (exactly the CME behaviour as
+ * before). A link naming an extra survey opens it while it is open. `closed`
+ * when the named survey is closed; `null` when it is not this event's.
+ */
+export async function resolveTokenSurvey(
+  event: { id: string } & EventSurveyColumns,
+  tokenSurveyId: string | null,
+): Promise<{ kind: "ok"; survey: LinkSurvey } | { kind: "closed" } | { kind: "none" }> {
+  if (!tokenSurveyId) {
+    const cme = await resolveLinkSurvey(event);
+    return cme ? { kind: "ok", survey: cme } : { kind: "none" };
+  }
+  const row = await db.survey.findFirst({ where: { id: tokenSurveyId, eventId: event.id }, select: SURVEY_SELECT });
+  if (!row) return { kind: "none" };
+  if (row.gatesCertificates) {
+    const cme = await resolveLinkSurvey(event);
+    return cme ? { kind: "ok", survey: cme } : { kind: "none" };
+  }
+  if (!row.isActive) return { kind: "closed" };
+  return {
+    kind: "ok",
+    survey: { surveyId: row.id, gatesCertificates: false, config: row.config, introHtml: row.introHtml, thankYouHtml: row.thankYouHtml },
+  };
+}
+
+/**
+ * The survey a Survey Invitation send links to (step 3). With no `surveyId`
+ * it is the CME survey, exactly what the send did before (a queued send from
+ * before this release carries none). Refused with a message when the chosen
+ * survey is not this event's, is closed, or has no questions.
+ */
+export async function resolveInvitationSurvey(
+  event: { id: string } & EventSurveyColumns,
+  surveyId: string | undefined,
+): Promise<{ ok: true; surveyId: string | null; name: string; gatesCertificates: boolean } | { ok: false; message: string }> {
+  if (!surveyId) {
+    if (!isLiveConfig(event.surveyConfig)) {
+      return { ok: false, message: "No survey is configured for this event. Build the survey at Survey first." };
+    }
+    const cert = await getCertificateSurvey(event.id);
+    return { ok: true, surveyId: cert?.id ?? null, name: cert?.name ?? DEFAULT_CERTIFICATE_SURVEY_NAME, gatesCertificates: true };
+  }
+  const row = await getSurvey(event.id, surveyId, event);
+  if (!row) return { ok: false, message: "That survey does not belong to this event." };
+  if (!row.isActive) return { ok: false, message: `The survey "${row.name}" is closed. Open it before sending its link.` };
+  if (!isLiveConfig(row.config)) return { ok: false, message: `The survey "${row.name}" has no questions yet.` };
+  return { ok: true, surveyId: row.id, name: row.name, gatesCertificates: row.gatesCertificates };
+}
 
 export type SurveyServiceSource = "rest" | "mcp" | "agent" | "public";
 
@@ -588,10 +673,39 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
   const now = new Date();
   try {
     await tenantTransaction(async (tx) => {
+      // The race gate is (surveyId, dedupKey). With no Survey row the CME
+      // answer would carry surveyId NULL, which Postgres treats as distinct,
+      // so a double click could store two. Make sure the reserved CME row
+      // exists first, under the same event lock its other writers take.
+      let surveyId = survey.id;
+      if (survey.gatesCertificates && !surveyId) {
+        await lockEventForCertificate(tx, survey.eventId);
+        const cert = await tx.survey.findFirst({
+          where: { eventId: survey.eventId, gatesCertificates: true },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        });
+        surveyId =
+          cert?.id ??
+          (
+            await tx.survey.create({
+              data: {
+                eventId: survey.eventId,
+                organizationId: input.organizationId,
+                name: DEFAULT_CERTIFICATE_SURVEY_NAME,
+                config: survey.config as Prisma.InputJsonValue,
+                gatesCertificates: true,
+                sortOrder: 0,
+              },
+              select: { id: true },
+            })
+          ).id;
+        apiLogger.info({ msg: "survey:submit-created-cme-row", ...ctx, surveyId });
+      }
       await tx.surveyResponse.create({
         data: {
           eventId: survey.eventId,
-          surveyId: survey.id,
+          surveyId,
           dedupKey: registration.id,
           registrationId: registration.id,
           organizationId: input.organizationId,

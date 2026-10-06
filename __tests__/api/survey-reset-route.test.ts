@@ -12,7 +12,8 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
   const mockDb = {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
-    surveyResponse: { deleteMany: vi.fn() },
+    surveyResponse: { deleteMany: vi.fn(), findFirst: vi.fn() },
+    survey: { findFirst: vi.fn() },
     attendee: { findUnique: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
   };
@@ -46,7 +47,6 @@ function completed(extra: Record<string, unknown> = {}) {
     id: "reg1",
     attendeeId: "att1",
     surveyCompletedAt: new Date("2026-09-17T13:38:20Z"),
-    surveyResponse: { id: "resp1", answers: { q1: 5, q2: "My phone is 050 123 4567", q3: "Yes" } },
     issuedCertificates: [{ serial: "OOPVF2026-ATT-0001" }],
     ...extra,
   };
@@ -59,6 +59,7 @@ beforeEach(() => {
   mockDb.registration.findFirst.mockResolvedValue(completed());
   mockDb.registration.count.mockResolvedValue(0);
   mockDb.surveyResponse.deleteMany.mockResolvedValue({ count: 1 });
+  mockDb.surveyResponse.findFirst.mockResolvedValue({ id: "resp1", answers: { q1: 5, q2: "My phone is 050 123 4567", q3: "Yes" } });
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.attendee.findUnique.mockResolvedValue({ tags: ["Cme", "survey-completed"] });
   mockDb.attendee.update.mockResolvedValue({});
@@ -70,7 +71,10 @@ describe("survey reset", () => {
     const res = await reset();
 
     expect(res.status).toBe(200);
-    expect(mockDb.surveyResponse.deleteMany).toHaveBeenCalledWith({ where: { registrationId: "reg1" } });
+    // Only the CME survey's answer: a person may also hold extra-survey answers.
+    expect(mockDb.surveyResponse.deleteMany).toHaveBeenCalledWith({
+      where: { registrationId: "reg1", eventId: "ev1", OR: [{ survey: { gatesCertificates: true } }, { surveyId: null }] },
+    });
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
       where: { id: "reg1", eventId: "ev1" },
       data: {
@@ -126,7 +130,8 @@ describe("survey reset", () => {
   });
 
   it("says there is nothing to reset when the person has not answered", async () => {
-    mockDb.registration.findFirst.mockResolvedValue(completed({ surveyCompletedAt: null, surveyResponse: null }));
+    mockDb.registration.findFirst.mockResolvedValue(completed({ surveyCompletedAt: null }));
+    mockDb.surveyResponse.findFirst.mockResolvedValue(null);
 
     const res = await reset();
 
@@ -143,5 +148,33 @@ describe("survey reset", () => {
   it("returns 401 without a session", async () => {
     mockAuth.mockResolvedValue(null);
     expect((await reset()).status).toBe(401);
+  });
+});
+
+describe("survey reset, per survey (step 3, Oct 6, 2026)", () => {
+  const resetSurvey = (surveyId: string) =>
+    DELETE(new Request(`http://localhost/x?surveyId=${surveyId}`, { method: "DELETE" }), { params });
+
+  it("an extra survey: removes only that answer, never completion, the tag or certificates", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-fb", eventId: "ev1", gatesCertificates: false });
+    const res = await resetSurvey("svy-fb");
+    expect(res.status).toBe(200);
+    expect(mockDb.surveyResponse.deleteMany).toHaveBeenCalledWith({ where: { surveyId: "svy-fb", registrationId: "reg1" } });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.attendee.update).not.toHaveBeenCalled();
+  });
+
+  it("naming the CME survey resets exactly as before", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-cert", eventId: "ev1", gatesCertificates: true });
+    const res = await resetSurvey("svy-cert");
+    expect(res.status).toBe(200);
+    expect(mockDb.registration.updateMany).toHaveBeenCalled();
+  });
+
+  it("a survey that is not this event's is a 404", async () => {
+    mockDb.survey.findFirst.mockResolvedValue(null);
+    const res = await resetSurvey("svy-other");
+    expect(res.status).toBe(404);
+    expect(mockDb.surveyResponse.deleteMany).not.toHaveBeenCalled();
   });
 });
