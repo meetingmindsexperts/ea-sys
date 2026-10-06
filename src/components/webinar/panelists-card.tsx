@@ -39,8 +39,9 @@ export function collectPanelists(session: {
 /** Compact panel list beside the webinar video: capped height, scrolls inside. */
 export function PanelistsCard({ panelists }: { panelists: Panelist[] }) {
   return (
-    <Card>
-      <CardContent className="space-y-3 py-4">
+    // 8 px tighter than the default card all round (owner, Oct 6, 2026).
+    <Card className="py-4">
+      <CardContent className="space-y-3 px-4 py-2">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-primary" />
           <p className="font-medium">Panelists</p>

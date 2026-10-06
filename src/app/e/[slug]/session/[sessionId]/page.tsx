@@ -676,7 +676,15 @@ export default function PublicSessionPage() {
              scrolling; the `-mx-4 px-4` bleed plus backdrop-blur prevents
              content from showing through when the user scrolls past the
              session header. */}
-        <div className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm">
+        <div
+          className={
+            isWebinarEvent
+              ? // Webinar (owner, Oct 6, 2026): no tinted band behind the strip,
+                // and the card's own padding trimmed so the strip stays slim.
+                "sticky top-0 z-10 py-1 [&_[data-slot=card]]:py-0 [&_[data-slot=card-content]]:px-4 [&_[data-slot=card-content]]:py-2.5"
+              : "sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm"
+          }
+        >
           <StickyCta
             slug={slug}
             sessionId={sessionId}

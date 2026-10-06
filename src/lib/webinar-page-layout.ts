@@ -1,6 +1,7 @@
 /**
- * The webinar attendee page's video tab: panelists on the left, video in the
- * middle, Q&A on the right (owner, Oct 6, 2026). Pure and client-safe, so the
+ * The webinar attendee page's video tab: panelists on the left (272 px), video
+ * in the middle, Q&A on the right (340 px; 292 px on a laptop) (owner,
+ * Oct 6, 2026). Pure and client-safe, so the
  * four column cases are pinned by a test instead of read off the JSX.
  *
  * - Q&A + panelists: three columns from xl; at lg the video and Q&A share a
@@ -30,7 +31,7 @@ export function webinarVideoLayout({
 }): WebinarVideoLayout {
   if (showQa && showPanelists) {
     return {
-      grid: `${GRID} lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[322px_minmax(0,1fr)_370px]`,
+      grid: `${GRID} lg:grid-cols-[minmax(0,1fr)_292px] xl:grid-cols-[272px_minmax(0,1fr)_340px]`,
       videoCol: "order-1 xl:order-2",
       panelistsCol: "order-3 xl:order-1",
       qaCol: "order-2 xl:order-3",
@@ -38,7 +39,7 @@ export function webinarVideoLayout({
   }
   if (showQa) {
     return {
-      grid: `${GRID} lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[minmax(0,1fr)_370px]`,
+      grid: `${GRID} lg:grid-cols-[minmax(0,1fr)_292px] xl:grid-cols-[minmax(0,1fr)_340px]`,
       videoCol: "",
       panelistsCol: "",
       qaCol: "",
@@ -46,7 +47,7 @@ export function webinarVideoLayout({
   }
   if (showPanelists) {
     return {
-      grid: `${GRID} xl:grid-cols-[322px_minmax(0,1fr)]`,
+      grid: `${GRID} xl:grid-cols-[272px_minmax(0,1fr)]`,
       videoCol: "order-1 xl:order-2",
       panelistsCol: "order-2 xl:order-1",
       qaCol: "",

@@ -98,8 +98,8 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-3 py-4">
+      <Card className="py-4">
+        <CardContent className="space-y-3 px-4 py-2">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
             <p className="font-medium">Ask a question</p>
@@ -141,8 +141,8 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="space-y-3 py-4">
+      <Card className="py-4">
+        <CardContent className="space-y-3 px-4 py-2">
           <p className="font-medium">Questions from the audience</p>
           {published.length === 0 ? (
             <p className="text-sm text-muted-foreground">
