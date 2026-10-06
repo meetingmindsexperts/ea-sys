@@ -109,7 +109,7 @@ export default function SurveyBuilderPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   // The survey saves through the event PUT, so that route's key decides.
-  const canEdit = useCan("events.update", eventId) === "allowed";
+  const canEdit = useCan("surveys.manage", eventId) === "allowed";
 
   const [eventName, setEventName] = useState<string>("");
   const [eventSlug, setEventSlug] = useState<string>("");

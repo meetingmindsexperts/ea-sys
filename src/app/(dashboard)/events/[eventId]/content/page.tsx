@@ -27,7 +27,7 @@ export default function ContentPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   // Every Save on this page is the event PUT.
-  const canSave = useCan("events.update", eventId) === "allowed";
+  const canSave = useCan("events.settings", eventId) === "allowed";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

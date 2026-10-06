@@ -1123,6 +1123,8 @@ each approved by the owner:
 | Communications | Onsite no longer reads its assigned event's email templates (its registration sheet requested them; fixed Oct 5 so the sheet no longer asks) |
 | Certificates | Template and run lookups bound to the URL's event (same statuses) |
 | Webinar | The attendance CSV (attendee emails) downloads only for Admin, Organizer and Webinars; Member and Onsite see attendance on screen only |
+| Event edit (Oct 6) | `PUT /api/events/[id]` checks each CHANGED field against its own key: details `events.update`, Settings and Content `events.settings`, the survey `surveys.manage` (`src/lib/permissions/field-permissions.ts`). The agent's `update_event` asks the key of each field it sends. No built-in role changes (all three keys at one scope) |
+| Bulk sends (Oct 6) | A certificate send also needs `certificates.issue`, a survey invitation `surveys.manage` (immediate, scheduled, agent and role-narrowed MCP). Webinars loses the certificate send, matching its "no certificates"; production had none from that role |
 | Faculty extras | Member reads survey answers (a widening) |
 | Money | Onsite no longer reads the organisation's invoice book or its export; the platform operator gets a clean 403 on promo codes, event payers and the payer book |
 | Registrations desk | Webinars sees the barcode image on conferences (a widening, matching its badges); the platform operator no longer reads tenants' barcode images or supporting documents |

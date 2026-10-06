@@ -45,7 +45,7 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
     const run = args[args.length - 1] as (...callArgs: unknown[]) => unknown;
     args[args.length - 1] = async (...callArgs: unknown[]) => {
       const input = (callArgs.length > 1 ? callArgs[0] : {}) as Record<string, unknown>;
-      const decision = gateToolCall(name, { principal, event: await factsFor(key, input?.eventId), writesSoFar: 0, maxWrites: Number.MAX_SAFE_INTEGER });
+      const decision = gateToolCall(name, { principal, event: await factsFor(key, input?.eventId), writesSoFar: 0, maxWrites: Number.MAX_SAFE_INTEGER, input });
       if (decision.kind === "refuse") return refusal(name, decision.result.code, decision.result.error);
       return run(...callArgs);
     };

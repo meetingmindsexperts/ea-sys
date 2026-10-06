@@ -231,7 +231,12 @@ export default function EventSettingsPage() {
   const eventId = params.eventId as string;
   const canSeeBudgets = useCan("procurement.budgets.view") === "allowed";
   // Every Save on this page is the event PUT; Delete Event is the event DELETE.
-  const canUpdate = useCan("events.update", eventId) === "allowed";
+  // Details save under events.update, settings and branding under
+  // events.settings; a tab that saves both shows its Save for either, and the
+  // server checks each changed field (field-permissions.ts).
+  const canEditDetails = useCan("events.update", eventId) === "allowed";
+  const canEditSettings = useCan("events.settings", eventId) === "allowed";
+  const canUpdate = canEditDetails || canEditSettings;
   const canDeleteEvent = useCan("events.delete", eventId) === "allowed";
   // A budget is keyed on the event code, so the code is locked while one
   // references it (the PUT refuses with EVENT_CODE_REFERENCED); the field says
@@ -2416,7 +2421,7 @@ export default function EventSettingsPage() {
             page, not by reading it. Themes and Review Criteria below save
             themselves through their own APIs, so they are correctly outside this.
           */}
-          {canUpdate && (
+          {canEditSettings && (
           <div className="flex justify-end">
             <Button onClick={handleSaveSettings} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
@@ -2499,7 +2504,7 @@ export default function EventSettingsPage() {
                 </p>
               </div>
 
-              {canUpdate && (
+              {canEditSettings && (
               <div className="flex justify-end">
                 <Button onClick={handleSaveBranding} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
@@ -2624,7 +2629,7 @@ export default function EventSettingsPage() {
                 </p>
               </div>
 
-              {canUpdate && (
+              {canEditSettings && (
               <div className="flex justify-end">
                 <Button onClick={handleSaveBranding} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />

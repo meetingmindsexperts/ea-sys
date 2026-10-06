@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { bulkEmailTypePermission } from "@/lib/permissions/field-permissions";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   bulkEmailSchema,
@@ -85,8 +86,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { recipientType, recipientIds, emailType, customSubject, customMessage, attachments, filters } =
       validated.data;
 
+    // The certificate email issues certificates and the survey invitation hands
+    // out the survey, so each also needs that operation's key, on this event
+    // (field-permissions.ts, owner Oct 6, 2026).
+    const typeKey = bulkEmailTypePermission(emailType);
+    const typeGate = typeKey
+      ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/bulk:POST", eventId })
+      : null;
+    if (typeGate && !typeGate.ok) return typeGate.response;
+
     const event = await db.event.findFirst({
-      where: gate.eventWhere,
+      where: typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere,
       select: { id: true },
     });
 

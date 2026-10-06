@@ -11,6 +11,7 @@
 import { isWriteTool } from "./tools/_shared";
 import { toolPermission } from "./tool-permissions";
 import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
+import { toolInputPermissions } from "@/lib/permissions/field-permissions";
 
 /** Writes one request may perform. A request is one user message and the
  *  tool loop that answers it; the person sends another message to continue. */
@@ -25,6 +26,8 @@ export interface ToolGatePolicy {
   writesSoFar: number;
   /** Test seam; production uses MAX_WRITES_PER_REQUEST. */
   maxWrites?: number;
+  /** The call's input: some tools need a second key for what they change (field-permissions.ts). */
+  input?: Record<string, unknown>;
 }
 
 export type ToolGateDecision =
@@ -39,7 +42,9 @@ export function gateToolCall(toolName: string, policy: ToolGatePolicy): ToolGate
   if (!key) {
     return { kind: "refuse", result: { error: `"${toolName}" has no permission mapped and was refused.`, code: "NO_PERMISSION_KEY" } };
   }
-  const allowed = policy.event === undefined ? can(policy.principal, key) : can(policy.principal, key, { event: policy.event });
+  const holds = (k: typeof key) =>
+    policy.event === undefined ? can(policy.principal, k) : can(policy.principal, k, { event: policy.event });
+  const allowed = holds(key) && toolInputPermissions(toolName, policy.input).every(holds);
   if (!allowed) {
     return {
       kind: "refuse",

@@ -197,3 +197,33 @@ describe("POST /emails/bulk — enqueue", () => {
     expect(mockDb.scheduledEmail.create).toHaveBeenCalledTimes(1);
   });
 });
+
+// Owner, Oct 6, 2026: a certificate send issues certificates and a survey
+// invitation hands out the survey, so each also needs that operation's key
+// (src/lib/permissions/field-permissions.ts).
+describe("POST /emails/bulk — the certificate and survey sends need their own key", () => {
+  const send = (role: string, emailType: string) => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", organizationId: "org_1", role } });
+    mockSafeParse.mockReturnValue({ success: true, data: { ...validBody, emailType } });
+    return POST(makeReq({ ...validBody, emailType }), { params });
+  };
+
+  it("refuses a Webinars user the certificate send, before any lookup", async () => {
+    const res = await send("WEBINARS", "certificate");
+    expect(res.status).toBe(403);
+    expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Webinars user's survey invitation and plain sends", async () => {
+    expect((await send("WEBINARS", "survey-invitation")).status).toBe(202);
+    expect((await send("WEBINARS", "custom")).status).toBe(202);
+  });
+
+  it("lets an Organizer send certificates, on the event both keys reach", async () => {
+    const res = await send("ORGANIZER", "certificate");
+    expect(res.status).toBe(202);
+    const where = mockDb.event.findFirst.mock.calls.at(-1)![0].where;
+    expect(where).toHaveProperty("AND");
+  });
+});

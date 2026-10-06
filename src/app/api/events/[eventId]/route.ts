@@ -11,7 +11,16 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { isTeamRole } from "@/lib/auth-guards";
-import { refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
+import { principalFromSession, refuseOutOfScope, requirePermission } from "@/lib/permissions/require-permission";
+import {
+  EVENT_DETAIL_FIELDS,
+  EVENT_EDIT_KEYS,
+  EVENT_SETTINGS_FIELDS,
+  EVENT_SURVEY_FIELDS,
+  changedEventFields,
+  eventFieldPermissions,
+} from "@/lib/permissions/field-permissions";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -39,6 +48,12 @@ import {
   type ScheduleShiftSummary,
 } from "@/services/event-schedule-shift";
 import { eventCodeReferences, isEventCodeTaken } from "@/lib/event-code";
+
+/** Every field the edit can change, plus the assigned staff the per-field check needs. */
+const STORED_FIELD_SELECT = {
+  staffAssignments: { select: { userId: true } },
+  ...Object.fromEntries([...EVENT_DETAIL_FIELDS, ...EVENT_SURVEY_FIELDS, ...EVENT_SETTINGS_FIELDS].map((f) => [f, true])),
+} as const satisfies Prisma.EventSelect;
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -217,10 +232,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session, { route: "events/[eventId]:PUT" });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const gate = requirePermission(session, "events.update", { route: "events/[eventId]:PUT", eventId });
+    // Settings, Content and Survey all save here, so the door opens for any of
+    // the three edit keys and each CHANGED field is checked against its own
+    // key below (field-permissions.ts, owner Oct 6, 2026). Built-in roles hold
+    // all three at one scope, so for them the entry key is always events.update.
+    const principal = principalFromSession(session);
+    const entryKey = EVENT_EDIT_KEYS.find((k) => can(principal, k)) ?? "events.update";
+    const gate = requirePermission(session, entryKey, { route: "events/[eventId]:PUT", eventId });
     if (!gate.ok) return gate.response;
 
-    // The events this person may update (WEBINARS: webinars only).
+    // The events this person may update (WEBINARS: webinars only), with the
+    // stored value of every editable field for the per-field check below.
     const existingEvent = await db.event.findFirst({
       where: gate.eventWhere,
       select: {
@@ -233,6 +255,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         startDate: true,
         endDate: true,
         timezone: true,
+        ...STORED_FIELD_SELECT,
       },
     });
 
@@ -256,11 +279,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // two-step bypass of the create route's rule.
     const outOfScope = refuseOutOfScope(
       gate.principal,
-      "events.update",
+      entryKey,
       { eventType: validated.data.eventType ?? existingEvent.eventType ?? "" },
       { route: "events/[eventId]:PUT", eventId },
     );
     if (outOfScope) return outOfScope;
+
+    // Each field whose value changes needs its own key, on this event.
+    const stored = existingEvent as Record<string, unknown> & { staffAssignments?: { userId: string }[] };
+    const changedFields = changedEventFields(validated.data as Record<string, unknown>, stored);
+    const facts = eventFactsOf({
+      organizationId: orgGuard.orgId,
+      eventType: existingEvent.eventType ?? "",
+      staffUserIds: (stored.staffAssignments ?? []).map((a) => a.userId),
+    });
+    const missingKeys = eventFieldPermissions(changedFields).filter((k) => !can(gate.principal, k, { event: facts }));
+    if (missingKeys.length > 0) {
+      apiLogger.warn({
+        msg: "events/[eventId]:PUT field-permission-refused",
+        eventId,
+        userId: session.user.id,
+        missingKeys,
+        changedFields,
+      });
+      return NextResponse.json(
+        { error: "Your access does not include some of the changes in this save.", code: "FIELD_PERMISSION", permissions: missingKeys },
+        { status: 403 },
+      );
+    }
 
     const {
       name,

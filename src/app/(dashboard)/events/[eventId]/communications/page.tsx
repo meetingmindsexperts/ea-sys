@@ -311,6 +311,15 @@ export default function CommunicationsPage() {
   const templatesQuery = useEmailTemplates(eventId);
   // Every send on this page goes through the bulk email route.
   const canSend = useCan("communications.send", eventId) === "allowed";
+  // The certificate and survey sends also need that operation's key; the
+  // server refuses them without it (field-permissions.ts), so the tile hides.
+  const canSendCertificates = useCan("certificates.issue", eventId) === "allowed";
+  const canSendSurvey = useCan("surveys.manage", eventId) === "allowed";
+  const registrationTiles = REGISTRATION_TILES.filter(
+    (t) =>
+      (t.defaultEmailType !== "certificate" || canSendCertificates) &&
+      (t.defaultEmailType !== "survey-invitation" || canSendSurvey),
+  );
 
   // Active organizer-created templates (excludes system defaults) — surfaced
   // as one-click tiles so a custom template an organizer activated is
@@ -750,7 +759,7 @@ export default function CommunicationsPage() {
             {/* Workflow tiles — one-click presets for common sends */}
             {canSend && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {REGISTRATION_TILES.map((tile) => {
+              {registrationTiles.map((tile) => {
                 const count = registrations.filter(tile.matches).length;
                 const Icon = tile.icon;
                 return (

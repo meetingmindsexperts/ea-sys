@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: event edits and certificate or survey sends check their own permission (October 6)
+
+- Saving an event now checks each field that actually changes against its
+  own permission: details need "Edit events", Settings and Content need
+  "Event settings and content", the survey needs "Surveys". Before, every
+  save asked "Edit events", so the other two did nothing in a custom role.
+  Unchanged fields a screen resends never count. Built-in roles hold all
+  three, so nothing changes for them. The agent's "update event" follows the
+  same rule.
+- Sending certificates, or survey invitations, by bulk email now also needs
+  "Issue certificates" or "Surveys". The Webinars role loses the certificate
+  send (it has never held certificates; production had no such send from
+  it). Admins and Organizers are unaffected. The Communications tiles hide
+  when the second permission is missing.
+
 ### Changed: Panelists tab, quieter "nothing to stop", styled toasts (October 6)
 
 - Webinar Console: Panelists moved to their own tab after Setup.

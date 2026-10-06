@@ -183,7 +183,7 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     let stepCode: string | null = null;
 
     const decision = tool
-      ? gateToolCall(toolName, { principal: req.principal, event: await eventOfCall(toolName, toolInput), writesSoFar })
+      ? gateToolCall(toolName, { principal: req.principal, event: await eventOfCall(toolName, toolInput), writesSoFar, input: toolInput })
       : null;
     if (!tool || decision === null) {
       text = JSON.stringify({ error: `Unknown tool: ${toolName}`, code: "UNKNOWN_TOOL" });

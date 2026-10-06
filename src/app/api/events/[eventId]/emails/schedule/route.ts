@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { bulkEmailTypePermission } from "@/lib/permissions/field-permissions";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   bulkEmailSchema,
@@ -82,8 +83,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // A scheduled certificate or survey send needs that operation's key too,
+    // as the immediate send does (field-permissions.ts).
+    const typeKey = bulkEmailTypePermission(data.emailType);
+    const typeGate = typeKey
+      ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/schedule:POST", eventId })
+      : null;
+    if (typeGate && !typeGate.ok) return typeGate.response;
+
     const event = await db.event.findFirst({
-      where: gate.eventWhere,
+      where: typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere,
       select: { id: true },
     });
     if (!event) {
