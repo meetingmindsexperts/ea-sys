@@ -572,7 +572,7 @@ function ConfirmationContent() {
               <div>
                 <p className="text-sm font-semibold text-slate-800">Check your inbox</p>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  A confirmation email with your registration details and barcode is on its way.
+                  A confirmation email with your registration details is on its way.
                 </p>
               </div>
             </div>
