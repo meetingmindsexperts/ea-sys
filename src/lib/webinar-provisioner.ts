@@ -8,6 +8,7 @@ import { readWebinarSettings } from "@/lib/webinar";
 import { updateEventSettings } from "@/lib/event-settings";
 import { enqueueWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { controlWebinarLiveStream } from "@/lib/webinar/livestream";
 
 export type ZoomProvisionStatus =
   | "created"
@@ -322,8 +323,26 @@ export async function provisionWebinar(
       );
     }
 
+    // A NEW webinar starts in Custom stream (owner, Oct 6, 2026): set the
+    // stream up in Zoom now, and only save the mode when that worked, so an
+    // account without live streaming never strands attendees on "Getting the
+    // stream ready". A re-run on an existing webinar (autoCreated) keeps
+    // whatever mode it has; an unset mode there stays the Zoom embed.
+    const defaultToStream =
+      zoomStatus === "created" && !existingWebinar.viewingMode && !existingWebinar.autoCreated
+        ? await setUpDefaultStream({
+            organizationId: event.organizationId,
+            eventId: event.id,
+            eventSlug: event.slug,
+            sessionId: eventSession.id,
+            sessionName: event.name,
+            userId: options?.actorUserId ?? "system",
+          })
+        : false;
+
     // Persist webinar settings JSON on the event
     const nextWebinar: WebinarSettings = {
+      ...(defaultToStream ? { viewingMode: "hls" as const } : {}),
       ...existingWebinar,
       autoCreated: true,
       sessionId: eventSession.id,
@@ -522,4 +541,31 @@ async function attachZoomWebinarToAnchor(
   );
 
   return "created";
+}
+
+/** Sets up the Custom stream for a newly provisioned webinar. Never throws:
+ *  a failure leaves the webinar on the Zoom embed and logs why. */
+async function setUpDefaultStream(input: {
+  organizationId: string;
+  eventId: string;
+  eventSlug: string;
+  sessionId: string;
+  sessionName: string;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const res = await controlWebinarLiveStream({ ...input, action: "sync" });
+    if (res.ok) {
+      apiLogger.info({ eventId: input.eventId, sessionId: input.sessionId }, "webinar:default-custom-stream-set");
+      return true;
+    }
+    apiLogger.warn(
+      { eventId: input.eventId, sessionId: input.sessionId, code: res.code, message: res.message },
+      "webinar:default-custom-stream-failed",
+    );
+    return false;
+  } catch (err) {
+    apiLogger.error({ err, eventId: input.eventId, sessionId: input.sessionId }, "webinar:default-custom-stream-failed");
+    return false;
+  }
 }

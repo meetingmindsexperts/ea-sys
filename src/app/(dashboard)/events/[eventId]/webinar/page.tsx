@@ -66,6 +66,7 @@ import {
   Radio,
   Eye,
   EyeOff,
+  Palette,
 } from "lucide-react";
 import { StreamDelay } from "@/components/webinar/stream-delay";
 import type { PlayerTimingSample } from "@/components/zoom/live-player";
@@ -105,7 +106,6 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
-import { PhotoUpload } from "@/components/ui/photo-upload";
 import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
@@ -345,6 +345,10 @@ export default function WebinarConsolePage() {
               )}
             </TabsTrigger>
           )}
+          <TabsTrigger value="branding" className="flex items-center gap-2">
+            <Palette className="h-4 w-4" />
+            Branding
+          </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
             Settings
@@ -380,10 +384,15 @@ export default function WebinarConsolePage() {
                 eventSlug={data?.event?.slug ?? null}
                 webinar={data?.webinar ?? {}}
                 anchor={anchor ?? null}
-                eventStatus={data?.event?.status}
               />
             </div>
             <div className="space-y-6">
+              <GoLiveCard
+                eventId={eventId}
+                webinar={data?.webinar ?? {}}
+                anchor={anchor ?? null}
+                eventStatus={data?.event?.status}
+              />
               <LiveNowCard
                 eventId={eventId}
                 live={anchor?.status === "LIVE" || status === "live"}
@@ -410,6 +419,12 @@ export default function WebinarConsolePage() {
             <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
             <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
           </div>
+        </TabsContent>
+
+        <TabsContent value="branding" className="mt-4 max-w-3xl">
+          {/* Copies the saved images into form state once: remount when the
+              console data arrives so it never starts from the empty default. */}
+          <BrandingCard key={data ? "loaded" : "loading"} eventId={eventId} webinar={data?.webinar ?? {}} />
         </TabsContent>
 
         {showViewerQaTab && (
@@ -2465,16 +2480,13 @@ function LobbyCard({
   eventSlug,
   webinar,
   anchor,
-  eventStatus,
 }: {
   eventId: string;
   eventSlug: string | null;
   webinar: WebinarConsoleData["webinar"];
   anchor: WebinarConsoleData["anchorSession"];
-  eventStatus?: string;
 }) {
   const updateSettings = useUpdateWebinarSettings(eventId);
-  const toggleRoom = useToggleWebinarRoom(eventId);
   const liveStream = useWebinarLiveStream(eventId);
 
   const runStreamAction = async (action: "sync" | "start" | "stop") => {
@@ -2496,36 +2508,11 @@ function LobbyCard({
     () => webinar.viewingMode ?? "zoom",
   );
   const [lobbyVideoUrl, setLobbyVideoUrl] = useState(() => webinar.lobbyVideoUrl ?? "");
-  const [lobbyImageUrl, setLobbyImageUrl] = useState<string | null>(() => webinar.lobbyImageUrl ?? null);
+  const [lobbyImageUrl, setLobbyImageUrl] = useState(() => webinar.lobbyImageUrl ?? "");
   const [lobbyMessage, setLobbyMessage] = useState(() => webinar.lobbyMessage ?? "");
-  const [pageLogoUrl, setPageLogoUrl] = useState(() => webinar.pageLogoUrl ?? "");
-  const [pageBackgroundUrl, setPageBackgroundUrl] = useState(() => webinar.pageBackgroundUrl ?? "");
-  const [pageFooterImageUrl, setPageFooterImageUrl] = useState(() => webinar.pageFooterImageUrl ?? "");
 
   const roomOpen = anchor?.status === "LIVE";
 
-  // "Room still closed" alert (waiting-room review #6): once the scheduled
-  // start passes with the room never opened, warn loudly + show how many
-  // attendees are stuck in the lobby. A 30s tick keeps the check moving even
-  // when nothing else re-renders; hides once the producer opens or closes the
-  // room, and 30 min past the scheduled end (never-run webinars don't nag
-  // forever).
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNowTick(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-  const anchorStartMs = anchor?.startTime ? new Date(anchor.startTime).getTime() : 0;
-  const anchorEndMs = anchor?.endTime ? new Date(anchor.endTime).getTime() : 0;
-  const roomOverdue =
-    !roomOpen &&
-    anchor != null &&
-    anchor.status !== "COMPLETED" &&
-    anchorStartMs > 0 &&
-    nowTick >= anchorStartMs &&
-    nowTick <= anchorEndMs + ROOM_OVERDUE_GRACE_MS;
-  // Same query key as LiveNowCard — React Query dedupes if both are active.
-  const { data: overduePresence } = useWebinarPresence(eventId, roomOverdue);
   const videoInvalid =
     lobbyVideoUrl.trim().length > 0 && !isValidLobbyVideoUrl(lobbyVideoUrl.trim());
 
@@ -2538,11 +2525,8 @@ function LobbyCard({
       await updateSettings.mutateAsync({
         viewingMode,
         lobbyVideoUrl: lobbyVideoUrl.trim(),
-        lobbyImageUrl: lobbyImageUrl ?? "",
+        lobbyImageUrl,
         lobbyMessage: lobbyMessage.trim(),
-        pageLogoUrl,
-        pageBackgroundUrl,
-        pageFooterImageUrl,
       });
       toast.success("Lobby settings saved");
     } catch (err) {
@@ -2550,17 +2534,6 @@ function LobbyCard({
     }
   };
 
-  const handleToggleRoom = async () => {
-    try {
-      const res = await toggleRoom.mutateAsync(!roomOpen);
-      toast.success(
-        res.open ? "Room opened — attendees are being let in" : "Room closed",
-      );
-      announceStreamResult(res.stream, res.open);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update the room");
-    }
-  };
 
   if (!anchor) {
     return (
@@ -2586,7 +2559,7 @@ function LobbyCard({
               Waiting Room
             </ConsoleTitle>
             <CardDescription>
-              Hold registered attendees in a branded lobby, then admit them when you go live.
+              Hold registered attendees in a lobby, then admit them from the Go live card. The logo, background and footer are on the Branding tab.
             </CardDescription>
           </div>
           <Badge
@@ -2598,64 +2571,8 @@ function LobbyCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* Overdue alert — scheduled start passed, room never opened */}
-        {roomOverdue && (
-          <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
-            <div className="min-w-0">
-              <p className="font-medium text-red-800">
-                The scheduled start has passed — the room is still closed
-              </p>
-              <p className="text-sm text-red-700">
-                {overduePresence && overduePresence.lobby > 0
-                  ? `${overduePresence.lobby} attendee${overduePresence.lobby === 1 ? " is" : "s are"} waiting in the lobby. `
-                  : ""}
-                Attendees stay in the waiting room until you click “Open the room / Go live” below.
-              </p>
-            </div>
-          </div>
-        )}
 
-        {/* Open / close the room */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-          <div className="min-w-0">
-            <p className="font-medium">
-              {roomOpen
-                ? "Attendees are being admitted into the session"
-                : "Attendees are waiting in the lobby"}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Opening the room admits everyone into the live{" "}
-              {viewingMode === "hls" ? "stream" : "webinar"}. It never opens
-              automatically at the scheduled time.
-            </p>
-          </div>
-          <Button
-            onClick={handleToggleRoom}
-            disabled={toggleRoom.isPending}
-            variant={roomOpen ? "outline" : "default"}
-            className={roomOpen ? "" : "bg-red-600 hover:bg-red-700"}
-          >
-            {toggleRoom.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <PlayCircle className="h-4 w-4 mr-2" />
-            )}
-            {roomOpen ? "Close the room" : "Open the room / Go live"}
-          </Button>
-        </div>
 
-        {/* Operator visibility (waiting-room review #10): DRAFT events auto-open
-            the public room for end-to-end testing — "it worked in my test" must
-            not surprise an operator at go-live on the published event. */}
-        {eventStatus === "DRAFT" && (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            This event is in <strong>DRAFT</strong>: the public session page{" "}
-            <strong>auto-opens the room</strong> so you can test the flow. After
-            publishing, attendees wait in the lobby until you click “Open the
-            room / Go live”.
-          </p>
-        )}
 
         {/* Viewing mode */}
         <div className="space-y-2">
@@ -2737,15 +2654,16 @@ function LobbyCard({
           </p>
         </div>
 
-        {/* Waiting-room image (shown when no holding video is set) */}
-        <div className="space-y-2">
-          <Label>Waiting room image (optional)</Label>
-          <PhotoUpload value={lobbyImageUrl} onChange={setLobbyImageUrl} />
-          <p className="text-sm text-muted-foreground">
-            Shown behind the countdown while attendees wait, when no holding video is set.
-            Wide images work best (e.g. 1280×720). Leave empty to show the page background.
-          </p>
-        </div>
+
+        {/* Waiting-room image, beside the holding video it stands in for */}
+        <BrandingImageField
+          eventId={eventId}
+          label="Waiting room image (optional)"
+          value={lobbyImageUrl}
+          onChange={setLobbyImageUrl}
+          hint="Shown behind the countdown while attendees wait, when no holding video is set. Wide images work best (e.g. 1280×720). Leave empty to show the page background."
+          previewClassName="w-full h-40 object-cover"
+        />
 
         {/* Lobby message */}
         <div className="space-y-2">
@@ -2759,41 +2677,6 @@ function LobbyCard({
           />
         </div>
 
-        {/* Attendee page branding (owner, Oct 6, 2026): the webinar page has no
-            banner; a logo sits at the top over a full-page background, and an
-            optional image runs full width under the video. Also the waiting room. */}
-        <div className="space-y-4 border-t pt-4">
-          <div>
-            <p className="font-medium">Attendee page branding</p>
-            <p className="text-sm text-muted-foreground">
-              Applies to the attendee page and the waiting room. The event banner is not shown on webinar pages.
-            </p>
-          </div>
-          <BrandingImageField
-            eventId={eventId}
-            label="Logo (top of the page)"
-            value={pageLogoUrl}
-            onChange={setPageLogoUrl}
-            hint="Transparent PNG works best, about 600×160px. Leave empty to show the event name instead."
-            previewClassName="h-20 w-auto object-contain"
-          />
-          <BrandingImageField
-            eventId={eventId}
-            label="Page background"
-            value={pageBackgroundUrl}
-            onChange={setPageBackgroundUrl}
-            hint="Covers the whole page behind the content. About 1920×1080px, under 2 MB. Leave empty for a plain background."
-            previewClassName="w-full h-40 object-cover"
-          />
-          <BrandingImageField
-            eventId={eventId}
-            label="Footer image"
-            value={pageFooterImageUrl}
-            onChange={setPageFooterImageUrl}
-            hint="Shown under the video, panelists and Q&A at its own width (centred, shrunk only on smaller screens), e.g. a sponsor strip."
-            previewClassName="w-full h-24 object-contain"
-          />
-        </div>
 
         <div className="flex justify-end pt-2 border-t">
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
@@ -2801,6 +2684,214 @@ function LobbyCard({
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : null}
             Save lobby settings
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Go live (owner, Oct 6, 2026): the room's open/close control as its own card
+ * at the top of the Setup tab's right rail, so the action that matters at
+ * go-live time never sits below the lobby settings.
+ */
+function GoLiveCard({
+  eventId,
+  webinar,
+  anchor,
+  eventStatus,
+}: {
+  eventId: string;
+  webinar: WebinarConsoleData["webinar"];
+  anchor: WebinarConsoleData["anchorSession"];
+  eventStatus?: string;
+}) {
+  const toggleRoom = useToggleWebinarRoom(eventId);
+  const roomOpen = anchor?.status === "LIVE";
+
+  // "Room still closed" alert (waiting-room review #6): once the scheduled
+  // start passes with the room never opened, warn loudly + show how many
+  // attendees are stuck in the lobby. A 30s tick keeps the check moving even
+  // when nothing else re-renders; hides once the producer opens or closes the
+  // room, and 30 min past the scheduled end (never-run webinars don't nag
+  // forever).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const anchorStartMs = anchor?.startTime ? new Date(anchor.startTime).getTime() : 0;
+  const anchorEndMs = anchor?.endTime ? new Date(anchor.endTime).getTime() : 0;
+  const roomOverdue =
+    !roomOpen &&
+    anchor != null &&
+    anchor.status !== "COMPLETED" &&
+    anchorStartMs > 0 &&
+    nowTick >= anchorStartMs &&
+    nowTick <= anchorEndMs + ROOM_OVERDUE_GRACE_MS;
+  // Same query key as LiveNowCard — React Query dedupes if both are active.
+  const { data: overduePresence } = useWebinarPresence(eventId, roomOverdue);
+
+  const handleToggleRoom = async () => {
+    try {
+      const res = await toggleRoom.mutateAsync(!roomOpen);
+      toast.success(
+        res.open ? "Room opened — attendees are being let in" : "Room closed",
+      );
+      announceStreamResult(res.stream, res.open);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update the room");
+    }
+  };
+
+  if (!anchor) return null;
+
+  return (
+    <Card className={roomOpen ? "border-red-200" : undefined}>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <ConsoleTitle icon={PlayCircle} tone="red" pulse={roomOpen}>
+            Go live
+          </ConsoleTitle>
+          <Badge
+            variant={roomOpen ? undefined : "outline"}
+            className={roomOpen ? "bg-red-100 text-red-800 border-red-200" : ""}
+          >
+            {roomOpen ? "Room OPEN" : "Room closed"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Overdue alert — scheduled start passed, room never opened */}
+        {roomOverdue && (
+          <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div className="min-w-0">
+              <p className="font-medium text-red-800">
+                The scheduled start has passed — the room is still closed
+              </p>
+              <p className="text-sm text-red-700">
+                {overduePresence && overduePresence.lobby > 0
+                  ? `${overduePresence.lobby} attendee${overduePresence.lobby === 1 ? " is" : "s are"} waiting in the lobby. `
+                  : ""}
+                Attendees stay in the waiting room until you click “Open the room / Go live”.
+              </p>
+            </div>
+          </div>
+        )}
+        {/* Open / close the room */}
+        <div className="space-y-3">
+          <div className="min-w-0">
+            <p className="font-medium">
+              {roomOpen
+                ? "Attendees are being admitted into the session"
+                : "Attendees are waiting in the lobby"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Opening the room admits everyone into the live{" "}
+              {webinar.viewingMode === "hls" ? "stream" : "webinar"}. It never opens
+              automatically at the scheduled time.
+            </p>
+          </div>
+          <Button
+            onClick={handleToggleRoom}
+            size="lg"
+            disabled={toggleRoom.isPending}
+            variant={roomOpen ? "outline" : "default"}
+            className={roomOpen ? "w-full" : "w-full bg-red-600 hover:bg-red-700"}
+          >
+            {toggleRoom.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <PlayCircle className="h-4 w-4 mr-2" />
+            )}
+            {roomOpen ? "Close the room" : "Open the room / Go live"}
+          </Button>
+        </div>
+        {/* Operator visibility (waiting-room review #10): DRAFT events auto-open
+            the public room for end-to-end testing — "it worked in my test" must
+            not surprise an operator at go-live on the published event. */}
+        {eventStatus === "DRAFT" && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This event is in <strong>DRAFT</strong>: the public session page{" "}
+            <strong>auto-opens the room</strong> so you can test the flow. After
+            publishing, attendees wait in the lobby until you click “Open the
+            room / Go live”.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Branding tab (owner, Oct 6, 2026): every image the attendee sees, saved on
+ * its own. The webinar page has no event banner; the logo sits left of the
+ * session title over a full-page background, and the footer image sits under
+ * the columns. The waiting-room image stays on the Setup tab beside the
+ * holding video (owner, Oct 6, 2026).
+ */
+function BrandingCard({
+  eventId,
+  webinar,
+}: {
+  eventId: string;
+  webinar: WebinarConsoleData["webinar"];
+}) {
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  const [pageLogoUrl, setPageLogoUrl] = useState(() => webinar.pageLogoUrl ?? "");
+  const [pageBackgroundUrl, setPageBackgroundUrl] = useState(() => webinar.pageBackgroundUrl ?? "");
+  const [pageFooterImageUrl, setPageFooterImageUrl] = useState(() => webinar.pageFooterImageUrl ?? "");
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ pageLogoUrl, pageBackgroundUrl, pageFooterImageUrl });
+      toast.success("Branding saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save branding");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <ConsoleTitle icon={Palette} tone="violet">
+          Attendee page branding
+        </ConsoleTitle>
+        <CardDescription>
+          Applies to the attendee page and the waiting room. The event banner is not shown on webinar pages.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <BrandingImageField
+          eventId={eventId}
+          label="Logo (left of the session title)"
+          value={pageLogoUrl}
+          onChange={setPageLogoUrl}
+          hint="Transparent PNG works best, about 600×160px. Leave empty to show no logo."
+          previewClassName="h-20 w-auto object-contain"
+        />
+        <BrandingImageField
+          eventId={eventId}
+          label="Page background"
+          value={pageBackgroundUrl}
+          onChange={setPageBackgroundUrl}
+          hint="Covers the whole page behind the content. About 1920×1080px, under 2 MB. Leave empty for a plain background."
+          previewClassName="w-full h-40 object-cover"
+        />
+        <BrandingImageField
+          eventId={eventId}
+          label="Footer image"
+          value={pageFooterImageUrl}
+          onChange={setPageFooterImageUrl}
+          hint="Shown under the video, panelists and Q&A at its own width (centred, shrunk only on smaller screens), e.g. a sponsor strip."
+          previewClassName="w-full h-24 object-contain"
+        />
+        <div className="flex justify-end border-t pt-4">
+          <Button onClick={handleSave} disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save branding
           </Button>
         </div>
       </CardContent>

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: Webinar Console layout; new webinars start in Custom stream (October 6)
+
+- Go live is its own card at the top of the Setup tab's right rail: room
+  state, the open/close button, the overdue alert and the DRAFT note.
+- A new Branding tab holds the attendee page logo, background and footer
+  image with their own Save. The waiting room image stays on Setup, beside
+  the holding video.
+- A newly created webinar starts in Custom stream: the provisioner sets the
+  stream up in Zoom and saves the mode only when that worked (otherwise it
+  stays on the Zoom embed and logs `webinar:default-custom-stream-failed`).
+  Existing webinars and provisioner re-runs keep their mode.
+
 ### Changed: webinar attendee page layout and branding (October 6)
 
 - The webinar attendee page shows panelists on the left (322 px card,

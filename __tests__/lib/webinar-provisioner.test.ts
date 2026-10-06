@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, mockDeleteRemote, mockNotify, state } =
+const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, mockDeleteRemote, mockNotify, mockLiveStream, state } =
   vi.hoisted(() => {
     const state: { settings: Record<string, unknown> } = { settings: {} };
     return {
@@ -28,6 +28,7 @@ const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, m
       mockEnqueue: vi.fn(async (...args: unknown[]) => void args),
       mockDeleteRemote: vi.fn(async (...args: unknown[]) => (void args, true)),
       mockNotify: vi.fn(async (...args: unknown[]) => void args),
+      mockLiveStream: vi.fn(),
     };
   });
 
@@ -46,6 +47,9 @@ vi.mock("@/lib/zoom/cleanup", () => ({
 }));
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: (...a: unknown[]) => mockNotify(...a),
+}));
+vi.mock("@/lib/webinar/livestream", () => ({
+  controlWebinarLiveStream: (...a: unknown[]) => mockLiveStream(...a),
 }));
 
 import { Prisma } from "@prisma/client";
@@ -96,6 +100,7 @@ beforeEach(() => {
   mockDb.eventSession.findFirst.mockResolvedValue(null);
   mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
   mockZoom.isZoomConfigured.mockResolvedValue(false); // Zoom off ⇒ shorter happy path
+  mockLiveStream.mockResolvedValue({ ok: true, action: "sync", streamKey: "k" });
 });
 
 describe("provisionWebinar — M1 sentinel claim", () => {
@@ -381,5 +386,43 @@ describe("provisionWebinar — no-Zoom lifecycle (Aug 27, 2026)", () => {
     if (res.ok) expect(res.zoomStatus).toBe("created");
     expect(mockEnqueue).toHaveBeenCalledWith("ev1", "u1");
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+});
+
+describe("provisionWebinar — a new webinar starts in Custom stream (Oct 6, 2026)", () => {
+  function zoomOn() {
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+    mockZoom.createZoomWebinar.mockResolvedValue({ id: 123, join_url: "https://zoom.us/j/123", start_url: "https://zoom.us/s/123", password: "pc" });
+    mockDb.zoomMeeting.create.mockResolvedValue({ zoomMeetingId: "123" });
+  }
+
+  it("sets the stream up in Zoom and saves Custom stream", async () => {
+    zoomOn();
+    await provisionWebinar("ev1", { actorUserId: "u1" });
+    expect(mockLiveStream).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1", sessionId: "anchor1", action: "sync", userId: "u1" }));
+    expect(webinarSettings()?.viewingMode).toBe("hls");
+  });
+
+  it("stays on the Zoom embed when the stream set-up fails, and logs why", async () => {
+    zoomOn();
+    mockLiveStream.mockResolvedValue({ ok: false, code: "ZOOM_API_FAILED", message: "Live streaming is disabled" });
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    expect(webinarSettings()?.viewingMode).toBeUndefined();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ code: "ZOOM_API_FAILED" }), "webinar:default-custom-stream-failed");
+  });
+
+  it("no Zoom room, no stream: the mode is left unset", async () => {
+    await provisionWebinar("ev1");
+    expect(mockLiveStream).not.toHaveBeenCalled();
+    expect(webinarSettings()?.viewingMode).toBeUndefined();
+  });
+
+  it("a re-run on an existing webinar keeps its mode (an unset mode stays the Zoom embed)", async () => {
+    zoomOn();
+    state.settings = { webinar: { autoCreated: true } };
+    await provisionWebinar("ev1");
+    expect(mockLiveStream).not.toHaveBeenCalled();
+    expect(webinarSettings()?.viewingMode).toBeUndefined();
   });
 });
