@@ -27,3 +27,13 @@ CREATE POLICY surveyresponse_tenant_isolation ON "SurveyResponse"
   FOR ALL TO PUBLIC
   USING ("organizationId" = current_setting('app.current_org', true))
   WITH CHECK ("organizationId" = current_setting('app.current_org', true));
+
+-- Survey (Oct 6, 2026; docs/MULTI_SURVEY_PLAN.md): an event's surveys, now a
+-- table of their own. Carries organizationId stamped from the event (backfilled
+-- 1-hop by migration 20261006120000), so the same flat predicate applies.
+ALTER TABLE "Survey" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS survey_tenant_isolation ON "Survey";
+CREATE POLICY survey_tenant_isolation ON "Survey"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));

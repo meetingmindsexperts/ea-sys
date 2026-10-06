@@ -127,6 +127,8 @@ import {
   RSVP_RESPONSE_B_ID,
   SURVEY_RESPONSE_A_ID,
   SURVEY_RESPONSE_B_ID,
+  SURVEY_A_ID,
+  SURVEY_B_ID,
   REIMB_A_ID,
   REIMB_B_ID,
   REIMB_A_TOKEN,
@@ -309,6 +311,7 @@ async function seedOrg(
   // shared event. Born with organizationId; cascades from Event/Registration.
   // Runs after the invoicing block (needs the registration).
   survey?: {
+    surveyId: string;
     responseId: string;
     eventId: string;
     registrationId: string;
@@ -836,10 +839,22 @@ async function seedOrg(
     });
   }
   if (survey) {
+    await db.survey.create({
+      data: {
+        id: survey.surveyId,
+        eventId: survey.eventId,
+        organizationId: orgId,
+        name: "Post-event survey",
+        config: [{ id: "q1", type: "rating_1_to_5", label: "Overall", required: true }],
+        gatesCertificates: true,
+      },
+    });
     await db.surveyResponse.create({
       data: {
         id: survey.responseId,
         eventId: survey.eventId,
+        surveyId: survey.surveyId,
+        dedupKey: survey.registrationId,
         registrationId: survey.registrationId,
         organizationId: orgId,
         answers: { q1: 5, q2: "Great event" },
@@ -1355,6 +1370,7 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
     },
     {
+      surveyId: SURVEY_A_ID,
       responseId: SURVEY_RESPONSE_A_ID,
       eventId: EVENT_A_SHARED_ID,
       registrationId: REG_A_ID,
@@ -1511,6 +1527,7 @@ async function main() {
       eventId: EVENT_B_SHARED_ID,
     },
     {
+      surveyId: SURVEY_B_ID,
       responseId: SURVEY_RESPONSE_B_ID,
       eventId: EVENT_B_SHARED_ID,
       registrationId: REG_B_ID,

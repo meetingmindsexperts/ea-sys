@@ -364,6 +364,11 @@ steps 4 and 5 are the webinar survey. Nothing changes for attendees until step 3
   any old client keep working during the blue/green swap.
 - Clone copies surveys (never responses or tokens); media references read
   `Survey.introHtml` / `thankYouHtml`; Setup hub status counts surveys.
+- **Catch-up in step 2's migration** (review of step 1): re-run the step 1 copy
+  as `ON CONFLICT ("id") DO UPDATE SET config, introHtml, thankYouHtml,
+  updatedAt` (same "real question list" filter), so a survey built OR edited on
+  the old screens between the two deploys is current, then re-run the response
+  link (`surveyId IS NULL`), which catches responses submitted in between.
 - Tests: the §8 list, items 1, 2, 5; service tests for O2.
 
 ### Step 3: links and sending per survey
@@ -372,8 +377,9 @@ steps 4 and 5 are the webinar survey. Nothing changes for attendees until step 3
   resolves to the certificate survey (logs `survey:legacy-token`).
 - Public route resolves the survey from the token, adds the `isActive` gate
   ("This survey is closed"), submits through `submitSurveyResponse()`.
-- Drop `registrationId @unique`, add `@@unique([surveyId, dedupKey])` (the
-  accepted swap gap in §7 applies).
+- Drop `registrationId @unique`, add `@@unique([surveyId, dedupKey])` and
+  `@@index([registrationId])` in the same migration (step 1 left the index out
+  because the unique already covers it; the accepted swap gap in §7 applies).
 - Survey Invitation send: a survey picker riding as `filters.surveyId` (queued
   sends without one go to the certificate survey), `{{surveyName}}`, precheck on
   the chosen survey at both enqueue doors and at fire time.

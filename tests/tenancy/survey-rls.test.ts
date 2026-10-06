@@ -27,6 +27,8 @@ import {
   REG_B_ID,
   SURVEY_RESPONSE_A_ID,
   SURVEY_RESPONSE_B_ID,
+  SURVEY_A_ID,
+  SURVEY_B_ID,
 } from "./constants";
 
 beforeAll(() => {
@@ -69,6 +71,32 @@ describe("Survey RLS (prisma/rls/survey.sql) via the SET LOCAL extension", () =>
       db.surveyResponse.findMany({ where: { eventId: EVENT_B_SHARED_ID }, select: { id: true } }),
     );
     expect(rows).toHaveLength(0);
+  });
+
+  it("Survey is lane-scoped: per-lane count, own read, B's survey invisible under A (Oct 6, 2026)", async () => {
+    expect(await runWithTenant(ORG_A_ID, () => db.survey.count())).toBe(1);
+    expect(await runWithTenant(ORG_B_ID, () => db.survey.count())).toBe(1);
+    const own = await runWithTenant(ORG_A_ID, () =>
+      db.survey.findUnique({ where: { id: SURVEY_A_ID }, select: { organizationId: true } }),
+    );
+    expect(own?.organizationId).toBe(ORG_A_ID);
+    const leaked = await runWithTenant(ORG_A_ID, () =>
+      db.survey.findUnique({ where: { id: SURVEY_B_ID }, select: { id: true } }),
+    );
+    expect(leaked).toBeNull();
+    const byEvent = await runWithTenant(ORG_A_ID, () =>
+      db.survey.findMany({ where: { eventId: EVENT_B_SHARED_ID }, select: { id: true } }),
+    );
+    expect(byEvent).toHaveLength(0);
+    expect(await db.survey.findMany({ select: { id: true } })).toHaveLength(0);
+  });
+
+  it("Survey org re-homing is blocked (WITH CHECK)", async () => {
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.survey.update({ where: { id: SURVEY_A_ID }, data: { organizationId: ORG_B_ID } }),
+      ),
+    ).rejects.toThrow(/row-level security|denied/i);
   });
 
   it("fail-closed: flag on but NO tenant store → zero rows", async () => {

@@ -296,6 +296,9 @@ export const RSVP_RESPONSE_B_ID = "tenancy-rresp-b";
  */
 export const SURVEY_RESPONSE_A_ID = "tenancy-srsp-a";
 export const SURVEY_RESPONSE_B_ID = "tenancy-srsp-b";
+/** One Survey per org on the shared event slug, holding that org's response. */
+export const SURVEY_A_ID = "tenancy-svy-a";
+export const SURVEY_B_ID = "tenancy-svy-b";
 
 /**
  * Reimbursement sweep (Domain #17). One SpeakerReimbursement per org on the

@@ -354,9 +354,56 @@ enum EventType {
 // it; ATTENDANCE certs typically don't). See
 // docs/SURVEYS.md (when added) for the full operator workflow.
 
+/// How often one registration may answer a survey (docs/MULTI_SURVEY_PLAN.md
+/// §5). Only ONCE exists so far; ONCE_PER_SESSION and REPEATABLE are added in
+/// the phase that builds them.
+enum SurveyResponseMode {
+  ONCE
+}
+
+/// One survey of an event (Oct 6, 2026; docs/MULTI_SURVEY_PLAN.md). An event
+/// can run several; at most one is the certificate survey (gatesCertificates),
+/// enforced in the write path, and only that one stamps
+/// Registration.surveyCompletedAt, which mints CME certificates.
+///
+/// Step 1 of the build: rows are a COPY of Event.surveyConfig / surveyIntroHtml
+/// / surveyThankYouHtml (one per event that had a survey, as its certificate
+/// survey). Nothing reads this table yet; the Event columns stay authoritative
+/// until step 2 switches the readers.
+model Survey {
+  id                String             @id @default(cuid())
+  eventId           String
+  /// Denormalized tenant key, stamped from the event (as SurveyResponse).
+  organizationId    String?
+  name              String
+  /// The question array, today's Event.surveyConfig shape (src/lib/survey/schema.ts).
+  config            Json
+  introHtml         String?            @db.Text
+  thankYouHtml      String?            @db.Text
+  /// A closed survey's link says so instead of showing the form.
+  isActive          Boolean            @default(true)
+  sortOrder         Int                @default(0)
+  gatesCertificates Boolean            @default(false)
+  responseMode      SurveyResponseMode @default(ONCE)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses SurveyResponse[]
+
+  @@index([eventId, sortOrder])
+  @@index([organizationId])
+}
+
 model SurveyResponse {
   id             String   @id @default(cuid())
   eventId        String
+  /// The survey answered (Oct 6, 2026). Nullable through the build: rows
+  /// written by a container on the old code carry none until the backfill.
+  surveyId       String?
+  /// The duplicate gate per survey: registrationId for ONCE. Replaces the
+  /// global registrationId unique in step 3 (@@unique([surveyId, dedupKey])).
+  dedupKey       String?
   /// Multi-tenancy Phase-2 (Domain #16, Aug 3 2026): denormalized tenant key
   /// (nullable, no FK), backfilled 1-hop from Event; the public submit stamps
   /// it from the registration's event. Backs the flat RLS policy in
@@ -381,9 +428,15 @@ model SurveyResponse {
 
   event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  /// NoAction (owner, Oct 6, 2026): a survey that has answers cannot be
+  /// deleted (close it instead), so the evidence behind certificates survives.
+  /// Checked at the end of the statement, so deleting the EVENT still removes
+  /// both (its cascade reaches the responses in the same statement).
+  survey       Survey?      @relation(fields: [surveyId], references: [id], onDelete: NoAction)
 
   @@index([eventId, submittedAt])
   @@index([organizationId])
+  @@index([surveyId])
 }
 
 // ── RSVP (customizable) ────────────────────────────────────────────
