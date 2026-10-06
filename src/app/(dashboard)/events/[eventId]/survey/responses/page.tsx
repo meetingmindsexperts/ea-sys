@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useCan } from "@/hooks/use-can";
 import {
   ArrowLeft,
@@ -53,7 +52,7 @@ import type {
   SurveyConfig,
 } from "@/lib/survey/schema";
 import type { QuestionAggregate } from "@/lib/survey/aggregate";
-import { ResetSurveyDialog, canResetSurvey } from "@/components/survey/reset-survey-dialog";
+import { ResetSurveyDialog } from "@/components/survey/reset-survey-dialog";
 
 interface ResponsesPayload {
   event: { id: string; name: string };
@@ -91,8 +90,7 @@ export default function SurveyResponsesPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { data: session } = useSession();
-  const canReset = canResetSurvey(session?.user?.role);
+  const canReset = useCan("surveys.reset", eventId) === "allowed";
   const canEditSurvey = useCan("surveys.manage", eventId) === "allowed";
   const [resetTarget, setResetTarget] = useState<{ registrationId: string; name: string } | null>(null);
 

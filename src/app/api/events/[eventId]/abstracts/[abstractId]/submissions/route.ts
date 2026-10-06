@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -10,7 +11,6 @@ import {
   submitAbstractReview,
   type SubmitAbstractReviewErrorCode,
 } from "@/services/abstract-service";
-import { canWrite } from "@/lib/can-write";
 import { requirePermission } from "@/lib/permissions/require-permission";
 
 /**
@@ -94,7 +94,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
     const isOrgMember = event.organizationId === session.user.organizationId;
-    const isOrgStaff = isOrgMember && canWrite(session.user.role);
+    // Who-said-what is for the people who decide (abstracts.decide).
+    const isOrgStaff = isOrgMember && can(gate.principal, "abstracts.decide");
     const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
     if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

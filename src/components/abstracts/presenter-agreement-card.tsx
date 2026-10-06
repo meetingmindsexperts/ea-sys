@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, FileSignature, CheckCircle2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 
 /**
  * Sidebar card on the abstract edit page for the Presenter Agreement (the
@@ -29,11 +28,12 @@ export function PresenterAgreementCard({
   authorEmail: string;
   acceptedAt: string | null;
 }) {
-  const { data: session } = useSession();
+  // The send route's key (abstracts.email).
+  const allowed = useCan("abstracts.email", eventId) === "allowed";
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState<string | null>(null);
 
-  if (!canWrite(session?.user?.role)) return null;
+  if (!allowed) return null;
 
   const send = async () => {
     if (sending) return;

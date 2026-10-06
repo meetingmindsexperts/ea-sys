@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { can } from "@/lib/permissions/can";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -29,7 +30,6 @@ import {
   isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
   isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
 } from "@/lib/abstract-theme-requirement";
-import { canWrite } from "@/lib/can-write";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -212,7 +212,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    const isAdmin = canWrite(session.user.role);
+    // Staff who may set any status: holders of abstracts.update (a reviewer or
+    // submitter reaches this route through their own pool, with no grant).
+    const isAdmin = can(gate.principal, "abstracts.update");
     const isReviewer = session.user.role === "REVIEWER";
     const canReview = isAdmin || isReviewer;
     const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];

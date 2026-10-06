@@ -10,7 +10,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
-import { canWrite } from "@/lib/can-write";
+import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 
 export type Asker =
@@ -23,7 +23,7 @@ export async function resolveAsker(
   user: { role?: string | null; organizationId?: string | null; firstName?: string | null; lastName?: string | null },
   eventOrgId: string,
 ): Promise<Asker | null> {
-  if (canWrite(user.role) && user.organizationId === eventOrgId) {
+  if (isEventOrgStaff(user, eventOrgId)) {
     return { kind: "staff", name: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Staff" };
   }
   const registration = await db.registration.findFirst({

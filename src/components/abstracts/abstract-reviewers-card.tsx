@@ -17,7 +17,6 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { AlertTriangle, Check, Loader2, UserPlus, X } from "lucide-react";
 import {
   Card,
@@ -45,7 +44,7 @@ import {
   type AbstractReviewerRow,
 } from "@/hooks/use-api";
 import { ABSTRACT_REVIEWER_ROLE_OPTIONS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 
 interface PoolReviewer {
   userId: string | null;
@@ -68,11 +67,8 @@ export function AbstractReviewersCard({
   eventId: string;
   abstractId: string;
 }) {
-  const { data: session } = useSession();
-  // `canWrite` is WRITE_ROLES, the same list `denyReviewer` admits on
-  // `GET|POST|DELETE .../abstracts/[abstractId]/reviewers`, so the card and the
-  // route cannot drift apart (they were two copies until Sep 30, 2026).
-  const isAdmin = canWrite(session?.user?.role);
+  // The reviewers route's own key, so the card and the route cannot drift.
+  const isAdmin = useCan("abstracts.reviewers.assign", eventId) === "allowed";
 
   // Gated on the role, not just on the ids: this card renders inside the
   // abstract edit page, which submitters and reviewers legitimately open, and

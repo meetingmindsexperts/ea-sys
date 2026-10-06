@@ -46,10 +46,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
 import { signOutCallbackUrl } from "@/lib/sign-out-target";
-import { isTeamRole } from "@/lib/team-roles";
+import { isTeamRole, receivesEventNotifications } from "@/lib/team-roles";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import { canWrite } from "@/lib/can-write";
 
 // ── Role metadata ─────────────────────────────────────────────────────────────
 
@@ -324,7 +323,7 @@ export function Header() {
 
       {/* ── Right: Notifications + Profile ────────────────────────────────── */}
       <div className="flex items-center gap-4">
-        {canWrite(role) && (
+        {receivesEventNotifications(role) && (
           <NotificationBell />
         )}
 

@@ -23,12 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { canWrite } from "@/lib/can-write";
 
-/** Same population the route allows (denyReviewer with no allow-list). */
-export function canResetSurvey(role: string | null | undefined): boolean {
-  return canWrite(role);
-}
+
 
 interface HeldCertificate {
   serial: string;

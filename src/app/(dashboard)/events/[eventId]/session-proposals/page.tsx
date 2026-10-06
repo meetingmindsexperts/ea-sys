@@ -26,7 +26,7 @@ import {
   useUpdateSessionProposalTheme,
   useDeleteSessionProposalTheme,
 } from "@/hooks/use-api";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 import { formatPersonName } from "@/lib/utils";
 import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { SESSION_TYPE_LABELS } from "@/lib/session-enums";
@@ -127,7 +127,7 @@ export default function SessionProposalsPage() {
   useSubmitterSurfaceGuard(eventId, "session-proposals");
   const { data: session } = useSession();
   const isSubmitter = session?.user?.role === "SUBMITTER";
-  const canManage = canWrite(session?.user?.role);
+  const canManage = useCan("proposals.decide", eventId) === "allowed";
 
   const { data: proposals = [], isLoading, isError } = useSessionProposals(eventId);
   const { data: eventData } = useEvent(eventId);

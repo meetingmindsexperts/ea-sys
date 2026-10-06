@@ -3,7 +3,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
 import { WEBINAR_EMAIL_TYPES, executeBulkEmail } from "@/lib/bulk-email";
-import { WRITE_ROLES } from "@/lib/team-roles";
+import { NOTIFIED_ROLES } from "@/lib/team-roles";
 
 // Minimum lead time before a phase fires. A "reminder-24h" scheduled for 5 min
 // from now is useless, so if we're too close to an anchor time we skip that phase.
@@ -62,7 +62,7 @@ async function resolveSequenceActor(
   const fallback = await client.user.findFirst({
     where: {
       organizationId,
-      role: { in: [...WRITE_ROLES] },
+      role: { in: [...NOTIFIED_ROLES] },
     },
     select: { id: true },
     orderBy: { createdAt: "asc" },

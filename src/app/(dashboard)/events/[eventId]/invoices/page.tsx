@@ -4,7 +4,6 @@ import { useCan } from "@/hooks/use-can";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +33,6 @@ import {
   useResendInvoice,
   type InvoiceListItem,
 } from "@/hooks/use-api";
-import { canWrite } from "@/lib/can-write";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 
 const INVOICE_TYPE_LABELS: Record<string, string> = {
@@ -105,10 +103,8 @@ async function openPdf(url: string) {
 export default function EventInvoicesPage() {
   const params = useParams();
   const eventId = params.eventId as string;
-  const { data: session } = useSession();
-  const role = session?.user?.role;
   const canFinance = useCan("finance.view") === "allowed";
-  const canWriteFinance = canWrite(role);
+  const canWriteFinance = useCan("invoices.write", eventId) === "allowed";
 
   const { data: event } = useEvent(eventId);
   const { data: invoices = [], isLoading: invoicesLoading } = useInvoices(eventId);

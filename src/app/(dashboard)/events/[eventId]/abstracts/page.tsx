@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { SubmitterProfileNudge } from "@/components/abstracts/submitter-profile-nudge";
 import { useSession } from "next-auth/react";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -147,7 +147,7 @@ export default function AbstractsPage() {
   // denyReviewer for MEMBER/ONSITE/etc. The previous `!isSubmitter && !isReviewer`
   // gate still showed those buttons to the read-only MEMBER, who then got a 403
   // on click. Gate on the actual write boundary instead.
-  const canManage    = canWrite(session?.user?.role);
+  const canManage    = useCan("abstracts.update", eventId) === "allowed";
 
   const [copied, setCopied] = useState(false);
 

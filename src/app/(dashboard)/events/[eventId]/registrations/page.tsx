@@ -93,7 +93,6 @@ import {
 } from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { DtcmPoolCard } from "./dtcm-pool-card";
-import { canWrite } from "@/lib/can-write";
 import { paidCardNote, summarizePaymentStatuses } from "@/lib/registration-payment-stats";
 
 /**
@@ -189,6 +188,7 @@ export default function RegistrationsPage() {
   const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
   // Webinars works the desk on a conference without its types or sponsors.
   const canReadTickets = useCan("tickets.read", eventId) === "allowed";
+  const canShareViews = useCan("registrations.share", eventId) === "allowed";
   const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
   const ticketsQuery = useTickets(eventId, canReadTickets);
   const { data: ticketTypes = [] } = ticketsQuery;
@@ -511,8 +511,8 @@ export default function RegistrationsPage() {
             </Button>
           )}
           {/* Shared views: named read-only lists for staff (docs/REGISTRATION_SHARE_PLAN.md).
-              The server gate is denyReviewer's write roles, so the button follows canWrite. */}
-          {canWrite(roleName) && (
+              The button follows the route's key (registrations.share). */}
+          {canShareViews && (
             <>
               <Button variant="outline" size="sm" onClick={() => setViewsOpen(true)}>
                 <Eye className="mr-2 h-4 w-4" />

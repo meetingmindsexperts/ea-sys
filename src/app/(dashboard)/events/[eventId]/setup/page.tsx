@@ -50,7 +50,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { canWrite } from "@/lib/can-write";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -298,7 +297,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
   const visibleCards = [
     ...SETUP_CARDS,
     ...(canFinance ? [INVOICES_CARD] : []),
-    ...(canWrite(session.user.role) ? [EXPORT_CARD] : []),
+    ...(can(principalFromSession(session), "events.export") ? [EXPORT_CARD] : []),
   ];
 
   // Compute per-card statuses. Each is intentionally cheap — boolean

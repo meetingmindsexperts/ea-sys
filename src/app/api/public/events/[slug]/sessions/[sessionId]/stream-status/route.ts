@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canWrite } from "@/lib/can-write";
+import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 import { can, principalFromUser } from "@/lib/permissions/can";
 import { isStreamArriving } from "@/lib/webinar/stream-probe";
 
@@ -28,7 +28,7 @@ async function isAuthorizedViewer(
 ): Promise<boolean> {
   if (!user) return false;
   const sameOrg = user.organizationId === event.organizationId;
-  if (canWrite(user.role) && sameOrg) return true;
+  if (isEventOrgStaff(user, event.organizationId)) return true;
   // The Zoom host roles that are not general writers (WEBINARS, the producer
   // role) get the URLs for the console's stream preview, but only on WEBINAR
   // events: that role's host control stops at webinars, and the URL carries

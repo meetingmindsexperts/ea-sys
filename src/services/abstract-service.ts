@@ -23,6 +23,7 @@
  * inputs, caller identity via `source`).
  */
 
+import { can, principalFromUser } from "@/lib/permissions/can";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -34,7 +35,6 @@ import {
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
-import { canWrite } from "@/lib/can-write";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -486,7 +486,8 @@ export async function submitAbstractReview(
     const selfSubmitAdminBypass =
       !onBehalf &&
       !!actor.role &&
-      canWrite(actor.role) &&
+      // An admin scoring their own review: whoever decides abstracts.
+      can(principalFromUser({ id: actor.userId, role: actor.role, organizationId: actor.organizationId }), "abstracts.decide") &&
       !!actor.organizationId &&
       actor.organizationId === event.organizationId;
     if (!isPoolReviewer && !assignment && !selfSubmitAdminBypass) {

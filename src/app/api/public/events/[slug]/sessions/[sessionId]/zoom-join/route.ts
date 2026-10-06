@@ -6,7 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
-import { canWrite } from "@/lib/can-write";
+import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -56,9 +56,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
     // Authorization: either the user is org staff (for QA / host testing)
     // or they have a non-cancelled Registration for this event.
-    const isOrgStaff =
-      canWrite(authSession.user.role) &&
-      authSession.user.organizationId === event.organizationId;
+    const isOrgStaff = isEventOrgStaff(authSession.user, event.organizationId);
 
     let attendeeName = "";
     let attendeeEmail = "";

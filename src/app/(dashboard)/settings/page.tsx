@@ -102,7 +102,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isOrgAdmin } from "@/lib/team-roles";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 
 interface Organization {
   id: string;
@@ -221,11 +221,10 @@ export default function SettingsPage() {
   const tabListRef = useRef<HTMLDivElement>(null);
   const isAdmin = isOrgAdmin(session?.user?.role);
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
-  // Organizers can see Onsite Staff (view + event assignment) and Billing
-  // (payer book + read-only org billing details) — matches the API layer,
-  // where denyReviewer/denyFinance already admit ORGANIZER. Account
-  // create/delete and org-settings writes stay ADMIN-only.
-  const isOrganizerOrAbove = canWrite(session?.user?.role);
+  // Onsite Staff and Billing follow their routes' keys (Organizers hold both;
+  // Billing's org details stay read-only below Admin).
+  const canManageOnsiteStaff = useCan("events.staff.assign") === "allowed";
+  const canManageBilling = useCan("billingAccounts.manage") === "allowed";
 
   useEffect(() => {
     fetchOrganization();
@@ -666,13 +665,13 @@ export default function SettingsPage() {
               Approvals
             </TabsTrigger>
           )}
-          {isOrganizerOrAbove && (
+          {canManageOnsiteStaff && (
             <TabsTrigger value="onsite" className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
               Onsite Staff
             </TabsTrigger>
           )}
-          {isOrganizerOrAbove && (
+          {canManageBilling && (
             <TabsTrigger value="billing" className="flex items-center gap-2">
               <Receipt className="h-4 w-4" />
               Billing
@@ -1356,14 +1355,14 @@ export default function SettingsPage() {
         )}
 
         {/* Onsite / Temp Staff (per-event registration-desk staff) */}
-        {isOrganizerOrAbove && (
+        {canManageOnsiteStaff && (
           <TabsContent value="onsite">
             <OnsiteStaffCard />
           </TabsContent>
         )}
 
         {/* Billing & Invoicing */}
-        {isOrganizerOrAbove && (
+        {canManageBilling && (
           <TabsContent value="billing" className="space-y-6">
             <BillingSettingsCard readOnly={!isAdmin} />
             <BillingAccountsCard />

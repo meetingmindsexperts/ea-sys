@@ -43,6 +43,19 @@ export function isTeamRole(role: string | null | undefined): boolean {
  */
 export const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 
+/**
+ * Who RECEIVES the organisation's event notifications (the bell) and who an
+ * automated webinar email is attributed to. A list of people, not an access
+ * rule: permissions decide what someone may do (custom roles Phase 6, Oct 6,
+ * 2026), and this only names who is told. The three event-running roles.
+ */
+export const NOTIFIED_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
+
+/** Does this role get the notification bell? */
+export function receivesEventNotifications(role: string | null | undefined): boolean {
+  return !!role && (NOTIFIED_ROLES as readonly string[]).includes(role);
+}
+
 /** Organisation administrators: users, API keys, integrations, org settings, infrastructure. */
 export const ORG_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
 

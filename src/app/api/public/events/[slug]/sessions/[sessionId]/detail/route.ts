@@ -8,7 +8,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readWebinarPageBranding, readWebinarSettings } from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
-import { canWrite } from "@/lib/can-write";
+import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -76,10 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // An unpublished event's program is not public. Org staff may preview it
     // (this is the organizer end-to-end testing path); everyone else gets the
     // same 404 as a nonexistent event — no existence leak.
-    const isOrgStaff =
-      !!authSession?.user &&
-      canWrite(authSession.user.role) &&
-      authSession.user.organizationId === event.organizationId;
+    const isOrgStaff = isEventOrgStaff(authSession?.user, event.organizationId);
 
     if (event.status === "DRAFT" && !isOrgStaff) {
       apiLogger.warn(

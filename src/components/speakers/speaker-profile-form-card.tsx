@@ -14,7 +14,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import { Check, Copy, Eye, IdCard, Loader2, RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +30,7 @@ import {
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { toast } from "sonner";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 
 interface Props {
   eventId: string;
@@ -47,8 +46,7 @@ interface FormRow {
 }
 
 export function SpeakerProfileFormCard({ eventId, speakerId }: Props) {
-  const { data: session } = useSession();
-  const allowed = canWrite(session?.user?.role);
+  const allowed = useCan("speakers.documents.write", eventId) === "allowed";
 
   const [form, setForm] = useState<FormRow | null>(null);
   const [loading, setLoading] = useState(true);

@@ -10,12 +10,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { canWrite } from "@/lib/can-write";
+import { useCan } from "@/hooks/use-can";
 import { downloadExport } from "@/lib/export-download";
 import { useEvent } from "@/hooks/use-api";
 
@@ -28,10 +27,9 @@ const GROUPS: { title: string; items: string[] }[] = [
 
 export default function ExportDataPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { data: session } = useSession();
   const { data: event } = useEvent(eventId);
   const [busy, setBusy] = useState(false);
-  const allowed = canWrite(session?.user?.role);
+  const allowed = useCan("events.export", eventId) === "allowed";
   const slug = (event as { slug?: string } | undefined)?.slug ?? "event";
 
   const run = async () => {

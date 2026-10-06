@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { canWrite } from "@/lib/can-write";
+import { canEverywhere, principalFromUser } from "@/lib/permissions/can";
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -100,7 +100,8 @@ export default function RegisterOverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
-  const isAuthorized = canWrite(session?.user?.role);
+  // Staff preview of a draft event: whoever may edit every event (was canWrite).
+  const isAuthorized = !!session?.user && canEverywhere(principalFromUser(session.user), "events.update");
 
   useEffect(() => {
     async function fetchEvent() {

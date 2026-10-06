@@ -93,7 +93,7 @@ import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-regi
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
-import { ResetSurveyDialog, canResetSurvey } from "@/components/survey/reset-survey-dialog";
+import { ResetSurveyDialog } from "@/components/survey/reset-survey-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import { RecordPaymentDialog } from "@/components/payments/record-payment-dialog";
@@ -196,6 +196,7 @@ export function RegistrationDetailSheet({
   // barcodes has its payload redacted, so every row looks code-less and the
   // button would otherwise be offered on all of them.
   const canSeeBarcodes = useCan("barcode.view") === "allowed";
+  const canResetSurveyHere = useCan("surveys.reset", eventId) === "allowed";
   // ONSITE + MEMBER are registration-desk operators: they can edit, check in,
   // record payment, and print badges — but NOT delete or email a registration
   // (those stay admin/organizer; the API enforces it too).
@@ -3282,7 +3283,7 @@ export function RegistrationDetailSheet({
                     </div>
                     {/* Admins and organizers can clear a submitted survey so the
                         person can answer again (the route enforces the same). */}
-                    {selectedRegistration.surveyCompletedAt && canResetSurvey(userSession?.user?.role) && (
+                    {selectedRegistration.surveyCompletedAt && canResetSurveyHere && (
                       <Button
                         size="sm"
                         variant="outline"

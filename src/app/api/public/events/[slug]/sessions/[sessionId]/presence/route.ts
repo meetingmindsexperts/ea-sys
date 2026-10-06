@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { canWrite } from "@/lib/can-write";
+import { isEventOrgStaff } from "@/lib/permissions/org-staff";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -66,9 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
     // Org staff (host/QA testing) have no registration → don't pollute the
     // live roster or set webinarFirstJoinedAt.
-    const isOrgStaff =
-      canWrite(authSession.user.role) &&
-      authSession.user.organizationId === event.organizationId;
+    const isOrgStaff = isEventOrgStaff(authSession.user, event.organizationId);
     if (isOrgStaff) {
       return NextResponse.json({ ok: true, tracked: false });
     }
