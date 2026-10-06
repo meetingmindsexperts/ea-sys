@@ -30,6 +30,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       req.json().catch(() => ({})),
     ]);
     if (!authSession?.user) {
+      apiLogger.warn({ slug, sessionId }, "webinar-question:ask-unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
 
@@ -104,6 +105,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [authSession, { slug, sessionId }] = await Promise.all([auth(), params]);
     if (!authSession?.user) {
+      apiLogger.warn({ slug, sessionId }, "webinar-question:list-unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
     const event = await loadContext(req, slug, sessionId);
@@ -142,7 +144,11 @@ export async function GET(req: Request, { params }: RouteParams) {
           ? await Promise.all([
               db.webinarQuestionVote.groupBy({
                 by: ["questionId"],
-                where: { questionId: { in: shownIds }, eventId: event.id },
+                // No eventId filter: the ids come from the event- and
+                // session-bound query above, and questionId alone lets
+                // Postgres count from the unique index (review: at ~1,000
+                // viewers polling, the extra column forced a table read per vote).
+                where: { questionId: { in: shownIds } },
                 _count: { _all: true },
               }),
               asker.kind === "attendee"

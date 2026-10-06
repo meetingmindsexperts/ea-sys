@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, MessageSquare, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,9 +49,13 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
   const [canVote, setCanVote] = useState(false);
   const [upvote, setUpvote] = useState(false);
   const [voting, setVoting] = useState<string | null>(null);
+  // Bumped on every vote: a refresh that started before the latest vote is
+  // dropped, so a slow poll cannot put an old count back on screen.
+  const voteVersion = useRef(0);
   const base = `/api/public/events/${slug}/sessions/${sessionId}/questions`;
 
   const load = useCallback(async () => {
+    const startedAt = voteVersion.current;
     try {
       const res = await fetch(base);
       if (!res.ok) return;
@@ -61,6 +65,7 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         upvote?: boolean;
         canVote?: boolean;
       };
+      if (startedAt !== voteVersion.current) return;
       setMine(data.questions);
       setPublished(data.published ?? []);
       setUpvote(Boolean(data.upvote));
@@ -108,6 +113,7 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
   };
 
   const vote = async (id: string) => {
+    voteVersion.current += 1;
     setVoting(id);
     setError(null);
     try {
@@ -118,6 +124,7 @@ export function AskQuestionBox({ slug, sessionId }: { slug: string; sessionId: s
         setError(data.error || "Your vote could not be recorded. Please try again.");
         return;
       }
+      voteVersion.current += 1;
       setPublished((prev) =>
         prev.map((q) => (q.id === id ? { ...q, votedByMe: Boolean(data.voted), voteCount: data.voteCount ?? q.voteCount } : q)),
       );

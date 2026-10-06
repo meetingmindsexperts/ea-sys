@@ -2265,6 +2265,9 @@ function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: bo
   const { data, isLoading, isError } = useWebinarViewerQuestions(eventId, true);
   const update = useUpdateWebinarViewerQuestion(eventId);
   const updateSettings = useUpdateWebinarSettings(eventId);
+  // The upvote switch is a settings write: shown only to producers, so a
+  // read-only viewer never flips it into a 403 (review of upvotes).
+  const canManage = useCan("webinar.manage", eventId) === "allowed";
   const [filter, setFilter] = useState<ViewerQuestionFilter>("NEW");
   const [byVotes, setByVotes] = useState(false);
   const questions = data?.questions ?? [];
@@ -2302,6 +2305,7 @@ function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: bo
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {canManage && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
           <label htmlFor="qa-upvote" className="space-y-0.5">
             <span className="block text-sm font-medium">Let attendees upvote shown questions</span>
@@ -2316,6 +2320,7 @@ function ViewerQuestionsPanel({ eventId, upvote }: { eventId: string; upvote: bo
             onCheckedChange={(next) => void toggleUpvote(next)}
           />
         </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter questions">
           {VIEWER_QUESTION_FILTERS.map((f) => {

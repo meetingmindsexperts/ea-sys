@@ -22,6 +22,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [authSession, { slug, sessionId, questionId }] = await Promise.all([auth(), params]);
     if (!authSession?.user) {
+      apiLogger.warn({ slug, sessionId, questionId }, "webinar-question-vote:unauthenticated");
       return NextResponse.json({ error: "Sign in required", code: "UNAUTHENTICATED" }, { status: 401 });
     }
     const { allowed, retryAfterSeconds } = checkRateLimit({

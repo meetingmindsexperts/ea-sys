@@ -22,7 +22,8 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
-vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: mockWarn, error: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ runWithTenant: (_o: unknown, fn: () => unknown) => fn() }));
 vi.mock("@/lib/public-event", () => ({ publicEventWhere: vi.fn(async () => ({})) }));
 vi.mock("@/lib/security", () => ({
@@ -148,7 +149,8 @@ describe("producer: list and mark", () => {
     expect(res.status).toBe(200);
     expect(mockDb.webinarViewerQuestion.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1", sessionId: "s1" });
     expect((await res.json()).questions).toEqual([{ id: "q1", voteCount: 0 }, { id: "q2", voteCount: 3 }]);
-    expect(mockDb.webinarQuestionVote.groupBy.mock.calls[0][0].where).toEqual({ eventId: "ev1", questionId: { in: ["q1", "q2"] } });
+    // questionId only, so the count is answered from the unique index (review MED-1).
+    expect(mockDb.webinarQuestionVote.groupBy.mock.calls[0][0].where).toEqual({ questionId: { in: ["q1", "q2"] } });
   });
 
   it("marks a question answered, bound to the event", async () => {
@@ -197,9 +199,10 @@ describe("public: upvote a shown question (Oct 6, 2026)", () => {
     mockDb.registration.findFirst.mockResolvedValue({ id: "r1", attendee: { firstName: "D", lastName: "L" } });
   };
 
-  it("401 when signed out", async () => {
+  it("401 when signed out, and the refusal is logged", async () => {
     mockAuth.mockResolvedValue(null);
     expect((await post()).status).toBe(401);
+    expect(mockWarn).toHaveBeenCalledWith(expect.objectContaining({ questionId: "q2" }), "webinar-question-vote:unauthenticated");
   });
 
   it("records one vote for the registration, stamped with the event's org", async () => {

@@ -68,7 +68,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       const counts = questions.length
         ? await db.webinarQuestionVote.groupBy({
             by: ["questionId"],
-            where: { eventId: ctx.eventId, questionId: { in: questions.map((q) => q.id) } },
+            // questionId only: the ids are already bound to this event's
+            // session, and the count then comes from the index alone.
+            where: { questionId: { in: questions.map((q) => q.id) } },
             _count: { _all: true },
           })
         : [];
