@@ -1,6 +1,10 @@
 # Several surveys per event, one of them the certificate survey
 
-**Status: PLANNED, NOT BUILT.** Revived September 17, 2026 (owner: "scale the
+**Status: PLANNED, GO-AHEAD GIVEN, NOT STARTED (October 6, 2026).** First
+use: the webinar end-of-session survey. Decisions in §13, the step-by-step
+build plan in §14. The owner asked for the plan first; nothing is built.
+
+**Previous status: PLANNED, NOT BUILT.** Revived September 17, 2026 (owner: "scale the
 surveys without affecting the CME survey, same personalized links but for
 something else"). First planned August 7, 2026 and parked the same day; this
 revision replaces that plan, because the shareable survey link it designed
@@ -277,3 +281,155 @@ relies on.
 - A "Rate this session" button on the public session page.
 - Cross-survey reports and MCP tools (none exist today, so no client reconnect).
 - Per-certificate-template survey choice (`CertificateTemplate.autoIssueSurveyId`).
+
+## 13. Go-ahead, October 6, 2026: Phase 1 plus the webinar survey
+
+Owner request: "once the webinar is ended by host, attendee pages should pop up
+a survey for the user to submit … recorded and ready to be exported later." The
+owner chose to build several surveys first rather than reuse the event's single
+survey, so a webinar's feedback survey can sit beside a CME survey.
+
+| # | Question | Decision |
+|---|---|---|
+| O2 | Move the certificate flag after responses? | **No.** Refused (409) once the certificate survey has responses. |
+| O4 | Thank-you email for non-certificate surveys? | **No.** On-page thank-you only. |
+| W1 | Which survey pops up when a webinar ends? | **Picked in the Webinar Console** ("End-of-webinar survey"), stored as `settings.webinar.endSurveyId`. The same survey's personal link goes into the webinar thank-you email. |
+| W2 | How firm is the popup? | **Closable, comes back.** It opens when the host ends the webinar or the room closes, has a "Later" button, leaves a banner on the page and reopens on the next visit until submitted. |
+| W3 | People who left early? | **Yes.** The webinar thank-you email (end + 30 min) carries the survey link. |
+| Scope | This round | Phase 1 and the webinar survey. O1 (responded filter), O3 and O5 (session ratings, repeatable) stay for later. |
+
+**Identity on the webinar page.** The attendee page already requires a signed-in
+registrant, so the popup submits against the viewer's own registration with no
+token. Both doors (the token link and the signed-in page) go through one submit
+function, because whichever survey is the certificate survey stamps
+`surveyCompletedAt`, and every writer of that column is on the credential path
+(§3).
+
+## 14. Build plan (October 6, 2026)
+
+Five steps, each its own commit and deploy, each with tests written alongside,
+lint and types, the CI gate scripts, a visible local browser check of every page
+it touches, and an independent review before push. Steps 1 to 3 are Phase 1;
+steps 4 and 5 are the webinar survey. Nothing changes for attendees until step 3.
+
+### Where surveys live today (everything that changes)
+
+| Area | Files |
+|---|---|
+| Schema | `Event.surveyConfig`, `surveyIntroHtml`, `surveyThankYouHtml` (`prisma/models/core.prisma`); `SurveyResponse` (`prisma/models/engagement.prisma`), `registrationId @unique`; `Registration.surveyResponse` (`prisma/models/registrations.prisma`) |
+| Tenancy | `prisma/rls/survey.sql`; `scripts/check-tenant-als.sh` (survey routes listed at lines 69, 148, 172; `surveyResponse` in `SWEPT_MODELS`) |
+| Builder | `src/app/(dashboard)/events/[eventId]/survey/page.tsx`, saving through the event PUT (`src/app/api/events/[eventId]/route.ts`, `surveyConfig` / intro / thank-you fields) |
+| Results | `survey/responses/page.tsx`; `api/events/[eventId]/survey/responses/route.ts` and `/export/route.ts` |
+| Public form | `src/app/e/[slug]/survey/page.tsx`; `src/app/api/public/events/[slug]/survey/route.ts` (token, gates, the one submit transaction) |
+| Sending | `src/lib/bulk-email.ts` (token mint `survey:{registrationId}` near line 1991, `ensurePersonalSurveyLink`, precheck); the Survey Invitation option in `registrations/registration-detail-sheet.tsx` (offered only when `surveyConfig` exists) |
+| Reset | `api/events/[eventId]/registrations/[registrationId]/survey/route.ts`, `components/survey/reset-survey-dialog.tsx` |
+| Other readers | clone (`api/events/[eventId]/clone/route.ts` copies the three columns), `src/lib/media-references.ts` (intro and thank-you HTML), Setup hub status (`setup/page.tsx` reads `surveyConfig`) |
+| Untouched by design | `src/lib/certificates/auto-issue.ts`, `survey-thankyou-sweep.ts`, `bulk-email-audience.ts` (they read `Registration.surveyCompletedAt`, which keeps its single writer) |
+
+### Step 1: the table and the copy (no behaviour change)
+
+- Additive, idempotent migration (hand-authored SQL, applied with
+  `npm run db:migrate`; never `migrate dev`, never a shadow database):
+  `SurveyResponseMode` enum (`ONCE` only), the `Survey` table (§4), and on
+  `SurveyResponse` the nullable `surveyId` and `dedupKey` plus
+  `@@index([registrationId])`.
+- Backfill in the same migration: one `Survey` per event that has a
+  `surveyConfig`, named "Post-event survey", `gatesCertificates = true`,
+  `responseMode = ONCE`, copying the three columns; then each response's
+  `surveyId` (its event's survey) and `dedupKey = registrationId`. Production
+  holds 4 configured surveys and 2 responses (re-count with `npm run prod:psql`
+  before writing the migration).
+- Keep `registrationId @unique` in this step. Readers still use the old columns.
+- Tenancy: RLS policy for `Survey` in `prisma/rls/survey.sql`, harness fixtures
+  and assertions, `survey` added to `SWEPT_MODELS`.
+- Tests: migration replays clean and twice (idempotent); backfill counts.
+
+### Step 2: surveys as their own thing, behind the same screens
+
+- A survey service (`src/services/survey-service.ts`): list, create, update,
+  delete, set the certificate survey (clears the previous one in the same
+  transaction; refused 409 `CERT_SURVEY_HAS_RESPONSES` once it has responses,
+  O2; a certificate survey must be `ONCE`), and **one `submitSurveyResponse()`**
+  used by every door. It writes the response with `dedupKey`, and only when the
+  survey `gatesCertificates` stamps `surveyCompletedAt` and adds the
+  `survey-completed` tag.
+- Routes: `api/events/[eventId]/surveys` (list, create) and `/surveys/[surveyId]`
+  (read, update, delete), behind the existing survey permission keys; responses
+  and CSV export take a `surveyId`.
+- Dashboard: the Survey page becomes a list of surveys (name, active, certificate
+  badge, response count) with a per-survey builder reusing today's question
+  editor, intro and thank-you; responses page per survey.
+- Event PUT keeps accepting the old survey fields for one release and writes them
+  through to the certificate survey, so a container still on the old build and
+  any old client keep working during the blue/green swap.
+- Clone copies surveys (never responses or tokens); media references read
+  `Survey.introHtml` / `thankYouHtml`; Setup hub status counts surveys.
+- Tests: the §8 list, items 1, 2, 5; service tests for O2.
+
+### Step 3: links and sending per survey
+
+- Token identifier `survey:{surveyId}:{registrationId}`; a legacy two-part token
+  resolves to the certificate survey (logs `survey:legacy-token`).
+- Public route resolves the survey from the token, adds the `isActive` gate
+  ("This survey is closed"), submits through `submitSurveyResponse()`.
+- Drop `registrationId @unique`, add `@@unique([surveyId, dedupKey])` (the
+  accepted swap gap in §7 applies).
+- Survey Invitation send: a survey picker riding as `filters.surveyId` (queued
+  sends without one go to the certificate survey), `{{surveyName}}`, precheck on
+  the chosen survey at both enqueue doors and at fire time.
+- Reset is per survey; resetting the certificate survey also clears
+  `surveyCompletedAt` as today.
+- Tests: §8 items 3, 4, 6; the existing public survey route tests pass with the
+  survey lookup added to their mocks.
+
+### Step 4: the end-of-webinar popup
+
+- Webinar Console, Setup tab: "End-of-webinar survey" dropdown listing the
+  event's active surveys, saved as `settings.webinar.endSurveyId` (validated to
+  belong to the event; cleared if the survey is deleted).
+- Public webinar session route (signed-in registrant only, the same identity the
+  page already requires): `GET` returns the survey's questions and whether this
+  registration already answered; `POST` submits through `submitSurveyResponse()`.
+  Rate limited, every refusal logged, no token involved.
+- Attendee page: the popup opens when the Zoom embed reports the host ended the
+  meeting, or when the room closes (lobby poll sees open to closed, or
+  `ended`). "Later" closes it and leaves a banner; it reopens on the next visit
+  until submitted. Never shown to someone who already answered, never during the
+  live session.
+- Tests: route tests for identity (another person's registration, cancelled,
+  not registered, survey inactive, already answered), the popup trigger rules as
+  a pure helper.
+
+### Step 5: the link in the thank-you email
+
+- When `endSurveyId` is set, the webinar thank-you send (end + 30 min, through
+  `executeBulkEmail`) mints each recipient's personal link for that survey, the
+  same mint the Survey Invitation uses, and fills `{{surveyLink}}`.
+- The default webinar thank-you template gains a survey block that renders only
+  when a link exists (a template without the variable gets the button added, the
+  way `ensurePersonalSurveyLink` does for invitations). People who already
+  answered on the page get no link.
+- Tests: link present when set, absent when not set or already answered.
+
+### Effort and order
+
+| Step | Effort |
+|---|---|
+| 1. Table and copy | 0.5 day |
+| 2. Surveys service, routes, builder, results, clone | 1.5 days |
+| 3. Links and sending | 0.5 to 1 day |
+| 4. End-of-webinar popup | 1 day |
+| 5. Thank-you email link | 0.5 day |
+
+About 4 to 4.5 days in total. Steps 1 to 3 are worth shipping on their own;
+step 4 needs step 2's single submit function, step 5 needs step 3's mint.
+
+### Risks
+
+- **Credential path.** Any mistake that lets a non-certificate survey stamp
+  `surveyCompletedAt` would issue CME certificates. Guarded by the single submit
+  function and the mutation-verified test in §8.
+- **Blue/green window.** Old and new containers run side by side for minutes;
+  step 2's write-through and step 3's legacy token keep both working.
+- **Live events.** Each step deploys separately and is checked on a test event
+  before the next starts.
