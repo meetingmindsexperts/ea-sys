@@ -5,7 +5,7 @@
 //
 // The rule (owner, Sep 21, 2026: "a floating icon on the right that opens
 // the AI Agent page"):
-//   - only the roles the agent admits see it (canUseAgent, the one list);
+//   - only people holding agent.use see it (the caller passes useCan);
 //   - on an event's pages it opens that event's agent, so the conversation
 //     starts with the event already selected;
 //   - it is absent on the agent pages themselves, on the door surfaces
@@ -13,7 +13,6 @@
 //     control is in the way of a scan and the kiosk runs under a staff
 //     session), and on the log viewer, which owns that corner already.
 
-import { canUseAgent } from "./agent-roles";
 
 const EVENT_PATH = /^\/events\/([^/]+)(?:\/(.*))?$/;
 
@@ -31,8 +30,8 @@ function underPrefix(path: string, prefix: string): boolean {
  * The href the floating button should open for this person on this page,
  * or null when the button should not render at all.
  */
-export function agentLauncherHref(pathname: string, role: string | null | undefined): string | null {
-  if (!canUseAgent(role)) return null;
+export function agentLauncherHref(pathname: string, canUseAgent: boolean): string | null {
+  if (!canUseAgent) return null;
 
   const path = pathname.split("?")[0];
   if (HIDDEN_PATHS.some((p) => underPrefix(path, p))) return null;

@@ -3,11 +3,9 @@ import { principalFromSession } from "@/lib/permissions/require-permission";
 import { can } from "@/lib/permissions/can";
 import { redirect } from "next/navigation";
 import { Activity } from "lucide-react";
-import { canViewHr } from "@/lib/hr-visibility";
 import { canViewProcurement } from "@/lib/procurement-visibility";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { ActivityTabs } from "./activity-tabs";
-import { isOrgAdmin } from "@/lib/team-roles";
 
 /** "Every change made across your events, with budgets and HR changes on their own tabs, and who has been signing in." */
 function describePage(tabs: string[]): string {
@@ -23,14 +21,14 @@ export default async function ActivityPage() {
     redirect("/login");
   }
 
-  if (!isOrgAdmin(session.user.role)) {
+  if (!can(principalFromSession(session), "activity.org.read")) {
     redirect("/dashboard");
   }
 
   // Two walls, same as every HR route: the module must be switched on for
   // this deployment, AND this person must hold HR access. The API enforces
   // both again on `?scope=hr`; this only decides whether to draw the tab.
-  const canViewHrActivity = isHrModuleEnabled() && canViewHr(session.user);
+  const canViewHrActivity = isHrModuleEnabled() && can(principalFromSession(session), "hr.read");
   // The same pair for the Budget tab, against the procurement flag and predicate.
   const canViewBudgetActivity = isProcurementModuleEnabled() && canViewProcurement(session.user);
 

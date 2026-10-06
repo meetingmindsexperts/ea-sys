@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -68,7 +68,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       // The REGISTRANT branch above stays exempt — viewing your own quote
       // is the whole point of the registrant portal. Audit-hardening HIGH
       // from May 18 review, closed Core Stability Pass #1 (June 2026).
-      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/quote:GET" });
+      const financeGate = requirePermission(session, "finance.view", { route: "registrant/registrations/[registrationId]/quote:GET" });
+      const noFinance = financeGate.ok ? null : financeGate.response;
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/quote:denyFinance",

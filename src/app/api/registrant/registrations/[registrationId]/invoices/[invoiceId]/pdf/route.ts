@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -41,7 +41,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       // MEMBER (org-bound read-only viewer) must not see it. REGISTRANT
       // branch stays exempt as the legitimate self-view path. Closed
       // Pass #1 (June 2026).
-      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf:GET" });
+      const financeGate = requirePermission(session, "finance.view", { route: "registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf:GET" });
+      const noFinance = financeGate.ok ? null : financeGate.response;
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/invoice-pdf:denyFinance",

@@ -38,7 +38,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
 import { enabledPresentationTypeOptions } from "../abstract-enums";
-import { isOrgAdmin } from "@/lib/team-roles";
+import { useCan } from "@/hooks/use-can";
 
 interface Speaker {
   id: string;
@@ -68,7 +68,8 @@ export default function NewAbstractPage() {
   const { data: session } = useSession();
 
   const isSubmitter = session?.user?.role === "SUBMITTER";
-  const isAdmin = isOrgAdmin(session?.user?.role);
+  // Choosing Draft or Submitted: staff who manage abstracts (the route takes either).
+  const isAdmin = useCan("abstracts.update", eventId) === "allowed";
 
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);

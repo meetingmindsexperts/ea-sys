@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -39,7 +39,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       // Invoice list carries amounts/totals — gate MEMBER. REGISTRANT
       // branch is owner-scoped and stays exempt. See sibling /quote
       // route for the same reasoning. Closed Pass #1 (June 2026).
-      const noFinance = denyFinance(session, { route: "registrant/registrations/[registrationId]/invoices:GET" });
+      const financeGate = requirePermission(session, "finance.view", { route: "registrant/registrations/[registrationId]/invoices:GET" });
+      const noFinance = financeGate.ok ? null : financeGate.response;
       if (noFinance) {
         apiLogger.warn({
           msg: "registrant/invoices:denyFinance",

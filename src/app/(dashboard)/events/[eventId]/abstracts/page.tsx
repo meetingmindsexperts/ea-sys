@@ -76,7 +76,6 @@ import {
   abstractStatusLabel,
 } from "./abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
-import { isOrgAdmin } from "@/lib/team-roles";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -135,13 +134,11 @@ export default function AbstractsPage() {
 
   const isSubmitter  = session?.user?.role === "SUBMITTER";
   const isReviewer   = session?.user?.role === "REVIEWER";
-  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
-  const isAdmin      = isOrgAdmin(session?.user?.role);
-  const isOrganizer  = session?.user?.role === "ORGANIZER";
-  // Organizers manage abstracts with the same powers as admins — edit,
-  // approve/reject, change presentation type, assign reviewers, force-status.
-  // Mirrors the backend PUT, whose `isAdmin` already includes ORGANIZER.
-  const isAbstractManager = isAdmin || isOrganizer;
+  // Delete is its own key (SUPER_ADMIN's alone among the built-in roles).
+  const canDeleteAbstracts = useCan("abstracts.delete", eventId) === "allowed";
+  // Managers edit, approve/reject, change presentation type, assign
+  // reviewers and force a status: the backend PUT's abstracts.update.
+  const isAbstractManager = useCan("abstracts.update", eventId) === "allowed";
   const canReview    = isAbstractManager || isReviewer;
   // Management writes (CSV import, bulk email, add abstract) are blocked by
   // denyReviewer for MEMBER/ONSITE/etc. The previous `!isSubmitter && !isReviewer`
@@ -477,7 +474,7 @@ export default function AbstractsPage() {
           )}
           {/* Export is staff-only (Sep 9, 2026): the server refuses every other
               role, so the button is shown only where it will work. */}
-          {(isAdmin || isOrganizer) && abstracts.length > 0 && (
+          {isAbstractManager && abstracts.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" disabled={exporting}>
@@ -1163,7 +1160,7 @@ export default function AbstractsPage() {
                               </Button>
                             </>
                           )}
-                          {isSuperAdmin && (
+                          {canDeleteAbstracts && (
                             <Button
                               variant="outline"
                               size="sm"

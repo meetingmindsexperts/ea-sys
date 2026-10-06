@@ -24,14 +24,15 @@
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { isHrModuleEnabled } from "@/lib/module-flags";
-import { canViewHr } from "@/hr/lib/hr-visibility";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { ShieldAlert } from "lucide-react";
 
 export default async function HrLayout({ children }: { children: React.ReactNode }) {
   if (!isHrModuleEnabled()) notFound();
 
   const session = await auth();
-  if (!canViewHr(session?.user)) {
+  if (!session?.user || !can(principalFromSession(session), "hr.read")) {
     return (
       <div className="mx-auto mt-20 max-w-md rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-900 dark:bg-amber-950">
         <ShieldAlert className="mx-auto mb-3 h-8 w-8 text-amber-700 dark:text-amber-400" />

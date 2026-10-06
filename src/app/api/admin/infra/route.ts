@@ -8,12 +8,12 @@
  * docs/INFRA_OPS.md. Every guard logs.
  */
 import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/permissions/require-permission";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getInfraSnapshot, type InfraScope } from "@/lib/infra/aws-ops";
 import { canActAsPlatformOperator } from "@/lib/platform-operator";
-import { denyNonOrgAdmin } from "@/lib/auth-guards";
 
 export async function GET(req: Request) {
   try {
@@ -21,8 +21,9 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const notAdmin = denyNonOrgAdmin(session, { route: "admin/infra:GET" });
-    if (notAdmin) return notAdmin;
+    // The Infra / Ops page's key (org.settings, as its sidebar entry).
+    const gate = requirePermission(session, "org.settings", { route: "admin/infra:GET" });
+    if (!gate.ok) return gate.response;
 
     // Guard against a hammered refresh even though the snapshot is cached 60s.
     const { allowed, retryAfterSeconds } = checkRateLimit({

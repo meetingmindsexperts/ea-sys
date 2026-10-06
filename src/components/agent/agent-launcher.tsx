@@ -11,15 +11,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Bot } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { agentLauncherHref } from "@/lib/agent/launcher";
+import { useCan } from "@/hooks/use-can";
 
 export function AgentLauncher() {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const href = agentLauncherHref(pathname, session?.user?.role);
+  const href = agentLauncherHref(pathname, useCan("agent.use") === "allowed");
   if (!href) return null;
 
   return (

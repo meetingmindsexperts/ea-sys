@@ -101,7 +101,6 @@ import {
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { isOrgAdmin } from "@/lib/team-roles";
 import { useCan } from "@/hooks/use-can";
 
 interface Organization {
@@ -219,7 +218,13 @@ export default function SettingsPage() {
   });
 
   const tabListRef = useRef<HTMLDivElement>(null);
-  const isAdmin = isOrgAdmin(session?.user?.role);
+  // Each part of Settings follows its own key; for the built-in roles all
+  // five are SUPER_ADMIN and ADMIN, the old isOrgAdmin (custom roles Phase 6).
+  const canEditOrg = useCan("org.settings") === "allowed";
+  const canUseIntegrations = useCan("org.credentials") === "allowed";
+  const canManageApiKeys = useCan("apiKeys.manage") === "allowed";
+  const canManageUsers = useCan("users.manage") === "allowed";
+  const canInviteUsers = useCan("users.invite") === "allowed";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   // Onsite Staff and Billing follow their routes' keys (Organizers hold both;
   // Billing's org details stay read-only below Admin).
@@ -677,13 +682,13 @@ export default function SettingsPage() {
               Billing
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {canUseIntegrations && (
             <TabsTrigger value="integrations" className="flex items-center gap-2">
               <Cloud className="h-4 w-4" />
               Integrations
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {canManageApiKeys && (
             <TabsTrigger value="api-keys" className="flex items-center gap-2">
               <Key className="h-4 w-4" />
               API Keys
@@ -724,7 +729,7 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setOrgFormData({ ...orgFormData, name: e.target.value })
                     }
-                    disabled={!isAdmin}
+                    disabled={!canEditOrg}
                   />
                 </div>
                 <div className="space-y-2">
@@ -760,7 +765,7 @@ export default function SettingsPage() {
                           alt="Org logo"
                           className="h-12 w-auto max-w-[120px] object-contain rounded border p-1"
                         />
-                        {isAdmin && (
+                        {canEditOrg && (
                           <button
                             type="button"
                             onClick={() => setOrgFormData({ ...orgFormData, logo: null })}
@@ -776,7 +781,7 @@ export default function SettingsPage() {
                         <Upload className="h-5 w-5" />
                       </div>
                     )}
-                    {isAdmin && (
+                    {canEditOrg && (
                       <div>
                         <Button
                           type="button"
@@ -847,7 +852,7 @@ export default function SettingsPage() {
                       onChange={(e) =>
                         setOrgFormData({ ...orgFormData, primaryColor: e.target.value })
                       }
-                      disabled={!isAdmin}
+                      disabled={!canEditOrg}
                       className="h-10 w-14 cursor-pointer rounded border p-0.5"
                     />
                     <Input
@@ -858,12 +863,12 @@ export default function SettingsPage() {
                           setOrgFormData({ ...orgFormData, primaryColor: v });
                         }
                       }}
-                      disabled={!isAdmin}
+                      disabled={!canEditOrg}
                       className="w-28 font-mono text-sm"
                       maxLength={7}
                       placeholder="#00aade"
                     />
-                    {orgFormData.primaryColor && isAdmin && (
+                    {orgFormData.primaryColor && canEditOrg && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -889,7 +894,7 @@ export default function SettingsPage() {
                     onValueChange={(value) =>
                       setOrgFormData({ ...orgFormData, timezone: value })
                     }
-                    disabled={!isAdmin}
+                    disabled={!canEditOrg}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -910,7 +915,7 @@ export default function SettingsPage() {
                     onValueChange={(value) =>
                       setOrgFormData({ ...orgFormData, dateFormat: value })
                     }
-                    disabled={!isAdmin}
+                    disabled={!canEditOrg}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -931,7 +936,7 @@ export default function SettingsPage() {
                     onValueChange={(value) =>
                       setOrgFormData({ ...orgFormData, currency: value })
                     }
-                    disabled={!isAdmin}
+                    disabled={!canEditOrg}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -959,11 +964,11 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) =>
                     setOrgFormData({ ...orgFormData, emailNotifications: checked })
                   }
-                  disabled={!isAdmin}
+                  disabled={!canEditOrg}
                 />
               </div>
 
-              {isAdmin && (
+              {canEditOrg && (
                 <div className="flex justify-end">
                   <Button onClick={handleSaveOrganization} disabled={saving}>
                     <Save className="mr-2 h-4 w-4" />
@@ -991,7 +996,7 @@ export default function SettingsPage() {
                     Manage users who have access to your organization
                   </CardDescription>
                 </div>
-                {isAdmin && (
+                {canInviteUsers && (
                   <Dialog
                     open={isUserDialogOpen}
                     onOpenChange={(open) => {
@@ -1193,7 +1198,7 @@ export default function SettingsPage() {
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Joined</TableHead>
-                    {isAdmin && <TableHead className="w-[100px]">Actions</TableHead>}
+                    {canManageUsers && <TableHead className="w-[100px]">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1234,7 +1239,7 @@ export default function SettingsPage() {
                       <TableCell>
                         {new Date(user.createdAt).toLocaleDateString()}
                       </TableCell>
-                      {isAdmin && (
+                      {canManageUsers && (
                         <TableCell>
                           <div className="flex gap-2">
                             <Button
@@ -1364,13 +1369,13 @@ export default function SettingsPage() {
         {/* Billing & Invoicing */}
         {canManageBilling && (
           <TabsContent value="billing" className="space-y-6">
-            <BillingSettingsCard readOnly={!isAdmin} />
+            <BillingSettingsCard readOnly={!canEditOrg} />
             <BillingAccountsCard />
           </TabsContent>
         )}
 
         {/* Integrations */}
-        {isAdmin && (
+        {canUseIntegrations && (
           <TabsContent value="integrations">
             <div className="space-y-6">
               <EventsAirCard />
@@ -1383,7 +1388,7 @@ export default function SettingsPage() {
         )}
 
         {/* API Keys */}
-        {isAdmin && (
+        {canManageApiKeys && (
           <TabsContent value="api-keys" className="space-y-6">
             <ApiKeysCard />
             <OAuthClientsCard />

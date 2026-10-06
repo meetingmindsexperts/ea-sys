@@ -4,11 +4,12 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
-import { canViewHr, HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
+import { HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
+import { can } from "@/lib/permissions/can";
 import { canViewProcurement, PROCUREMENT_AUDIT_ENTITY_TYPES } from "@/lib/procurement-visibility";
 import { describeProcurementActivity, type DescribeContext } from "@/lib/procurement-activity";
 import type { Prisma } from "@prisma/client";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 
 /**
  * THREE SCOPES OVER ONE TABLE (HR split Sep 3, 2026; procurement split Sep 15).
@@ -280,7 +281,7 @@ export async function GET(req: Request) {
       apiLogger.warn({ msg: "activity:hr-module-disabled", userId: session.user.id });
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    if (hrScope && !canViewHr(session.user)) {
+    if (hrScope && !can(principalFromSession(session), "hr.read")) {
       apiLogger.warn({
         msg: "activity:hr-scope-forbidden",
         role: session.user.role,
