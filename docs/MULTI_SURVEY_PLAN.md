@@ -440,9 +440,12 @@ answered, POST submit through `submitSurveyResponse`); the popup
   close, so a closed room counts as the end only after the scheduled end
   (`isWebinarOver`); the host ending it in Zoom counts at once. The route also
   refuses answers until the session is COMPLETED or past its end and not LIVE.
-- **Known limits, for later:** once an event is marked COMPLETED its attendee
-  page stops loading (detail, lobby and zoom-join filter it out), so the popup
-  lasts only until then; step 5's email link covers later answers. A host who
+- **Known limits:** once an event is marked COMPLETED its attendee page stops
+  loading (detail, lobby, zoom-join and recording filter it out), so the popup
+  lasts only until then; step 5's email link covers later answers. **Owner
+  decision, Oct 6, 2026: leave as is.** Completed means closed; organisers keep
+  a webinar Published for as long as they want its page (replay, survey,
+  handouts) open. A host who
   ends in Zoom and restarts leaves the banner up until the viewer clicks
   Rejoin.
 
