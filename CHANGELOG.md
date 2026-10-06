@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Settings, Roles to a new Settings, Approvals tab (super admin, Budgets on).
   Roles now holds only the custom roles and the Budgets roles: a role is what
   someone can do, an approval chain is who signs off. No data or API change.
+- On a phone the Settings tab strip scrolls sideways instead of running off
+  the page, the chosen tab slides into view, and the tabs are taller to tap.
+  Desktop is unchanged.
 
 ### Added: event staff assignments as a table (October 5)
 

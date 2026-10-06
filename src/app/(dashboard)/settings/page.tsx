@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -218,6 +218,7 @@ export default function SettingsPage() {
     password: "",
   });
 
+  const tabListRef = useRef<HTMLDivElement>(null);
   const isAdmin = isOrgAdmin(session?.user?.role);
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   // Organizers can see Onsite Staff (view + event assignment) and Billing
@@ -623,8 +624,23 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="general" className="space-y-6">
-        <TabsList>
+      {/* Nine tabs do not fit a phone, so below md the strip scrolls sideways
+          (scrollbar hidden) and the chosen tab is brought into view. */}
+      <Tabs
+        defaultValue="general"
+        className="space-y-6"
+        onValueChange={() =>
+          requestAnimationFrame(() =>
+            tabListRef.current
+              ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+              ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" }),
+          )
+        }
+      >
+        <TabsList
+          ref={tabListRef}
+          className="h-11 w-full max-w-full justify-start overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:h-9 md:w-fit [&>button]:flex-none [&>button]:px-3 md:[&>button]:px-2"
+        >
           <TabsTrigger value="general" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             General
