@@ -106,6 +106,7 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { PhotoUpload } from "@/components/ui/photo-upload";
+import { BrandingImageField } from "@/components/events/branding-image-field";
 
 type AutoRecording = "none" | "local" | "cloud";
 
@@ -2497,6 +2498,9 @@ function LobbyCard({
   const [lobbyVideoUrl, setLobbyVideoUrl] = useState(() => webinar.lobbyVideoUrl ?? "");
   const [lobbyImageUrl, setLobbyImageUrl] = useState<string | null>(() => webinar.lobbyImageUrl ?? null);
   const [lobbyMessage, setLobbyMessage] = useState(() => webinar.lobbyMessage ?? "");
+  const [pageLogoUrl, setPageLogoUrl] = useState(() => webinar.pageLogoUrl ?? "");
+  const [pageBackgroundUrl, setPageBackgroundUrl] = useState(() => webinar.pageBackgroundUrl ?? "");
+  const [pageFooterImageUrl, setPageFooterImageUrl] = useState(() => webinar.pageFooterImageUrl ?? "");
 
   const roomOpen = anchor?.status === "LIVE";
 
@@ -2536,6 +2540,9 @@ function LobbyCard({
         lobbyVideoUrl: lobbyVideoUrl.trim(),
         lobbyImageUrl: lobbyImageUrl ?? "",
         lobbyMessage: lobbyMessage.trim(),
+        pageLogoUrl,
+        pageBackgroundUrl,
+        pageFooterImageUrl,
       });
       toast.success("Lobby settings saved");
     } catch (err) {
@@ -2736,7 +2743,7 @@ function LobbyCard({
           <PhotoUpload value={lobbyImageUrl} onChange={setLobbyImageUrl} />
           <p className="text-sm text-muted-foreground">
             Shown behind the countdown while attendees wait, when no holding video is set.
-            Wide images work best (e.g. 1280×720). Leave empty to use the event banner.
+            Wide images work best (e.g. 1280×720). Leave empty to show the page background.
           </p>
         </div>
 
@@ -2749,6 +2756,42 @@ function LobbyCard({
             onChange={(e) => setLobbyMessage(e.target.value)}
             maxLength={280}
             placeholder="We'll begin shortly — thanks for joining early!"
+          />
+        </div>
+
+        {/* Attendee page branding (owner, Oct 6, 2026): the webinar page has no
+            banner; a logo sits at the top over a full-page background, and an
+            optional image runs full width under the video. Also the waiting room. */}
+        <div className="space-y-4 border-t pt-4">
+          <div>
+            <p className="font-medium">Attendee page branding</p>
+            <p className="text-sm text-muted-foreground">
+              Applies to the attendee page and the waiting room. The event banner is not shown on webinar pages.
+            </p>
+          </div>
+          <BrandingImageField
+            eventId={eventId}
+            label="Logo (top of the page)"
+            value={pageLogoUrl}
+            onChange={setPageLogoUrl}
+            hint="Transparent PNG works best, about 600×160px. Leave empty to show the event name instead."
+            previewClassName="h-20 w-auto object-contain"
+          />
+          <BrandingImageField
+            eventId={eventId}
+            label="Page background"
+            value={pageBackgroundUrl}
+            onChange={setPageBackgroundUrl}
+            hint="Covers the whole page behind the content. About 1920×1080px, under 2 MB. Leave empty for a plain background."
+            previewClassName="w-full h-40 object-cover"
+          />
+          <BrandingImageField
+            eventId={eventId}
+            label="Footer image"
+            value={pageFooterImageUrl}
+            onChange={setPageFooterImageUrl}
+            hint="Shown under the video, panelists and Q&A at its own width (centred, shrunk only on smaller screens), e.g. a sponsor strip."
+            previewClassName="w-full h-24 object-contain"
           />
         </div>
 

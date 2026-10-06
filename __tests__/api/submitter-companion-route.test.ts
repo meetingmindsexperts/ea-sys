@@ -336,6 +336,16 @@ describe("submitter route — abstract gate vs proposal source (July 30, 2026)",
     expect(ensureCompanionSpy).not.toHaveBeenCalled();
   });
 
+  it("403s an ABSTRACT signup on a WEBINAR even when the setting is on (webinars take no abstracts)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev-slug", eventType: "WEBINAR",
+      settings: { allowAbstractSubmissions: true }, organizationId: "org1",
+    });
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(403);
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
   it("lets a PROPOSAL signup through when abstract submissions are closed (source: proposal skips the abstract gate)", async () => {
     mockDb.event.findFirst.mockResolvedValue({
       id: "ev1", name: "Ev", slug: "ev-slug",

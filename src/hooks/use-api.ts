@@ -2486,6 +2486,9 @@ export interface WebinarConsoleData {
     lobbyVideoUrl?: string;
     lobbyImageUrl?: string;
     lobbyMessage?: string;
+    pageLogoUrl?: string;
+    pageBackgroundUrl?: string;
+    pageFooterImageUrl?: string;
   };
   anchorSession: {
     id: string;

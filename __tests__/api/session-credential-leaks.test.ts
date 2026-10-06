@@ -61,6 +61,7 @@ vi.mock("@/lib/webinar", () => ({
   // Real-shaped: the detail route's webinar anchor redirect reads this.
   readWebinarSettings: (settings: unknown) =>
     (settings as { webinar?: unknown } | null)?.webinar ?? null,
+  readWebinarPageBranding: () => ({ logoUrl: null, backgroundUrl: null, footerImageUrl: null }),
 }));
 
 import { GET as SESSIONS_GET } from "@/app/api/events/[eventId]/sessions/route";

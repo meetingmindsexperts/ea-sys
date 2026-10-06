@@ -18,6 +18,17 @@ import { enableWebinarQA } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
+// Empty string clears the field; otherwise a local upload path or https URL
+// (the console uploads via the photo and event media routes, which return /uploads/…).
+const imageUrlField = (label: string) =>
+  z
+    .string()
+    .max(500)
+    .optional()
+    .refine((v) => !v || v.startsWith("/uploads/") || v.startsWith("https://"), {
+      message: `${label} must be an uploaded image or an https URL`,
+    });
+
 const updateWebinarSchema = z.object({
   autoProvisionZoom: z.boolean().optional(),
   defaultPasscode: z.string().max(10).optional(),
@@ -35,15 +46,10 @@ const updateWebinarSchema = z.object({
       message: "Holding video must be a YouTube or Vimeo URL",
     }),
   lobbyMessage: z.string().max(280).optional(),
-  // Empty string clears the field; otherwise a local upload path or https URL
-  // (the LobbyCard uploads via /api/upload/photo, which returns /uploads/…).
-  lobbyImageUrl: z
-    .string()
-    .max(500)
-    .optional()
-    .refine((v) => !v || v.startsWith("/uploads/") || v.startsWith("https://"), {
-      message: "Waiting-room image must be an uploaded image or an https URL",
-    }),
+  lobbyImageUrl: imageUrlField("Waiting-room image"),
+  pageLogoUrl: imageUrlField("Page logo"),
+  pageBackgroundUrl: imageUrlField("Page background"),
+  pageFooterImageUrl: imageUrlField("Footer image"),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───

@@ -32,6 +32,21 @@ export function isWebinar(
   return event?.eventType === "WEBINAR";
 }
 
+/**
+ * Whether the public call for abstracts is open. A webinar never takes
+ * abstracts (its Abstracts module is hidden above), even when the setting is
+ * on, e.g. carried over from a cloned conference. ONE rule for the public
+ * event payload (the register and login cards) and the submitter signup gate.
+ */
+export function abstractSubmissionsOpen(event: {
+  eventType?: string | null;
+  settings?: unknown;
+}): boolean {
+  if (isWebinar(event)) return false;
+  const settings = (event.settings ?? {}) as Record<string, unknown>;
+  return settings.allowAbstractSubmissions === true;
+}
+
 export function webinarModuleFilter(eventType: string | null | undefined) {
   const isWebinarEvent = eventType === "WEBINAR";
   const hidden = new Set<string>(WEBINAR_HIDDEN_MODULES);
@@ -69,6 +84,13 @@ export interface WebinarSettings {
   /** Custom waiting-room image (uploaded), shown behind the countdown when
    *  no holding video is set. Falls back to the event banner when absent. */
   lobbyImageUrl?: string;
+  // ── Attendee page branding (owner, Oct 6, 2026) ─────────────────
+  /** Logo shown at the top of the webinar attendee page (replaces the banner). */
+  pageLogoUrl?: string;
+  /** Full-page background image behind the attendee page and waiting room. */
+  pageBackgroundUrl?: string;
+  /** Full-width image under the video area (sponsor strip, sign-off). */
+  pageFooterImageUrl?: string;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
   /** ISO time the producer last opened the room. The auto-close job only
@@ -84,6 +106,22 @@ export function readWebinarSettings(
   const w = (settings as Record<string, unknown>).webinar;
   if (!w || typeof w !== "object") return null;
   return w as WebinarSettings;
+}
+
+export interface WebinarPageBranding {
+  logoUrl: string | null;
+  backgroundUrl: string | null;
+  footerImageUrl: string | null;
+}
+
+/** The attendee-page images; an empty string (a cleared upload) reads as null. */
+export function readWebinarPageBranding(settings: unknown): WebinarPageBranding {
+  const w = readWebinarSettings(settings);
+  return {
+    logoUrl: w?.pageLogoUrl || null,
+    backgroundUrl: w?.pageBackgroundUrl || null,
+    footerImageUrl: w?.pageFooterImageUrl || null,
+  };
 }
 
 /**

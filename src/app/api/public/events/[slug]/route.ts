@@ -6,6 +6,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
 import { readMainRegisterTiers } from "@/lib/main-register-tiers";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { abstractSubmissionsOpen } from "@/lib/webinar";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -260,7 +261,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       ticketTypes,
       hasPromoCodes,
       abstractSettings: {
-        allowAbstractSubmissions: settings.allowAbstractSubmissions === true,
+        allowAbstractSubmissions: abstractSubmissionsOpen(event),
         abstractDeadline: settings.abstractDeadline || null,
       },
       sessionProposalSettings: {

@@ -28,6 +28,7 @@ import {
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
 import { AskQuestionBox } from "@/components/webinar/ask-question-box";
+import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-card";
 import { EventBannerBand } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -173,6 +174,12 @@ interface EventDetail {
   bannerImageMobile?: string | null;
   timezone?: string | null;
   organization?: { name: string; logo?: string };
+  /** Webinars only: logo + full-page background replace the banner. */
+  webinarBranding?: {
+    logoUrl: string | null;
+    backgroundUrl: string | null;
+    footerImageUrl: string | null;
+  } | null;
 }
 
 const SPONSOR_TIER_ORDER: Record<string, number> = {
@@ -414,6 +421,21 @@ export default function PublicSessionPage() {
     lobby?.viewingMode === "hls" &&
     Boolean(joinInfo?.liveStreamEnabled) &&
     authState.kind === "ok";
+  // Webinar video tab: panelists on the left, video in the middle, Q&A on the
+  // right (owner, Oct 6, 2026). Three columns from xl; below that the video
+  // and Q&A share a row and the panelists drop under the video.
+  const panelists = isWebinarEvent && session ? collectPanelists(session) : [];
+  const showPanelists = panelists.length > 0;
+  const videoGridClass =
+    showQa && showPanelists
+      ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[322px_minmax(0,1fr)_370px]"
+      : showQa
+        ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_322px] xl:grid-cols-[minmax(0,1fr)_370px]"
+        : showPanelists
+          ? "grid items-start gap-4 lg:grid-cols-[322px_minmax(0,1fr)]"
+          : undefined;
+  const videoColClass = showPanelists && !showQa ? "order-1 lg:order-2" : "order-1 xl:order-2";
+  const panelistsColClass = showQa ? "order-3 xl:order-1" : "order-2 lg:order-1";
 
   if (loading) {
     return (
@@ -526,9 +548,21 @@ export default function PublicSessionPage() {
     !isPast &&
     !hasRecording;
 
+  // Webinar attendee page branding (owner, Oct 6, 2026): no banner on any
+  // webinar; the logo sits at the top over a full-page background image.
+  const branding = isWebinarEvent ? event?.webinarBranding ?? null : null;
+  const backgroundUrl = branding?.backgroundUrl ?? null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      {/* Event banner / header */}
+    <div
+      className={
+        isWebinarEvent
+          ? "flow-root min-h-screen bg-slate-100 bg-cover bg-fixed bg-center"
+          : "min-h-screen bg-gradient-to-br from-slate-50 to-blue-50"
+      }
+      style={backgroundUrl ? { backgroundImage: `url("${encodeURI(backgroundUrl)}")` } : undefined}
+    >
+      {isWebinarEvent ? null : (
       <div className="bg-white border-b">
         {event && (
           <EventBannerBand
@@ -551,13 +585,30 @@ export default function PublicSessionPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Main content: full width so the video can be large with Q&A on its
           right (owner, Oct 2, 2026), capped so an ultra-wide monitor does not
           stretch it. Reading tabs (details, sponsors) keep a text width. */}
-      <div className="mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6">
-        {/* Session title + metadata */}
-        <div>
+      <div
+        className={
+          isWebinarEvent
+            ? "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6"
+            : "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6"
+        }
+      >
+        {/* Session title + metadata; on a webinar the uploaded logo sits to
+            its left (owner, Oct 6, 2026). */}
+        <div className="flex items-center gap-4 sm:gap-6">
+          {branding?.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- an uploaded image of any size (see EventBannerBand)
+            <img
+              src={branding.logoUrl}
+              alt={event?.name ?? "Event logo"}
+              className="h-14 w-auto max-w-[40%] shrink-0 object-contain sm:h-20"
+            />
+          )}
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             {isLive && (
               <Badge className="bg-green-100 text-green-800 border-green-200 gap-1">
@@ -626,6 +677,7 @@ export default function PublicSessionPage() {
             </div>
           )}
         </div>
+        </div>
 
         {/* Sticky CTA — stays pinned at the top of the content area so the
              primary action is always visible regardless of which tab the
@@ -666,7 +718,9 @@ export default function PublicSessionPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList>
+          {/* Inside the webinar panel a phone is narrower than the three tabs:
+              let the strip scroll instead of clipping "Sponsors". */}
+          <TabsList className={isWebinarEvent ? "max-w-full justify-start overflow-x-auto" : undefined}>
             <TabsTrigger value="video" className="gap-2">
               <Video className="h-4 w-4" />
               Live Video
@@ -687,21 +741,22 @@ export default function PublicSessionPage() {
                  so a viewer never leaves the stream to ask (owner feedback,
                  Oct 2, 2026). Custom-stream viewers are not in Zoom, so
                  Zoom's own Q&A cannot reach them. */}
-            <div
-              className={
-                showQa
-                  ? "grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]"
-                  : undefined
-              }
-            >
-            <div className="min-w-0 space-y-4">
+            <div className={videoGridClass}>
+            {showPanelists && (
+              <aside className={`${panelistsColClass} lg:sticky lg:top-4`}>
+                <PanelistsCard panelists={panelists} />
+              </aside>
+            )}
+            <div className={`min-w-0 space-y-4 ${videoColClass}`}>
             {showWaitingRoom && lobby ? (
               <WaitingRoom
                 startsAt={lobby.startsAt}
                 lobbyVideoUrl={lobby.lobbyVideoUrl}
                 lobbyMessage={lobby.lobbyMessage}
-                posterUrl={lobby.lobbyImageUrl ?? event?.bannerImage}
-                posterMobileUrl={lobby.lobbyImageUrl ? null : event?.bannerImageMobile}
+                // No banner on any webinar page (owner, Oct 6, 2026): the page
+                // background shows through when no waiting-room image is set.
+                posterUrl={lobby.lobbyImageUrl || null}
+                posterMobileUrl={null}
               />
             ) : (
               <>
@@ -876,11 +931,21 @@ export default function PublicSessionPage() {
             )}
             </div>
             {showQa && (
-              <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+              <aside className="order-2 xl:order-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
                 <AskQuestionBox slug={slug} sessionId={sessionId} />
               </aside>
             )}
             </div>
+            {/* Webinar footer image under the video, panelists and Q&A, at its
+                own width (never stretched), centred (owner, Oct 6, 2026). */}
+            {branding?.footerImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- an uploaded image of any size (see EventBannerBand)
+              <img
+                src={branding.footerImageUrl}
+                alt=""
+                className="mx-auto mt-4 block h-auto max-w-full rounded-xl"
+              />
+            )}
           </TabsContent>
 
           {/* Tab 2 — Session Details */}

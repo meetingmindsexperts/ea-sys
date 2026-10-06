@@ -145,6 +145,19 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
   });
 
+  it("saves the attendee-page branding images", async () => {
+    const res = await callPut({ pageLogoUrl: "/uploads/media/l.png", pageBackgroundUrl: "https://cdn.example.com/b.jpg", pageFooterImageUrl: "" });
+    expect(res.status).toBe(200);
+    const patch = (mockUpdateEventSettings.mock.calls[0] as unknown[])[1] as (c: Record<string, unknown>) => Record<string, unknown>;
+    expect((patch({ webinar: {} }).webinar as Record<string, unknown>).pageBackgroundUrl).toBe("https://cdn.example.com/b.jpg");
+  });
+
+  it("refuses a branding image that is neither an upload nor https", async () => {
+    const res = await callPut({ pageBackgroundUrl: "javascript:alert(1)" });
+    expect(res.status).toBe(400);
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
+  });
+
   it("switching to zoom mode never checks the stream", async () => {
     mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "zoom" });

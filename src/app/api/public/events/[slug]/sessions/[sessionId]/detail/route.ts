@@ -6,7 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
-import {readWebinarSettings} from "@/lib/webinar";
+import { readWebinarPageBranding, readWebinarSettings } from "@/lib/webinar";
 import { getSponsors } from "@/lib/sponsors";
 import { canWrite } from "@/lib/can-write";
 
@@ -224,6 +224,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         bannerImageMobile: event.bannerImageMobile,
         timezone: event.timezone,
         organization: event.organization,
+        // Webinar attendee page: logo + full-page background replace the banner.
+        webinarBranding: event.eventType === "WEBINAR" ? readWebinarPageBranding(event.settings) : null,
       },
       session: {
         id: session.id,

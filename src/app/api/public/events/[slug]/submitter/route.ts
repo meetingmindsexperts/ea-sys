@@ -15,6 +15,7 @@ import { ensureSubmitterRegistration, checkPresenterRateSelection } from "@/lib/
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { abstractSubmissionsOpen } from "@/lib/webinar";
 
 const registerSchema = refinePresenterSpecialty(
   presenterDetailsSchema.extend({
@@ -82,6 +83,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         name: true,
         slug: true,
         settings: true,
+        eventType: true,
         organizationId: true,
       },
     });
@@ -114,8 +116,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the organizer controls exposure by sharing the proposer link.
     const settings = (event.settings || {}) as Record<string, unknown>;
     if (data.source !== "proposal") {
-      if (settings.allowAbstractSubmissions !== true) {
-        apiLogger.warn({ msg: "public/submitter:abstracts-closed", slug, ip: clientIp });
+      if (!abstractSubmissionsOpen(event)) {
+        apiLogger.warn({ msg: "public/submitter:abstracts-closed", slug, ip: clientIp, eventType: event.eventType });
         return NextResponse.json(
           { error: "Abstract submissions are not open for this event" },
           { status: 403 }

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: webinar attendee page layout and branding (October 6)
+
+- The webinar attendee page shows panelists on the left (322 px card,
+  scrolls inside past about 500 px), the video in the middle and Q&A on the
+  right (370 px). Below 1280 px the video and Q&A share a row and the
+  panelists move under the video.
+- No event banner on any webinar attendee page or waiting room. Three new
+  uploads in the Webinar Console (Lobby card, "Attendee page branding"): a
+  logo shown to the left of the session title, a full-page background image,
+  and a footer image shown under the columns at its own width. Stored in
+  `settings.webinar` (`pageLogoUrl`, `pageBackgroundUrl`,
+  `pageFooterImageUrl`), validated as an upload or https URL, copied on
+  clone. No migration.
+
+### Fixed: no call for abstracts on webinars (October 6)
+
+- The public registration and login pages showed a "Call for Abstracts" card
+  on a webinar whose abstract setting was on (e.g. carried over on creation).
+  `abstractSubmissionsOpen()` now says a webinar never takes abstracts, for
+  the public event payload and the abstract signup API alike.
+
 ### Changed: approvals have their own Settings tab (October 6)
 
 - The spend request approval chain and the budget approver moved from

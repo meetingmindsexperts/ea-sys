@@ -83,6 +83,9 @@ const CLONEABLE_WEBINAR_KEYS: readonly string[] = [
   "lobbyVideoUrl",
   "lobbyMessage",
   "lobbyImageUrl",
+  "pageLogoUrl",
+  "pageBackgroundUrl",
+  "pageFooterImageUrl",
   "defaultMeetingType",
 ];
 
