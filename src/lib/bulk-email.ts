@@ -33,6 +33,7 @@ import {
   type SurveyExpiryDays,
 } from "./survey/expiry";
 import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invitation-link";
+import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { resolveInvitationSurvey, surveyTokenIdentifier } from "@/services/survey-service";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
@@ -1754,6 +1755,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     for (const inv of invites) rsvpTokenByEmail.set(normalizeRsvpEmail(inv.inviteeEmail), inv.token);
   }
 
+  // {{surveyBlock}} on the webinar thank-you (step 5 of several surveys): the
+  // end-of-webinar survey, resolved once per send (never the CME survey), and
+  // one read of who already answered it on the attendee page, who get no link.
+  const thankYouSurvey =
+    emailType === "webinar-thank-you" && recipientType === "registrations"
+      ? await resolveThankYouSurvey(event)
+      : null;
+  const answeredThankYouSurvey = thankYouSurvey
+    ? await registrationsThatAnswered(thankYouSurvey.id, recipients.map((r) => r.id))
+    : new Set<string>();
+
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
       firstName: recipient.firstName,
@@ -2073,6 +2085,33 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.calendarBlockText = webinarEnrichment.calendarBlockText;
     }
 
+    if (emailType === "webinar-thank-you") {
+      // Always set, so a template carrying the tokens never trips the
+      // unresolved-token guard when there is no survey to link.
+      let link = "";
+      if (thankYouSurvey && !answeredThankYouSurvey.has(recipient.id)) {
+        // The extra survey's own three-part link: minting it leaves the
+        // person's CME link (`survey:{regId}`) alive. A re-send replaces
+        // only this survey's link, as the Survey Invitation does.
+        const identifier = surveyTokenIdentifier(thankYouSurvey.id, recipient.id);
+        await db.verificationToken.deleteMany({ where: { identifier } });
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        await db.verificationToken.create({
+          data: {
+            identifier,
+            token: hashVerificationToken(rawToken),
+            expires: new Date(Date.now() + DEFAULT_SURVEY_EXPIRY_DAYS * DAY_MS),
+          },
+        });
+        link = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
+      }
+      const block = buildThankYouSurveyBlock(link);
+      vars.surveyLink = link;
+      vars.surveyName = thankYouSurvey?.name ?? "";
+      vars.surveyBlock = block.html;
+      vars.surveyBlockText = block.text;
+    }
+
     // Per-recipient entry barcode for the {{entryBarcode}} token — only for
     // registrations recipients with a qrCode (virtual / non-registration
     // recipients leave the token empty). Render failure is non-fatal: log and
@@ -2150,7 +2189,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     // content: an ineligible author's email is byte-identical to the
     // organizer's template.
     const travelGrantHtml = vars.travelGrantBlock;
-    const tplForSend =
+    const tplWithGrant =
       typeof travelGrantHtml === "string" && travelGrantHtml.length > 0 && !templateWantsTravelGrant
         ? {
             ...tpl,
@@ -2158,6 +2197,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             textContent: `${tpl.textContent}\n\n{{travelGrantBlockText}}`,
           }
         : tpl;
+    // The same trap for the thank-you's survey block: placed only when it
+    // resolved to a link, so everyone else's email is the template as saved.
+    const tplForSend =
+      typeof vars.surveyBlock === "string" && vars.surveyBlock.length > 0
+        ? withThankYouSurveyBlock(tplWithGrant)
+        : tplWithGrant;
     return {
       ...renderAndWrap(tplForSend, vars, branding, rawHtmlKeys),
       barcodeAttachment,

@@ -2884,7 +2884,8 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
         </ConsoleTitle>
         <CardDescription>
           Pops up for attendees on the webinar page when it ends. They can close it and it comes back until they
-          answer. Answers are recorded with the survey and export from the Surveys page.
+          answer. The thank-you email also carries each person&apos;s own link, unless they already answered.
+          Answers are recorded with the survey and export from the Surveys page.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -2908,7 +2909,10 @@ function EndSurveyCard({ eventId, endSurveyId }: { eventId: string; endSurveyId:
             choose can complete it.
           </p>
           {saved && !saved.isActive && (
-            <p className="text-sm text-amber-700">The chosen survey is closed, so nothing pops up until it is opened.</p>
+            <p className="text-sm text-amber-700">
+              The chosen survey is closed, so nothing pops up and the thank-you email goes without the link until it
+              is opened.
+            </p>
           )}
           {usable.length === 0 && !isLoading && (
             <p className="text-sm text-muted-foreground">

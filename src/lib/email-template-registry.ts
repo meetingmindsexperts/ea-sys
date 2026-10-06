@@ -665,9 +665,10 @@ export const EMAIL_TEMPLATE_REGISTRY: Readonly<Record<SystemTemplateSlug, EmailT
     { key: "firstName", description: "Registrant first name" },
     { key: "lastName", description: "Registrant last name" },
     { key: "recordingBlock", description: "The Watch Replay button once the recording is available (empty before)" },
+    { key: "surveyBlock", description: "The Take the survey button for the end-of-webinar survey chosen in the Webinar Console (empty when none is chosen or the person already answered)" },
     { key: "organizerSignature", description: "The sender's email signature (empty on the automatic send)" },
     ],
-    rawHtmlKeys: ["recordingBlock"],
+    rawHtmlKeys: ["recordingBlock", "surveyBlock"],
   },
   "webinar-panelist-invitation": {
     slug: "webinar-panelist-invitation",

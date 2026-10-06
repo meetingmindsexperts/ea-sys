@@ -813,6 +813,7 @@ Join now: {{joinUrl}}
     <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Thank you for joining <strong>{{eventName}}</strong>. We hope you found it valuable.</p>
     {{recordingBlock}}
+    {{surveyBlock}}
     <p>If you have any feedback, we'd love to hear from you.</p>
     <p style="margin-bottom: 0;">See you at the next one!</p>
     {{organizerSignature}}
@@ -824,6 +825,8 @@ Dear {{title}} {{lastName}},
 Thank you for joining {{eventName}}. We hope you found it valuable.
 
 {{recordingBlock}}
+
+{{surveyBlockText}}
 
 If you have any feedback, we'd love to hear from you.
 

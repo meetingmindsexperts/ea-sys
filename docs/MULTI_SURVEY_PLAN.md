@@ -1,8 +1,8 @@
 # Several surveys per event, one of them the certificate survey
 
-**Status: PLANNED, GO-AHEAD GIVEN, NOT STARTED (October 6, 2026).** First
-use: the webinar end-of-session survey. Decisions in §13, the step-by-step
-build plan in §14. The owner asked for the plan first; nothing is built.
+**Status: BUILT, steps 1 to 5 (October 6, 2026).** First use: the webinar
+end-of-session survey. Decisions in §13, the step-by-step build plan and what
+was built in §14.
 
 **Previous status: PLANNED, NOT BUILT.** Revived September 17, 2026 (owner: "scale the
 surveys without affecting the CME survey, same personalized links but for
@@ -456,6 +456,24 @@ answered, POST submit through `submitSurveyResponse`); the popup
   way `ensurePersonalSurveyLink` does for invitations). People who already
   answered on the page get no link.
 - Tests: link present when set, absent when not set or already answered.
+
+**Step 5 as built (Oct 6, 2026):** [src/lib/webinar-thank-you-survey.ts](../src/lib/webinar-thank-you-survey.ts)
+resolves the survey once per send and reads who already answered in one
+query; `executeBulkEmail` mints `survey:{surveyId}:{regId}` per recipient
+(7-day link, the invitation default) and fills `{{surveyBlock}}` /
+`{{surveyBlockText}}` / `{{surveyLink}}` / `{{surveyName}}`, always set so a
+template carrying them never trips the unresolved-token guard. Rules:
+- **Never the CME survey**, refused again here; a missing, closed or empty
+  survey sends the thank-you without the block and logs
+  `webinar-thank-you:survey-skipped`. The thank-you is never blocked by it.
+- Minting replaces only this survey's link, so the person's CME link stays
+  alive. A later Survey Invitation for the same extra survey replaces the
+  thank-you's link, as two invitations would.
+- A saved thank-you without `{{surveyBlock}}` or `{{surveyLink}}` gets the
+  block before `{{organizerSignature}}` (else at the end), only for people who
+  have a link; everyone else's email is the template as saved.
+- Tests: `bulk-email-webinar-thank-you-survey.test.ts` (7, the answered and
+  CME guards mutation-checked).
 
 ### Effort and order
 

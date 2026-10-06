@@ -96,13 +96,14 @@ describe("the body-to-contract check", () => {
 });
 
 describe("the derived raw-key set", () => {
-  it("is exactly the set the hand list held on September 18, 2026", () => {
+  it("is exactly the set the hand list held on September 18, 2026, plus the thank-you's surveyBlock (Oct 6)", () => {
     const derived = new Set([...GLOBAL_RAW_HTML_KEYS, ...EMAIL_TEMPLATE_SPECS.flatMap((t) => t.rawHtmlKeys)]);
     expect([...derived].sort()).toEqual(
       [
         "paymentBlock", "rsvpButton", "receiptBlock", "taxBlock", "presentationDetails", "memberSummary",
         "moderatorDetails", "agreementBlock", "travelGrantBlock", "passcodeBlock", "recordingBlock",
         "calendarBlock", "entryBarcode", "organizerSignature", "reviewNotes", "claimSummary", "presenterFeeBlock",
+        "surveyBlock",
       ].sort(),
     );
     // And the renderer honours it without a caller opting in.

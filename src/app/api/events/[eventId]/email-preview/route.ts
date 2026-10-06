@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { ensurePersonalSurveyLink } from "@/lib/survey/invitation-link";
+import { resolveThankYouSurvey, withThankYouSurveyBlock } from "@/lib/webinar-thank-you-survey";
 import {
   getEventTemplate,
   renderTemplate,
@@ -322,10 +323,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Preview == send: the Survey Invitation send guarantees a personal link
     // (a pasted shareable URL becomes it, a missing one gains a button), so
     // the preview shows the same body. See src/lib/survey/invitation-link.ts.
+    // The webinar thank-you likewise: with an end-of-webinar survey chosen, a
+    // saved template gains the survey block as the send places it; with none
+    // chosen the block previews empty, as it sends.
+    const thankYouSurvey = slug === "webinar-thank-you" ? await resolveThankYouSurvey(eventRow) : null;
     const eventTemplate =
       slug === "survey-invitation"
         ? ensurePersonalSurveyLink(loadedTemplate).template
-        : loadedTemplate;
+        : thankYouSurvey
+          ? withThankYouSurveyBlock(loadedTemplate)
+          : loadedTemplate;
 
     const sampleVars = buildEventPreviewVariables(
       event,
@@ -347,6 +354,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Target speaker (when previewing from a speaker's dialog) wins over the
     // sample/signed-in-user greeting and the representative speaker's blocks.
     const mergedVars: Record<string, string | number> = { ...sampleVars, ...speakerVars };
+    if (slug === "webinar-thank-you" && !thankYouSurvey) {
+      mergedVars.surveyBlock = "";
+      mergedVars.surveyBlockText = "";
+    }
 
     // Tokens typed into the compose box must resolve in the PREVIEW exactly
     // like the send (the single-send route's renderMessageValue contract —

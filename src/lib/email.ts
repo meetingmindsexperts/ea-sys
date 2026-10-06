@@ -1672,6 +1672,11 @@ export function getSamplePreviewVariables(
       '<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">123456</strong></div>',
     recordingBlock:
       '<div style="text-align:center; margin:20px 0;"><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>',
+    // The thank-you's end-of-webinar survey button (step 5 of several surveys);
+    // real sends mint each person's link in bulk-email.ts.
+    surveyBlock:
+      '<div style="text-align:center; margin:20px 0;"><p style="margin:0 0 12px 0;">Tell us what you thought: it takes a minute.</p><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Take the survey</a></div>',
+    surveyBlockText: "Tell us what you thought: #",
     // Add-to-calendar links (real sends build timezone-correct Google/Outlook
     // URLs + attach invite.ics — see buildWebinarCalendarEnrichment).
     calendarBlock:
