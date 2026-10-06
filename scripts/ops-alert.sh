@@ -24,7 +24,15 @@ ALERT_EMAIL_FROM="${ALERT_EMAIL_FROM:-alerts@meetingmindsexperts.com}"
 ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-krishna@meetingmindsdubai.com}"
 SES_REGION="${SES_REGION:-ap-south-1}"
 
-SUBJECT="${1:-EA-SYS ops alert}"
+# A subject is required. With defaults here, running the script bare (a CI gate
+# loop that collected every `bash scripts/*.sh` from deploy.yml did exactly that,
+# about 30 times on Oct 5 2026) paged the owner with "EA-SYS ops alert / (no
+# body)". Every real caller passes both, so refusing costs nothing.
+if [ -z "${1:-}" ]; then
+  echo "ops-alert: no subject given, nothing sent (usage: ops-alert.sh \"<subject>\" \"<body>\")" >&2
+  exit 0
+fi
+SUBJECT="$1"
 BODY="${2:-(no body)}"
 
 # SES shorthand syntax chokes on commas/braces inside the value, so use the
