@@ -148,7 +148,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: STATUS_BY_CODE[result.code] },
         );
       }
-      return NextResponse.json({ ok: true, action: result.action });
+      return NextResponse.json({ ok: true, action: result.action, notRunning: result.notRunning === true });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-livestream:failed");

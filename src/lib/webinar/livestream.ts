@@ -16,13 +16,19 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { zoomApiRequest } from "@/lib/zoom/client";
+import { ZoomRequestError, zoomApiRequest } from "@/lib/zoom/client";
 import { enableWebinarLiveStreaming, enableZoomLiveStreaming } from "@/lib/zoom/meetings";
 
 export type LiveStreamAction = "sync" | "start" | "stop";
 
 export type LiveStreamResult =
-  | { ok: true; action: LiveStreamAction; streamKey: string }
+  | {
+      ok: true;
+      action: LiveStreamAction;
+      streamKey: string;
+      /** A stop found no stream running (the webinar had not started in Zoom). */
+      notRunning?: boolean;
+    }
   | {
       ok: false;
       code: "NO_ZOOM_MEETING" | "STREAM_NOT_CONFIGURED" | "ZOOM_API_FAILED";
@@ -103,6 +109,16 @@ export function zoomMessage(err: unknown, action: LiveStreamAction): string {
   return raw;
 }
 
+/**
+ * Zoom's answer to a livestream status change on a webinar the host has not
+ * started: 400 "Webinar … has not started." For a STOP that is the outcome the
+ * producer wanted (no stream running), so it is not a failure. A START with the
+ * same answer is a real refusal and stays an error.
+ */
+export function isNotStartedAnswer(status: number, body: { message?: string } | undefined): boolean {
+  return status === 400 && /has not started|not started/i.test(body?.message ?? "");
+}
+
 export async function controlWebinarLiveStream(input: {
   organizationId: string;
   eventId: string;
@@ -157,13 +173,23 @@ export async function controlWebinarLiveStream(input: {
   }
 
   try {
-    await zoomApiRequest<void>(organizationId, "PATCH", `${base}/livestream/status`, {
-      action,
-      ...(action === "start"
-        ? { settings: { active_speaker_name: false, display_name: sessionName.slice(0, 50) } }
-        : {}),
-    });
+    await zoomApiRequest<void>(
+      organizationId,
+      "PATCH",
+      `${base}/livestream/status`,
+      {
+        action,
+        ...(action === "start"
+          ? { settings: { active_speaker_name: false, display_name: sessionName.slice(0, 50) } }
+          : {}),
+      },
+      action === "stop" ? { isExpectedError: isNotStartedAnswer } : undefined,
+    );
   } catch (err) {
+    if (action === "stop" && err instanceof ZoomRequestError && isNotStartedAnswer(err.status, err.zoomBody)) {
+      apiLogger.info({ eventId, sessionId, userId }, "webinar-livestream:stop-nothing-running");
+      return { ok: true, action, streamKey: meeting.streamKey, notRunning: true };
+    }
     apiLogger.error({ err, eventId, sessionId, action }, "webinar-livestream:status-failed");
     return { ok: false, code: "ZOOM_API_FAILED", message: zoomMessage(err, action) };
   }

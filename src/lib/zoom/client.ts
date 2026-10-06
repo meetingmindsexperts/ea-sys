@@ -129,6 +129,19 @@ export async function getZoomAccessToken(organizationId: string): Promise<string
 
 // ── Generic Zoom API request ───────────────────────────────────────
 
+/** A non-2xx Zoom answer. Same message as before (callers match on it), plus
+ *  the status and Zoom's own body so a caller can classify without parsing. */
+export class ZoomRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly zoomBody: ZoomApiError | undefined,
+  ) {
+    super(message);
+    this.name = "ZoomRequestError";
+  }
+}
+
 export async function zoomApiRequest<T>(
   organizationId: string,
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
@@ -139,7 +152,13 @@ export async function zoomApiRequest<T>(
   // / was never recorded). These are logged at debug instead of error so they
   // don't trip the admin alert page; everything else still pages. The request
   // still throws so the caller's own handling runs.
-  options?: { expectedStatuses?: number[] },
+  // `isExpectedError`: the same idea for one specific Zoom answer that a
+  // status alone cannot pick out (e.g. stopping a stream on a webinar that
+  // has not started, a 400 that also covers real bad requests).
+  options?: {
+    expectedStatuses?: number[];
+    isExpectedError?: (status: number, body: ZoomApiError | undefined) => boolean;
+  },
 ): Promise<T> {
   const accessToken = await getZoomAccessToken(organizationId);
 
@@ -188,14 +207,19 @@ export async function zoomApiRequest<T>(
     // declared expected for this request — those are recurring, benign noise
     // (the recording poller's 404), so they log at debug and don't page. An
     // UNEXPECTED 404 (any call that didn't opt in) still pages.
-    if (options?.expectedStatuses?.includes(response.status)) {
+    if (
+      options?.expectedStatuses?.includes(response.status) ||
+      options?.isExpectedError?.(response.status, errorBody)
+    ) {
       apiLogger.debug(logPayload, "zoom:api-expected-status");
     } else {
       apiLogger.error(logPayload, "zoom:api-error");
     }
 
-    throw new Error(
-      `Zoom API error: ${response.status} ${errorBody?.message || "Unknown error"} (code: ${errorBody?.code || "N/A"})`
+    throw new ZoomRequestError(
+      `Zoom API error: ${response.status} ${errorBody?.message || "Unknown error"} (code: ${errorBody?.code || "N/A"})`,
+      response.status,
+      errorBody,
     );
   }
 

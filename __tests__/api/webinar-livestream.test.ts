@@ -5,7 +5,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, zoomApiRequestSpy, enableWebinarSpy, enableMeetingSpy } = vi.hoisted(() => ({
+const { mockDb, zoomApiRequestSpy, enableWebinarSpy, enableMeetingSpy, MockZoomRequestError, mockLogger } = vi.hoisted(() => ({
+  MockZoomRequestError: class extends Error {
+    constructor(message: string, readonly status: number, readonly zoomBody: { code: number; message: string } | undefined) {
+      super(message);
+    }
+  },
+  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockDb: {
     zoomMeeting: { findFirst: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   },
@@ -20,17 +26,15 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
-vi.mock("@/lib/logger", () => ({
-  apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
-vi.mock("@/lib/zoom/client", () => ({ zoomApiRequest: zoomApiRequestSpy }));
+vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
+vi.mock("@/lib/zoom/client", () => ({ zoomApiRequest: zoomApiRequestSpy, ZoomRequestError: MockZoomRequestError }));
 vi.mock("@/lib/zoom/meetings", () => ({
   enableWebinarLiveStreaming: enableWebinarSpy,
   enableZoomLiveStreaming: enableMeetingSpy,
 }));
 
 process.env.STREAM_PUBLISH_SECRET = "test-stream-publish-secret";
-import { controlWebinarLiveStream, rtmpIngestUrl, streamPublishPassword, zoomPublishKey } from "@/lib/webinar/livestream";
+import { controlWebinarLiveStream, isNotStartedAnswer, rtmpIngestUrl, streamPublishPassword, zoomPublishKey } from "@/lib/webinar/livestream";
 import { POST as mediamtxAuth } from "@/app/api/webhooks/mediamtx-auth/route";
 
 const KEY = "0123456789abcdef0123456789abcdef";
@@ -59,6 +63,7 @@ describe("controlWebinarLiveStream", () => {
     expect(zoomApiRequestSpy).toHaveBeenCalledWith(
       "org1", "PATCH", "/webinars/999/livestream/status",
       expect.objectContaining({ action: "start" }),
+      undefined, // a start declares no expected error: every refusal pages
     );
   });
 
@@ -67,7 +72,10 @@ describe("controlWebinarLiveStream", () => {
       id: "zm1", zoomMeetingId: "123", meetingType: "MEETING", liveStreamEnabled: true, streamKey: KEY,
     });
     await controlWebinarLiveStream({ ...base, action: "stop" });
-    expect(zoomApiRequestSpy).toHaveBeenCalledWith("org1", "PATCH", "/meetings/123/livestream/status", { action: "stop" });
+    expect(zoomApiRequestSpy).toHaveBeenCalledWith(
+      "org1", "PATCH", "/meetings/123/livestream/status", { action: "stop" },
+      expect.objectContaining({ isExpectedError: expect.any(Function) }),
+    );
   });
 
   it("start refuses when streaming was never set up", async () => {
@@ -99,6 +107,49 @@ describe("controlWebinarLiveStream", () => {
     zoomApiRequestSpy.mockRejectedValueOnce(new Error("Zoom API error: 400 Webinar 82,056,527,587 has not started. (code: 200)"));
     const b = await controlWebinarLiveStream({ ...base, action: "stop" });
     expect(!b.ok && b.message).toMatch(/no stream to stop/);
+  });
+
+  it("stop on a webinar the host has not started is 'nothing to stop', logged as info, never an error (Oct 6, 2026)", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({
+      id: "zm1", zoomMeetingId: "999", meetingType: "WEBINAR", liveStreamEnabled: true, streamKey: KEY,
+    });
+    zoomApiRequestSpy.mockRejectedValueOnce(
+      new MockZoomRequestError("Zoom API error: 400 Webinar 82,929,473,321 has not started. (code: 200)", 400, { code: 200, message: "Webinar 82,929,473,321 has not started." }),
+    );
+    const res = await controlWebinarLiveStream({ ...base, action: "stop" });
+    expect(res).toMatchObject({ ok: true, action: "stop", notRunning: true });
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockLogger.info).toHaveBeenCalledWith(expect.objectContaining({ eventId: "ev1" }), "webinar-livestream:stop-nothing-running");
+  });
+
+  it("the same answer on a START is still a refusal and an error", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({
+      id: "zm1", zoomMeetingId: "999", meetingType: "WEBINAR", liveStreamEnabled: true, streamKey: KEY,
+    });
+    zoomApiRequestSpy.mockRejectedValueOnce(
+      new MockZoomRequestError("Zoom API error: 400 Webinar 82,929,473,321 has not started. (code: 200)", 400, { code: 200, message: "Webinar 82,929,473,321 has not started." }),
+    );
+    const res = await controlWebinarLiveStream({ ...base, action: "start" });
+    expect(res).toMatchObject({ ok: false, code: "ZOOM_API_FAILED" });
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), "webinar-livestream:status-failed");
+    expect(zoomApiRequestSpy.mock.calls[0][4]).toBeUndefined();
+  });
+
+  it("a stop that fails for another reason is still an error", async () => {
+    mockDb.zoomMeeting.findFirst.mockResolvedValue({
+      id: "zm1", zoomMeetingId: "999", meetingType: "WEBINAR", liveStreamEnabled: true, streamKey: KEY,
+    });
+    zoomApiRequestSpy.mockRejectedValueOnce(new MockZoomRequestError("Zoom API error: 400 Invalid field (code: 300)", 400, { code: 300, message: "Invalid field" }));
+    const res = await controlWebinarLiveStream({ ...base, action: "stop" });
+    expect(res).toMatchObject({ ok: false, code: "ZOOM_API_FAILED" });
+    expect(mockLogger.error).toHaveBeenCalled();
+  });
+
+  it("isNotStartedAnswer matches only a 400 that says the webinar has not started", () => {
+    expect(isNotStartedAnswer(400, { message: "Webinar 82,929,473,321 has not started." })).toBe(true);
+    expect(isNotStartedAnswer(400, { message: "Invalid field" })).toBe(false);
+    expect(isNotStartedAnswer(404, { message: "has not started" })).toBe(false);
+    expect(isNotStartedAnswer(400, undefined)).toBe(false);
   });
 
   it("Zoom 3001 (webinar gone) points at the provisioner, not a retry", async () => {

@@ -327,6 +327,10 @@ export default function WebinarConsolePage() {
             <Wrench className="h-4 w-4" />
             Setup
           </TabsTrigger>
+          <TabsTrigger value="panelists" className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4" />
+            Panelists
+          </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <LineChart className="h-4 w-4" />
             Analytics
@@ -357,9 +361,9 @@ export default function WebinarConsolePage() {
 
         <TabsContent value="setup" className="space-y-6 mt-4">
           {/* Two-zone layout: the wide column is the configuration work area,
-              the narrow rail is monitoring + comms. Panelists (a wide table +
-              add form) keeps the full width below. items-start stops the
-              columns stretching to each other's height. */}
+              the narrow rail is go-live, monitoring + comms. Panelists have
+              their own tab. items-start stops the columns stretching to each
+              other's height. */}
           <div className="grid items-start gap-6 lg:grid-cols-3">
             <div className="space-y-6 lg:col-span-2">
               <OverviewCard
@@ -400,6 +404,11 @@ export default function WebinarConsolePage() {
               <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
             </div>
           </div>
+        </TabsContent>
+
+        {/* Panelists on their own tab (owner, Oct 6, 2026): a wide table and
+            add form that would be cramped in the Setup tab's right rail. */}
+        <TabsContent value="panelists" className="mt-4">
           <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
         </TabsContent>
 
@@ -2491,7 +2500,13 @@ function LobbyCard({
 
   const runStreamAction = async (action: "sync" | "start" | "stop") => {
     try {
-      await liveStream.mutateAsync(action);
+      const res = await liveStream.mutateAsync(action);
+      if (res.notRunning) {
+        toast.info("No stream was running", {
+          description: "The webinar has not started in Zoom yet, so there was nothing to stop.",
+        });
+        return;
+      }
       toast.success(
         action === "sync"
           ? "Stream settings sent to Zoom"

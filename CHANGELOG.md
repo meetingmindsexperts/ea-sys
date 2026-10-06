@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: Panelists tab, quieter "nothing to stop", styled toasts (October 6)
+
+- Webinar Console: Panelists moved to their own tab after Setup.
+- Stopping a custom stream (Stop stream, or closing the room) on a webinar the
+  host has not started in Zoom is now "No stream was running", logged at info
+  (`webinar-livestream:stop-nothing-running`), instead of two errors and a red
+  toast. Zoom's same answer to a START is still an error, as is any other
+  failed stop. The Zoom client gains `ZoomRequestError` (status and body) and an
+  `isExpectedError` option beside `expectedStatuses`.
+- Toasts app-wide: coloured success, error, warning and info, a close button,
+  rounded card with a shadow, bolder title.
+
 ### Changed: Onsite assignments read from the table only (October 6)
 
 - Custom roles Phase 4, release 2. Which events an Onsite user may work is

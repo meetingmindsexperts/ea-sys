@@ -2598,7 +2598,7 @@ export function useWebinarLiveStream(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (action: "sync" | "start" | "stop") =>
-      fetchApi<{ ok: true; action: string }>(`/api/events/${eventId}/webinar/livestream`, {
+      fetchApi<{ ok: true; action: string; notRunning?: boolean }>(`/api/events/${eventId}/webinar/livestream`, {
         method: "POST",
         body: JSON.stringify({ action }),
         headers: { "Content-Type": "application/json" },
