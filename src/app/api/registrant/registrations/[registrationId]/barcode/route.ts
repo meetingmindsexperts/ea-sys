@@ -6,7 +6,7 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
 import { checkRateLimit } from "@/lib/security";
 
 interface RouteParams {
@@ -79,7 +79,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         // temp assigned to Event A can no longer pull a barcode for Event B.
         ...(ownerScoped
           ? { userId: authedUser.id }
-          : { event: buildEventAccessWhere(authedUser) }),
+          : { event: eventWhereFor(principalFromUser(authedUser), "registrations.read") }),
       },
       select: { qrCode: true, serialId: true },
     });

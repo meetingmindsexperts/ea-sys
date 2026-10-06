@@ -4,7 +4,7 @@ import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
@@ -88,7 +88,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         ...(ownerScoped
           ? { userId: authedUser.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-          : { event: buildEventAccessWhere(authedUser) }),
+          : { event: eventWhereFor(principalFromUser(authedUser), "invoices.read") }),
       },
       include: {
         attendee: true,

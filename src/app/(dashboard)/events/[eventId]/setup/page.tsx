@@ -49,7 +49,7 @@ import {
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -242,7 +242,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
   try {
     result = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: hubEventWhere(session, eventId, "events/[eventId]/setup:page"),
         select: {
           id: true,
           name: true,

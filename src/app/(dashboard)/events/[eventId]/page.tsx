@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { Card, CardContent } from "@/components/ui/card";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
 import {
@@ -53,7 +53,10 @@ export default async function EventPage({ params }: EventPageProps) {
   let event;
   try {
     event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      // The event hub's key (analytics.read: every event for staff, assigned
+      // events for Onsite, webinars for Webinars, as the old scoping);
+      // reviewers and submitters keep their own (linkedRoles).
+      where: hubEventWhere(session, eventId, "events/[eventId]:page"),
       select: {
         id: true,
         name: true,

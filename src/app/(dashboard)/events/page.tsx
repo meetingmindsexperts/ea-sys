@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Plus, Calendar } from "lucide-react";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventListWhere } from "@/lib/permissions/page-event-where";
 import { eventListSelect } from "@/lib/event-visibility";
 import { EventListClient } from "./event-list-client";
 import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
@@ -43,7 +43,7 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
       // passed it, this page did not, so a WEBINARS user's assigned events were
       // returned by the endpoint but missing from the page that renders the
       // list. Same query, same flag — the list is one thing, not two.
-      where: buildEventAccessWhere(session.user, undefined, { surface: "desk" }),
+      where: eventListWhere(session, "events:page"),
       orderBy: eventOrderBy(sort),
       select: eventListSelect(session.user.role),
     });

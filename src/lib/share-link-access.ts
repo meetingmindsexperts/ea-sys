@@ -9,15 +9,14 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { requireOrgId } from "@/lib/require-org";
 
 export async function resolveShareEvent(
   session: Session,
   route: string,
   eventId: string,
-  /** The permission gate's filter, from a route moved onto `requirePermission`. */
-  where: Prisma.EventWhereInput = buildEventAccessWhere(session.user, eventId),
+  /** The permission gate's filter (`gate.eventWhere`). Required: there is no role-based default. */
+  where: Prisma.EventWhereInput,
 ) {
   const org = requireOrgId(session, { route, eventId });
   if ("error" in org) return { error: org.error } as const;

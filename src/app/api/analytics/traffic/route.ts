@@ -17,7 +17,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { requireOrgId } from "@/lib/require-org";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { getOrgTraffic } from "@/analytics/store/org-traffic";
 
 /** The windows the page offers; an arbitrary number would let one request scan a year. */
@@ -63,7 +63,8 @@ export async function GET(req: Request) {
     }
 
     const events = await db.event.findMany({
-      where: buildEventAccessWhere(session.user),
+      // The events whose analytics this person may read (was the manage scoping).
+      where: hubEventWhere(session, undefined, "analytics:traffic"),
       select: { id: true, name: true, slug: true, startDate: true, timezone: true },
     });
 

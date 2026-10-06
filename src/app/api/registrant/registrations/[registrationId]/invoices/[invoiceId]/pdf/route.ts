@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 import { auth } from "@/lib/auth";
 import { resolveRequestOrgId } from "@/lib/tenant/resolver";
 import { runWithTenantLane } from "@/lib/tenant-lane";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor } from "@/lib/permissions/can";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
@@ -61,7 +61,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         ...(ownerScoped
           ? { userId: session.user.id }
           // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
-          : { event: buildEventAccessWhere(session.user) }),
+          : { event: eventWhereFor(principalFromSession(session), "invoices.read") }),
       },
       select: { id: true },
     });
