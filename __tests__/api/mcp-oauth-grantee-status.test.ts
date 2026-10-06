@@ -68,7 +68,8 @@ describe("MCP OAuth grantee status", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "mcp:oauth-grantee-cannot-connect", role: "ORGANIZER" }));
   });
 
-  it("lets a grantee whose custom role grants mcp.connect through", async () => {
+  // mcp.connect is never grantable through a custom role (ADMIN_ONLY_KEYS).
+  it("refuses an Organizer even when a custom role carries mcp.connect", async () => {
     mockDb.user.findUnique.mockResolvedValue({ role: "ORGANIZER", organizationId: "org-1", deactivatedAt: null });
     mockDb.userPermissionSet.findMany.mockResolvedValueOnce([
       { permissionSet: { permissions: [{ permission: "mcp.connect", scope: null }] } },
@@ -76,7 +77,7 @@ describe("MCP OAuth grantee status", () => {
     const prev = process.env.CUSTOM_ROLES_ENABLED;
     process.env.CUSTOM_ROLES_ENABLED = "true";
     try {
-      expect((await POST(req())).status).toBe(429);
+      expect((await POST(req())).status).toBe(401);
     } finally {
       if (prev === undefined) delete process.env.CUSTOM_ROLES_ENABLED;
       else process.env.CUSTOM_ROLES_ENABLED = prev;

@@ -12,6 +12,8 @@ const { mockDb, mockAuth, mockLogger, mockReadPermissions, mockRunWithTenant } =
     user: { findFirst: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
     mcpOAuthAccessToken: { updateMany: vi.fn() },
+    // A role change clears the person's custom roles (review M3).
+    userPermissionSet: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
   },
   mockAuth: vi.fn(),
   // All four levels, not only the ones this file asserts on. The route logs a
@@ -301,5 +303,39 @@ describe("the separation rules reach the custom roles too", () => {
   it("lets an ordinary grant change through when no role conflicts", async () => {
     mockReadPermissions.mockResolvedValue(["procurement.budgets.view"]);
     expect((await put("owner", { procurementRequest: true })).status).toBe(200);
+  });
+});
+
+// The custom-roles review fixes (Oct 6, 2026).
+describe("review fixes on the user edit", () => {
+  it("refuses changing your own role or duties, even as a user admin (M1)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "lina", role: "ADMIN", organizationId: "org1" } });
+    const res = await put("lina", { role: "ORGANIZER" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("OWN_ROLE");
+    mockAuth.mockResolvedValue({ user: { id: "medhat", role: "SUPER_ADMIN", organizationId: "org1" } });
+    expect((await put("medhat", { procurementSettle: true })).status).toBe(403);
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("lets only a super admin re-role or deactivate a super admin (M2)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "lina", role: "ADMIN", organizationId: "org1" } });
+    const demote = await put("medhat", { role: "MEMBER" });
+    expect(demote.status).toBe(403);
+    expect((await demote.json()).code).toBe("SUPER_ADMIN_PROTECTED");
+    expect((await put("medhat", { deactivated: true })).status).toBe(403);
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
+  it("clears the person's custom roles on a role change, and records it (M3)", async () => {
+    mockDb.userPermissionSet.deleteMany.mockResolvedValueOnce({ count: 2 });
+    expect((await put("owner", { role: "MEMBER" })).status).toBe(200);
+    expect(mockDb.userPermissionSet.deleteMany).toHaveBeenCalledWith({ where: { organizationId: "org1", userId: "owner" } });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ customRolesCleared: 2 });
+  });
+
+  it("leaves custom roles alone when the role does not change", async () => {
+    expect((await put("owner", { role: "ORGANIZER" })).status).toBe(200);
+    expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();
   });
 });

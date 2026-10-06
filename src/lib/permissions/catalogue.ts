@@ -664,8 +664,19 @@ export function isLivePermissionKey(key: string): key is PermissionKey {
  * is never a promise nothing keeps.
  */
 export function isGrantableKey(key: string, customRolesEnabled: boolean): key is PermissionKey {
+  if (ADMIN_ONLY_KEYS.has(key)) return false;
   return isLivePermissionKey(key) || (customRolesEnabled && isPermissionKey(key));
 }
+
+/**
+ * Keys that stay with the built-in admin roles and are never put in a custom
+ * role (owner, Oct 6, 2026, after the custom-roles review): each one makes
+ * more admins or reaches past every other check. `roles.manage` and
+ * `users.manage` mint access; `apiKeys.manage` mints a full API key;
+ * `mcp.connect` opens the whole MCP tool set (that door is not gated by
+ * permissions). A stored grant of one of them grants nothing.
+ */
+export const ADMIN_ONLY_KEYS: ReadonlySet<string> = new Set(["roles.manage", "users.manage", "apiKeys.manage", "mcp.connect"]);
 
 /**
  * A granted key as the session carries it: `key`, or `key@SCOPE` for an

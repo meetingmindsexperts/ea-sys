@@ -21,6 +21,7 @@ import { breaksAdminTrio, firstGrantBeyondActor } from "./escalation";
 import { holdsPersonGrant, systemPrincipal, type Principal } from "./can";
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS, type Grant } from "./system-roles";
 import { separationConflicts, unionPermissions } from "./separation";
+import { grantsOutsideAreas } from "./key-areas";
 
 export const PERMISSION_SET_SELECT = {
   id: true,
@@ -225,6 +226,7 @@ export type PermissionSetErrorCode =
   | "BEYOND_YOUR_ACCESS"
   | "ADMIN_TRIO"
   | "OWN_ROLE"
+  | "OUTSIDE_AREAS"
   | "UNKNOWN";
 
 export interface PermissionSetFailure {
@@ -471,6 +473,8 @@ export async function updatePermissionSet(input: {
   }
 
   if (permissionsChanged) {
+    const outside = await holdersOutsideAreas(input.organizationId, input.permissionSetId, nextGrants);
+    if (outside.length > 0) return outsideAreasFailure(outside);
     const broken = await holdersBrokenBy(input.organizationId, input.permissionSetId, nextKeys);
     if (broken.length > 0) {
       return fail(
@@ -499,6 +503,15 @@ export async function updatePermissionSet(input: {
         );
       }
       if (permissionsChanged) {
+        // Re-checked inside the claim (review L3): a role given to the actor
+        // between the check above and this write must still refuse.
+        const holdsNow = await tx.userPermissionSet.findFirst({
+          where: { organizationId: input.organizationId, userId: input.actorUserId, permissionSetId: input.permissionSetId },
+          select: { userId: true },
+        });
+        if (holdsNow) {
+          throw new PermissionSetSentinel(fail("OWN_ROLE", "You hold this role, so you cannot change what it grants. Ask another administrator."));
+        }
         await tx.permissionSetGrant.deleteMany({ where: { permissionSetId: input.permissionSetId } });
         await tx.permissionSetGrant.createMany({
           data: nextGrants.map((g) => ({
@@ -551,16 +564,51 @@ export async function updatePermissionSet(input: {
 export async function setPermissionSetArchived(input: {
   organizationId: string;
   actorUserId: string;
+  /** The person restoring it: a restore gives the role back to every holder (review M4). */
+  actor: Principal;
   permissionSetId: string;
   archived: boolean;
   ip?: string | null;
 }): Promise<PermissionSetResult & { holderCount?: number }> {
   const current = await db.permissionSet.findFirst({
     where: { id: input.permissionSetId, organizationId: input.organizationId },
-    select: { id: true, name: true, isSystem: true, archivedAt: true, _count: { select: { holders: true } } },
+    select: {
+      id: true,
+      name: true,
+      isSystem: true,
+      archivedAt: true,
+      permissions: { select: { permission: true, scope: true } },
+      _count: { select: { holders: true } },
+    },
   });
   if (!current) return fail("NOT_FOUND", "That role no longer exists.");
   if (current.isSystem) return fail("SYSTEM_ROLE", "A system role cannot be archived.");
+
+  // RESTORING IS GRANTING (review M4, Oct 6, 2026). Assignments survive an
+  // archive, so a restore hands the role back to everyone who held it and to
+  // every API key acting with it. It runs the checks an edit runs: the
+  // restorer's own access, their not holding it, each holder's areas, and the
+  // separation rules against what each holder has gained meanwhile.
+  if (!input.archived && current.archivedAt) {
+    const grants: CleanGrant[] = current.permissions.map((p) => ({ permission: p.permission as PermissionKey, scope: p.scope }));
+    const escalation = refuseEscalation(input.actor, grants);
+    if (escalation) return escalation;
+    const holdsIt = await db.userPermissionSet.findFirst({
+      where: { organizationId: input.organizationId, userId: input.actorUserId, permissionSetId: input.permissionSetId },
+      select: { userId: true },
+    });
+    if (holdsIt) return fail("OWN_ROLE", "You hold this role, so you cannot restore it. Ask another administrator.");
+    const outside = await holdersOutsideAreas(input.organizationId, input.permissionSetId, grants);
+    if (outside.length > 0) return outsideAreasFailure(outside);
+    const broken = await holdersBrokenBy(input.organizationId, input.permissionSetId, grants.map((g) => g.permission));
+    if (broken.length > 0) {
+      return fail(
+        "SEPARATION_CONFLICT",
+        `${broken[0].conflict} Restoring this role would break that for ${broken.map((b) => b.name).join(", ")}.`,
+        { holders: broken },
+      );
+    }
+  }
 
   try {
     const claimed = await db.permissionSet.updateMany({
@@ -631,7 +679,7 @@ export async function setUserPermissionSets(input: {
   const sets = wanted.length
     ? await db.permissionSet.findMany({
         where: { organizationId: input.organizationId, id: { in: wanted } },
-        select: { id: true, name: true, isSystem: true, archivedAt: true, permissions: { select: { permission: true, scope: true } } },
+        select: { id: true, name: true, version: true, isSystem: true, archivedAt: true, permissions: { select: { permission: true, scope: true } } },
       })
     : [];
   if (sets.length !== wanted.length) {
@@ -643,8 +691,20 @@ export async function setUserPermissionSets(input: {
       permissionSetId: system.id,
     });
   }
-  // Assigning a role is granting it: bounded by the assigner's own access.
-  for (const set of sets) {
+  // Assigning a role is granting it, and removing one is taking it away:
+  // both bounded by the assigner's own access (review L3). Roles the person
+  // keeps are not re-judged, so a narrower manager can still save a person
+  // who holds a role wider than theirs.
+  const before = await readUserPermissionSetIds(input.organizationId, input.userId);
+  const removedIds = before.filter((id) => !wanted.includes(id));
+  const removedSets = removedIds.length
+    ? await db.permissionSet.findMany({
+        where: { organizationId: input.organizationId, id: { in: removedIds } },
+        select: { id: true, name: true, permissions: { select: { permission: true, scope: true } } },
+      })
+    : [];
+  const judged = [...sets.filter((s) => !before.includes(s.id)), ...removedSets];
+  for (const set of judged) {
     const escalation = refuseEscalation(
       input.actor,
       set.permissions.map((p) => ({ permission: p.permission as PermissionKey, scope: p.scope })),
@@ -666,12 +726,29 @@ export async function setUserPermissionSets(input: {
       firstName: true,
       lastName: true,
       email: true,
+      role: true,
       procurementApproveUnlimited: true,
       procurementRequest: true,
       procurementSettle: true,
     },
   });
   if (!person) return fail("NOT_FOUND", "That team member no longer exists.");
+
+  // A custom role adds keys within the person's base-role areas (review M6).
+  for (const set of sets) {
+    const outside = grantsOutsideAreas(
+      person.role,
+      set.permissions.map((p) => ({ permission: p.permission, scope: p.scope as GrantScope | null })),
+    );
+    if (outside.length > 0) {
+      const who = `${person.firstName} ${person.lastName}`.trim() || person.email;
+      return fail(
+        "OUTSIDE_AREAS",
+        `"${set.name}" gives "${outside[0].permission}", which is outside the parts of the app ${who}'s base role works in. Change their base role instead.`,
+        { permissionSetId: set.id, role: set.name, permission: outside[0].permission },
+      );
+    }
+  }
 
   const permissions = unionPermissions(sets);
   const conflicts = separationConflicts({
@@ -684,10 +761,23 @@ export async function setUserPermissionSets(input: {
     return fail("SEPARATION_CONFLICT", conflicts[0].message, { conflicts });
   }
 
-  const before = await readUserPermissionSetIds(input.organizationId, input.userId);
-
   try {
     await tenantTransaction(async (tx) => {
+      // The roles as judged above must still be the roles being written
+      // (review L3): an edit or archive in between refuses the save.
+      if (sets.length > 0) {
+        const now = await tx.permissionSet.findMany({
+          where: { organizationId: input.organizationId, id: { in: wanted } },
+          select: { id: true, version: true, archivedAt: true },
+        });
+        const changed = sets.some((s) => {
+          const row = now.find((n) => n.id === s.id);
+          return !row || row.version !== s.version || row.archivedAt !== null;
+        });
+        if (changed) {
+          throw new PermissionSetSentinel(fail("STALE_WRITE", "One of those roles changed while you were saving. Reload and try again."));
+        }
+      }
       await tx.userPermissionSet.deleteMany({ where: { organizationId: input.organizationId, userId: input.userId } });
       if (wanted.length > 0) {
         await tx.userPermissionSet.createMany({
@@ -701,12 +791,13 @@ export async function setUserPermissionSets(input: {
       }
     });
   } catch (err) {
+    if (err instanceof PermissionSetSentinel) return err.failure;
     apiLogger.error({ err, msg: "permissions:assignment-failed", targetUserId: input.userId });
     return fail("UNKNOWN", "Could not save the roles for this person.");
   }
 
   const added = wanted.filter((id) => !before.includes(id));
-  const removed = before.filter((id) => !wanted.includes(id));
+  const removed = removedIds;
   // Names as they are NOW (plan §3.3): a role can be renamed later, and the
   // trail must still say what the person was given.
   const nameRows = removed.length
@@ -791,6 +882,37 @@ async function holdersBrokenBy(
     }
   }
   return broken;
+}
+
+/**
+ * The holders this role's grants would take outside their base role's areas
+ * (review M6, `key-areas.ts`), named with the first key that does.
+ */
+async function holdersOutsideAreas(
+  organizationId: string,
+  permissionSetId: string,
+  grants: readonly CleanGrant[],
+): Promise<{ name: string; permission: string }[]> {
+  const holders = await db.userPermissionSet.findMany({
+    where: { organizationId, permissionSetId },
+    select: { user: { select: { firstName: true, lastName: true, email: true, role: true } } },
+  });
+  const out: { name: string; permission: string }[] = [];
+  for (const { user } of holders) {
+    const outside = grantsOutsideAreas(user.role, grants);
+    if (outside.length > 0) {
+      out.push({ name: `${user.firstName} ${user.lastName}`.trim() || user.email, permission: outside[0].permission });
+    }
+  }
+  return out;
+}
+
+function outsideAreasFailure(people: { name: string; permission: string }[]): PermissionSetFailure {
+  return fail(
+    "OUTSIDE_AREAS",
+    `This would give ${people.map((p) => p.name).join(", ")} "${people[0].permission}", which is outside the parts of the app their base role works in. Change their base role instead.`,
+    { holders: people },
+  );
 }
 
 /** One audit shape for every role change, so the Activity page reads consistently. */

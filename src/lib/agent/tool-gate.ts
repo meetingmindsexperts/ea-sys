@@ -10,7 +10,7 @@
 
 import { isWriteTool } from "./tools/_shared";
 import { toolPermission } from "./tool-permissions";
-import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
+import { can, canEverywhere, type EventFacts, type Principal } from "@/lib/permissions/can";
 import { toolInputPermissions } from "@/lib/permissions/field-permissions";
 
 /** Writes one request may perform. A request is one user message and the
@@ -43,7 +43,7 @@ export function gateToolCall(toolName: string, policy: ToolGatePolicy): ToolGate
     return { kind: "refuse", result: { error: `"${toolName}" has no permission mapped and was refused.`, code: "NO_PERMISSION_KEY" } };
   }
   const holds = (k: typeof key) =>
-    policy.event === undefined ? can(policy.principal, k) : can(policy.principal, k, { event: policy.event });
+    policy.event === undefined ? canEverywhere(policy.principal, k) : can(policy.principal, k, { event: policy.event });
   const allowed = holds(key) && toolInputPermissions(toolName, policy.input).every(holds);
   if (!allowed) {
     return {

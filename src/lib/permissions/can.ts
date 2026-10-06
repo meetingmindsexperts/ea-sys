@@ -178,6 +178,19 @@ function scopeAdmits(scope: GrantScope | undefined, p: Principal, event: EventFa
  * which is what a menu needs and a route must never settle for (use
  * `eventWhereFor`); with a `ctx` whose event is missing the answer is no.
  */
+/**
+ * For a call that names NO event, such as an agent or MCP tool called without
+ * an `eventId` (review M5, Oct 6, 2026): an event-bound key counts only when
+ * held for EVERY event. "Somewhere" is right for a menu, and wrong for a call
+ * that then acts across the organisation (list every event, create one of any
+ * type), so a webinar-only or assigned-only grant does not reach it.
+ */
+export function canEverywhere(p: Principal, permission: PermissionKey): boolean {
+  if (!can(p, permission)) return false;
+  if (!describePermission(permission)?.eventBound) return true;
+  return p.grants.some((g) => g.permission === permission && g.scope === "ALL");
+}
+
 export function can(p: Principal, permission: PermissionKey, ctx?: { event?: EventFacts | null }): boolean {
   const descriptor = describePermission(permission);
   if (!descriptor) return false;

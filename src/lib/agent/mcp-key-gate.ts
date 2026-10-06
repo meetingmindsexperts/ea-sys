@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { apiLogger } from "@/lib/logger";
-import { can, type EventFacts, type Principal } from "@/lib/permissions/can";
+import { can, canEverywhere, type EventFacts, type Principal } from "@/lib/permissions/can";
 import { describePermission, type PermissionKey } from "@/lib/permissions/catalogue";
 import { loadEventFacts } from "./event-facts-loader";
 import { gateToolCall } from "./tool-gate";
@@ -60,7 +60,8 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
     args[args.length - 1] = async (...callArgs: unknown[]) => {
       const params = (callArgs[1] ?? {}) as Record<string, unknown>;
       const facts = await factsFor(key, params.eventId);
-      const allowed = facts === undefined ? can(principal, key) : can(principal, key, { event: facts });
+      // No event named: the key must hold for every event (review M5).
+      const allowed = facts === undefined ? canEverywhere(principal, key) : can(principal, key, { event: facts });
       if (!allowed) {
         apiLogger.warn({ msg: "mcp:key-role-refused", resource: name, organizationId });
         throw new Error(`This API key's role does not include "${name}" for that event.`);

@@ -8,7 +8,7 @@ import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isOnsiteDeskAccount, isRoleGrantableHere, isTeamRole } from "@/lib/team-roles";
 import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
-import { can } from "@/lib/permissions/can";
+import { can, principalFromUser } from "@/lib/permissions/can";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { removeUserFromEventSettings } from "@/lib/event-settings";
 import { approvalCeilingAed, hasAnyProcurementGrant, isFinalApproverHoldingRequestGrant, procurementGrantsFromRow } from "@/lib/procurement-visibility";
@@ -119,6 +119,17 @@ export async function GET(req: Request, { params }: RouteParams) {
   }
 }
 
+/**
+ * The person who manages roles (`roles.manage`: the super admin) is changed,
+ * deactivated or deleted only by someone who also holds it (review M2, Oct 6,
+ * 2026). Otherwise an admin could demote or lock out the one person who can
+ * manage roles. `roles.manage` is never in a custom role, so this is the
+ * built-in role in practice.
+ */
+function protectsRoleAdmin(target: { id: string; role: string }, organizationId: string, callerManagesRoles: boolean): boolean {
+  return !callerManagesRoles && can(principalFromUser({ id: target.id, role: target.role, organizationId }), "roles.manage");
+}
+
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const { userId } = await params;
@@ -192,10 +203,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Regular users can only update their own name, not role
-    if (session.user.id === userId && validated.data.role && !managesUsers) {
+    // Nobody changes their OWN role or module duties, a user admin included
+    // (review M1, Oct 6, 2026): the role editor already refuses assigning roles
+    // to yourself (OWN_ROLE), and this endpoint was the side door. Your name and
+    // details stay yours to edit.
+    const touchesOwnDuties =
+      validated.data.role !== undefined ||
+      validated.data.hrAccess !== undefined ||
+      PROCUREMENT_GRANT_KEYS.some((k) => validated.data[k] !== undefined);
+    if (session.user.id === userId && touchesOwnDuties) {
       apiLogger.warn({ msg: "organization/users:own-role-change-refused", callerRole: session.user.role, userId: session.user.id });
-      return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
+      return NextResponse.json(
+        { error: "You cannot change your own role or access. Ask another administrator.", code: "OWN_ROLE" },
+        { status: 403 },
+      );
     }
 
     // Deactivation is an admin action, and never a self-service one: locking
@@ -232,6 +253,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Only a role manager changes or deactivates a role manager (review M2).
+    // Self-changes are refused above, so the last one can never be removed.
+    if (protectsRoleAdmin(user, session.user.organizationId!, managesGrants) && (validated.data.role !== undefined || validated.data.deactivated !== undefined)) {
+      apiLogger.warn({ msg: "organization/users:super-admin-protected", callerRole: session.user.role, userId: session.user.id, targetUserId: userId });
+      return NextResponse.json(
+        { error: "Only a super admin can change a super admin's role or deactivate them.", code: "SUPER_ADMIN_PROTECTED" },
+        { status: 403 },
+      );
     }
 
     const touchesProcurement = PROCUREMENT_GRANT_KEYS.some((k) => validated.data[k] !== undefined);
@@ -417,6 +448,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
+    // A ROLE CHANGE ALSO CLEARS THE PERSON'S CUSTOM ROLES (review M3, Oct 6,
+    // 2026), for the reason above: they were given for the job the person held,
+    // and a demoted admin must not keep "edit every event" through a role tag.
+    // Cleared BEFORE the role write, so a failure leaves them with less, never more.
+    let customRolesCleared = 0;
+    if (roleChanged) {
+      const cleared = await runWithTenant(session.user.organizationId!, () =>
+        db.userPermissionSet.deleteMany({ where: { organizationId: session.user.organizationId!, userId } }),
+      );
+      customRolesCleared = cleared.count;
+      if (customRolesCleared > 0) {
+        apiLogger.info({ msg: "organization/users:custom-roles-cleared-on-role-change", targetUserId: userId, count: customRolesCleared, byUserId: session.user.id });
+      }
+    }
+
     const updatedUser = await db.user.update({
       // Org-bound on the WRITE, not only on the read above — the house
       // invariant, so a future refactor that drops the lookup can't turn this
@@ -499,7 +545,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return next !== prev;
     });
     const auditWorthy =
-      changedKeys.length > 0 || clearModuleAccess || clearStaleDelegate || deactivated !== undefined;
+      changedKeys.length > 0 || clearModuleAccess || clearStaleDelegate || deactivated !== undefined || customRolesCleared > 0;
 
     if (!auditWorthy) {
       apiLogger.debug({
@@ -521,6 +567,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           ...validated.data,
           ...(clearStaleDelegate ? { procurementDelegateUserId: null, delegateCleared: true } : {}),
+          ...(customRolesCleared > 0 ? { customRolesCleared } : {}),
           // Security-relevant like the role change itself: record that the move
           // took the person's module duties with it, and what they held.
           ...(clearModuleAccess
@@ -601,6 +648,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       });
       return NextResponse.json(
         { error: "Organizers can only delete Onsite Staff accounts.", code: "ONSITE_ONLY" },
+        { status: 403 },
+      );
+    }
+
+    // Only a role manager deletes a role manager (review M2, Oct 6, 2026).
+    if (protectsRoleAdmin(user, session.user.organizationId!, can(principalFromSession(session), "roles.manage"))) {
+      apiLogger.warn({ msg: "organization/users:super-admin-protected", callerRole: session.user.role, userId: session.user.id, targetUserId: userId });
+      return NextResponse.json(
+        { error: "Only a super admin can delete a super admin.", code: "SUPER_ADMIN_PROTECTED" },
         { status: 403 },
       );
     }

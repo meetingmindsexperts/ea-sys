@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security: custom roles review fixes (October 6)
+
+- An independent review of what `CUSTOM_ROLES_ENABLED` switched on found two
+  high and seven medium issues; all fixed (details in
+  `docs/CUSTOM_ROLES_PLAN.md`, Phase 6 step 1). Nothing was exploitable in
+  production, which held only the four Budgets roles.
+- Managing roles, managing users, API keys and connecting an AI assistant
+  can no longer be put in a custom role. A custom role can only add access
+  inside the parts of the app the person's base role already works in.
+- Nobody can change their own role or duties, assign themselves to an event,
+  or (unless they manage roles themselves) change, deactivate or delete the
+  Super Admin. Changing someone's base role clears their custom roles.
+- Restoring an archived role, removing a role from someone, and creating an
+  API key without a role now go through the same checks as granting one.
+- Agent and MCP calls that name no event need access to every event.
+  Retrying or editing a scheduled certificate or survey send needs that
+  permission too.
+
 ### Changed: only admins can connect claude.ai to EA-SYS (October 6)
 
 - Approving a claude.ai (MCP OAuth) connection now needs the Admin or Super

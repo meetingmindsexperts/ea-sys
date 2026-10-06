@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SYSTEM_ROLES } from "@/lib/permissions/system-roles";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -98,6 +99,20 @@ export async function POST(req: Request) {
         apiLogger.warn({ msg: "organization/api-keys:role-beyond-creator", userId: session.user.id, permissionSetId, permission: beyond.permission });
         return NextResponse.json(
           { error: `A key can only act with a role you hold all of: you do not hold "${beyond.permission}".`, code: "BEYOND_YOUR_ACCESS" },
+          { status: 403 },
+        );
+      }
+    }
+
+    // A key WITHOUT a role is the full API key (the API_KEY system role), so
+    // minting one is granting all of that (review H1, Oct 6, 2026): only
+    // someone who holds every grant of it may.
+    if (!permissionSetId) {
+      const beyond = firstGrantBeyondActor(gate.principal, SYSTEM_ROLES.API_KEY.grants.map((g) => ({ permission: g.permission, scope: g.scope ?? null })));
+      if (beyond) {
+        apiLogger.warn({ msg: "organization/api-keys:full-key-beyond-creator", userId: session.user.id, permission: beyond.permission });
+        return NextResponse.json(
+          { error: `A key without a role can do everything a full API key can, and you do not hold "${beyond.permission}". Choose a role for the key.`, code: "BEYOND_YOUR_ACCESS" },
           { status: 403 },
         );
       }

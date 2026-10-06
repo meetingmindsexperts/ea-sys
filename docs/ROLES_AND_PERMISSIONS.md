@@ -40,7 +40,7 @@ Eleven roles on `User.role`, plus two principals that are not roles.
 | **SUBMITTER** | no | events holding their speaker record | Their own abstracts and session proposals, and My Details. Nothing else. |
 | **REGISTRANT** | no | events holding their registration | `/my-registration` only: view and edit their own details, pay, download their quote or invoice. |
 | **API key** (role `null`) | the org that issued it | every event in the org | Admin-equivalent on REST and MCP for the org's event data, barcodes and exports included. Refused on the operator surfaces, sign-in activity, supporting documents, HR, Budgets and Procurement, CRM purge and quote defaults, and custom-role management. A SUPER_ADMIN may issue an INTERNAL-tier key that bypasses the hourly MCP limit. |
-| **Custom role** (permission set) | the org | n/a | Not a `User.role`. A named set of Budgets and Procurement permissions a Super Admin creates under Settings, Roles and tags onto a person **on top of** their base role; several sets add up. Procurement keys only today (§7.3). |
+| **Custom role** (permission set) | the org | n/a | Not a `User.role`. A named set of Budgets and Procurement permissions a Super Admin creates under Settings, Roles and tags onto a person **on top of** their base role; several sets add up. Budgets keys always; any other key once `CUSTOM_ROLES_ENABLED` is on, but only inside the parts of the app the person's base role works in (assignment refuses the rest, `OUTSIDE_AREAS`), and never `roles.manage`, `users.manage`, `apiKeys.manage` or `mcp.connect` (admin-only, Oct 6, 2026). A role change clears a person's custom roles. |
 
 Internal-domain rule: a person registering with a `meetingmindsdubai.com`
 address (after verification) or a `meetingmindsexperts.com` /

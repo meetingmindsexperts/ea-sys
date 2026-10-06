@@ -104,3 +104,12 @@ describe("DELETE /events/[id]/onsite-staff — remove a temp from an event", () 
     expect(res.status).toBe(400);
   });
 });
+
+describe("POST /events/[id]/onsite-staff — no self-assignment (review M7, Oct 6, 2026)", () => {
+  it("refuses assigning yourself, before any write", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "onsite1", role: "ADMIN", organizationId: "org1" } });
+    const res = await POST(postReq({ userId: "onsite1" }), { params });
+    expect(res.status).toBe(403);
+    expect(mockDb.eventStaffAssignment.upsert).not.toHaveBeenCalled();
+  });
+});

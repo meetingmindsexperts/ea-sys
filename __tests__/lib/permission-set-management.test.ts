@@ -159,6 +159,7 @@ describe("updatePermissionSet", () => {
     mockDb.userPermissionSet.findMany.mockResolvedValue([
       {
         user: {
+          role: "ADMIN",
           firstName: "Muthukaruppan",
           lastName: "Chockalingam",
           email: "m@example.com",
@@ -189,6 +190,7 @@ describe("updatePermissionSet", () => {
     mockDb.userPermissionSet.findMany.mockResolvedValue([
       {
         user: {
+          role: "ADMIN",
           firstName: "Ada",
           lastName: "L",
           email: "a@example.com",
@@ -223,6 +225,7 @@ describe("updatePermissionSet", () => {
     mockDb.userPermissionSet.findMany.mockResolvedValue([
       {
         user: {
+          role: "ADMIN",
           firstName: "Ada",
           lastName: "L",
           email: "a@example.com",
@@ -315,6 +318,7 @@ describe("setPermissionSetArchived", () => {
 
 describe("setUserPermissionSets", () => {
   const person = {
+    role: "ADMIN",
     firstName: "Ada",
     lastName: "L",
     email: "a@example.com",
@@ -444,5 +448,69 @@ describe("never your own role (custom roles plan §7.4)", () => {
     const member = principalFromUser({ id: ACTOR, role: "HR_USER", organizationId: ORG });
     const result = await setUserPermissionSets({ ...base, actor: member, userId: "someone-else", permissionSetIds: ["s2"] });
     expect(result).toMatchObject({ ok: false, code: "BEYOND_YOUR_ACCESS", meta: { permissionSetId: "s2" } });
+  });
+});
+
+// The custom-roles review fixes (Oct 6, 2026).
+describe("review fixes: areas, restore, removal", () => {
+  /** An admin: holds no roles.manage, so the escalation rules bound them. */
+  const admin = { organizationId: ORG, actorUserId: ACTOR, actor: principalFromUser({ id: ACTOR, role: "ADMIN", organizationId: ORG }) };
+
+  it("refuses to give a CRM user a role with event keys (M6)", async () => {
+    mockDb.permissionSet.findMany.mockResolvedValue([
+      { id: "s1", name: "Exporter", archivedAt: null, permissions: [{ permission: "registrations.export", scope: "ALL" }] },
+    ]);
+    mockDb.user.findFirst.mockResolvedValue({ role: "CRM_USER", firstName: "C", lastName: "U", email: "c@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
+    const result = await setUserPermissionSets({ ...base, userId: "u1", permissionSetIds: ["s1"] });
+    expect(result).toMatchObject({ ok: false, code: "OUTSIDE_AREAS" });
+    expect(mockDb.userPermissionSet.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("judges a removal like a grant (L3): an admin cannot strip a role wider than theirs", async () => {
+    // Nothing wanted, so the only role lookup is the removed one.
+    mockDb.permissionSet.findMany.mockResolvedValueOnce([{ id: "wide", name: "Abstract purge", permissions: [{ permission: "abstracts.delete", scope: "ALL" }] }]);
+    mockDb.userPermissionSet.findMany.mockResolvedValue([{ permissionSetId: "wide" }]);
+    mockDb.user.findFirst.mockResolvedValue({ role: "ORGANIZER", firstName: "O", lastName: "", email: "o@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
+    const result = await setUserPermissionSets({ ...admin, userId: "u1", permissionSetIds: [] });
+    expect(result).toMatchObject({ ok: false, code: "BEYOND_YOUR_ACCESS" });
+  });
+
+  it("refuses a save when a role changed between the check and the write (L3)", async () => {
+    mockDb.permissionSet.findMany
+      .mockResolvedValueOnce([{ id: "s1", name: "Requester", version: 3, archivedAt: null, permissions: [{ permission: "procurement.requests.create" }] }])
+      .mockResolvedValueOnce([{ id: "s1", version: 4, archivedAt: null }]);
+    mockDb.user.findFirst.mockResolvedValue({ role: "ADMIN", firstName: "A", lastName: "", email: "a@x", procurementApproveUnlimited: false, procurementRequest: false, procurementSettle: false });
+    const result = await setUserPermissionSets({ ...base, userId: "u1", permissionSetIds: ["s1"] });
+    expect(result).toMatchObject({ ok: false, code: "STALE_WRITE" });
+    expect(mockDb.userPermissionSet.createMany).not.toHaveBeenCalled();
+  });
+
+  it("runs the edit checks on a restore (M4): escalation, own role, areas", async () => {
+    const archivedRole = {
+      id: "r1",
+      name: "Purger",
+      isSystem: false,
+      archivedAt: new Date(),
+      permissions: [{ permission: "abstracts.delete", scope: "ALL" }],
+      _count: { holders: 1 },
+    };
+    mockDb.permissionSet.findFirst.mockResolvedValue(archivedRole);
+    expect(await setPermissionSetArchived({ ...admin, permissionSetId: "r1", archived: false })).toMatchObject({ ok: false, code: "BEYOND_YOUR_ACCESS" });
+
+    mockDb.permissionSet.findFirst.mockResolvedValue({ ...archivedRole, permissions: [{ permission: "speakers.update", scope: "ALL" }] });
+    mockDb.userPermissionSet.findFirst.mockResolvedValueOnce({ userId: ACTOR });
+    expect(await setPermissionSetArchived({ ...admin, permissionSetId: "r1", archived: false })).toMatchObject({ ok: false, code: "OWN_ROLE" });
+
+    mockDb.userPermissionSet.findFirst.mockResolvedValue(null);
+    mockDb.userPermissionSet.findMany.mockResolvedValue([{ user: { role: "HR_USER", firstName: "H", lastName: "R", email: "h@x" } }]);
+    expect(await setPermissionSetArchived({ ...admin, permissionSetId: "r1", archived: false })).toMatchObject({ ok: false, code: "OUTSIDE_AREAS" });
+    expect(mockDb.permissionSet.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("archiving still needs none of that: withdrawing access is always allowed", async () => {
+    mockDb.permissionSet.findFirst.mockResolvedValue({ id: "r1", name: "Purger", isSystem: false, archivedAt: null, permissions: [{ permission: "abstracts.delete", scope: "ALL" }], _count: { holders: 1 } });
+    mockDb.permissionSet.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.permissionSet.findFirstOrThrow.mockResolvedValue({ id: "r1" });
+    expect(await setPermissionSetArchived({ ...admin, permissionSetId: "r1", archived: true })).toMatchObject({ ok: true });
   });
 });

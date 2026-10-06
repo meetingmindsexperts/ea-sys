@@ -83,6 +83,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
     const { userId } = parsed.data;
+    // Nobody assigns themselves to an event (review M7, Oct 6, 2026): the
+    // assignment is what scopes their own desk access and money.
+    if (userId === session.user.id) {
+      apiLogger.warn({ msg: "events/onsite-staff:self-assign-refused", eventId, userId });
+      return NextResponse.json({ error: "You cannot assign yourself to an event. Ask another administrator.", code: "OWN_ASSIGNMENT" }, { status: 403 });
+    }
 
     // Event must belong to the caller's org; the target must be an ONSITE
     // account in the SAME org (can't assign an arbitrary / cross-org user id).

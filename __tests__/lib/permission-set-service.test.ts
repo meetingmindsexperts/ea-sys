@@ -236,7 +236,7 @@ describe("system roles are rows for identity only", () => {
 
   it("cannot be archived", async () => {
     mockDb.permissionSet.findFirst.mockResolvedValue({ id: "sys", name: "Admin", isSystem: true, archivedAt: null, _count: { holders: 0 } });
-    const r = await setPermissionSetArchived({ organizationId: "org-1", actorUserId: "u", permissionSetId: "sys", archived: true });
+    const r = await setPermissionSetArchived({ organizationId: "org-1", actorUserId: "u", actor: SA, permissionSetId: "sys", archived: true });
     expect(r).toMatchObject({ ok: false, code: "SYSTEM_ROLE" });
     expect(mockDb.permissionSet.updateMany).not.toHaveBeenCalled();
   });

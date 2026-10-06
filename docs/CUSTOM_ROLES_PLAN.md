@@ -1389,6 +1389,32 @@ directory (§7.1).
   built-in role, a "No base access" base, custom roles that open new areas,
   the last needing a JWT change) if the owner wants them, then Phase 6.
 
+### Phase 6 step 1: focused review of what the flag switched on (Oct 6, 2026)
+
+An independent read-only review of the role editor, escalation guardrails,
+session grants, API-key roles, agent and MCP gates and the event field check
+found 2 HIGH, 7 MEDIUM and 4 LOW. Production then held only the four Budgets
+roles (holders: two Admins), so nothing was exploitable in use. Fixed the same
+day, owner-approved:
+
+| Finding | Fix |
+|---|---|
+| H1 `apiKeys.manage` mints a full key | A key with no role needs the creator to cover every `API_KEY` grant; `apiKeys.manage` is admin-only |
+| H2 `mcp.connect` opens the ungated OAuth door | `mcp.connect` is admin-only (Admin, Super Admin) and re-checked per request |
+| M1 self role or duty change through the users PUT | Refused for everyone (`OWN_ROLE`) |
+| M2 an Admin could demote, deactivate or delete the Super Admin | A `roles.manage` holder is changed only by another |
+| M3 a role change kept custom roles | Cleared in the same save, audited `customRolesCleared` |
+| M4 restore skipped every guardrail | Restore runs escalation, own-role, areas and separation checks |
+| M5 agent/MCP calls naming no event skipped scope | `canEverywhere`: an event-bound key needs `ALL` |
+| M6 custom grants outside the base role's areas | `key-areas.ts`; assignment, edit and restore refuse `OUTSIDE_AREAS` |
+| M7 self-assignment to events | Refused |
+| L2 scheduled certificate/survey retry and edit | Need the type key, bound on the write |
+| L3 removals unguarded; check-then-write races | Removals judged like grants; versions and own-role re-checked inside the transaction |
+| L4 `roles.manage` grantable | Admin-only: `roles.manage`, `users.manage`, `apiKeys.manage`, `mcp.connect` never in a custom role |
+| L1 open MCP sessions keep a key's grants up to 30 minutes | Deferred to step 2 |
+
+Assignments made before the area rule are not removed retroactively.
+
 ### Phase 6: Retire the old model (1 to 2 weeks)
 
 - Delete the staff branches from `buildEventAccessWhere`, the role sets from the

@@ -158,3 +158,27 @@ describe("L-4 — registration DELETE refused for WEBINARS", () => {
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
   });
 });
+
+// Review L2 (Oct 6, 2026): retrying or editing a scheduled certificate send
+// needs `certificates.issue`, which WEBINARS does not hold.
+describe("L2 — a scheduled certificate send needs the certificate key", () => {
+  it("retry of a failed certificate send → 403 for WEBINARS, no write", async () => {
+    mockDb.scheduledEmail.findFirst.mockResolvedValueOnce({ emailType: "certificate" });
+    const res = await retryPOST(jsonReq("POST"), scheduleParams);
+    expect(res.status).toBe(403);
+    expect(mockDb.scheduledEmail.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("edit of a pending certificate send → 403 for WEBINARS, no write", async () => {
+    mockDb.scheduledEmail.findFirst.mockResolvedValueOnce({ emailType: "certificate" });
+    const res = await schedulePATCH(jsonReq("PATCH", { customSubject: "x" }), scheduleParams);
+    expect(res.status).toBe(403);
+    expect(mockDb.scheduledEmail.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a survey invitation stays retryable for WEBINARS, bound to its type", async () => {
+    mockDb.scheduledEmail.findFirst.mockResolvedValueOnce({ emailType: "survey-invitation" });
+    await retryPOST(jsonReq("POST"), scheduleParams);
+    expect(mockDb.scheduledEmail.updateMany.mock.calls[0][0].where).toMatchObject({ emailType: "survey-invitation" });
+  });
+});

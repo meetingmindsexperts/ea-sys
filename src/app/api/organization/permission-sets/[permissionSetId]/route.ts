@@ -68,6 +68,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         const result = await setPermissionSetArchived({
           organizationId: orgId,
           actorUserId,
+          actor: principalFromSession(session!),
           permissionSetId,
           archived,
           ip,

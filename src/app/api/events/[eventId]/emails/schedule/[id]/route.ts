@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
+import { bulkEmailTypePermission } from "@/lib/permissions/field-permissions";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -86,6 +87,18 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Atomic conditional update — only mutate if still PENDING. This races
     // safely against the cron worker which atomically claims rows by flipping
     // PENDING → PROCESSING.
+    // A certificate or survey send needs that operation's key too, as when it
+    // was created (field-permissions.ts; review L2, Oct 6, 2026). The type is
+    // read first and bound on the write, so it cannot change in between.
+    const typeRow = await db.scheduledEmail.findFirst({
+      where: { id, eventId, event: gate.eventWhere },
+      select: { emailType: true },
+    });
+    const typeKey = typeRow ? bulkEmailTypePermission(typeRow.emailType) : null;
+    const typeGate = typeKey ? requirePermission(session, typeKey, { route: "events/[eventId]/emails/schedule/[id]:PATCH", eventId }) : null;
+    if (typeGate && !typeGate.ok) return typeGate.response;
+    const eventWhere = typeGate ? { AND: [gate.eventWhere, typeGate.eventWhere] } : gate.eventWhere;
+
     const updateResult = await db.scheduledEmail.updateMany({
       where: {
         id,
@@ -93,7 +106,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         // Review H-2: the PRIMARY write must carry the role-aware event
         // resolution, not just org scope — for WEBINARS this confines the
         // mutation to webinar events (the fallback read already did).
-        event: gate.eventWhere,
+        event: eventWhere,
+        ...(typeRow ? { emailType: typeRow.emailType } : {}),
         status: "PENDING",
       },
       data: {
