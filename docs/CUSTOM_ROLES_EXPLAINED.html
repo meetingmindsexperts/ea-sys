@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>From Roles to Permissions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: one readable column; code words in mono chips; each step of the move is a numbered card because the order matters. */
+  :root {
+    --bg: #f6f9fb;
+    --paper: #ffffff;
+    --ink: #142430;
+    --muted: #4f6372;
+    --line: #d7e3ea;
+    --accent: #0089b5;
+    --accent-soft: #e2f4fa;
+    --good: #1f7a4d;
+    --good-soft: #e3f4ea;
+    --warn: #9a5b00;
+    --warn-soft: #fbf0dc;
+    --display: "Fraunces", Georgia, "Times New Roman", serif;
+    --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e171d; --paper: #15222b; --ink: #e6eef3; --muted: #9db0bc; --line: #26363f;
+      --accent: #4cc3ea; --accent-soft: #123341; --good: #6fd3a0; --good-soft: #143326;
+      --warn: #f0b85a; --warn-soft: #3a2a10; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e171d; --paper: #15222b; --ink: #e6eef3; --muted: #9db0bc; --line: #26363f;
+    --accent: #4cc3ea; --accent-soft: #123341; --good: #6fd3a0; --good-soft: #143326;
+    --warn: #f0b85a; --warn-soft: #3a2a10; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 18px/1.65 var(--body);
+    padding-inline: 16px; padding-block: 40px 80px;
+  }
+  main { max-width: 44rem; margin: 0 auto; display: grid; gap: 2.5rem; }
+  h1, h2, h3 { font-family: var(--display); line-height: 1.2; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2rem, 6vw, 2.8rem); }
+  h2 { font-size: 1.6rem; margin-bottom: .75rem; }
+  h3 { font-size: 1.15rem; margin-bottom: .35rem; }
+  p { margin: 0 0 .9rem; }
+  p:last-child { margin-bottom: 0; }
+  .lede { font-size: 1.15rem; color: var(--muted); margin-top: .75rem; }
+  .eyebrow { font: 600 .75rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: .75rem; }
+  code { font: .88em var(--mono); background: var(--accent-soft); color: var(--ink); padding: .1em .4em; border-radius: 4px; white-space: nowrap; }
+  section { display: grid; gap: .25rem; }
+  ul { margin: 0 0 .9rem; padding-left: 1.2rem; }
+  li { margin-bottom: .35rem; }
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: .5rem; }
+  .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.2rem; min-width: 0; }
+  .panel h3 { display: flex; align-items: center; gap: .5rem; }
+  .tag { font: 600 .7rem/1 var(--mono); padding: .3rem .5rem; border-radius: 99px; text-transform: uppercase; letter-spacing: .08em; }
+  .tag.old { background: var(--warn-soft); color: var(--warn); }
+  .tag.new { background: var(--good-soft); color: var(--good); }
+  pre { margin: .5rem 0 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .8rem 1rem; overflow-x: auto; font: .82rem/1.55 var(--mono); }
+  .table-wrap { overflow-x: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { text-align: left; padding: .6rem .9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 .75rem/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--mono); }
+  ol.steps { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .9rem; counter-reset: step; }
+  ol.steps > li { counter-increment: step; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem 1rem 3.6rem; position: relative; margin: 0; }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 1rem; top: 1rem;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent); color: var(--paper); font: 700 .9rem/1 var(--mono);
+  }
+  .when { font: .8rem var(--mono); color: var(--muted); display: block; margin-bottom: .25rem; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; }
+  .fact { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }
+  .fact b { display: block; font: 700 1.6rem/1.1 var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .fact span { font-size: .9rem; color: var(--muted); }
+  dl { margin: 0; display: grid; gap: .8rem; }
+  dt { font-weight: 700; }
+  dd { margin: .1rem 0 0; color: var(--muted); }
+  footer { color: var(--muted); font-size: .9rem; border-top: 1px solid var(--line); padding-top: 1.2rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="eyebrow">EA-SYS · October 2026</div>
+  <h1>From roles to permissions</h1>
+  <p class="lede">How the app used to decide what each person may do, how it decides now, and what we changed to get there.</p>
+</header>
+
+<section>
+  <h2>The question the app asks all the time</h2>
+  <p>EA-SYS is a website for running events. Many people sign in to it: the people who organise events, desk staff who check visitors in, sales staff, HR staff, and more.</p>
+  <p>Every time someone clicks a button, the website's server gets a <b>request</b>, for example "show the list of people registered for this event" or "delete this speaker". Before it does anything, the server must answer one question:</p>
+  <p><b>Is this person allowed to do this?</b></p>
+  <p>This document is about how the server answers that question.</p>
+</section>
+
+<section>
+  <h2>Before: roles</h2>
+  <p>Every account had exactly one <b>role</b>. A role is a name stored on the account, such as <code>ADMIN</code>, <code>ORGANIZER</code>, <code>MEMBER</code>, <code>ONSITE</code> or <code>WEBINARS</code>. There were 11 role names.</p>
+  <p>The code checked the name directly. Many files contained lines like this:</p>
+  <pre>if (role is "ADMIN" or role is "ORGANIZER") {
+  allow it
+} else {
+  refuse it
+}</pre>
+  <p>This worked, but it had problems:</p>
+  <ul>
+    <li><b>The same list of names was written in many places.</b> If one file forgot a role, that role could do something it should not, or could not do something it should.</li>
+    <li><b>A new role meant editing hundreds of files.</b> Adding <code>HR_USER</code> meant checking every list in the app by hand.</li>
+    <li><b>Nobody could make a role in between.</b> If a team needed "can see registrations and send emails, but nothing else", the only option was to write new code.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>After: permissions</h2>
+  <p>A <b>permission</b> is one small, named action. Its name says what it allows, for example:</p>
+  <ul>
+    <li><code>registrations.read</code>: see the list of registrations</li>
+    <li><code>registrations.export</code>: download that list as a file</li>
+    <li><code>finance.view</code>: see money (prices, payments, invoices)</li>
+    <li><code>barcode.view</code>: see the entry barcodes that let a visitor through the door</li>
+  </ul>
+  <p>The app has one list of all permissions, called the <b>catalogue</b>. It holds 161 permissions.</p>
+  <p>A role is now just <b>a list of permissions</b>. <code>ORGANIZER</code> is a list of 131 permissions. <code>HR_USER</code> is a list of 2.</p>
+  <p>The code no longer asks "what is your role name?". It asks one function, called <code>can()</code>:</p>
+  <pre>can(person, "registrations.export", thisEvent)  →  yes or no</pre>
+  <p>Every request on the server now starts with a check called <code>requirePermission()</code>, which asks <code>can()</code> and refuses with an error if the answer is no.</p>
+
+  <div class="compare">
+    <div class="panel">
+      <h3><span class="tag old">Before</span> Check the name</h3>
+      <pre>role is "ADMIN"
+  or "ORGANIZER"
+  or "WEBINARS" ...</pre>
+    </div>
+    <div class="panel">
+      <h3><span class="tag new">After</span> Check the permission</h3>
+      <pre>can(person,
+  "speakers.update",
+  thisEvent)</pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Scope: which events a permission covers</h2>
+  <p>Some permissions are about one event, like editing that event's speakers. For those, a role also says <b>which events</b> the permission covers. This is called the <b>scope</b>. There are three:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Scope</th><th>Means</th><th>Used by</th></tr></thead>
+      <tbody>
+        <tr><td><code>ALL</code></td><td>every event in the organisation</td><td>Organizer, Member</td></tr>
+        <tr><td><code>ASSIGNED</code></td><td>only events this person was added to</td><td>Onsite desk staff</td></tr>
+        <tr><td><code>WEBINAR</code></td><td>only events of the type "webinar"</td><td>Webinars team</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:.9rem">So <code>can()</code> needs to know the event too. A Webinars person asking to edit speakers on a webinar gets "yes". The same person asking about a conference gets "no".</p>
+</section>
+
+<section>
+  <h2>Custom roles</h2>
+  <p>Because a role is now just a list, an administrator can make a new one in <b>Settings → Roles</b> without anyone writing code. A custom role:</p>
+  <ul>
+    <li>starts from a <b>base role</b> (one of the built-in ones), and</li>
+    <li>adds extra permissions by ticking boxes.</li>
+  </ul>
+  <p>Some rules stop a custom role from becoming too powerful:</p>
+  <ul>
+    <li><b>Admin-only permissions.</b> Four permissions can never go into a custom role: managing roles, managing users, managing API keys, and connecting AI tools (<code>roles.manage</code>, <code>users.manage</code>, <code>apiKeys.manage</code>, <code>mcp.connect</code>).</li>
+    <li><b>Areas.</b> Each base role works in certain parts of the app, called <b>areas</b> (events, CRM, HR, organisation settings). Extra permissions must fit the base role's areas. A sales account cannot be given event permissions this way.</li>
+    <li><b>No wider than you.</b> You can only hand out permissions you hold yourself, and you cannot change your own role.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>How we moved, step by step</h2>
+  <p>The app was already running real events, so we could not switch everything at once. We moved in steps and checked each one before the next.</p>
+  <ol class="steps">
+    <li>
+      <span class="when">Phase 0 · Sep 30</span>
+      <h3>Tidy the old lists</h3>
+      <p>We found every list of role names, made each one an "allow list" (a role not on the list is refused), and added a test that fails if someone writes a new list inside a file.</p>
+    </li>
+    <li>
+      <span class="when">Phase 1 · Sep 30 to Oct 1</span>
+      <h3>Write the catalogue and the built-in roles</h3>
+      <p>We wrote all 161 permissions, and wrote each built-in role as a list of permissions. Then a <b>parity test</b> asked both the old checks and the new <code>can()</code> the same questions, for every role. Every answer had to match.</p>
+    </li>
+    <li>
+      <span class="when">Phase 2 · Oct 1 to Oct 5</span>
+      <h3>Change every server route</h3>
+      <p>A <b>route</b> is one address on the server that answers requests, like <code>/api/events/…/speakers</code>. We changed 335 route files to start with <code>requirePermission()</code>. Before changing each group, we recorded what every role got back (allowed, refused or not found) in a table called the <b>route matrix</b>, so any change in behaviour showed up as a test failure.</p>
+    </li>
+    <li>
+      <span class="when">Phase 3 · Oct 5</span>
+      <h3>Screens and the AI agent</h3>
+      <p>Buttons on the screens now ask the same permissions (through <code>useCan()</code>), so a person only sees buttons that will work. The AI agent checks the same permission as the matching route before it runs a tool.</p>
+    </li>
+    <li>
+      <span class="when">Phase 5 · Oct 5</span>
+      <h3>API keys with a role</h3>
+      <p>An <b>API key</b> is a password that lets another program use EA-SYS. A key can now be given a role, so it can do only what that role allows.</p>
+    </li>
+    <li>
+      <span class="when">Phase 4 · Oct 6</span>
+      <h3>A real table for desk staff</h3>
+      <p>Which onsite staff work at which event used to be a list hidden inside the event's settings. It moved into its own database table, <code>EventStaffAssignment</code>, so the server can look it up quickly and correctly.</p>
+    </li>
+    <li>
+      <span class="when">Oct 6</span>
+      <h3>Switch it on</h3>
+      <p>Custom roles were hidden behind a <b>feature flag</b>, a setting that turns a feature on or off without new code. On October 6 the flag <code>CUSTOM_ROLES_ENABLED</code> was turned on in production.</p>
+    </li>
+    <li>
+      <span class="when">Phase 6 · Oct 6 to Oct 7</span>
+      <h3>Remove the old code</h3>
+      <p>We deleted every old role-name check. To prove nothing changed, a program signed in as six different roles, opened 99 pages each, and compared what it saw before and after. Access was the same. A <b>snapshot test</b> now saves the full permission list of every built-in role, so any future change to a role shows up and must be approved.</p>
+    </li>
+    <li>
+      <span class="when">Oct 7</span>
+      <h3>Check it with fresh eyes</h3>
+      <p>Five separate reviewers each searched one part of the system for mistakes. They found 3 serious problems and 7 medium ones. All were fixed, each with a test that fails if the problem comes back.</p>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>What the final review fixed</h2>
+  <p>Most of these were older than the move to permissions. Looking at everything at once is what found them.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Problem</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Changing a registration's email also changed the sign-in email of the account behind it, even a staff account. That could let someone take over an admin account.</td><td>A staff account's sign-in email can no longer be changed from an event screen.</td></tr>
+        <tr><td>When an existing account was made into staff, it kept its old password, which a stranger might have chosen.</td><td>The account gets a new password (set by the admin, or by the person through an invitation email).</td></tr>
+        <tr><td>Some AI tools checked the event in the request, then changed records in a different event.</td><td>Each tool now only touches records in the event it was allowed to use.</td></tr>
+        <tr><td>Some places returned entry barcodes or money to people without <code>barcode.view</code> or <code>finance.view</code>.</td><td>The server removes those fields before sending the answer.</td></tr>
+        <tr><td>A Webinars user could change certificate and reimbursement settings through the general event settings.</td><td>Those settings can only be changed on their own screens, with their own permissions.</td></tr>
+        <tr><td>The "for the sales team" download did not ask for <code>registrations.export</code>.</td><td>It does now, and the Export button is hidden from people without it.</td></tr>
+        <tr><td>Someone allowed to invite users could invite a person with more power than they had.</td><td>You can only invite people to a role whose permissions you hold.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>What people using the app notice</h2>
+  <ul>
+    <li><b>For the built-in roles, almost nothing changed.</b> The 99-page comparison proved that.</li>
+    <li>Administrators can create custom roles in <b>Settings → Roles</b>. Approval chains moved to their own <b>Approvals</b> tab.</li>
+    <li>A few deliberate changes: the Webinars team no longer sends certificate emails, Members can no longer download the "for the sales team" file, and a promoted account must set a new password.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>The numbers</h2>
+  <div class="facts">
+    <div class="fact"><b>161</b><span>permissions in the catalogue</span></div>
+    <div class="fact"><b>100</b><span>of them are about one event</span></div>
+    <div class="fact"><b>335</b><span>route files changed</span></div>
+    <div class="fact"><b>99 × 6</b><span>pages × roles compared</span></div>
+    <div class="fact"><b>10,865</b><span>automatic tests passing</span></div>
+  </div>
+  <div class="table-wrap" style="margin-top:1rem">
+    <table>
+      <thead><tr><th>Built-in role</th><th>Who uses it</th><th style="text-align:right">Permissions</th></tr></thead>
+      <tbody>
+        <tr><td><code>SUPER_ADMIN</code></td><td>the organisation's top administrator</td><td class="num">155</td></tr>
+        <tr><td><code>ADMIN</code></td><td>administrators</td><td class="num">149</td></tr>
+        <tr><td><code>ORGANIZER</code></td><td>people who run events</td><td class="num">131</td></tr>
+        <tr><td><code>WEBINARS</code></td><td>the webinar team</td><td class="num">57</td></tr>
+        <tr><td><code>MEMBER</code></td><td>staff who look but do not change things</td><td class="num">36</td></tr>
+        <tr><td><code>ONSITE</code></td><td>desk staff at assigned events</td><td class="num">25</td></tr>
+        <tr><td><code>CRM_USER</code></td><td>the sales team</td><td class="num">8</td></tr>
+        <tr><td><code>HR_USER</code></td><td>the HR team</td><td class="num">2</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Words used here</h2>
+  <dl>
+    <div><dt>Account</dt><dd>A person's sign-in: an email address and a password.</dd></div>
+    <div><dt>Role</dt><dd>A named list of permissions given to an account.</dd></div>
+    <div><dt>Permission</dt><dd>One named action, such as <code>registrations.read</code>.</dd></div>
+    <div><dt>Scope</dt><dd>Which events an event permission covers: all, assigned, or webinars.</dd></div>
+    <div><dt>Route</dt><dd>One address on the server that answers one kind of request.</dd></div>
+    <div><dt>Test</dt><dd>A small program that checks the app gives the expected answer, and fails loudly if it does not.</dd></div>
+    <div><dt>Feature flag</dt><dd>A setting that turns a feature on or off without changing the code.</dd></div>
+    <div><dt>API key</dt><dd>A secret that lets another program use EA-SYS.</dd></div>
+  </dl>
+</section>
+
+<footer>Written October 7, 2026. The full technical plan is in <code>docs/CUSTOM_ROLES_PLAN.md</code>, and the per-role table is in <code>docs/ROLES_AND_PERMISSIONS.md</code>.</footer>
+
+</main>
+</body>
+</html>
