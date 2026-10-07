@@ -27,6 +27,7 @@
  * Errors as values, no HTTP (src/services/README.md).
  */
 
+import { isDailyMode, responseDedupKey, type SurveyResponseModeValue } from "@/lib/survey/response-mode";
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -80,6 +81,8 @@ export type LinkSurvey = {
   config: unknown;
   introHtml: string | null;
   thankYouHtml: string | null;
+  /** Phase 4. The CME survey is always ONCE. */
+  responseMode: SurveyResponseModeValue;
 };
 
 /**
@@ -105,7 +108,14 @@ export async function resolveTokenSurvey(
   if (!row.isActive) return { kind: "closed" };
   return {
     kind: "ok",
-    survey: { surveyId: row.id, gatesCertificates: false, config: row.config, introHtml: row.introHtml, thankYouHtml: row.thankYouHtml },
+    survey: {
+      surveyId: row.id,
+      gatesCertificates: false,
+      config: row.config,
+      introHtml: row.introHtml,
+      thankYouHtml: row.thankYouHtml,
+      responseMode: row.responseMode,
+    },
   };
 }
 
@@ -150,12 +160,15 @@ export interface SurveyFields {
   introHtml: string | null;
   thankYouHtml: string | null;
   isActive: boolean;
+  /** Phase 4: how often one person may answer (extra surveys only; ONCE by default). */
+  responseMode?: SurveyResponseModeValue;
 }
 
 export type SurveyErrorCode =
   | "SURVEY_NOT_FOUND"
   | "CERTIFICATE_SURVEY_LOCKED"
-  | "SURVEY_HAS_RESPONSES";
+  | "SURVEY_HAS_RESPONSES"
+  | "SURVEY_MODE_LOCKED";
 
 export type SurveyWriteResult =
   | { ok: true; surveyId: string }
@@ -282,13 +295,7 @@ export async function getCertificateSurvey(eventId: string): Promise<SurveyRow |
  * survey, as a cleared survey always did. The Survey row only supplies the id
  * the response is filed under.
  */
-export async function resolveLinkSurvey(event: { id: string } & EventSurveyColumns): Promise<{
-  surveyId: string | null;
-  gatesCertificates: boolean;
-  config: unknown;
-  introHtml: string | null;
-  thankYouHtml: string | null;
-} | null> {
+export async function resolveLinkSurvey(event: { id: string } & EventSurveyColumns): Promise<LinkSurvey | null> {
   if (!isLiveConfig(event.surveyConfig)) return null;
   const cert = await getCertificateSurvey(event.id);
   if (!cert) apiLogger.info({ msg: "survey:link-no-survey-row", eventId: event.id });
@@ -298,6 +305,8 @@ export async function resolveLinkSurvey(event: { id: string } & EventSurveyColum
     config: event.surveyConfig,
     introHtml: event.surveyIntroHtml,
     thankYouHtml: event.surveyThankYouHtml,
+    // The CME survey is answered once, always.
+    responseMode: "ONCE",
   };
 }
 
@@ -311,7 +320,7 @@ export async function resolveReportSurvey(
   event: { id: string } & EventSurveyColumns,
   surveyId: string | undefined,
 ): Promise<{
-  survey: { id: string; name: string; gatesCertificates: boolean; isActive: boolean } | null;
+  survey: { id: string; name: string; gatesCertificates: boolean; isActive: boolean; responseMode: SurveyResponseModeValue } | null;
   rawConfig: unknown;
   where: Prisma.SurveyResponseWhereInput;
 } | null> {
@@ -320,7 +329,13 @@ export async function resolveReportSurvey(
   if (row) {
     const survey = overlayCertificateFromEvent(row, event);
     return {
-      survey: { id: survey.id, name: survey.name, gatesCertificates: survey.gatesCertificates, isActive: survey.isActive },
+      survey: {
+        id: survey.id,
+        name: survey.name,
+        gatesCertificates: survey.gatesCertificates,
+        isActive: survey.isActive,
+        responseMode: survey.gatesCertificates ? "ONCE" : survey.responseMode,
+      },
       // A closed CME survey still reports its answers against its questions.
       rawConfig: survey.gatesCertificates && !isLiveConfig(event.surveyConfig) ? row.config : survey.config,
       where: responseWhereForSurvey(survey),
@@ -378,6 +393,7 @@ export async function createSurvey(scope: SurveyScope, fields: SurveyFields): Pr
         thankYouHtml: fields.thankYouHtml,
         isActive: fields.isActive,
         gatesCertificates: false,
+        responseMode: fields.responseMode ?? "ONCE",
         sortOrder: (last?.sortOrder ?? 0) + 1,
       },
       select: { id: true },
@@ -464,13 +480,21 @@ export async function updateSurvey(
   const found = await tenantTransaction(async (tx) => {
     const survey = await tx.survey.findFirst({
       where: { id: surveyId, eventId: scope.eventId },
-      select: { id: true, gatesCertificates: true },
+      select: { id: true, gatesCertificates: true, responseMode: true },
     });
     if (!survey) return "not-found" as const;
     if (survey.gatesCertificates) return "locked" as const;
+    // The mode locks once anyone answered (Phase 4), like the certificate
+    // flag: switching ONCE <-> daily would let a person answer again under
+    // the other duplicate rule.
+    if (patch.responseMode !== undefined && patch.responseMode !== survey.responseMode) {
+      const answered = await tx.surveyResponse.count({ where: { surveyId } });
+      if (answered > 0) return "mode-locked" as const;
+    }
     await tx.survey.update({
       where: { id: surveyId },
       data: {
+        ...(patch.responseMode !== undefined && { responseMode: patch.responseMode }),
         ...(patch.name !== undefined && { name: patch.name }),
         ...(patch.config !== undefined && { config: patch.config as Prisma.InputJsonValue }),
         ...(patch.introHtml !== undefined && { introHtml: patch.introHtml }),
@@ -499,6 +523,14 @@ export async function updateSurvey(
   if (found === "not-found") {
     apiLogger.warn({ msg: "survey:update-not-found", eventId: scope.eventId, surveyId });
     return { ok: false, code: "SURVEY_NOT_FOUND", message: "Survey not found" };
+  }
+  if (found === "mode-locked") {
+    apiLogger.warn({ msg: "survey:update-mode-locked", eventId: scope.eventId, surveyId, userId: scope.userId });
+    return {
+      ok: false,
+      code: "SURVEY_MODE_LOCKED",
+      message: "People have already answered this survey, so how often they may answer can no longer change.",
+    };
   }
   if (found === "locked") {
     apiLogger.warn({ msg: "survey:update-certificate-locked", eventId: scope.eventId, surveyId, userId: scope.userId });
@@ -623,7 +655,16 @@ export async function applyLegacyEventSurveyWrite(
 // ── Submit: the ONE writer of Registration.surveyCompletedAt ──────────
 
 export interface SubmitSurveyInput {
-  survey: { id: string | null; eventId: string; gatesCertificates: boolean; config: unknown };
+  survey: {
+    id: string | null;
+    eventId: string;
+    gatesCertificates: boolean;
+    config: unknown;
+    /** Phase 4; ONCE when omitted. The certificate survey is always ONCE. */
+    responseMode?: SurveyResponseModeValue;
+  };
+  /** The event's timezone: the day a daily answer counts for. */
+  timezone?: string | null;
   registration: { id: string; surveyCompletedAt: Date | null; attendee: { id: string; tags: string[] | null } };
   organizationId: string;
   rawAnswers: Record<string, unknown>;
@@ -665,20 +706,27 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
     return { ok: false, code: "ANSWERS_INVALID", message: "Some answers are invalid", errors: answers.errors };
   }
 
-  // Already answered? The certificate survey keeps its historical signal
-  // (surveyCompletedAt); any other survey looks for its own row. The unique
-  // index is the race-safe net; this avoids a transaction on a reload.
-  const already = survey.gatesCertificates
-    ? registration.surveyCompletedAt !== null
-    : survey.id !== null &&
-      (await db.surveyResponse.count({ where: { surveyId: survey.id, registrationId: registration.id } })) > 0;
+  // A daily survey keeps its personal link until it expires (Phase 4, owner);
+  // the certificate survey is never daily, whatever the caller passed.
+  const now = new Date();
+  const mode: SurveyResponseModeValue = survey.gatesCertificates ? "ONCE" : (survey.responseMode ?? "ONCE");
+  const consumeTokenHash = isDailyMode(mode) ? undefined : input.consumeTokenHash;
+  const dedupKey = responseDedupKey(mode, registration.id, now, input.timezone);
+
+  // Already answered (today, for a daily survey)? The unique index is the
+  // race-safe net; this avoids a transaction on a reload.
+  const already = await hasAnswered({
+    survey: { id: survey.id, gatesCertificates: survey.gatesCertificates, responseMode: mode },
+    registration,
+    timezone: input.timezone,
+    at: now,
+  });
   if (already) {
-    apiLogger.info({ msg: "survey:submit-already-completed", ...ctx });
-    await consumeToken(input.consumeTokenHash, ctx);
+    apiLogger.info({ msg: "survey:submit-already-completed", ...ctx, mode });
+    await consumeToken(consumeTokenHash, ctx);
     return { ok: true, alreadyCompleted: true, answeredCount: 0 };
   }
 
-  const now = new Date();
   try {
     await tenantTransaction(async (tx) => {
       // The race gate is (surveyId, dedupKey). With no Survey row the CME
@@ -714,7 +762,7 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
         data: {
           eventId: survey.eventId,
           surveyId,
-          dedupKey: registration.id,
+          dedupKey,
           registrationId: registration.id,
           organizationId: input.organizationId,
           answers: answers.answers as Prisma.InputJsonValue,
@@ -731,8 +779,8 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
           data: { tags: Array.from(new Set([...(registration.attendee.tags ?? []), SURVEY_COMPLETED_TAG])) },
         });
       }
-      if (input.consumeTokenHash) {
-        await tx.verificationToken.delete({ where: { token: input.consumeTokenHash } });
+      if (consumeTokenHash) {
+        await tx.verificationToken.delete({ where: { token: consumeTokenHash } });
       }
     });
   } catch (err) {
@@ -748,4 +796,27 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
   const answeredCount = Object.keys(answers.answers).length;
   apiLogger.info({ msg: "survey:submit-success", ...ctx, gatesCertificates: survey.gatesCertificates, answeredCount });
   return { ok: true, alreadyCompleted: false, answeredCount };
+}
+
+/**
+ * Whether this registration has already answered the survey, the ONE rule for
+ * the personal link, the end-of-webinar popup, the thank-you email and the
+ * submit (Phase 4). The certificate survey keeps its historical signal
+ * (surveyCompletedAt); an extra ONCE survey looks for any answer; a daily one
+ * for an answer today, in the event's timezone.
+ */
+export async function hasAnswered(args: {
+  survey: { id: string | null; gatesCertificates: boolean; responseMode?: SurveyResponseModeValue | null };
+  registration: { id: string; surveyCompletedAt: Date | null };
+  timezone?: string | null;
+  at?: Date;
+}): Promise<boolean> {
+  const { survey, registration } = args;
+  if (survey.gatesCertificates) return registration.surveyCompletedAt !== null;
+  if (!survey.id) return false;
+  if (isDailyMode(survey.responseMode)) {
+    const dedupKey = responseDedupKey(survey.responseMode, registration.id, args.at ?? new Date(), args.timezone);
+    return (await db.surveyResponse.count({ where: { surveyId: survey.id, dedupKey } })) > 0;
+  }
+  return (await db.surveyResponse.count({ where: { surveyId: survey.id, registrationId: registration.id } })) > 0;
 }

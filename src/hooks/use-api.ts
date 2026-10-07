@@ -2653,6 +2653,8 @@ export interface EventSurveyListItem {
   isActive: boolean;
   gatesCertificates: boolean;
   responseCount: number;
+  /** Phase 4: "ONCE" or "ONCE_PER_DAY". */
+  responseMode?: "ONCE" | "ONCE_PER_DAY";
 }
 
 /** An event's surveys (several per event since Oct 6, 2026): the CME survey

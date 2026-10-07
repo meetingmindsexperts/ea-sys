@@ -36,6 +36,7 @@ import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invita
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { resolveInvitationSurvey, responseWhereForSurvey, surveyTokenIdentifier } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
+import { isDailyMode } from "./survey/response-mode";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
@@ -1805,7 +1806,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       ? await resolveThankYouSurvey(event)
       : null;
   const answeredThankYouSurvey = thankYouSurvey
-    ? await registrationsThatAnswered(thankYouSurvey.id, recipients.map((r) => r.id))
+    ? await registrationsThatAnswered(
+        thankYouSurvey.id,
+        recipients.map((r) => r.id),
+        isDailyMode(thankYouSurvey.responseMode) ? { timezone: event.timezone } : undefined,
+      )
     : new Set<string>();
 
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {

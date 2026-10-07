@@ -16,10 +16,13 @@ import { db } from "./db";
 import { apiLogger } from "./logger";
 import { readWebinarSettings } from "./webinar";
 import { parseStoredSurveyConfig } from "@/services/survey-service";
+import { responseDedupKey, type SurveyResponseModeValue } from "./survey/response-mode";
 
 export interface ThankYouSurvey {
   id: string;
   name: string;
+  /** Phase 4: a daily survey counts only today's answers as "answered". */
+  responseMode: SurveyResponseModeValue;
 }
 
 /** The survey the thank-you links to, or null when there is none to link. */
@@ -34,7 +37,7 @@ export async function resolveThankYouSurvey(event: { id: string; settings: unkno
   }
   const row = await db.survey.findFirst({
     where: { id: surveyId, eventId: event.id },
-    select: { id: true, name: true, isActive: true, gatesCertificates: true, config: true },
+    select: { id: true, name: true, isActive: true, gatesCertificates: true, config: true, responseMode: true },
   });
   const reason = !row
     ? "not-found"
@@ -49,14 +52,25 @@ export async function resolveThankYouSurvey(event: { id: string; settings: unkno
     apiLogger.warn({ msg: "webinar-thank-you:survey-skipped", eventId: event.id, surveyId, reason });
     return null;
   }
-  return { id: row.id, name: row.name };
+  return { id: row.id, name: row.name, responseMode: row.responseMode };
 }
 
-/** The registrations among `registrationIds` that already answered the survey. */
-export async function registrationsThatAnswered(surveyId: string, registrationIds: string[]): Promise<Set<string>> {
+/**
+ * The registrations among `registrationIds` that already answered the survey:
+ * any answer, or for a daily survey an answer today in the event's timezone
+ * (the same rule as hasAnswered).
+ */
+export async function registrationsThatAnswered(
+  surveyId: string,
+  registrationIds: string[],
+  daily?: { timezone: string | null },
+): Promise<Set<string>> {
   if (registrationIds.length === 0) return new Set();
+  const now = new Date();
   const rows = await db.surveyResponse.findMany({
-    where: { surveyId, registrationId: { in: registrationIds } },
+    where: daily
+      ? { surveyId, dedupKey: { in: registrationIds.map((id) => responseDedupKey("ONCE_PER_DAY", id, now, daily.timezone)) } }
+      : { surveyId, registrationId: { in: registrationIds } },
     select: { registrationId: true },
   });
   return new Set(rows.map((r) => r.registrationId).filter((id): id is string => !!id));

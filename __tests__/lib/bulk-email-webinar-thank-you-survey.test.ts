@@ -173,6 +173,15 @@ describe("webinar thank-you: the end-of-webinar survey link", () => {
     });
   });
 
+  it("a daily survey: only an answer TODAY (event timezone) skips the link (Phase 4)", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({ ...FEEDBACK, responseMode: "ONCE_PER_DAY" });
+    await executeBulkEmail(INPUT);
+    const where = mockDb.surveyResponse.findMany.mock.calls[0][0].where;
+    expect(where.surveyId).toBe("svy-fb");
+    expect(where.dedupKey.in[0]).toMatch(/^reg-1:\d{4}-\d{2}-\d{2}$/);
+    expect(where.registrationId).toBeUndefined();
+  });
+
   it("NEVER the CME survey, even if it were set", async () => {
     mockDb.survey.findFirst.mockResolvedValue({ ...FEEDBACK, gatesCertificates: true });
     await executeBulkEmail(INPUT);

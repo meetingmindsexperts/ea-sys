@@ -35,6 +35,9 @@ const updateSchema = z
     introHtml: z.string().max(50000).nullable(),
     thankYouHtml: z.string().max(50000).nullable(),
     isActive: z.boolean(),
+    // Phase 4; refused for the CME survey (updateSurvey refuses any CME edit)
+    // and once anyone answered (SURVEY_MODE_LOCKED).
+    responseMode: z.enum(["ONCE", "ONCE_PER_DAY"]),
   })
   .partial()
   .strict();
@@ -43,6 +46,7 @@ const STATUS: Record<SurveyErrorCode, number> = {
   SURVEY_NOT_FOUND: 404,
   CERTIFICATE_SURVEY_LOCKED: 409,
   SURVEY_HAS_RESPONSES: 409,
+  SURVEY_MODE_LOCKED: 409,
 };
 
 export async function GET(_req: Request, { params }: RouteParams) {

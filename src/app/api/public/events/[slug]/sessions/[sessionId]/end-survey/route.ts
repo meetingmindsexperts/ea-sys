@@ -31,7 +31,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
-import { parseStoredSurveyConfig, resolveTokenSurvey, submitSurveyResponse } from "@/services/survey-service";
+import { hasAnswered, parseStoredSurveyConfig, resolveTokenSurvey, submitSurveyResponse } from "@/services/survey-service";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -49,6 +49,7 @@ async function loadContext(req: Request, slug: string, sessionId: string) {
       surveyConfig: true,
       surveyIntroHtml: true,
       surveyThankYouHtml: true,
+      timezone: true,
     },
   });
   if (!event) return { kind: "no-event" as const };
@@ -120,10 +121,12 @@ export async function GET(req: Request, { params }: RouteParams) {
         return NextResponse.json({ survey: null, reason: "no-questions" });
       }
 
-      const answered = survey.gatesCertificates
-        ? registration.surveyCompletedAt !== null
-        : survey.surveyId !== null &&
-          (await db.surveyResponse.count({ where: { surveyId: survey.surveyId, registrationId: registration.id } })) > 0;
+      // The one shared rule (today, for a daily survey).
+      const answered = await hasAnswered({
+        survey: { id: survey.surveyId, gatesCertificates: survey.gatesCertificates, responseMode: survey.responseMode },
+        registration: { id: registration.id, surveyCompletedAt: registration.surveyCompletedAt },
+        timezone: ctx.event.timezone,
+      });
 
       return NextResponse.json({
         survey: { id: survey.surveyId, introHtml: survey.introHtml, thankYouHtml: survey.thankYouHtml, config },
@@ -201,7 +204,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId: ctx.event.id,
           gatesCertificates: resolved.survey.gatesCertificates,
           config: resolved.survey.config,
+          responseMode: resolved.survey.responseMode,
         },
+        timezone: ctx.event.timezone,
         registration: {
           id: registration.id,
           surveyCompletedAt: registration.surveyCompletedAt,

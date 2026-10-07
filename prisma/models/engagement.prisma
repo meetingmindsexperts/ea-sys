@@ -355,10 +355,13 @@ enum EventType {
 // docs/SURVEYS.md (when added) for the full operator workflow.
 
 /// How often one registration may answer a survey (docs/MULTI_SURVEY_PLAN.md
-/// §5). Only ONCE exists so far; ONCE_PER_SESSION and REPEATABLE are added in
-/// the phase that builds them.
+/// §5). ONCE_PER_DAY (Phase 4, Oct 7, 2026; owner: daily feedback at a
+/// multi-day event): one answer per calendar day in the event's timezone, the
+/// personal link kept until it expires; never the certificate survey.
+/// ONCE_PER_SESSION (Phase 3) is parked.
 enum SurveyResponseMode {
   ONCE
+  ONCE_PER_DAY
 }
 
 /// One survey of an event (Oct 6, 2026; docs/MULTI_SURVEY_PLAN.md). An event

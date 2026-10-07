@@ -61,7 +61,9 @@ import {
   resolveLinkSurvey,
   resolveTokenSurvey,
   submitSurveyResponse,
+  hasAnswered,
 } from "@/services/survey-service";
+import { isDailyMode } from "@/lib/survey/response-mode";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -115,6 +117,8 @@ const SUBMIT_REGISTRATION_SELECT = {
       emailFromName: true,
       emailCcAddresses: true,
       organizationId: true,
+      // The day a daily survey's answer counts for (Phase 4).
+      timezone: true,
     },
   },
 } satisfies Prisma.RegistrationSelect;
@@ -163,7 +167,9 @@ async function finalizeSubmission(
       eventId,
       gatesCertificates: linkSurvey.gatesCertificates,
       config: linkSurvey.config,
+      responseMode: linkSurvey.responseMode,
     },
+    timezone: registration.event.timezone,
     registration: {
       id: registrationId,
       surveyCompletedAt: registration.surveyCompletedAt,
@@ -357,6 +363,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             surveyConfig: true,
             surveyIntroHtml: true,
             surveyThankYouHtml: true,
+            timezone: true,
           },
         },
       },
@@ -422,15 +429,18 @@ export async function GET(req: Request, { params }: RouteParams) {
     // showing the form. We don't expose the existing answers — that
     // would let a leaked token leak the response back; the operator
     // sees it in the dashboard.
-    // Already answered? The CME survey keeps its historical signal
-    // (surveyCompletedAt); an extra survey looks for its own response.
-    const alreadyAnswered = linkSurvey.gatesCertificates
-      ? registration.surveyCompletedAt !== null
-      : linkSurvey.surveyId !== null &&
-        (await db.surveyResponse.count({ where: { surveyId: linkSurvey.surveyId, registrationId } })) > 0;
+    // Already answered (today, for a daily survey)? The one shared rule.
+    const daily = isDailyMode(linkSurvey.responseMode);
+    const alreadyAnswered = await hasAnswered({
+      survey: { id: linkSurvey.surveyId, gatesCertificates: linkSurvey.gatesCertificates, responseMode: linkSurvey.responseMode },
+      registration: { id: registrationId, surveyCompletedAt: registration.surveyCompletedAt },
+      timezone: registration.event.timezone,
+    });
     if (alreadyAnswered) {
       return NextResponse.json({
         alreadyCompleted: true,
+        // A daily survey: the same link works again tomorrow.
+        answeredToday: daily,
         event: {
           name: registration.event.name,
           slug: registration.event.slug,
@@ -455,6 +465,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       introHtml: linkSurvey.introHtml,
       thankYouHtml: linkSurvey.thankYouHtml,
       config,
+      // A daily survey (Phase 4): the page says the link works again tomorrow.
+      daily,
     });
     });
   } catch (err) {

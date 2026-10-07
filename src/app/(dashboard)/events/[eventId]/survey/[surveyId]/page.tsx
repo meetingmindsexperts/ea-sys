@@ -21,6 +21,7 @@
  * Q3 drag-to-reorder is deferred; up/down arrow buttons.
  */
 
+import { RESPONSE_MODE_LABEL, type SurveyResponseModeValue } from "@/lib/survey/response-mode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
@@ -125,6 +126,8 @@ export default function SurveyBuilderPage() {
   const [surveyId, setSurveyId] = useState<string | null>(null);
   const [isCertificate, setIsCertificate] = useState(routeSurveyId === "certificate");
   const [responseCount, setResponseCount] = useState(0);
+  // Phase 4: how often one person may answer (extra surveys only).
+  const [responseMode, setResponseMode] = useState<SurveyResponseModeValue>("ONCE");
 
   // ── Load ─────────────────────────────────────────────────────────────
 
@@ -132,13 +135,14 @@ export default function SurveyBuilderPage() {
     let cancelled = false;
     const adopt = (survey: {
       id: string; name: string; config: unknown; introHtml: string | null; thankYouHtml: string | null;
-      isActive: boolean; gatesCertificates: boolean; responseCount: number;
+      isActive: boolean; gatesCertificates: boolean; responseCount: number; responseMode?: SurveyResponseModeValue;
     }) => {
       setSurveyId(survey.id);
       setName(survey.name);
       setIsActive(survey.isActive);
       setIsCertificate(survey.gatesCertificates);
       setResponseCount(survey.responseCount);
+      setResponseMode(survey.responseMode ?? "ONCE");
       setIntroHtml(survey.introHtml ?? "");
       setThankYouHtml(survey.thankYouHtml ?? "");
       // Validate against the current Zod schema before adopting: an older
@@ -296,6 +300,8 @@ export default function SurveyBuilderPage() {
         introHtml: richTextIsEmpty(introHtml) ? null : introHtml,
         thankYouHtml: richTextIsEmpty(thankYouHtml) ? null : thankYouHtml,
         isActive,
+        // The CME survey is answered once, always; its route takes no mode.
+        ...(!isCertificate && { responseMode }),
       };
       const res = isCertificate
         ? await fetch(`/api/events/${eventId}/surveys/certificate`, {
@@ -331,7 +337,7 @@ export default function SurveyBuilderPage() {
     } finally {
       setSaving(false);
     }
-  }, [eventId, questions, introHtml, thankYouHtml, name, isActive, isCertificate, surveyId, router]);
+  }, [eventId, questions, introHtml, thankYouHtml, name, isActive, isCertificate, surveyId, router, responseMode]);
 
   const handleDelete = useCallback(async () => {
     if (!surveyId || isCertificate) return;
@@ -487,6 +493,31 @@ export default function SurveyBuilderPage() {
               {isActive ? "Open for answers" : "Closed"}
             </Label>
           </div>
+          {!isCertificate && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="survey-response-mode">Answers allowed</Label>
+              <Select
+                value={responseMode}
+                onValueChange={(v) => setResponseMode(v as SurveyResponseModeValue)}
+                disabled={!canEdit || responseCount > 0}
+              >
+                <SelectTrigger id="survey-response-mode" className="w-full sm:w-80">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ONCE">{RESPONSE_MODE_LABEL.ONCE}</SelectItem>
+                  <SelectItem value="ONCE_PER_DAY">{RESPONSE_MODE_LABEL.ONCE_PER_DAY}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {responseCount > 0
+                  ? "People have already answered, so this can no longer change."
+                  : responseMode === "ONCE_PER_DAY"
+                    ? "For daily feedback at a multi-day event: one answer per person per day (event timezone). Each person's link keeps working until it expires, so they use the same link every day. It never lets anyone change an answer already given."
+                    : "Each person answers once; their link stops working after they submit."}
+              </p>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground sm:col-span-2">
             {isCertificate ? (
               <>

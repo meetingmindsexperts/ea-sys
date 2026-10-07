@@ -148,6 +148,13 @@ commit — so **the next push that touches code re-deploys it and undoes your ro
   feedback survey). CME behaviour stays correct either way. If such a rollback is
   unavoidable, avoid CME resets until rolled forward. (Full review of the survey build.)
 
+- **Surveys: a rollback below the "once per day" release (Phase 4, Oct 7, 2026)** after an
+  organiser has set any survey to "Once per person per day" breaks that event's survey pages:
+  the older image's Prisma client cannot read the `ONCE_PER_DAY` enum value. Before rolling
+  back, switch those surveys back to "Once per person" (only possible while they have no
+  answers) or accept that their pages error until rolled forward. Read-only check:
+  `SELECT id, "eventId" FROM "Survey" WHERE "responseMode" = 'ONCE_PER_DAY';`
+
 - **Bind mounts are untouched**: `public/uploads/`, `logs/`, and `.env` live on the host
   and survive any image swap. (The DB is untouched too — a code rollback never touches data.)
 

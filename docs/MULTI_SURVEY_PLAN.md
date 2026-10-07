@@ -243,8 +243,8 @@ two-deploy sequence; recorded rather than hidden.
 |---|---|---|
 | 1. Several surveys | `Survey` table and backfill, surveys list plus per-survey builder (questions, intro, thank-you, active, certificate flag), public route by token, legacy token fallback, survey picker and saved-template picker on the send, `{{surveyName}}`, per-survey responses and CSV, clone copies surveys (never responses or tokens), media references, tenancy package. ONCE only. | 2.5 days |
 | 2. Responded filter (O1) | **BUILT Oct 6, 2026.** Registrations list filter and bulk email audience filter, with the dialog count matching the send (list rows carry the survey ids each registration answered). | 0.5 to 1 day |
-| 3. Session ratings | ONCE_PER_SESSION: session picker on the public page, session column and per-session results, session list setting. | 1 to 1.5 days |
-| 4. Repeatable | REPEATABLE mode and the ordinal column in the CSV. | 0.5 day |
+| 3. Session ratings | **PARKED (owner, Oct 7, 2026: "no need for now").** ONCE_PER_SESSION: session picker on the public page, session column and per-session results, session list setting. | 1 to 1.5 days |
+| 4. Repeatable | **BUILT Oct 7, 2026 as ONCE_PER_DAY** (owner: once per day, link kept until it expires). See "Phase 4 as built" in §14. | 0.5 day |
 
 About 4.5 to 5.5 days for all four, including tests, a local browser pass per
 phase, and docs. Phase 1 alone gives the needs survey, faculty feedback and
@@ -517,6 +517,27 @@ unaffected on every path. LOWs:
 - UI: a "Survey" dropdown (Answered / Not answered for each survey) in the
   Registrations filter bar and in the bulk email dialog's filters, for people
   who can read surveys; the page's choice seeds the dialog.
+
+### Phase 4 as built (Oct 7, 2026): once per day
+
+Owner decisions: the repeat rule is **once per person per day** (not unlimited),
+and a daily survey's **personal link stays valid until it expires**.
+- Enum value `ONCE_PER_DAY` (migration `20261007120000`, additive). The
+  duplicate gate is `dedupKey = registrationId:YYYY-MM-DD` (the event's
+  timezone, `src/lib/survey/response-mode.ts`), so the database itself refuses
+  a second answer the same day.
+- **Never the certificate survey:** the submit forces ONCE for it whatever a
+  caller passes, the CME route takes no mode, and its link stays single-use.
+- One rule for "already answered", `hasAnswered` in the survey service: the
+  personal link, the end-of-webinar popup, the thank-you email and the submit
+  all mean "today" for a daily survey.
+- The mode locks once anyone answered (`SURVEY_MODE_LOCKED`), like the
+  certificate flag: switching rules would let a person answer again.
+- Builder: "Answers allowed" (Once per person / Once per person per day) with
+  the link behaviour stated; surveys list shows "Once a day"; the public page
+  says "This link opens again tomorrow"; the CSV gains a `day` column.
+- Rollback note in docs/ROLLBACK.md: an older image cannot read a survey set
+  to ONCE_PER_DAY.
 
 ### Effort and order
 

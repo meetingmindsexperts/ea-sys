@@ -204,6 +204,8 @@ export interface CsvResponseRow {
   registrantLastName?: string | null;
   registrantEmail?: string | null;
   answers: Record<string, SurveyAnswerValue>;
+  /** Phase 4: the day a daily survey's answer counts for (YYYY-MM-DD, event timezone). */
+  day?: string | null;
 }
 
 /**
@@ -224,10 +226,13 @@ export interface CsvResponseRow {
 export function toCsv(
   config: SurveyConfig,
   rows: CsvResponseRow[],
+  /** Phase 4: a "day" column after submittedAt, for a once-per-day survey. */
+  opts: { dayColumn?: boolean } = {},
 ): string {
   const idColumns = config.map((q) => q.id);
   const headers = [
     "submittedAt",
+    ...(opts.dayColumn ? ["day"] : []),
     "firstName",
     "lastName",
     "email",
@@ -241,6 +246,7 @@ export function toCsv(
       typeof row.submittedAt === "string" ? row.submittedAt : row.submittedAt.toISOString();
     const cells: string[] = [
       csvCell(submittedAtIso),
+      ...(opts.dayColumn ? [csvCell(row.day ?? null)] : []),
       csvCell(row.registrantFirstName ?? null),
       csvCell(row.registrantLastName ?? null),
       csvCell(row.registrantEmail ?? null),

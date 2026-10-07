@@ -32,6 +32,9 @@ const createSchema = z
     introHtml: z.string().max(50000).nullable().optional(),
     thankYouHtml: z.string().max(50000).nullable().optional(),
     isActive: z.boolean().optional(),
+    // Phase 4: how often one person may answer (never the CME survey, which
+    // this route cannot create).
+    responseMode: z.enum(["ONCE", "ONCE_PER_DAY"]).optional(),
   })
   .strict();
 
@@ -88,6 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           introHtml: d.introHtml ?? null,
           thankYouHtml: d.thankYouHtml ?? null,
           isActive: d.isActive ?? true,
+          responseMode: d.responseMode ?? "ONCE",
         },
       ),
     );

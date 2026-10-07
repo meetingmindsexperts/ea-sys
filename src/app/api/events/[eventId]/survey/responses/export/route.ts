@@ -26,6 +26,7 @@ import { requirePermission } from "@/lib/permissions/require-permission";
 import { type SurveyAnswerValue } from "@/lib/survey/schema";
 import { parseStoredSurveyConfig, resolveReportSurvey } from "@/services/survey-service";
 import { toCsv } from "@/lib/survey/aggregate";
+import { isDailyMode, responseDay } from "@/lib/survey/response-mode";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -55,7 +56,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, name: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true, organizationId: true },
+      select: { id: true, name: true, surveyConfig: true, surveyIntroHtml: true, surveyThankYouHtml: true, organizationId: true, timezone: true },
     });
 
     if (!event) {
@@ -116,17 +117,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
     const { config, responses } = loaded;
+    // A once-per-day survey gets a "day" column (Phase 4).
+    const daily = isDailyMode(loaded.report.survey?.responseMode);
 
     const csv = toCsv(
       config,
       responses.map((r) => ({
         responseId: r.id,
         submittedAt: r.submittedAt,
+        day: daily ? responseDay(r.submittedAt, event.timezone) : null,
         registrantFirstName: r.registration?.attendee?.firstName ?? null,
         registrantLastName: r.registration?.attendee?.lastName ?? null,
         registrantEmail: r.registration?.attendee?.email ?? null,
         answers: (r.answers ?? {}) as Record<string, SurveyAnswerValue>,
       })),
+      { dayColumn: daily },
     );
 
     // An extra survey's file carries its own name so two downloads never

@@ -245,3 +245,70 @@ describe("responseWhereForSurvey", () => {
     expect(responseWhereForSurvey({ id: "s", eventId: "e", gatesCertificates: false })).toEqual({ surveyId: "s" });
   });
 });
+
+describe("Phase 4: once per day (Oct 7, 2026)", () => {
+  const DAILY = { id: "svy-daily", eventId: "ev1", gatesCertificates: false, config: CONFIG, responseMode: "ONCE_PER_DAY" as const };
+
+  it("a daily answer keys on the registration and today's date, and keeps the link", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-07T22:30:00Z")); // already Oct 8 in Dubai
+    try {
+      const res = await submitSurveyResponse({
+        survey: DAILY,
+        timezone: "Asia/Dubai",
+        registration: REG,
+        organizationId: "org1",
+        rawAnswers: { q1: 4 },
+        ipHash: null,
+        consumeTokenHash: "tok",
+      });
+      expect(res).toMatchObject({ ok: true, alreadyCompleted: false });
+      expect(mockDb.surveyResponse.create.mock.calls[0][0].data).toMatchObject({ surveyId: "svy-daily", dedupKey: "reg1:2026-10-08" });
+      expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
+      // "Answered today" looks for today's key only.
+      expect(mockDb.surveyResponse.count.mock.calls[0][0].where).toEqual({ surveyId: "svy-daily", dedupKey: "reg1:2026-10-08" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a second answer the same day is a no-op, and the link still survives", async () => {
+    mockDb.surveyResponse.count.mockResolvedValueOnce(1);
+    const res = await submitSurveyResponse({
+      survey: DAILY, timezone: "Asia/Dubai", registration: REG, organizationId: "org1", rawAnswers: { q1: 4 }, ipHash: null, consumeTokenHash: "tok",
+    });
+    expect(res).toMatchObject({ ok: true, alreadyCompleted: true });
+    expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
+  });
+
+  it("the certificate survey is never daily, whatever a caller passes", async () => {
+    await submitSurveyResponse({
+      survey: { ...DAILY, id: "svy-cert", gatesCertificates: true },
+      timezone: "Asia/Dubai", registration: REG, organizationId: "org1", rawAnswers: { q1: 5 }, ipHash: null, consumeTokenHash: "tok",
+    });
+    expect(mockDb.surveyResponse.create.mock.calls[0][0].data.dedupKey).toBe("reg1");
+    expect(mockDb.verificationToken.delete).toHaveBeenCalledWith({ where: { token: "tok" } });
+  });
+
+  it("createSurvey stores the mode; the mode locks once anyone answered", async () => {
+    await createSurvey(SCOPE, { name: "Daily", config: CONFIG as never, introHtml: null, thankYouHtml: null, isActive: true, responseMode: "ONCE_PER_DAY" });
+    expect(mockDb.survey.create.mock.calls[0][0].data).toMatchObject({ responseMode: "ONCE_PER_DAY", gatesCertificates: false });
+
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", gatesCertificates: false, responseMode: "ONCE" });
+    mockDb.surveyResponse.count.mockResolvedValueOnce(2);
+    const locked = await updateSurvey(SCOPE, "svy1", { responseMode: "ONCE_PER_DAY" });
+    expect(locked).toMatchObject({ ok: false, code: "SURVEY_MODE_LOCKED" });
+    expect(mockDb.survey.update).not.toHaveBeenCalled();
+
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", gatesCertificates: false, responseMode: "ONCE" });
+    mockDb.surveyResponse.count.mockResolvedValueOnce(0);
+    expect(await updateSurvey(SCOPE, "svy1", { responseMode: "ONCE_PER_DAY" })).toEqual({ ok: true, surveyId: "svy1" });
+    expect(mockDb.survey.update.mock.calls[0][0].data).toMatchObject({ responseMode: "ONCE_PER_DAY" });
+  });
+
+  it("an unchanged mode on a survey with answers saves fine (no lock)", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce({ id: "svy1", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
+    expect(await updateSurvey(SCOPE, "svy1", { responseMode: "ONCE_PER_DAY", name: "Daily" })).toEqual({ ok: true, surveyId: "svy1" });
+  });
+});

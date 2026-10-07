@@ -65,8 +65,10 @@ type ApiPayload =
       config: SurveyConfig;
       introHtml?: string | null;
       thankYouHtml?: string | null;
+      /** Phase 4: one answer per day, the same link again tomorrow. */
+      daily?: boolean;
     }
-  | { alreadyCompleted: true; event: EventLite; thankYouHtml?: string | null };
+  | { alreadyCompleted: true; event: EventLite; thankYouHtml?: string | null; answeredToday?: boolean };
 
 interface ReadyData {
   event: EventLite;
@@ -74,6 +76,7 @@ interface ReadyData {
   attendee: Attendee | null; // token mode only
   introHtml: string | null; // organizer-authored rich-text intro
   thankYouHtml: string | null; // organizer-authored rich-text thank-you
+  daily: boolean; // Phase 4: one answer per day
 }
 
 // ── Page shell ─────────────────────────────────────────────────────────
@@ -116,6 +119,8 @@ function PublicSurveyClient() {
         kind: "thank-you";
         event: EventLite;
         thankYouHtml: string | null;
+        /** A daily survey: answered for today, the same link works tomorrow. */
+        daily?: boolean;
       }
   >({ kind: "loading" });
 
@@ -162,6 +167,7 @@ function PublicSurveyClient() {
             kind: "thank-you",
             event: data.event,
             thankYouHtml: data.thankYouHtml ?? null,
+            daily: data.answeredToday === true,
           });
           return;
         }
@@ -173,6 +179,7 @@ function PublicSurveyClient() {
             attendee: data.attendee ?? null,
             introHtml: data.introHtml ?? null,
             thankYouHtml: data.thankYouHtml ?? null,
+            daily: data.daily === true,
           },
         });
       } catch (err) {
@@ -239,6 +246,7 @@ function PublicSurveyClient() {
           kind: "thank-you",
           event: loaded.event,
           thankYouHtml: loaded.thankYouHtml,
+          daily: loaded.daily,
         });
       } catch (err) {
         console.error("survey:submit-failed", err);
@@ -256,7 +264,7 @@ function PublicSurveyClient() {
   if (state.kind === "error") return <ErrorPanel message={state.message} />;
   if (state.kind === "thank-you") {
     return (
-      <ThankYouPanel event={state.event} thankYouHtml={state.thankYouHtml} />
+      <ThankYouPanel event={state.event} thankYouHtml={state.thankYouHtml} daily={state.daily === true} />
     );
   }
 
@@ -512,10 +520,13 @@ function ErrorPanel({ message }: { message: string }) {
 function ThankYouPanel({
   event,
   thankYouHtml,
+  daily = false,
 }: {
   event: EventLite;
   /** The organizer's own message; null or blank shows the default copy. */
   thankYouHtml: string | null;
+  /** A daily survey (Phase 4): never the certificate survey, and the link works again tomorrow. */
+  daily?: boolean;
 }) {
   const customHtml =
     thankYouHtml && thankYouHtml.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() !== ""
@@ -565,10 +576,17 @@ function ThankYouPanel({
                   <span className="font-medium text-foreground">{event.name}</span> has been
                   recorded.
                 </p>
-                <p className="mx-auto mt-2 max-w-[46ch] text-muted-foreground">
-                  Your attendance certificate will be received on your registered email&nbsp;ID.
-                </p>
+                {!daily && (
+                  <p className="mx-auto mt-2 max-w-[46ch] text-muted-foreground">
+                    Your attendance certificate will be received on your registered email&nbsp;ID.
+                  </p>
+                )}
               </>
+            )}
+            {daily && (
+              <p className="mx-auto mt-4 max-w-[46ch] rounded-lg bg-primary/5 px-4 py-2 text-sm font-medium text-foreground">
+                You have answered for today. This link opens again tomorrow for the next day&apos;s answers.
+              </p>
             )}
           </div>
 

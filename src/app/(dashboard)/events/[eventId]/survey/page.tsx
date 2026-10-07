@@ -30,6 +30,8 @@ interface SurveyListRow {
   gatesCertificates: boolean;
   responseCount: number;
   updatedAt: string;
+  /** Phase 4. */
+  responseMode?: "ONCE" | "ONCE_PER_DAY";
 }
 
 function questionCount(config: unknown): number {
@@ -177,6 +179,11 @@ function SurveyRow({ eventId, survey, canEdit }: { eventId: string; survey: Surv
           <Badge variant={survey.isActive ? "outline" : "secondary"} className="text-xs">
             {survey.isActive ? "Open" : "Closed"}
           </Badge>
+          {survey.responseMode === "ONCE_PER_DAY" && (
+            <Badge variant="secondary" className="text-xs">
+              Once a day
+            </Badge>
+          )}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {questionCount(survey.config)} question{questionCount(survey.config) === 1 ? "" : "s"} ·{" "}
