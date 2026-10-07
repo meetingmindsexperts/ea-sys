@@ -1678,6 +1678,8 @@ export default function EventSettingsPage() {
             </CardContent>
           </Card>
 
+          {/* Webinars print no badges (no entry barcode, see entry-barcode-policy). */}
+          {!isWebinar(event) && (
           <Card>
             <CardHeader>
               <CardTitle>Badge</CardTitle>
@@ -2045,6 +2047,7 @@ export default function EventSettingsPage() {
                 </div>
             </CardContent>
           </Card>
+          )}
 
           {/* ONE Save for the tab. It used to carry two: the first you met
               while scrolling saved the event COLUMNS, while the switches above

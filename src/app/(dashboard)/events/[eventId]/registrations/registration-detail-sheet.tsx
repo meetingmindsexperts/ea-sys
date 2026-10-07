@@ -180,6 +180,10 @@ function formatCreatedSource(source: string): string {
   }
 }
 
+
+/** Tailwind needs literal class names: the action row's column count. */
+const ACTION_GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
+
 export function RegistrationDetailSheet({
   eventId,
   registration,
@@ -481,6 +485,8 @@ export function RegistrationDetailSheet({
   const eventTagsQuery = useEventTags(eventId);
   // For the hybrid attendance-mode toggle (only meaningful on HYBRID events).
   const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
+  // Webinars print no badges (no entry barcode, see entry-barcode-policy).
+  const isWebinarEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "WEBINAR";
   // The Survey Invitation is offered only when the event has a survey built.
   const surveyConfig = (eventForMode as { surveyConfig?: unknown } | undefined)?.surveyConfig;
   const { data: eventSurveys = [] } = useEventSurveys(eventId, open);
@@ -1676,6 +1682,8 @@ export function RegistrationDetailSheet({
                       </Select>
                     )}
                   </div>
+                  {/* Webinars print no badges, so no badge type. */}
+                  {!isWebinarEvent && (
                   <div className="space-y-2">
                     <Label>Badge Type</Label>
                     {(() => {
@@ -1729,6 +1737,7 @@ export function RegistrationDetailSheet({
                       );
                     })()}
                   </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
@@ -2749,8 +2758,9 @@ export function RegistrationDetailSheet({
                   which (along with Payment Summary + Billing Details) was
                   swallowed by a stale Registration-Details closing tag at
                   this position. Now its own section so the Details-tab gate
-                  is local to this block and doesn't trap sibling content. */}
-              {!isEditing && (
+                  is local to this block and doesn't trap sibling content.
+                  Webinars have no entry barcode, so no section. */}
+              {!isEditing && !isWebinarEvent && (
                 <section className={cn(
                   "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
                   activeTab !== "details" && "hidden",
@@ -2930,7 +2940,11 @@ export function RegistrationDetailSheet({
                   {/* Desk operators (ONSITE/MEMBER) get Print Badge + Download
                       Quote (they see finance now); Send Email stays admin/
                       organizer, so the grid is 2 cols for them, 3 otherwise. */}
-                  <div className={cn("grid gap-2", isDeskOperator ? "grid-cols-2" : "grid-cols-3")}>
+                  <div className={cn(
+                    "grid gap-2",
+                    ACTION_GRID_COLS[(isWebinarEvent ? 0 : 1) + 1 + (isDeskOperator ? 0 : 1)],
+                  )}>
+                  {!isWebinarEvent && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -2940,6 +2954,7 @@ export function RegistrationDetailSheet({
                     {printingBadge ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IdCard className="mr-2 h-4 w-4" />}
                     Print Badge
                   </Button>
+                  )}
                   <Button variant="outline" size="sm" asChild>
                     <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
                       <Download className="mr-2 h-4 w-4" /> Download Quote

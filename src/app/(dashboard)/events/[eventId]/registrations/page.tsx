@@ -583,8 +583,11 @@ export default function RegistrationsPage() {
                   event is flagged (Settings → Registration). Keeps the import
                   path consistent with the now-gated DTCM field. */}
               {!isDeskOperator && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
-              {/* ONSITE keeps badge printing + add registration. */}
-              <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
+              {/* ONSITE keeps badge printing + add registration. Webinars
+                  print no badges (no entry barcode). */}
+              {!eventIsWebinar && (
+                <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
+              )}
               {!isDeskOperator && <ImportContactsButton eventId={eventId} mode="registration" />}
               <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
