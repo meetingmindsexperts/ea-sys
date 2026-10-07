@@ -175,10 +175,10 @@ export default function SurveyResponsesPage() {
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {data.survey ? `${data.survey.name}: responses` : "Survey Responses"}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {data.totalCount === 0
               ? "No responses yet."
               : `${data.totalCount} response${data.totalCount === 1 ? "" : "s"} for ${data.event.name}.`}

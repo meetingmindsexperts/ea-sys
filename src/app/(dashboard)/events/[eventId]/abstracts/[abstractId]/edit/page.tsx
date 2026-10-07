@@ -225,8 +225,8 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <FileText className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <FileText className="h-6 w-6 shrink-0 text-primary" />
             {canEdit ? "Edit Abstract" : "View Abstract"}
           </h1>
           <div className="flex items-center gap-2 mt-1">
@@ -604,7 +604,7 @@ export default function EditAbstractPage() {
     const gone = error instanceof ApiError && error.status === 404;
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
-        <h1 className="text-lg font-semibold">
+        <h1 className="text-2xl font-semibold tracking-tight">
           {gone ? "This abstract no longer exists" : "Couldn't load this abstract"}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">

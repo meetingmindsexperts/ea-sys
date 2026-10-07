@@ -165,7 +165,7 @@ export default function BudgetEditorPage() {
           <ArrowLeft className="h-4 w-4" /> Budgets
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">{b.eventCode} · v{b.versionNo}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{b.eventCode} · v{b.versionNo}</h1>
           <StatusBadge status={b.status} />
           {b.atRisk && (b.status === "ACTIVE" || b.status === "FROZEN") && (
             <span className="inline-flex items-center gap-1 text-sm text-amber-700 dark:text-amber-400"><TriangleAlert className="h-4 w-4" /> at risk</span>

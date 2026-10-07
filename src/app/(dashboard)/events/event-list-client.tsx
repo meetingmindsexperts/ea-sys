@@ -317,7 +317,7 @@ export function EventListClient({
           <table className="w-full">
             <thead>
               <tr className="border-b bg-muted/50 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 md:min-w-[20rem]">
                   <Link
                     href={sortHref("name")}
                     scroll={false}
@@ -328,7 +328,7 @@ export function EventListClient({
                     <SortIndicator field="name" active={sortField} order={sortOrder} />
                   </Link>
                 </th>
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell w-px whitespace-nowrap">
                   <Link
                     href={sortHref("startDate")}
                     scroll={false}
@@ -339,7 +339,7 @@ export function EventListClient({
                     <SortIndicator field="startDate" active={sortField} order={sortOrder} />
                   </Link>
                 </th>
-                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell w-px whitespace-nowrap">
                   Venue
                 </th>
                 {showCounts && (
@@ -372,7 +372,7 @@ export function EventListClient({
                         href={hrefFor(event)}
                         className="block group-hover:text-primary transition-colors"
                       >
-                        <span className="font-medium text-sm leading-snug line-clamp-1">
+                        <span className="font-medium text-sm leading-snug line-clamp-2" title={event.name}>
                           {event.name}
                         </span>
                         {/* Show date + venue inline on mobile */}

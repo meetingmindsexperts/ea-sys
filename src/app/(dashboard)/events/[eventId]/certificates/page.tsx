@@ -966,7 +966,7 @@ export default function CertificatesPage() {
         <GraduationCap className="h-7 w-7 text-primary" />
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold">Certificates</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Certificates</h1>
             {/* CME status — derived from cmeHours / accreditations. An event
                 "has CME" only when these are set; the {{cmeHours}} +
                 accreditation tokens render blank otherwise (non-CME events

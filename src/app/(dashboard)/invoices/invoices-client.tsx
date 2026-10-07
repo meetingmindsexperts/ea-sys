@@ -162,8 +162,8 @@ export default function OrgInvoicesClient() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <Receipt className="h-6 w-6 text-primary" /> Invoices
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Receipt className="h-6 w-6 shrink-0 text-primary" /> Invoices
           </h1>
           <p className="text-sm text-muted-foreground">
             All invoices and credit notes across every event, filterable by month, year, and event.

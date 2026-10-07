@@ -164,7 +164,7 @@ function MediaLibrary() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Media Library</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Media Library</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Upload images and copy their URLs to use in email templates.
         </p>

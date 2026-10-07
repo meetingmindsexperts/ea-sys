@@ -45,8 +45,8 @@ export default function ApprovalsPage() {
         <Link href="/procurement" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Budgets
         </Link>
-        <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <Inbox className="h-6 w-6 text-primary" />
+        <h1 className="text-2xl font-semibold tracking-tight mt-2 flex items-center gap-2.5">
+          <Inbox className="h-6 w-6 shrink-0 text-primary" />
           Approvals
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

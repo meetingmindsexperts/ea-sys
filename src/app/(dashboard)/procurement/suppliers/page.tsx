@@ -85,7 +85,7 @@ export default function SuppliersPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Truck className="h-6 w-6 text-primary" /> Suppliers</h1>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5"><Truck className="h-6 w-6 text-primary" /> Suppliers</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {`${rows.length} shown${status === "ALL" && proposed > 0 ? ` · ${proposed} waiting for approval` : ""}. Only an approved supplier can carry a purchase order.`}
             </p>

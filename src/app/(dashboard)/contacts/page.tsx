@@ -311,7 +311,7 @@ export default function ContactsPage() {
               <Users className="h-4.5 w-4.5 text-primary" style={{ width: "1.125rem", height: "1.125rem" }} />
             </div>
             <div>
-              <h1 className="text-lg font-semibold tracking-tight text-gray-900">Contacts</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
               <p className="text-xs text-gray-400 mt-0.5">Organization-wide contact repository</p>
             </div>
           </div>

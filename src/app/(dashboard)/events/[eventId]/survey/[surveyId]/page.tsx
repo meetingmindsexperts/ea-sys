@@ -396,7 +396,7 @@ export default function SurveyBuilderPage() {
 
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div className="min-w-0 flex-1">
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
             {isCertificate ? "Certificate (CME) survey" : surveyId ? name || "Survey" : "New survey"}
             {isCertificate && (
               <Badge variant="secondary" className="gap-1 text-xs">
@@ -405,7 +405,7 @@ export default function SurveyBuilderPage() {
               </Badge>
             )}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {isCertificate
               ? "Completing this survey is what issues CME certificates. It is locked: it cannot be deleted or swapped for another survey."
               : "An extra survey. Its answers are recorded and exported, and it never affects certificates."}{" "}

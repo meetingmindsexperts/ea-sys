@@ -676,11 +676,11 @@ export default function CommunicationsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Mail className="h-8 w-8 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Mail className="h-6 w-6 shrink-0 text-primary" />
             Communications
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Send emails to your event audience — registrants, speakers, abstract submitters, and reviewers.
           </p>
         </div>

@@ -74,7 +74,7 @@ export default function BudgetProductsPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Package className="h-6 w-6 text-primary" /> Products</h1>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5"><Package className="h-6 w-6 text-primary" /> Products</h1>
             <p className="mt-1 text-sm text-muted-foreground">{`${activeCount} items a budget line can be picked from, each with its accounting SKU.`}</p>
           </div>
           {canAdmin && (

@@ -84,7 +84,7 @@ export default function EventMediaPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Event Media</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Event Media</h1>
         {eventName && (
           <p className="text-sm text-muted-foreground mt-0.5">{eventName}</p>
         )}

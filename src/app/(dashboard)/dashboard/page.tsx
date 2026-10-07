@@ -89,7 +89,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight">
           Welcome back, {session.user.firstName}
         </h1>
         <p className="text-muted-foreground text-sm mt-0.5">

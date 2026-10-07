@@ -421,8 +421,8 @@ export default function AbstractsPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <FileText className="h-8 w-8" />
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <FileText className="h-6 w-6 shrink-0 text-primary" />
               {isSubmitter ? "My Abstracts" : "Abstracts"}
               {isFetching && !loading && (
                 <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />

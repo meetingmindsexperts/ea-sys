@@ -71,7 +71,7 @@ export function RecordHeader({
             </div>
           )}
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight break-words">{title}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight break-words">{title}</h1>
             {subtitle && <div className="mt-0.5 text-sm text-muted-foreground">{subtitle}</div>}
             {badges && <div className="mt-2 flex flex-wrap items-center gap-2">{badges}</div>}
           </div>

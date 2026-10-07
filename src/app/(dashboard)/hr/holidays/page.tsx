@@ -83,8 +83,8 @@ export default function HrHolidaysPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <Flag className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Flag className="h-6 w-6 shrink-0 text-primary" />
             Public holidays
           </h1>
           <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">

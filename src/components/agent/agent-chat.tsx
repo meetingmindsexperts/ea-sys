@@ -542,11 +542,11 @@ export function AgentChat({
       {/* Header */}
       <div className="flex items-start justify-between shrink-0">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Bot className="h-8 w-8" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Bot className="h-6 w-6 shrink-0 text-primary" />
             AI Agent
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {eventId
               ? "Describe what you need for this event; the agent will handle it."
               : "Ask about any event in the organisation, or create one; the agent will handle it."}

@@ -23,8 +23,8 @@ export default async function ProcurementLayout({ children }: { children: React.
         <ShieldAlert className="mx-auto mb-3 h-8 w-8 text-amber-700 dark:text-amber-400" />
         <h2 className="font-semibold text-amber-900 dark:text-amber-100">You do not have access to Budget &amp; Procurement</h2>
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
-          Org staff can read budgets. Requesting, approving and settling are granted to one person at a
-          time; if you need one of those, ask a super admin to set it under Settings, Users.
+          Budgets are open to admins, to people given a request, approval or settlement duty, and to
+          anyone whose custom role includes them. If you need access, ask an admin under Settings, Users.
         </p>
       </div>
     );

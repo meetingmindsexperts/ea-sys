@@ -275,7 +275,7 @@ export default function InfraPage() {
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><Cpu className="h-6 w-6 text-primary" /> {isOperator ? "Infra / Ops" : "Service health"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5"><Cpu className="h-6 w-6 text-primary" /> {isOperator ? "Infra / Ops" : "Service health"}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {isOperator
               ? "Deploys, email health, alarms and host metrics"

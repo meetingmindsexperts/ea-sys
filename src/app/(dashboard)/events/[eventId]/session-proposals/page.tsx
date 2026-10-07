@@ -303,8 +303,8 @@ export default function SessionProposalsPage() {
       <SubmitterProfileNudge />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Lightbulb className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Lightbulb className="h-6 w-6 shrink-0 text-primary" />
             {isSubmitter ? "My Session Proposals" : "Session Proposals"}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">

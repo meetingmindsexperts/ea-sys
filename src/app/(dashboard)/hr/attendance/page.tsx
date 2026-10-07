@@ -552,8 +552,8 @@ export default function HrAttendancePage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <TableProperties className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <TableProperties className="h-6 w-6 shrink-0 text-primary" />
             Attendance
           </h1>
           <p className="mt-1 max-w-[62ch] text-sm text-muted-foreground">

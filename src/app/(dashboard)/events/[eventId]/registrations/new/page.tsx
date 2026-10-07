@@ -241,7 +241,7 @@ export default function NewRegistrationPage() {
             <UserPlus className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Add Registration</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Add Registration</h1>
             <p className="text-sm text-muted-foreground">
               Manually register an attendee for this event
             </p>

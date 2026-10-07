@@ -299,8 +299,8 @@ export default function WebinarConsolePage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Video className="h-8 w-8" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Video className="h-6 w-6 shrink-0 text-primary" />
             Webinar Console
           </h1>
           {/* A div, not a p: ReloadingSpinner renders divs, and a div inside a

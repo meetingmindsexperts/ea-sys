@@ -259,7 +259,7 @@ export default async function ContactDetailPage({
                 </div>
               )}
               <div className="flex-1 min-w-0 pt-0.5">
-                <h1 className="text-xl font-semibold text-gray-900 leading-tight">
+                <h1 className="text-2xl font-semibold tracking-tight">
                   {formatPersonName(contact.title, contact.firstName, contact.lastName)}
                 </h1>
                 {(contact.jobTitle || contact.organization) && (

@@ -398,7 +398,7 @@ function Header({ r }: { r: SpendRequestDetailRow }) {
         <ArrowLeft className="h-4 w-4" /> Spend requests
       </Link>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><FileText className="h-6 w-6 text-primary" /> {r.requestNo}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5"><FileText className="h-6 w-6 text-primary" /> {r.requestNo}</h1>
         <RequestStatusBadge status={r.status} />
         <PriorityBadge priority={r.priority} />
         {(r.budgetCheckStatus === "OVER_BUDGET" || r.budgetCheckStatus === "FROZEN") && <Badge variant="secondary" className="bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100"><ShieldAlert className="mr-1 h-3 w-3" /> Exception</Badge>}

@@ -76,8 +76,8 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <BarChart3 className="h-6 w-6 text-primary" /> Analytics
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <BarChart3 className="h-6 w-6 shrink-0 text-primary" /> Analytics
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Visits to your events&apos; public pages, where they came from, and how many became online registrations.

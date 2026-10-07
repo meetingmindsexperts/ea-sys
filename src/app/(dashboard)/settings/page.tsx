@@ -594,8 +594,8 @@ export default function SettingsPage() {
     <div className="space-y-8">
       {/* Header */}
       <div className="rounded-xl bg-gradient-to-r from-primary to-primary/70 px-6 py-5 text-white">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Settings className="h-7 w-7" />
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+          <Settings className="h-6 w-6 shrink-0 text-primary" />
           Settings
         </h1>
         <p className="text-white/80 mt-1">

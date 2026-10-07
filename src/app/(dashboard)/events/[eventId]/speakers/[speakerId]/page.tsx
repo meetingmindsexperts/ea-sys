@@ -685,7 +685,7 @@ export default function SpeakerDetailPage() {
 
         <div className="flex items-start justify-between gap-4 pr-8">
           <div className="flex-1">
-            <h1 className="text-2xl font-bold">
+            <h1 className="text-2xl font-semibold tracking-tight">
               {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
             </h1>
             <div className="flex gap-2 mt-2">

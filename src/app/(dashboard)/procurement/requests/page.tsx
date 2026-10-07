@@ -64,7 +64,7 @@ export default function SpendRequestsPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><FileText className="h-6 w-6 text-primary" /> Spend requests</h1>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5"><FileText className="h-6 w-6 text-primary" /> Spend requests</h1>
             <p className="mt-1 text-sm text-muted-foreground">{`${rows.length} shown${pending > 0 ? ` · ${pending} awaiting a decision` : ""}. A request is raised against a budget line, checked against what the line has left, and approved on the AED matrix.`}</p>
           </div>
           {canRequest && (

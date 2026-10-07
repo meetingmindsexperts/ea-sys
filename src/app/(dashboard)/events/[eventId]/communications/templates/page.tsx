@@ -320,8 +320,8 @@ export default function EmailTemplatesPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="flex items-center gap-2 text-3xl font-bold">
-              <Mail className="h-8 w-8" />
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <Mail className="h-6 w-6 shrink-0 text-primary" />
               Email Templates
             </h1>
           </div>

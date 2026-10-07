@@ -169,7 +169,7 @@ export default function NewSpeakerPage() {
             <Mic className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Add Speaker</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Add Speaker</h1>
             <p className="text-sm text-muted-foreground">
               Add a new speaker to your event
             </p>

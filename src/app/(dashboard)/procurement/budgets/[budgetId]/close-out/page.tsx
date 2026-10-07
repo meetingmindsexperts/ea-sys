@@ -121,7 +121,7 @@ export default function CloseOutPage() {
           <ArrowLeft className="h-4 w-4" /> {`${b.eventCode} · v${b.versionNo}`}
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">Close-out</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Close-out</h1>
           <StatusBadge status={b.status} />
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{`${b.event?.name ?? b.eventCode} · ${b.reportingCurrency}`}</p>

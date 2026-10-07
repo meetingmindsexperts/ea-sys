@@ -186,8 +186,8 @@ export default function NewAbstractPage() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <FileText className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <FileText className="h-6 w-6 shrink-0 text-primary" />
             Submit Abstract
           </h1>
           {event && (

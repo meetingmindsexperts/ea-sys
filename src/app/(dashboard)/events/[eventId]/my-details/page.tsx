@@ -337,7 +337,7 @@ export default function SubmitterProfilePage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {formatPersonName(profile.title, profile.firstName, profile.lastName)}
           </h1>
           <p className="text-sm text-muted-foreground">Your submission profile for this event</p>

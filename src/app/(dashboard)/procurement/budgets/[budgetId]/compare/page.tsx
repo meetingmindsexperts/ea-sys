@@ -62,7 +62,7 @@ export default function CompareVersionsPage() {
         <Link href={`/procurement/budgets/${budgetId}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> {`${current.eventCode} · v${current.versionNo}`}
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Compare versions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight mt-2">Compare versions</h1>
         <p className="mt-1 text-sm text-muted-foreground">{`${current.event?.name ?? current.eventCode} · ${versions.length} version${versions.length === 1 ? "" : "s"} · lines are paired by their key, which a new version keeps.`}</p>
       </div>
 

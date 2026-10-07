@@ -253,8 +253,8 @@ export default function EmailTemplateEditorPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Mail className="h-6 w-6" />
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <Mail className="h-6 w-6 shrink-0 text-primary" />
               {template.name}
             </h1>
             {!isActive && <Badge variant="secondary">Disabled</Badge>}

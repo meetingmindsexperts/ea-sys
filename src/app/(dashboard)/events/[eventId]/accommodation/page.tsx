@@ -367,8 +367,8 @@ export default function AccommodationPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Building2 className="h-8 w-8" />
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+              <Building2 className="h-6 w-6 shrink-0 text-primary" />
               Accommodation
             </h1>
           </div>

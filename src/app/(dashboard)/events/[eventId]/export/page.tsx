@@ -53,8 +53,8 @@ export default function ExportDataPage() {
       </Link>
 
       <div>
-        <h1 className="text-2xl font-bold">Export Data</h1>
-        <p className="text-muted-foreground mt-1 max-w-2xl">
+        <h1 className="text-2xl font-semibold tracking-tight">Export Data</h1>
+        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
           Everything for this event in one ZIP file: one spreadsheet (CSV) per area, plus a README listing every file and
           how many rows it holds. Each spreadsheet is the same as that page&rsquo;s own export.
         </p>

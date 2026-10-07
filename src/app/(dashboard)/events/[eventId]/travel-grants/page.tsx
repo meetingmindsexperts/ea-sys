@@ -319,7 +319,7 @@ export default function TravelGrantsPage() {
             <Plane className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold">Travel Grants</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Travel Grants</h1>
             <p className="text-sm text-muted-foreground">
               Every author who has submitted an abstract, and where they stand.
             </p>

@@ -93,7 +93,7 @@ export default function EventAnalyticsPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-sm text-slate-500">
             Operational metrics for {a.event.name}. Times in {a.event.timezone}.
           </p>

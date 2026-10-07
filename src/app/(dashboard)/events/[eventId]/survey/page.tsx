@@ -97,8 +97,8 @@ export default function SurveysPage() {
 
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Surveys</h1>
-          <p className="mt-1 text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">Surveys</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Feedback and certificate surveys for <span className="font-medium">{eventName}</span>.
           </p>
         </div>

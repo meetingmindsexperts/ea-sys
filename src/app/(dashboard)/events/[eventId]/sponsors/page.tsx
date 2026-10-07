@@ -220,11 +220,11 @@ function SponsorsEditor({
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Award className="h-8 w-8" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <Award className="h-6 w-6 shrink-0 text-primary" />
             Sponsors
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Sponsors and exhibitors shown on public session pages. Grouped by tier.
           </p>
         </div>

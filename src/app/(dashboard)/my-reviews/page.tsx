@@ -68,7 +68,7 @@ export default function MyReviewsPage() {
           <ClipboardCheck className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Reviews</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">My Reviews</h1>
           <p className="text-sm text-muted-foreground">Abstracts assigned to you across all events.</p>
         </div>
       </div>

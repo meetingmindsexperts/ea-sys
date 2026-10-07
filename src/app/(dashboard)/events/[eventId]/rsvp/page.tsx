@@ -209,8 +209,8 @@ export default function RsvpCampaignsPage() {
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <CalendarCheck className="h-6 w-6 text-primary" /> RSVPs
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <CalendarCheck className="h-6 w-6 shrink-0 text-primary" /> RSVPs
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Invite people to a dinner, a set of workshops, a site visit — each with its own guest

@@ -41,8 +41,8 @@ export default async function ActivityPage() {
           <Activity className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Activity</h1>
-          <p className="text-muted-foreground">{describePage(ownTabs)}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
+          <p className="text-sm text-muted-foreground">{describePage(ownTabs)}</p>
         </div>
       </div>
 

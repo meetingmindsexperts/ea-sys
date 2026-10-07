@@ -95,7 +95,7 @@ export default function EventReadinessPage() {
         <div className="flex items-center gap-3">
           <Rocket className="h-7 w-7" />
           <div>
-            <h1 className="text-2xl font-bold">Conference Launch Readiness</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Conference Launch Readiness</h1>
             <p className="text-sm text-white/85">
               Run this checklist before opening a paid conference (with or without abstracts) to the public.
             </p>

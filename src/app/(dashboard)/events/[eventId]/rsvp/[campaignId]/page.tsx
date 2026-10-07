@@ -466,8 +466,8 @@ export default function RsvpCampaignConsole() {
           >
             <ArrowLeft className="h-3 w-3" /> All RSVPs
           </Link>
-          <h1 className="text-2xl font-bold flex items-center gap-2 mt-1">
-            <CalendarCheck className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center mt-1 gap-2.5">
+            <CalendarCheck className="h-6 w-6 shrink-0 text-primary" />
             {campaign?.name ?? "RSVP"}
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">

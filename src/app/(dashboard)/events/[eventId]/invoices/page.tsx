@@ -274,11 +274,11 @@ export default function EventInvoicesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold">
-          <Receipt className="h-8 w-8" />
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+          <Receipt className="h-6 w-6 shrink-0 text-primary" />
           Invoices &amp; Quotes
         </h1>
-        <p className="text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           All invoices, receipts, and quotes for {event?.name ?? "this event"} in one place.
         </p>
       </div>

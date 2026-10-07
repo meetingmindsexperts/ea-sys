@@ -252,8 +252,8 @@ export default function BackupsPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <DatabaseBackup className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <DatabaseBackup className="h-6 w-6 shrink-0 text-primary" />
             Backups
           </h1>
           <p className="text-sm text-muted-foreground mt-1">

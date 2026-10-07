@@ -127,7 +127,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight text-gray-900">Edit Contact</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Edit Contact</h1>
             <p className="text-xs text-gray-400 mt-0.5">
               <Link href="/contacts" className="hover:text-gray-600 transition-colors">Contacts</Link>
               <span className="mx-1.5 text-gray-300">/</span>

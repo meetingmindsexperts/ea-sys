@@ -315,7 +315,7 @@ export default function AdminDocsPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] gap-3">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Repository Docs</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Repository Docs</h1>
         <p className="text-sm text-muted-foreground">
           Every <code className="text-xs">.md</code> /{" "}
           <code className="text-xs">.html</code> in the repo. Source of truth is

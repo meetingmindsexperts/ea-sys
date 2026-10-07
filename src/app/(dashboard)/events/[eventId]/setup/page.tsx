@@ -380,8 +380,8 @@ export default async function SetupPage({ params }: SetupPageProps) {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold">Event Setup</h1>
-        <p className="text-muted-foreground mt-1 max-w-2xl">
+        <h1 className="text-2xl font-semibold tracking-tight">Event Setup</h1>
+        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
           Configure-once items for this event. Daily-use tools
           (registrations, check-in, speakers, agenda, communications) stay in
           the main sidebar; the setup-once and post-event items live here so
@@ -512,8 +512,8 @@ function renderSetupWithStatusError(eventId: string, message: string) {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold">Event Setup</h1>
-        <p className="text-muted-foreground mt-1">{message}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Event Setup</h1>
+        <p className="text-sm text-muted-foreground mt-1">{message}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

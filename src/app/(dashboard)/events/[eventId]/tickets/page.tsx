@@ -424,14 +424,14 @@ export default function TicketsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <ClipboardList className="h-8 w-8" />
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
+            <ClipboardList className="h-6 w-6 shrink-0 text-primary" />
             Registration Types
             {isFetching && !isLoading && (
               <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             )}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {ticketTypes.length} types · {totalRegs} registrations
           </p>
         </div>
