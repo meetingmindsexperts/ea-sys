@@ -7,8 +7,56 @@ const isDevelopment = process.env.NODE_ENV === "development";
 const isVercel = !!process.env.VERCEL;
 const isMcpStdio = !!process.env.MCP_STDIO_MODE;
 
+/**
+ * Trace correlation (Oct 7, 2026). Every line logged while a request is being
+ * served carries `traceId`, the id of that request's Sentry trace, so an error
+ * in Sentry and its lines in /logs (or CloudWatch) find each other by one id:
+ * paste it into the /logs search. Before this, a Sentry event and the warn
+ * lines around it could only be matched by timestamp.
+ *
+ * The id comes from the active OpenTelemetry span that Sentry's server SDK
+ * opens per request. It exists for EVERY request, not only the 10% sampled for
+ * performance (an unsampled span still has a trace id), and errors always
+ * carry it. Lines outside a request (worker jobs, boot) have no span and get
+ * no field rather than a misleading shared one.
+ *
+ * Sentry is imported lazily, as forwardToSentry does, so this module never
+ * pulls the SDK into a client bundle; lines logged before it resolves simply
+ * have no traceId.
+ */
+type TraceIdSource = () => string | undefined;
+let traceIdSource: TraceIdSource = () => undefined;
+
+/** Swap the trace-id lookup (the lazy Sentry import below, or a test). */
+export function setTraceIdSource(source: TraceIdSource): void {
+  traceIdSource = source;
+}
+
+/** The pino mixin: `{ traceId }` inside a traced request, `{}` otherwise. */
+export function traceMixin(): { traceId?: string } {
+  try {
+    const traceId = traceIdSource();
+    // An all-zero id is OpenTelemetry's "no trace", never a real one.
+    if (!traceId || /^0+$/.test(traceId)) return {};
+    return { traceId };
+  } catch {
+    // Correlation must never break logging.
+    return {};
+  }
+}
+
+if (typeof window === "undefined" && process.env.NODE_ENV !== "test") {
+  import("@sentry/nextjs")
+    .then((Sentry) => setTraceIdSource(() => Sentry.getActiveSpan()?.spanContext().traceId))
+    .catch(() => {
+      // No Sentry, no correlation; the logs themselves are unaffected.
+    });
+}
+
 const loggerConfig: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || (isDevelopment ? "debug" : "info"),
+
+  mixin: traceMixin,
 
   serializers: {
     err: pino.stdSerializers.err,
