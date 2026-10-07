@@ -9,7 +9,7 @@
  * (src/lib/permissions/), and what each built-in role may do is frozen in
  * `__tests__/lib/permissions/system-role-grants-snapshot.test.ts`.
  */
-import type { TEAM_ROLES } from "@/lib/team-roles";
+import type { RETIRED_ROLES, TEAM_ROLES } from "@/lib/team-roles";
 
 /**
  * Org-bound "team member" roles — the ones shown under Settings → Users and
@@ -45,18 +45,18 @@ export const ASSIGNABLE_USER_ROLES = [
   "MEMBER",
   "ONSITE",
   "CRM_USER",
-  "WEBINARS",
   "HR_USER",
   "REVIEWER",
 ] as const;
 
 export type AssignableUserRole = (typeof ASSIGNABLE_USER_ROLES)[number];
 
-// Compile-time guard: every team role except SUPER_ADMIN must be assignable.
+// Compile-time guard: every team role except SUPER_ADMIN and the retired ones
+// (RETIRED_ROLES, team-roles.ts) must be assignable.
 // A new role added to TEAM_ROLES and forgotten here breaks the build rather
 // than silently becoming un-assignable from the change-role dialog.
 type _AssignableCoversTeamRoles =
-  Exclude<(typeof TEAM_ROLES)[number], "SUPER_ADMIN"> extends AssignableUserRole
+  Exclude<(typeof TEAM_ROLES)[number], "SUPER_ADMIN" | (typeof RETIRED_ROLES)[number]> extends AssignableUserRole
     ? true
     : { error: "ASSIGNABLE_USER_ROLES is missing a team role" };
 const _assignableCoversTeamRoles: _AssignableCoversTeamRoles = true;

@@ -23,6 +23,16 @@ export const TEAM_ROLES = [
 ] as const;
 
 /**
+ * Roles that still exist in the database enum but are no longer given to
+ * anyone. WEBINARS retired Oct 7, 2026 (owner: "Member + the Corporate custom
+ * role covers everything"): production had no WEBINARS account left. It stays
+ * a team role so any leftover account keeps working as staff, and its system
+ * grants stay in code; it is only taken out of every place a role is chosen.
+ * Removing an enum value is not blue/green safe, so the value stays.
+ */
+export const RETIRED_ROLES = ["WEBINARS"] as const;
+
+/**
  * True when a role is an org team-member role. Fails closed: an unknown or
  * missing role is not staff.
  */
@@ -65,10 +75,10 @@ export function isOrgAdmin(role: string | null | undefined): boolean {
 
 /**
  * The temporary accounts the Settings → Onsite Staff tab creates and assigns:
- * ONSITE (assignment-gated desk staff) and WEBINARS (kept accepted there since
- * its Aug 10, 2026 widening made the assignment redundant but harmless).
+ * ONSITE (assignment-gated desk staff). WEBINARS was accepted here too until
+ * it retired (Oct 7, 2026).
  */
-export const ONSITE_ACCOUNT_ROLES = ["ONSITE", "WEBINARS"] as const;
+export const ONSITE_ACCOUNT_ROLES = ["ONSITE"] as const;
 
 /**
  * The account an ORGANIZER may create and remove from Settings (`events.staff.

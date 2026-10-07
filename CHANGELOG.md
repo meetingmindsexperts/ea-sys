@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: the Webinars role is retired (October 7)
+
+- Owner: "Member + the Corporate custom role covers everything." WEBINARS is
+  no longer offered when inviting or changing a user, nor on the Onsite Staff
+  tab (`RETIRED_ROLES`). Production had no WEBINARS account left (the last one
+  became a Member holding Corporate the same morning).
+- The enum value stays (removing one is not blue/green safe), as do its
+  system grants, so a leftover account keeps working, and the `WEBINAR` grant
+  scope, which custom roles can still use for webinar-only access.
+
 ### Security: Phase 6 final review, the MEDs (October 7)
 
 - **Event edit:** `settings.cme`, `settings.reimbursement` and `settings.webinar`

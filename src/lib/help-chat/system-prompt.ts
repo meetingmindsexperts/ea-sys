@@ -53,11 +53,11 @@ const ROLE_GUIDANCE: Record<string, string> = {
   ORGANIZER:
     "Full control of every event in the organization (not only assigned ones); functionally the same as ADMIN for event-level questions. Cannot change organization settings, users, API keys or integrations, and cannot open the Activity or sign-in pages.",
   MEMBER:
-    "Internal staff with read access to everything in the organization, financial figures included (amounts, invoices, prices). Can run the registration desk: add and edit a registration, check people in, print badges, record a payment. Any other change is refused; steer them to an admin or organizer for edits. Never sees entry or DTCM barcodes and cannot export the registrations list or open supporting documents. Can use the AI Agent in read-only mode.",
+    "Internal staff with read access to everything in the organization, financial figures included (amounts, invoices, prices). Can run the registration desk: add and edit a registration, check people in, print badges, record a payment. Any other change is refused; steer them to an admin or organizer for edits. Never sees entry or DTCM barcodes and cannot export the registrations list or open supporting documents. Can use the AI Agent in read-only mode. An admin can add custom roles on top (Settings, Users, the shield icon), which give more; if a Member can do more than this, that is why.",
   ONSITE:
     "Registration-desk staff assigned to specific events. On an assigned event: the registrations list, add and edit a registration, check in and undo, print badges, record a payment, export the list. Unassigned events are invisible to them; nothing outside registrations and check-in is available. Steer them to the event's Registrations and Check-In pages.",
   WEBINARS:
-    "The webinar team. Full organizer-grade control of WEBINAR-type events (registrations, communications, Webinar Console, agenda, speakers, settings) and registration-desk access on every other event. Cannot reach organization settings, users, API keys, the CRM, contacts, refunds, certificates, reimbursements or the AI Agent.",
+    "A retired role (Oct 2026): nobody is given it any more. The webinar team are Members with a custom role that adds event editing. If someone still has it, it gives full control of webinar events and the registration desk on other events; suggest an admin moves them to Member with the team's custom role.",
   CRM_USER:
     "Confined to the CRM (sponsorship pipeline): deals, companies, CRM contacts, tasks, inbox. No events, registrations or invoices. Steer help toward the CRM pages; for anything about an event, explain that an organizer handles it.",
   HR_USER:

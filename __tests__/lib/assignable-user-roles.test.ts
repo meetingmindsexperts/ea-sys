@@ -9,11 +9,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { ASSIGNABLE_USER_ROLES, TEAM_ROLES } from "@/lib/auth-guards";
+import { RETIRED_ROLES } from "@/lib/team-roles";
 
 describe("assignable user roles", () => {
-  it("covers every team role except SUPER_ADMIN", () => {
+  it("covers every team role except SUPER_ADMIN and the retired ones", () => {
     for (const role of TEAM_ROLES) {
-      if (role === "SUPER_ADMIN") continue;
+      if (role === "SUPER_ADMIN" || (RETIRED_ROLES as readonly string[]).includes(role)) continue;
       expect(
         ASSIGNABLE_USER_ROLES as readonly string[],
         `${role} is a team role but cannot be assigned`,
@@ -35,9 +36,21 @@ describe("assignable user roles", () => {
   it("includes the roles that were previously un-assignable", () => {
     // The reported bug: moving a user to Webinars 400'd. MEMBER, ONSITE and
     // CRM_USER were in the same gap.
-    for (const role of ["WEBINARS", "MEMBER", "ONSITE", "CRM_USER"]) {
+    for (const role of ["MEMBER", "ONSITE", "CRM_USER"]) {
       expect(ASSIGNABLE_USER_ROLES as readonly string[]).toContain(role);
     }
+  });
+
+  // Owner, Oct 7, 2026: "Member + the Corporate custom role covers
+  // everything". WEBINARS stays a team role (a leftover account still works)
+  // but can no longer be given, from either door or the Onsite Staff tab.
+  it("never offers a retired role", () => {
+    for (const role of RETIRED_ROLES) {
+      expect(ASSIGNABLE_USER_ROLES as readonly string[]).not.toContain(role);
+      expect(TEAM_ROLES as readonly string[]).toContain(role);
+    }
+    const settings = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
+    expect(settings).not.toContain('<SelectItem value="WEBINARS">');
   });
 
   it("both routes derive from the shared list rather than re-declaring one", () => {

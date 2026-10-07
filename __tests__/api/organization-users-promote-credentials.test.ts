@@ -115,7 +115,7 @@ describe("POST /api/organization/users: no wider than your own access", () => {
     user: { id: "i1", role, organizationId: "org-1", email: "i@x.com", procurementPermissions: custom },
   });
 
-  it.each(["ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS", "HR_USER", "REVIEWER"])(
+  it.each(["ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "HR_USER", "REVIEWER"])(
     "an ADMIN may still invite %s",
     async (role) => {
       // HR_USER is grantable only where the HR module is on.

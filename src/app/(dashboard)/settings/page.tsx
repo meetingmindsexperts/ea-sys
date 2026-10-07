@@ -1081,7 +1081,6 @@ export default function SettingsPage() {
                               <SelectItem value="MEMBER">Member</SelectItem>
                               <SelectItem value="REVIEWER">Reviewer</SelectItem>
                               <SelectItem value="ONSITE">Onsite Staff</SelectItem>
-                              <SelectItem value="WEBINARS">Webinars</SelectItem>
                               <SelectItem value="CRM_USER">CRM User</SelectItem>
                               {/* Offered only where the HR module is switched
                                   on. A role that can reach nothing is a support
