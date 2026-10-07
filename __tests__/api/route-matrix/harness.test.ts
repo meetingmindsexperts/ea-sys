@@ -13,17 +13,21 @@ const reach = (where: Record<string, unknown>) => EVENTS.filter((e) => matchesEv
 const user = (role: string, id: string, organizationId: string | null = ORG) => ({ id, role, organizationId });
 
 describe("matchesEvent", () => {
-  it("reads every role's buildEventAccessWhere shape", () => {
-    expect(reach(buildEventAccessWhere(user("ADMIN", "u-admin")))).toEqual(["conf", "assigned", "webinar"]);
-    expect(reach(buildEventAccessWhere(user("ONSITE", "u-onsite")))).toEqual(["assigned"]);
-    expect(reach(buildEventAccessWhere(user("WEBINARS", "u-webinars")))).toEqual(["webinar"]);
-    expect(reach(buildEventAccessWhere(user("WEBINARS", "u-webinars"), undefined, { surface: "desk" }))).toEqual(["conf", "assigned", "webinar"]);
-    expect(reach(buildEventAccessWhere(user("CRM_USER", "u-crm")))).toEqual([]);
+  it("reads the staff scopes through eventWhereFor (Phase 6: staff no longer use buildEventAccessWhere)", () => {
+    const staff = (role: string, id: string) => systemPrincipal({ role, organizationId: ORG, userId: id });
+    expect(reach(eventWhereFor(staff("ADMIN", "u-admin"), "events.read"))).toEqual(["conf", "assigned", "webinar"]);
+    expect(reach(eventWhereFor(staff("ONSITE", "u-onsite"), "events.read"))).toEqual(["assigned"]);
+    expect(reach(eventWhereFor(staff("WEBINARS", "u-webinars"), "analytics.read"))).toEqual(["webinar"]);
+    expect(reach(eventWhereFor(staff("WEBINARS", "u-webinars"), "events.read"))).toEqual(["conf", "assigned", "webinar"]);
+    expect(reach(eventWhereFor(staff("CRM_USER", "u-crm"), "events.read"))).toEqual([]);
+    expect(reach(eventWhereFor(staff("ADMIN", "u-admin"), "events.read", "webinar"))).toEqual(["webinar"]);
+  });
+
+  it("reads the linked roles' buildEventAccessWhere shape, and fails closed for anyone else", () => {
     expect(reach(buildEventAccessWhere(user("REVIEWER", "u-reviewer", null)))).toEqual(["assigned", "foreign"]);
     expect(reach(buildEventAccessWhere(user("SUBMITTER", "u-submitter", null)))).toEqual(["assigned", "foreign"]);
     expect(reach(buildEventAccessWhere(user("REGISTRANT", "u-registrant", null)))).toEqual(["assigned", "foreign"]);
-    expect(reach(buildEventAccessWhere(user("SUPER_ADMIN", "u-op", null)))).toEqual(["conf", "assigned", "webinar", "foreign"]);
-    expect(reach(buildEventAccessWhere(user("ADMIN", "u-admin"), "webinar"))).toEqual(["webinar"]);
+    expect(reach(buildEventAccessWhere(user("ADMIN", "u-admin")))).toEqual([]);
   });
 
   it("reads eventWhereFor's OR of scopes", () => {

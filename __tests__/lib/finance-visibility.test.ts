@@ -8,11 +8,8 @@
  * invoices / billing are stripped, whenever redaction IS applied.
  */
 import { describe, it, expect } from "vitest";
-import {
-  canViewFinance,
-  redactFinancialFields,
-  FINANCE_ONLY_AGENT_TOOLS,
-} from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
+import { canViewFinance } from "../helpers/role-can";
 
 describe("canViewFinance", () => {
   it("permits SUPER_ADMIN / ADMIN / ORGANIZER and the desk operators MEMBER / ONSITE", () => {
@@ -130,14 +127,5 @@ describe("redactFinancialFields", () => {
     expect(redactFinancialFields(42)).toBe(42);
     expect(redactFinancialFields(null)).toBe(null);
     expect(redactFinancialFields(undefined)).toBe(undefined);
-  });
-});
-
-describe("FINANCE_ONLY_AGENT_TOOLS", () => {
-  it("lists the wholly-financial tools blocked for non-finance roles", () => {
-    expect(FINANCE_ONLY_AGENT_TOOLS.has("list_invoices")).toBe(true);
-    expect(FINANCE_ONLY_AGENT_TOOLS.has("list_unpaid_registrations")).toBe(true);
-    // list_registrations is mixed (redacted, not blocked) — must NOT be here
-    expect(FINANCE_ONLY_AGENT_TOOLS.has("list_registrations")).toBe(false);
   });
 });

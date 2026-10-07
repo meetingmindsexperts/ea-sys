@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
+
+/** Staff event scoping since custom roles Phase 6: the permission's filter (events.read). */
+const staffEventWhere = (user: { id: string; role: string; organizationId?: string | null }, eventId?: string) =>
+  eventWhereFor(principalFromUser(user), "events.read", eventId);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RBAC — Role-Based Access Control Tests
@@ -19,100 +23,8 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 
 const ALL_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "REVIEWER", "SUBMITTER"] as const;
 const PRIVILEGED_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
-const RESTRICTED_ROLES = ["REVIEWER", "SUBMITTER"] as const;
 
 // ── Layer 1: API Guard (denyReviewer) ──────────────────────────────────────
-
-describe("RBAC Layer 1: API guard (denyReviewer)", () => {
-  describe("blocks restricted roles from write operations", () => {
-    it.each([...RESTRICTED_ROLES])("%s is blocked with 403", async (role) => {
-      const result = denyReviewer({ user: { role } }, { route: "test" });
-      expect(result).not.toBeNull();
-      expect(result!.status).toBe(403);
-      const body = await result!.json();
-      expect(body).toEqual({ error: "Forbidden" });
-    });
-  });
-
-  describe("allows privileged roles", () => {
-    it.each([...PRIVILEGED_ROLES])("%s is allowed (returns null)", (role) => {
-      expect(denyReviewer({ user: { role } }, { route: "test" })).toBeNull();
-    });
-  });
-
-  describe("handles edge cases", () => {
-    it("null session returns null (auth check runs first)", () => {
-      expect(denyReviewer(null, { route: "test" })).toBeNull();
-    });
-
-    it("session with no user returns null", () => {
-      expect(denyReviewer({}, { route: "test" })).toBeNull();
-    });
-
-    it("session with user but no role returns null", () => {
-      expect(denyReviewer({ user: {} }, { route: "test" })).toBeNull();
-    });
-
-    // REVERSED Sep 16, 2026 (custom-roles plan, Phase 0 step 1, gap G1).
-    //
-    // This asserted `toBeNull()`: an unrecognised role was NOT blocked. That was
-    // true, because the guard read a DENY-list, so any role absent from it could
-    // write to every non-HR, non-CRM route. So this test was the codified form of
-    // the gap rather than a check on it — the strongest kind of stale test, since
-    // it passes while describing a defect as intended behaviour.
-    //
-    // The tell was the asymmetry: every other role predicate's suite in this repo
-    // says "fails closed on an unknown role" (crm-visibility, hr-rbac,
-    // supporting-document-visibility, registration-export-visibility). This was
-    // the lone outlier because it guarded the lone deny-list. With `WRITE_ROLES`
-    // it now fails closed like its siblings, which is what will keep a future
-    // custom role off every route the permission sweep has not yet reached.
-    it("unknown role is blocked (fails closed since the allow-list inversion)", () => {
-      expect(denyReviewer({ user: { role: "UNKNOWN" } }, { route: "test" })).not.toBeNull();
-    });
-  });
-
-  describe("guards protect specific resource types", () => {
-    // These are the resource types that denyReviewer protects.
-    // The guard must be called on ALL POST/PUT/DELETE handlers except abstract routes.
-    const protectedResources = [
-      "registrations",
-      "speakers",
-      "tickets",
-      "sessions",
-      "tracks",
-      "hotels",
-      "rooms",
-      "accommodations",
-      "reviewers",
-      "contacts",
-      "organization/users",
-      "events",
-    ];
-
-    it.each(protectedResources)(
-      "REVIEWER blocked from writing to %s",
-      (resource) => {
-        // Simulates what each route handler does
-        const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
-        expect(result).not.toBeNull();
-        expect(result!.status).toBe(403);
-        // Verify the resource name is in our protected list
-        expect(protectedResources).toContain(resource);
-      }
-    );
-
-    it.each(protectedResources)(
-      "SUBMITTER blocked from writing to %s",
-      (resource) => {
-        const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
-        expect(result).not.toBeNull();
-        expect(result!.status).toBe(403);
-        expect(protectedResources).toContain(resource);
-      }
-    );
-  });
-});
 
 // ── Layer 2: Middleware route redirects ─────────────────────────────────────
 
@@ -287,7 +199,7 @@ describe("RBAC Layer 3: Event scoping (buildEventAccessWhere)", () => {
     it.each([...PRIVILEGED_ROLES])(
       "%s gets org-scoped query without eventId",
       (role) => {
-        const where = buildEventAccessWhere({
+        const where = staffEventWhere({
           id: "user-1",
           role,
           organizationId: "org-1",
@@ -301,7 +213,7 @@ describe("RBAC Layer 3: Event scoping (buildEventAccessWhere)", () => {
     it.each([...PRIVILEGED_ROLES])(
       "%s gets org + event scoped query with eventId",
       (role) => {
-        const where = buildEventAccessWhere(
+        const where = staffEventWhere(
           { id: "user-1", role, organizationId: "org-1" },
           "evt-1"
         );
@@ -396,12 +308,12 @@ describe("RBAC Layer 3: Event scoping (buildEventAccessWhere)", () => {
 
   describe("cross-org isolation", () => {
     it("ADMIN from org-A cannot see org-B events", () => {
-      const whereA = buildEventAccessWhere({
+      const whereA = staffEventWhere({
         id: "admin-a",
         role: "ADMIN",
         organizationId: "org-A",
       });
-      const whereB = buildEventAccessWhere({
+      const whereB = staffEventWhere({
         id: "admin-b",
         role: "ADMIN",
         organizationId: "org-B",
@@ -412,7 +324,7 @@ describe("RBAC Layer 3: Event scoping (buildEventAccessWhere)", () => {
     });
 
     it("REVIEWER can access events across orgs (no org filter)", () => {
-      const where = buildEventAccessWhere({
+      const where = staffEventWhere({
         id: "rev-1",
         role: "REVIEWER",
         organizationId: null,

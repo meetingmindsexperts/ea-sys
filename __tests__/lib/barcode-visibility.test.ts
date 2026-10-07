@@ -5,7 +5,8 @@
  * barcode (sponsor-side observer) while ONSITE MUST (desk staff print badges).
  */
 import { describe, it, expect } from "vitest";
-import { canViewEntryBarcode, redactBarcodeFields, BARCODE_KEYS } from "@/lib/barcode-visibility";
+import { redactBarcodeFields, BARCODE_KEYS } from "@/lib/barcode-visibility";
+import { canViewEntryBarcode } from "../helpers/role-can";
 
 describe("canViewEntryBarcode", () => {
   it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE"])("allows the door/badge role %s", (role) => {

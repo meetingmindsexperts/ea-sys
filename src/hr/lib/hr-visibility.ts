@@ -10,10 +10,7 @@
  * from here inside the module; import from `@/lib/hr-visibility` in core.
  */
 export {
-  HR_SELF_SUFFICIENT_ROLES,
   HR_AUDIT_ENTITY_TYPES,
-  canViewHr,
-  canWriteHr,
   isHrAuditEntityType,
 } from "@/lib/hr-visibility";
 export type { HrAuditEntityType } from "@/lib/hr-visibility";

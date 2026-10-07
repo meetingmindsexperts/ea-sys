@@ -13,7 +13,6 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
 import { denyNonProcurement, procurementCan, type ProcurementNeed } from "@/procurement/lib/procurement-roles";
-import { canViewFinance } from "@/lib/finance-visibility";
 import {
   canAdminProcurement,
   canApproveProcurement,
@@ -28,6 +27,7 @@ import {
   hasAnyProcurementGrant,
   type ProcurementUserLike,
 } from "@/lib/procurement-visibility";
+import { canViewFinance } from "../helpers/role-can";
 
 /** The guard's switch as it stood before the sweep: the oracle. */
 function oldAllowed(user: ProcurementUserLike, need: ProcurementNeed, amountAed?: number): boolean {

@@ -1417,6 +1417,17 @@ Assignments made before the area rule are not removed retroactively.
 
 ### Phase 6: Retire the old model (1 to 2 weeks)
 
+**Step 2 DONE Oct 6 to 7, 2026.** Slices: A, MCP sessions bound to their
+credential (review L1); C, `canWrite` call sites; D, admin, HR, finance and
+agent checks; E, the CRM; F, staff event lookups (hub pages use
+`analytics.read`, the events list `events.read`); G, deletion of the old
+predicates, allow-lists and `buildEventAccessWhere`'s staff branches, with
+the built-in roles frozen in `system-role-grants-snapshot.test.ts` and the
+~30 role tests retargeted to `can()` (`__tests__/helpers/role-can.ts`) or
+removed where they tested only a deleted guard. A 99-page crawl of six roles
+before and after C to F showed no access change. **Next: step 3, the full
+independent review.**
+
 - Delete the staff branches from `buildEventAccessWhere`, the role sets from the
   visibility files, `canWrite`, `REGISTRATION_DESK_ALLOW`,
   `WEBINAR_STAFF_ALLOW`, `WRITE_ROLES`.

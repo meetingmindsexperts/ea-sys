@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { canViewHr, canWriteHr, denyNonHr } from "@/hr/lib/hr-roles";
+import { denyNonHr } from "@/hr/lib/hr-roles";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
+import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { TEAM_ROLES, isTeamRole } from "@/lib/team-roles";
+import { canViewHr, canWriteHr } from "../helpers/role-can";
 
 const ORIGINAL = process.env.HR_MODULE_ENABLED;
 function withHr(enabled: boolean) {
@@ -127,23 +128,6 @@ describe("denyNonHr", () => {
 });
 
 describe("HR_USER is confined everywhere else", () => {
-  /**
-   * This WAS the highest-consequence line in the RBAC surface.
-   *
-   * Until Sep 16, 2026 the list was `RESTRICTED_WRITE_ROLES`, the only DENY-list
-   * among the role predicates: a role absent from it could write to every
-   * non-HR route in the application, and nothing failed loudly if you forgot
-   * to add it. HR_USER's own addition in Aug 2026 was exactly that risk.
-   *
-   * It is now `WRITE_ROLES`, an allow-list like every other role predicate, so
-   * a new role is refused for free and this assertion holds by construction
-   * rather than by vigilance. Kept because it pins the outcome for HR_USER
-   * specifically, and because the inversion must not quietly re-admit it.
-   */
-  it("is blocked from every non-HR write", () => {
-    const denied = denyReviewer({ user: { id: "u1", role: "HR_USER" } }, { route: "hr:rbac-test" });
-    expect(denied?.status).toBe(403);
-  });
 
   /** Same impossible predicate as CRM_USER: an event route returns nothing. */
   it("resolves to zero events", () => {

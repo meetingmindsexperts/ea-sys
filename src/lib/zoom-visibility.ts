@@ -34,20 +34,10 @@
  * redaction treats them.
  */
 
-const ZOOM_HOST_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "WEBINARS"]);
+// WHO may see Zoom host credentials is `zoomHost.view`, asked through `can()`
+// (custom roles Phase 6, Oct 6, 2026); the role list and
+// `canViewZoomHostCredentials` are gone.
 
-/** True when the role may see Zoom host credentials. Fails closed — an unknown
- *  or missing role gets `false`. Pass `isApiKey` for programmatic callers,
- *  which are admin-equivalent and carry a null role. */
-export function canViewZoomHostCredentials(
-  role: string | null | undefined,
-  isApiKey = false,
-): boolean {
-  if (isApiKey) return true;
-  return !!role && ZOOM_HOST_ROLES.has(role);
-}
-
-/** The fields on a ZoomMeeting payload that grant control rather than access. */
 export const ZOOM_HOST_KEYS = ["startUrl", "streamKey", "passcode"] as const;
 
 type ZoomHostKey = (typeof ZOOM_HOST_KEYS)[number];

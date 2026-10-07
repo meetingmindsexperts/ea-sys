@@ -180,8 +180,8 @@ spine you need in order to start, and the files where the obvious call is the wr
 - [prisma/models/](prisma/models/) - the database, ~150 models in nine area files (split from `prisma/schema.prisma` on Sep 25, 2026; that file now holds only the generator + datasource and a map of the files). This is the reference; the Database Models section below is orientation only. Tools that read the schema text use `prisma/schema-text.ts`.
 - [src/lib/auth.ts](src/lib/auth.ts) - NextAuth v5 configuration and the credentials authorize path.
 - [src/lib/auth.config.ts](src/lib/auth.config.ts) - `SESSION_CONFIG` (48h), consumed by BOTH NextAuth instances (Node + Edge) so the two cannot drift. Background: [docs/SESSION_ARCHITECTURE.md](docs/SESSION_ARCHITECTURE.md).
-- [src/lib/auth-guards.ts](src/lib/auth-guards.ts) - `denyReviewer(session, { route })` (**`route` is required**), `denyFinance`, and the role sets `WRITE_ROLES` (an ALLOW-list since Sep 16, 2026), `REGISTRATION_DESK_ALLOW`, `WEBINAR_STAFF_ALLOW`, `ASSIGNABLE_USER_ROLES`.
-- [src/lib/event-access.ts](src/lib/event-access.ts) - `buildEventAccessWhere()` + `accessUserFrom()`: the per-role event scoping every event-nested route must build its lookup from.
+- [src/lib/permissions/require-permission.ts](src/lib/permissions/require-permission.ts) - `requirePermission(session, key, { route, eventId })` (**`route` is required**): THE route guard since custom roles Phase 6 (Oct 6, 2026). `src/lib/auth-guards.ts` now holds only account-type lists (`TEAM_ROLES`, `ASSIGNABLE_USER_ROLES`); the old role guards and allow-lists are deleted.
+- [src/lib/event-access.ts](src/lib/event-access.ts) - `buildEventAccessWhere()`: event scoping for REVIEWER, SUBMITTER and REGISTRANT only (reached through `requirePermission`'s `linkedRoles`). Staff lookups use `gate.eventWhere` / `eventWhereFor()` since custom roles Phase 6 (Oct 6, 2026); `accessUserFrom` is deleted.
 - [src/lib/db.ts](src/lib/db.ts) - the Prisma client, plus `tenantTransaction`, `dbOperator` (the privileged cross-tenant lane, import-gated by `check-tenant-als.sh`) and `classifyPrismaError`.
 - [src/lib/email.ts](src/lib/email.ts) - `sendEmail()` is the ONE sender; also `getEventTemplate()`, the branding wrapper and CSS inlining. AWS SES is the only live provider.
 - [src/lib/logger.ts](src/lib/logger.ts) - Pino. Exports `apiLogger` / `authLogger` / `dbLogger` / `eventLogger`.
@@ -239,20 +239,18 @@ export async function GET/POST/PUT/DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Block reviewers/submitters from write operations (POST/PUT/DELETE on non-abstract routes)
-  const denied = denyReviewer(session);
-  if (denied) return denied;
+  // The operation's permission key (custom roles): 403 + log when not held.
+  const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers:POST", eventId });
+  if (!gate.ok) return gate.response;
 
-  // Verify event access
-  const event = await db.event.findFirst({
-    where: { id: eventId, organizationId: session.user.organizationId }
-  });
+  // The grant's own event filter (org + scope: assigned events, webinars, ...)
+  const event = await db.event.findFirst({ where: gate.eventWhere, select: { id: true } });
 
   // ... handle request
 }
 ```
 
-**Important:** All POST/PUT/DELETE handlers (except abstract reviews) must call `denyReviewer(session)` from `@/lib/auth-guards`. This blocks both REVIEWER and SUBMITTER roles. Enforced across 29+ handlers in 20+ route files.
+**Important:** Every handler asks `requirePermission()` for its operation's key and looks the event up through `gate.eventWhere` (custom roles Phase 6, Oct 6, 2026). Never add a role comparison or the deleted `denyReviewer` back to a route: `scripts/check-permission-guards.sh` fails CI on it. Reviewers, submitters and registrants reach their routes through `linkedRoles`.
 
 ## Styling
 
@@ -394,7 +392,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 
 ## Role-Based Access Control (RBAC)
 
-> The per-role matrix verified against the code and pinned by test is [docs/ROLES_AND_PERMISSIONS.md](docs/ROLES_AND_PERMISSIONS.md) (Sep 21, 2026). The prose below is each role's history and reasoning.
+> The per-role matrix verified against the code and pinned by test is [docs/ROLES_AND_PERMISSIONS.md](docs/ROLES_AND_PERMISSIONS.md) (Sep 21, 2026). The prose below is each role's history and reasoning. **Since custom roles Phase 6 (Oct 6, 2026) access is decided by permission keys** (`src/lib/permissions/`), frozen per built-in role in `system-role-grants-snapshot.test.ts`; where the prose below names `denyReviewer`, `WRITE_ROLES`, `canViewFinance` or the other role predicates, read it as history: those are deleted.
 
 ### Roles
 - **SUPER_ADMIN / ADMIN** - Full access to all features (org-bound)
@@ -456,7 +454,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 1. **API Routes:** Use Promise.all for parallel queries, validate with Zod
 2. **Error Handling:** Use try/catch with apiLogger for errors
 3. **Auth:** All dashboard routes require authentication via `auth()`
-4. **Auth Guards:** All write API routes must call `denyReviewer(session)` from `@/lib/auth-guards`
+4. **Auth Guards:** Every API route calls `requirePermission(session, key, { route, eventId })` and uses `gate.eventWhere`; never a role check (the role predicates were deleted in custom roles Phase 6)
 5. **Forms:** Use react-hook-form with Zod validation
 6. **Toasts:** Use sonner for notifications
 7. **State:** Use React Query for server state, local useState for UI state

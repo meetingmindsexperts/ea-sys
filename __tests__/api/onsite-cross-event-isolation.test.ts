@@ -44,7 +44,6 @@ vi.mock("@/lib/tenant-context", () => ({
 // buildEventAccessWhere + accessUserFrom + denyReviewer are REAL (pure) — the
 // whole point is to prove the routes actually call the real scoping helper.
 
-import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { GET as listGET, POST as listPOST } from "@/app/api/events/[eventId]/registrations/route";
 import { POST as checkinPOST } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
 import { POST as badgesPOST } from "@/app/api/events/[eventId]/registrations/badges/route";
@@ -202,30 +201,5 @@ describe("sessions + speakers GET — the orgCtx-branch bypass", () => {
 
     await speakersGET(new Request("http://localhost/api/events/evB/speakers"), { params: eventParams });
     expectOrgScopedOnly();
-  });
-});
-
-describe("accessUserFrom — one predicate, no branch", () => {
-  it("an API key carries no role, so it lands on the org-scoped default", () => {
-    const user = accessUserFrom({ organizationId: "org1", userId: null, role: null });
-    expect(buildEventAccessWhere(user, "evB")).toEqual({ id: "evB", organizationId: "org1" });
-  });
-
-  it("a signed-in person keeps their role, so their scoping actually runs", () => {
-    const user = accessUserFrom({ organizationId: "org1", userId: "onsite1", role: "ONSITE" });
-    expect(buildEventAccessWhere(user, "evB")).toMatchObject({
-      ...assignedToEventWhere("onsite1"),
-    });
-  });
-
-  it("falls back to the session user when there is no org context (org-null roles)", () => {
-    const submitter = { id: "sub1", role: "SUBMITTER", organizationId: null };
-    expect(accessUserFrom(null, submitter)).toBe(submitter);
-  });
-
-  it("fails CLOSED when a caller somehow has neither — matches no event, not every event", () => {
-    const where = buildEventAccessWhere(accessUserFrom(null, null), "evB");
-    expect(where).toEqual({ id: "evB", organizationId: null });
-    expect(where).not.toEqual({ id: "evB" });
   });
 });

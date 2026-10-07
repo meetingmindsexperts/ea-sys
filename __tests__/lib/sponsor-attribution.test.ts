@@ -15,12 +15,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { redactFinancialFields } from "@/lib/finance-visibility";
 import {
   buildRegistrationExportRow,
   REGISTRATION_EXPORT_HEADERS,
   REGISTRATION_SALES_COLUMNS,
 } from "@/lib/registration-export";
+import { canViewFinance } from "../helpers/role-can";
 
 const ROUTE = path.join(
   process.cwd(),

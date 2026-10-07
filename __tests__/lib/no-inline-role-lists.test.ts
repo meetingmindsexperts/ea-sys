@@ -47,20 +47,12 @@ const PATTERNS: { name: string; re: RegExp }[] = [
  * `const` / `export const` definition line, never on an inline use, so the
  * exemption covers the named predicate and nothing else in the file.
  */
+// Phase 6 (Oct 6, 2026) deleted the role-predicate files; access is a
+// permission now, and these are the account-type lists that remain.
 const DEFINITION_FILES = new Set([
   "src/lib/team-roles.ts",
   "src/lib/auth-guards.ts",
-  "src/lib/finance-visibility.ts",
-  "src/lib/barcode-visibility.ts",
-  "src/lib/registration-export-visibility.ts",
-  "src/lib/zoom-visibility.ts",
-  "src/lib/contact-visibility.ts",
-  "src/lib/login-visibility.ts",
-  "src/lib/supporting-document-visibility.ts",
   "src/lib/procurement-visibility.ts",
-  "src/lib/hr-visibility.ts",
-  "src/lib/agent/agent-roles.ts",
-  "src/crm/lib/crm-roles.ts",
   // Who the assignable deal owners are: a population, not a permission.
   "src/app/api/crm/reps/route.ts",
 ]);

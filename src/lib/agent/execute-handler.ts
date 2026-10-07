@@ -20,9 +20,6 @@ import { verifyApprovalToken } from "./approval-token";
 import { MAX_STORED_REPLY_LENGTH, startAgentRun } from "./run-store";
 
 
-// Kept for callers that list the roles holding `agent.use` (pinned equal by
-// system-roles-parity.test.ts); the door itself asks `can()`.
-export { AGENT_ROLES } from "./agent-roles";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_PAIRS = 20;

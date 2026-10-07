@@ -7,11 +7,9 @@
  * can't silently widen or break it.
  */
 import { describe, it, expect } from "vitest";
-import { canViewCrm, canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
-import { canViewContacts } from "@/lib/contact-visibility";
-import { canViewFinance } from "@/lib/finance-visibility";
-import { isTeamRole, denyReviewer, TEAM_ROLES } from "@/lib/auth-guards";
+import { isTeamRole, TEAM_ROLES } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { canOwnDeals, canViewContacts, canViewCrm, canViewDealValues, canViewFinance } from "../helpers/role-can";
 
 describe("CRM_USER can fully work the CRM", () => {
   it("reads the CRM, owns deals, and sees deal values", () => {
@@ -35,16 +33,6 @@ describe("CRM_USER is walled off from everything outside the CRM", () => {
     // The one subtle line: CRM_USER sees CRM DEAL money (canViewDealValues) but
     // NOT event invoices/registration payments (canViewFinance). Different money.
     expect(canViewFinance("CRM_USER")).toBe(false);
-  });
-
-  it("is blocked from non-CRM writes by denyReviewer", () => {
-    // /api/crm/* uses its own requireCrmWrite; denyReviewer guards the REST of the
-    // app, and must block CRM_USER there.
-    const denied = denyReviewer({ user: { role: "CRM_USER" } } as never, {
-      route: "test",
-    });
-    expect(denied).not.toBeNull();
-    expect(denied!.status).toBe(403);
   });
 
   it("sees ZERO events via buildEventAccessWhere (uses events-lite for names)", () => {

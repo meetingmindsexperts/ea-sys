@@ -41,90 +41,37 @@ vi.mock("@/lib/default-terms", () => ({ DEFAULT_REGISTRATION_TERMS_HTML: "", DEF
 vi.mock("@/lib/webinar-provisioner", () => ({ provisionWebinar: vi.fn().mockResolvedValue(undefined) }));
 
 // The pure layers are REAL — that's the point.
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW, REGISTRATION_DESK_ALLOW, TEAM_ROLES } from "@/lib/auth-guards";
-import { canViewFinance } from "@/lib/finance-visibility";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
-import { canViewZoomHostCredentials } from "@/lib/zoom-visibility";
-import { canExportRegistrations } from "@/lib/registration-export-visibility";
-import { canViewContacts } from "@/lib/contact-visibility";
-import { canViewLoginActivity } from "@/lib/login-visibility";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
+import { TEAM_ROLES } from "@/lib/auth-guards";
 import { POST as createEventPOST } from "@/app/api/events/route";
+import { canExportRegistrations, canViewContacts, canViewEntryBarcode, canViewFinance, canViewLoginActivity, canViewZoomHostCredentials } from "../helpers/role-can";
 
 const WEBINARS_USER = { id: "web1", role: "WEBINARS", organizationId: "org1" };
 
-describe("buildEventAccessWhere — WEBINARS two-tier scoping", () => {
-  it("manage surface (default) resolves ONLY the org's WEBINAR events", () => {
-    expect(buildEventAccessWhere(WEBINARS_USER, "evX")).toEqual({
-      id: "evX",
-      organizationId: "org1",
-      eventType: "WEBINAR",
-    });
-  });
+describe("WEBINARS two-tier scoping, through permissions (Phase 6)", () => {
+  const web = principalFromUser(WEBINARS_USER);
+  const member = principalFromUser({ id: "m1", role: "MEMBER", organizationId: "org1" });
 
-  // Aug 10, 2026: the desk surface went org-wide (MEMBER parity — the role is
-  // internal staff). It used to be `webinars OR conferences assigned via
-  // onsiteUserIds`; the assignment is now irrelevant to this role.
-  it("desk surface resolves EVERY event in the org (MEMBER parity)", () => {
-    expect(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" })).toEqual({
-      id: "evX",
-      organizationId: "org1",
-    });
-  });
-
-  it("desk surface matches MEMBER's scope exactly", () => {
-    const member = { id: "web1", role: "MEMBER", organizationId: "org1" };
-    expect(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" })).toEqual(
-      buildEventAccessWhere(member, "evX"),
-    );
-  });
-
-  // The load-bearing one. ~55 route files opt this role into full control via
-  // WEBINAR_STAFF_ALLOW and depend on the MANAGE where to keep that control off
-  // conferences. If someone ever widens the default the way the desk surface was
-  // widened, every one of them fails OPEN — and nothing else in the suite would
-  // notice, because each of those routes would simply start succeeding.
-  it("manage surface stays WEBINAR-only — it must NOT follow desk org-wide", () => {
-    const manage = buildEventAccessWhere(WEBINARS_USER, "evX");
-    expect(manage).toHaveProperty("eventType", "WEBINAR");
-    expect(manage).not.toEqual(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" }));
-  });
-
-  it("both surfaces stay org-bound — a foreign event id can never match", () => {
-    for (const surface of ["manage", "desk"] as const) {
-      expect(
-        buildEventAccessWhere(WEBINARS_USER, "evX", { surface }),
-      ).toHaveProperty("organizationId", "org1");
+  it("management keys resolve ONLY the org's WEBINAR events", () => {
+    for (const key of ["analytics.read", "speakers.update", "sessions.read"] as const) {
+      expect(eventWhereFor(web, key, "evX")).toEqual({ id: "evX", organizationId: "org1", eventType: "WEBINAR" });
     }
   });
 
-  it("the surface flag is a no-op for every other role", () => {
-    for (const role of ["ADMIN", "ORGANIZER", "MEMBER", "ONSITE"]) {
-      const user = { id: "u1", role, organizationId: "org1" };
-      expect(buildEventAccessWhere(user, "evX", { surface: "desk" })).toEqual(
-        buildEventAccessWhere(user, "evX"),
-      );
+  it("the desk keys resolve EVERY event in the org, exactly MEMBER's scope", () => {
+    for (const key of ["events.read", "registrations.read", "registrations.checkin"] as const) {
+      expect(eventWhereFor(web, key, "evX")).toEqual({ id: "evX", organizationId: "org1" });
     }
-  });
-});
-
-describe("denyReviewer — WEBINARS opt-in matrix", () => {
-  const session = { user: { id: "web1", role: "WEBINARS" } };
-
-  it("blocked by default (fails closed on unswept routes)", () => {
-    expect(denyReviewer(session, { route: "test" })).not.toBeNull();
+    expect(eventWhereFor(web, "events.read", "evX")).toEqual(eventWhereFor(member, "events.read", "evX"));
   });
 
-  it("allowed via WEBINAR_STAFF_ALLOW (full-control routes)", () => {
-    expect(denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "test" })).toBeNull();
-  });
-
-  it("allowed via REGISTRATION_DESK_ALLOW (desk routes)", () => {
-    expect(denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW, route: "test" })).toBeNull();
+  it("stays org-bound: a foreign organisation never matches", () => {
+    expect(eventWhereFor(web, "events.read")).toMatchObject({ organizationId: "org1" });
+    expect(eventWhereFor(web, "analytics.read")).toMatchObject({ organizationId: "org1" });
   });
 
   it("is an org team role (Settings → Users list + invite)", () => {
-    expect(TEAM_ROLES).toContain("WEBINARS");
+    expect((TEAM_ROLES as readonly string[]).includes("WEBINARS")).toBe(true);
   });
 });
 

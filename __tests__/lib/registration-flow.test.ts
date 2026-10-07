@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { titleEnum } from "@/lib/schemas";
 import { normalizeTag, generateBarcode } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
 
 // ── Registration Zod schema (mirrors src/app/api/events/[eventId]/registrations/route.ts) ──
 
@@ -247,25 +246,3 @@ describe("Registration: barcode generation", () => {
 });
 
 // ── Auth guard: REVIEWER/SUBMITTER cannot create registrations ─────────────
-
-describe("Registration: role restrictions", () => {
-  it("blocks REVIEWER from creating registrations", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("blocks SUBMITTER from creating registrations", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("allows ADMIN to create registrations", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
-  });
-
-  it("allows ORGANIZER to create registrations", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
-  });
-});

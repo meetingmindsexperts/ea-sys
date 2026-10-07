@@ -22,7 +22,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { parseCSV } from "@/lib/csv-parser";
 import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-activity";
-import { CRM_OWNER_ROLES } from "@/crm/lib/crm-roles";
+import { crmOwnerUserWhere } from "@/crm/services/crm-owner-eligibility";
 import { companyNameKey } from "@/crm/services/company-service";
 import { contactEmailKey, normalizeContactTags } from "@/crm/services/crm-contact-service";
 import {
@@ -727,13 +727,13 @@ async function makeCompanyResolver(ctx: ImportCtx) {
  * counted separately. Picking the first would silently hand one rep's whole book
  * to another, and unlike a blank owner that is not visibly wrong.
  *
- * Role-bound (review R2-M5): only CRM_OWNER_ROLES are candidates, so a CSV owner
+ * Role-bound (review R2-M5): only people who may own CRM records (crm.write) are candidates, so a CSV owner
  * matching a MEMBER/ONSITE account counts as unmatched rather than assigning CRM
  * content to a role the CRM excludes.
  */
 async function makeOwnerResolver(organizationId: string) {
   const users = await db.user.findMany({
-    where: { organizationId, role: { in: [...CRM_OWNER_ROLES] } },
+    where: crmOwnerUserWhere(organizationId),
     select: { id: true, email: true, firstName: true, lastName: true },
   });
 

@@ -7,9 +7,7 @@
  * later noticing it "looks like" the desk list and folding them together.
  */
 import { describe, it, expect } from "vitest";
-import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
-import { canViewEntryBarcode } from "@/lib/barcode-visibility";
-import { canViewFinance } from "@/lib/finance-visibility";
+import { canViewEntryBarcode, canViewFinance, canViewSupportingDocument } from "../helpers/role-can";
 
 describe("canViewSupportingDocument", () => {
   it("admits the roles that make the entitlement judgement", () => {

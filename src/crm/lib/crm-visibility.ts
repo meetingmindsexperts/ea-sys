@@ -49,8 +49,6 @@ export function crmCan(ctx: CrmCaller, key: PermissionKey): boolean {
   return principal !== null && can(principal, key);
 }
 
-// Re-exported so server code has one import site for both predicates and guards.
-export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteCrm, canPurgeCrm, canExportCrm, canManageCrmQuoteDefaults } from "@/crm/lib/crm-roles";
 
 /**
  * Returns a 403 if the caller may not read the CRM, else null.

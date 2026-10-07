@@ -38,10 +38,9 @@ export function isTeamRole(role: string | null | undefined): boolean {
  * with permissions, and every caller is then one import to change rather than
  * a string to find.
  *
- * WRITE_ROLES is the general-write allow-list behind `denyReviewer` (G1): the
- * WHOLE comment on why it is an allow-list lives in auth-guards.ts.
+ * WRITE_ROLES (the old general-write allow-list) is gone since custom roles
+ * Phase 6 (Oct 6, 2026): writes ask a permission.
  */
-export const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 
 /**
  * Who RECEIVES the organisation's event notifications (the bell) and who an

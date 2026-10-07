@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: the old role checks are retired (custom roles Phase 6, October 6 and 7)
+
+- Every access decision in the app is now a permission (`can()` /
+  `requirePermission()`). The role-name checks they replaced are deleted:
+  `denyReviewer`, `denyFinance`, `denyNonOrgAdmin`, `canWrite`, the
+  `WRITE_ROLES` / desk / webinar allow-lists, the finance, barcode, contact,
+  export, sign-in, supporting-document, Zoom, HR, CRM and agent role
+  predicates, and the staff branches of `buildEventAccessWhere`, which now
+  serves only reviewers, submitters and registrants.
+- Slices C to F (deployed Oct 6) moved the last screens, public session
+  pages, CRM, HR, agent and event lookups onto permissions; a before/after
+  crawl of 99 pages for six roles showed no change in access. Slice G
+  deleted the old code.
+- What each built-in role may do is frozen in
+  `system-role-grants-snapshot.test.ts` (grants, areas, and a per-role table
+  of the visibility boundaries); `docs/ROLES_AND_PERMISSIONS.md` §4 is now
+  keyed by permission and checked against `can()`.
+- MCP sessions are bound to the credential that opened them and end when its
+  access changes (review L1).
+
 ### Security: custom roles review fixes (October 6)
 
 - An independent review of what `CUSTOM_ROLES_ENABLED` switched on found two

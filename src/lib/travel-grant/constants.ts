@@ -87,7 +87,6 @@ export type TravelGrantSubmit = z.infer<typeof travelGrantSubmitSchema>;
 // exactly the cross-caller duplication this repo forbids.
 
 import type { ResidencyClass } from "@/lib/travel-grant/eligibility";
-import { canWrite } from "@/lib/can-write";
 
 export type TravelGrantStatusValue = "PENDING" | "CONSENTED" | "DECLINED";
 
@@ -138,22 +137,6 @@ export function isOrganizerDecided(decidedBy: string | null | undefined): boolea
   return typeof decidedBy === "string" && decidedBy.startsWith("ORGANIZER:");
 }
 
-/**
- * Who may see and act on travel grants.
- *
- * Mirrors the server's `denyReviewer` gate on the console routes, and lives
- * here as a NAMED predicate rather than an inline Set in each component: when a
- * confined role is added (as WEBINARS was in Aug 2026) — which since the Sep 16
- * inversion means leaving it OUT of `WRITE_ROLES` — an inline copy drifts from
- * the server silently, with no test and no type error to catch it.
- *
- * MEMBER is excluded deliberately, even though MEMBER is internal read-only
- * staff: this is a list of who has asked to have their travel paid for, which
- * is a financial-adjacent decision list rather than an operational one.
- */
-export function canManageTravelGrants(role: string | null | undefined): boolean {
-  return canWrite(role);
-}
 
 /** The author's personal consent URL. One template, two callers. */
 export function publicTravelGrantUrl(origin: string, eventSlug: string, token: string): string {

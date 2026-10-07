@@ -14,11 +14,15 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { can, principalFromUser } from "@/lib/permissions/can";
+
+/** Who manages it, judged by `can()` on an event (Phase 6: the role list is gone). */
+const mayManage = (role: string | null | undefined, key: "reimbursements.manage" | "travelGrants.manage") =>
+  can(principalFromUser({ id: "u", role, organizationId: "o" }), key, { event: { organizationId: "o", eventType: "CONFERENCE", staffUserIds: [] } });
 import {
   RESIDENCY_LABEL_FIXED,
   residencyLabel,
   GRANT_STATUS_LABEL,
-  canManageTravelGrants,
   publicTravelGrantUrl,
 } from "@/lib/travel-grant/constants";
 
@@ -48,17 +52,17 @@ describe("the shared vocabulary", () => {
     );
   });
 
-  it("admits only the three roles the server's denyReviewer gate admits", () => {
+  it("admits only the three roles holding travelGrants.manage", () => {
     for (const r of ["SUPER_ADMIN", "ADMIN", "ORGANIZER"]) {
-      expect(canManageTravelGrants(r)).toBe(true);
+      expect(mayManage(r, "travelGrants.manage")).toBe(true);
     }
     // MEMBER is internal read-only staff and is excluded ON PURPOSE: this is a
     // list of who asked to have their travel paid for.
     for (const r of ["MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
-      expect(canManageTravelGrants(r)).toBe(false);
+      expect(mayManage(r, "travelGrants.manage")).toBe(false);
     }
-    expect(canManageTravelGrants(null)).toBe(false);
-    expect(canManageTravelGrants(undefined)).toBe(false);
+    expect(mayManage(null, "travelGrants.manage")).toBe(false);
+    expect(mayManage(undefined, "travelGrants.manage")).toBe(false);
   });
 });
 

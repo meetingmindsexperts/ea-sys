@@ -15,7 +15,12 @@ vi.mock("@/procurement/services/budget-template-service", () => tplSvc);
 const revSvc = vi.hoisted(() => ({ getBudgetRevenue: vi.fn() }));
 vi.mock("@/procurement/services/budget-revenue-service", () => revSvc);
 const finance = vi.hoisted(() => ({ sees: true }));
-vi.mock("@/lib/finance-visibility", () => ({ canViewFinance: () => finance.sees }));
+// Finance sight is `can(..., "finance.view")` (custom roles Phase 6); every
+// other key answers as the real `can()` does.
+vi.mock("@/lib/permissions/can", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/permissions/can")>();
+  return { ...actual, can: (p: Parameters<typeof actual.can>[0], k: Parameters<typeof actual.can>[1], ctx?: Parameters<typeof actual.can>[2]) => (k === "finance.view" ? finance.sees : actual.can(p, k, ctx)) };
+});
 const reqSvc = vi.hoisted(() => ({ listSpendRequests: vi.fn(), invalidSpendRequestStatusFilter: (s: string | undefined) => s !== undefined && !["DRAFT", "PENDING_APPROVAL", "APPROVED", "AWAITING_SUPPLIER", "CONVERTED", "REJECTED", "CANCELLED", "CLOSED", "SUBMITTED", "BUDGET_CHECKED"].includes(s) }));
 vi.mock("@/procurement/services/spend-request-service", () => reqSvc);
 const orderSvc = vi.hoisted(() => ({ listCommitments: vi.fn(), invalidCommitmentStatusFilter: (s: string | undefined) => s !== undefined && !["APPROVED", "SENT_TO_ACCOUNTING", "POSTED", "CLOSED", "CANCELLED"].includes(s) }));

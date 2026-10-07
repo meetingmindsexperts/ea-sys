@@ -14,7 +14,6 @@
  */
 
 import { z } from "zod";
-import { canWrite } from "@/lib/can-write";
 
 // ── Currencies (owner decision: match the paper form exactly) ─────────
 
@@ -130,20 +129,6 @@ export const ROLE_AT_EVENT_OPTIONS = [
 ] as const;
 
 // ── Access boundary ───────────────────────────────────────────────────
-/**
- * Who may see submitted reimbursements (incl. bank details + passport
- * number) in the dashboard. Owner decision (July 20, 2026): staff only —
- * SUPER_ADMIN / ADMIN / ORGANIZER. MEMBER / ONSITE / CRM_USER and every
- * org-null role see NOTHING (this is wire-transfer data, stricter than the
- * finance boundary, which includes MEMBER + ONSITE). Fails closed.
- *
- * The API routes enforce the same set via `denyReviewer(session)` with no
- * allow-list (its restricted set is exactly the excluded population); this
- * predicate exists for UI gating and as the named statement of the boundary.
- */
-export function canManageReimbursements(role: string | null | undefined): boolean {
-  return canWrite(role);
-}
 
 // ── Validation (shared client + server) ───────────────────────────────
 

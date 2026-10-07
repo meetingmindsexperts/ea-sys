@@ -14,7 +14,10 @@ vi.mock("@/lib/security", () => ({ checkRateLimit: () => mockLimit() }));
 vi.mock("@/analytics/store/org-traffic", () => ({ getOrgTraffic: mockGet }));
 
 import { GET } from "@/app/api/analytics/traffic/route";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
+
+/** The events whose analytics the caller may read (analytics.read; custom roles Phase 6). */
+const analyticsWhere = (u: { id: string; role: string; organizationId: string }) => eventWhereFor(principalFromUser(u), "analytics.read");
 
 const ORGANIZER = { user: { id: "u1", role: "ORGANIZER", organizationId: "org1" } };
 const req = (q = "") => new Request(`http://t/api/analytics/traffic${q}`);
@@ -34,7 +37,7 @@ describe("GET /api/analytics/traffic", () => {
   it("reads the events the caller may see, through the shared access rule, in their most common time zone", async () => {
     const res = await GET(req("?days=90"));
     expect(res.status).toBe(200);
-    expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual(buildEventAccessWhere(ORGANIZER.user as never));
+    expect(mockDb.event.findMany.mock.calls[0][0].where).toEqual(analyticsWhere(ORGANIZER.user));
     const args = mockGet.mock.calls[0][0];
     expect(args).toMatchObject({ organizationId: "org1", timeZone: "Asia/Dubai" });
     expect(args.events.map((e: { id: string }) => e.id)).toEqual(["evA", "evB", "evC"]);
@@ -47,7 +50,7 @@ describe("GET /api/analytics/traffic", () => {
     mockAuth.mockResolvedValueOnce(onsite);
     await GET(req());
     const where = mockDb.event.findMany.mock.calls[0][0].where;
-    expect(where).toEqual(buildEventAccessWhere(onsite.user as never));
+    expect(where).toEqual(analyticsWhere(onsite.user));
     expect(where).not.toEqual({ organizationId: "org1" });
   });
 

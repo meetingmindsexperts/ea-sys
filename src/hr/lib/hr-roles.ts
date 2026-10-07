@@ -56,7 +56,6 @@ import { principalFromSession } from "@/lib/permissions/require-permission";
  * re-exported here because every existing caller imports it from this file and
  * one answer in two places is the whole point.
  */
-export { canViewHr, canWriteHr, HR_SELF_SUFFICIENT_ROLES } from "./hr-visibility";
 
 /**
  * The route guard. Returns a response to send, or null to continue.
@@ -83,7 +82,7 @@ export function denyNonHr(
   }
   // `hr.read` / `hr.write` (custom roles Phase 2). The grant needs the person's
   // `hrAccess` tick unless the role is self-sufficient; `can()` reads it from the
-  // session, and system-roles-parity.test.ts pins this to canViewHr / canWriteHr.
+  // session; system-role-grants-snapshot.test.ts pins the answer per role.
   // An API key carries no HR grant, so it is refused, as before.
   const allowed = !!session?.user && can(principalFromSession(session as Session), context.write ? "hr.write" : "hr.read");
   if (!allowed) {

@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { titleEnum } from "@/lib/schemas";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
 
 // ── Speaker creation schema (mirrors src/app/api/events/[eventId]/speakers/route.ts) ──
 
@@ -151,28 +150,6 @@ describe("Speaker: schema validation", () => {
 });
 
 // ── Auth guard: role restrictions ──────────────────────────────────────────
-
-describe("Speaker: role restrictions", () => {
-  it("blocks REVIEWER from adding speakers", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("blocks SUBMITTER from adding speakers", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("allows ADMIN to add speakers", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
-  });
-
-  it("allows ORGANIZER to add speakers", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
-  });
-});
 
 // ── Business logic: duplicate speaker detection ────────────────────────────
 

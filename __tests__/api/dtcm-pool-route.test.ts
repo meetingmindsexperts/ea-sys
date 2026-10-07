@@ -94,18 +94,10 @@ describe("who may assign a DTCM code", () => {
     expect(mockCounts).not.toHaveBeenCalled();
   });
 
-  it("MEMBER specifically: passes the desk guard, still cannot reach a code", async () => {
+  it("MEMBER specifically: a desk role, still cannot reach a code", async () => {
     // The regression, stated on its own so it cannot be lost in a table. If
-    // this ever returns 200, someone has re-gated the route on the desk
-    // allow-list and reopened the leak.
-    const { denyReviewer, REGISTRATION_DESK_ALLOW } = await import("@/lib/auth-guards");
-    expect(
-      denyReviewer({ user: { role: "MEMBER" } } as never, {
-        allow: REGISTRATION_DESK_ALLOW,
-        route: "test",
-      }),
-    ).toBeNull();
-
+    // this ever returns 200, someone has re-gated the route on a desk key
+    // MEMBER holds and reopened the leak.
     mockAuth.mockResolvedValue(as("MEMBER"));
     const res = await POST(req(), { params });
     expect(res.status).toBe(403);

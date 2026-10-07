@@ -37,7 +37,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import { canAuthorBudgets, canViewProcurement } from "@/lib/procurement-visibility";
-import { canViewFinance } from "@/lib/finance-visibility";
+import { can, principalFromUser } from "@/lib/permissions/can";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE } from "@/lib/agent/approvals";
 import { createBudget, deleteBudgetLine, getBudget, listBudgets, upsertBudgetLine, type BudgetLineView, type BudgetView } from "@/procurement/services/budget-service";
 import { ensureBudgetCategories } from "@/procurement/services/budget-category-service";
@@ -133,7 +133,8 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
     apiLogger.info({ msg: "mcp:procurement-tools-not-registered", reason: "role", role: actor.role, organizationId });
     return;
   }
-  const financeSight = canViewFinance(actor.role);
+  // finance.view by the base role (custom roles Phase 6); this door is never an API key.
+  const financeSight = can(principalFromUser({ role: actor.role, organizationId }), "finance.view");
   const source = opts.source ?? "mcp";
   const actorUserId = opts.actorUserId ?? null;
   // The writes need a person: the in-app door's signed-in user with a role

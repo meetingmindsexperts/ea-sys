@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# denyReviewer / denyFinance must keep naming the route they refused on.
+# Route guards must keep naming the route they refused on: requirePermission()
+# since custom roles Phase 6 (Oct 6, 2026), which deleted denyReviewer and
+# denyFinance, the guards this gate was written for.
 #
 # WHY A GATE AND NOT JUST THE TYPE. `route` is a required field today, so the
 # compiler already forces every CALL to pass one. What the compiler cannot stop
@@ -15,7 +17,7 @@
 # Run from the repo root. Exits non-zero on violation.
 set -euo pipefail
 
-GUARDS_FILE="src/lib/auth-guards.ts"
+GUARDS_FILE="src/lib/permissions/require-permission.ts"
 fail=0
 
 say_fail() {
@@ -58,7 +60,7 @@ guards_code=$(code_only "$GUARDS_FILE")
 
 if echo "$guards_code" | grep -qE 'route\?:[[:space:]]*string'; then
   say_fail "$GUARDS_FILE declares 'route?: string'. It must stay REQUIRED on
-   denyReviewer and denyFinance. Making it optional is how it drifted to 3 of
+   requirePermission. Making it optional is how it drifted to 3 of
    226 call sites the first time, and the refusal log is the line you read when
    someone says 'it doesn't work for me'."
 fi
@@ -66,11 +68,9 @@ fi
 # denyNonProcurement (src/procurement/lib/procurement-roles.ts) and denyNonOrgAdmin are held to the
 # call-site checks below (2-4) but not to this file-level one: it lives in its
 # module, and its `route: string` is required by its own signature.
-for guard in denyReviewer denyFinance; do
-  if ! echo "$guards_code" | grep -qE "route:[[:space:]]*string"; then
-    say_fail "$guard no longer requires 'route: string'."
-  fi
-done
+if ! echo "$guards_code" | grep -qE "route:[[:space:]]*string"; then
+  say_fail "requirePermission no longer requires 'route: string'."
+fi
 
 # ── 2. No empty or placeholder labels in application code ──
 #

@@ -4,11 +4,11 @@
  * staff-only access predicate, and the submit schema's guardrails.
  */
 import { describe, it, expect } from "vitest";
+import { can, principalFromUser } from "@/lib/permissions/can";
 import {
   CLAIM_ITEMS,
   CLAIM_ITEM_KEYS,
   allowedClaimItems,
-  canManageReimbursements,
   claimItemsSchema,
   computeClaimTotals,
   effectiveClaimLines,
@@ -84,7 +84,11 @@ describe("requiredDocumentKinds — the receipt rule", () => {
   });
 });
 
-describe("canManageReimbursements — staff-only, fails closed", () => {
+/** Who manages it, judged by `can()` on an event (Phase 6: the role list is gone). */
+const mayManage = (role: string | null | undefined, key: "reimbursements.manage" | "travelGrants.manage") =>
+  can(principalFromUser({ id: "u", role, organizationId: "o" }), key, { event: { organizationId: "o", eventType: "CONFERENCE", staffUserIds: [] } });
+
+describe("reimbursements.manage — staff-only, fails closed", () => {
   it.each([
     ["SUPER_ADMIN", true],
     ["ADMIN", true],
@@ -96,13 +100,13 @@ describe("canManageReimbursements — staff-only, fails closed", () => {
     ["SUBMITTER", false],
     ["REGISTRANT", false],
   ] as const)("%s → %s", (role, expected) => {
-    expect(canManageReimbursements(role)).toBe(expected);
+    expect(mayManage(role, "reimbursements.manage")).toBe(expected);
   });
 
   it("fails closed on null/undefined/unknown", () => {
-    expect(canManageReimbursements(null)).toBe(false);
-    expect(canManageReimbursements(undefined)).toBe(false);
-    expect(canManageReimbursements("SOME_FUTURE_ROLE")).toBe(false);
+    expect(mayManage(null, "reimbursements.manage")).toBe(false);
+    expect(mayManage(undefined, "reimbursements.manage")).toBe(false);
+    expect(mayManage("SOME_FUTURE_ROLE", "reimbursements.manage")).toBe(false);
   });
 });
 

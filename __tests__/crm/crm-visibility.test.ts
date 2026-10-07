@@ -26,18 +26,9 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-import {
-  canViewCrm,
-  canOwnDeals,
-  canViewDealValues,
-  canPurgeCrm,
-  canExportCrm,
-  denyCrmAccess,
-  denyCrmWrite,
-  denyCrmPurge,
-  denyCrmExport,
-} from "@/crm/lib/crm-visibility";
+import { denyCrmAccess, denyCrmWrite, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 import { apiLogger } from "@/lib/logger";
+import { canExportCrm, canOwnDeals, canPurgeCrm, canViewCrm, canViewDealValues } from "../helpers/role-can";
 
 const STAFF = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
 const BLOCKED = ["ONSITE", "REVIEWER", "SUBMITTER", "REGISTRANT"] as const;

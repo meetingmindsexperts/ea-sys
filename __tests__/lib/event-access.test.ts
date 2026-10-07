@@ -1,51 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { assignedToEventWhere } from "@/lib/event-staff-where";
 
 describe("buildEventAccessWhere", () => {
   // ── ADMIN (org-bound) ────────────────────────────────────────────────
 
-  describe("ADMIN role", () => {
-    it("returns org-scoped query without eventId", () => {
-      const result = buildEventAccessWhere({
-        id: "user-1",
-        role: "ADMIN",
-        organizationId: "org-123",
-      });
-      expect(result).toEqual({ organizationId: "org-123" });
-    });
-
-    it("returns org + event scoped query with eventId", () => {
-      const result = buildEventAccessWhere(
-        { id: "user-1", role: "ADMIN", organizationId: "org-123" },
-        "evt-1"
-      );
-      expect(result).toEqual({ id: "evt-1", organizationId: "org-123" });
-    });
-  });
-
   // ── ORGANIZER (org-bound, same as admin) ─────────────────────────────
 
-  describe("ORGANIZER role", () => {
-    it("returns org-scoped query without eventId", () => {
-      const result = buildEventAccessWhere({
-        id: "user-2",
-        role: "ORGANIZER",
-        organizationId: "org-456",
-      });
-      expect(result).toEqual({ organizationId: "org-456" });
-    });
-
-    it("returns org + event scoped query with eventId", () => {
-      const result = buildEventAccessWhere(
-        { id: "user-2", role: "ORGANIZER", organizationId: "org-456" },
-        "evt-2"
-      );
-      expect(result).toEqual({ id: "evt-2", organizationId: "org-456" });
-    });
-  });
-
   // ── REVIEWER (org-independent) ───────────────────────────────────────
+
+  // Staff no longer come through here (custom roles Phase 6): their lookups ask
+  // a permission. A staff role that reaches this predicate gets no events.
+  it("gives staff roles no events (fail closed)", () => {
+    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS", "CRM_USER", "HR_USER"]) {
+      expect(buildEventAccessWhere({ id: "u1", role, organizationId: "org-1" }, "evt-1")).toEqual({ id: { in: [] } });
+    }
+  });
 
   describe("REVIEWER role", () => {
     it("returns settings-scoped query without eventId", () => {
@@ -117,60 +86,6 @@ describe("buildEventAccessWhere", () => {
 
   // ── ONSITE (org-bound + per-event assignment) ───────────────────────
 
-  describe("ONSITE role", () => {
-    it("scopes by org AND its EventStaffAssignment row (no eventId)", () => {
-      const result = buildEventAccessWhere({
-        id: "onsite-1",
-        role: "ONSITE",
-        organizationId: "org-1",
-      });
-      expect(result).toEqual({
-        organizationId: "org-1",
-        ...assignedToEventWhere("onsite-1"),
-      });
-    });
-
-    it("scopes by org + event + assignment (with eventId)", () => {
-      const result = buildEventAccessWhere(
-        { id: "onsite-1", role: "ONSITE", organizationId: "org-1" },
-        "evt-9"
-      );
-      expect(result).toEqual({
-        id: "evt-9",
-        organizationId: "org-1",
-        ...assignedToEventWhere("onsite-1"),
-      });
-    });
-
-    it("keeps the org filter (does NOT match another org's events by id alone)", () => {
-      const result = buildEventAccessWhere({
-        id: "onsite-1",
-        role: "ONSITE",
-        organizationId: "org-1",
-      });
-      expect(result).toHaveProperty("organizationId", "org-1");
-    });
-
-    it("is NOT the org-wide default (must carry the assignment gate)", () => {
-      const result = buildEventAccessWhere({
-        id: "onsite-1",
-        role: "ONSITE",
-        organizationId: "org-1",
-      });
-      expect(result).toHaveProperty("staffAssignments", { some: { userId: "onsite-1" } });
-    });
-  });
-
   // ── SUPER_ADMIN (falls through to org-bound default) ─────────────────
 
-  describe("SUPER_ADMIN role", () => {
-    it("returns org-scoped query", () => {
-      const result = buildEventAccessWhere({
-        id: "user-sa",
-        role: "SUPER_ADMIN",
-        organizationId: "org-789",
-      });
-      expect(result).toEqual({ organizationId: "org-789" });
-    });
-  });
 });

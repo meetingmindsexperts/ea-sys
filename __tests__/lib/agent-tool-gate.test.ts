@@ -15,9 +15,11 @@ import { isReadOnlyTool, isWriteTool, NON_MUTATING_NON_READ_TOOLS } from "@/lib/
 import { gateToolCall, MAX_WRITES_PER_REQUEST } from "@/lib/agent/tool-gate";
 import { toolPermission } from "@/lib/agent/tool-permissions";
 import { ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
-import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS } from "@/lib/finance-visibility";
+/** The old gate's wholly-financial tools, frozen here as history (Phase 6 deleted the list). */
+const FINANCE_ONLY_AGENT_TOOLS = new Set(["list_invoices", "list_unpaid_registrations", "get_event_analytics"]);
 import { principalFromUser } from "@/lib/permissions/can";
 import { describePermission } from "@/lib/permissions/catalogue";
+import { canViewFinance } from "../helpers/role-can";
 
 const NAMES = collectToolsForActor({
   organizationId: "org1",

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { hashVerificationToken } from "@/lib/security";
 
@@ -77,28 +76,6 @@ describe("Reviewer: add reviewer schema", () => {
 });
 
 // ── Role restrictions: who can manage reviewers ────────────────────────────
-
-describe("Reviewer: role restrictions", () => {
-  it("blocks REVIEWER from adding other reviewers", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("blocks SUBMITTER from adding reviewers", () => {
-    const result = denyReviewer({ user: { role: "SUBMITTER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  it("allows ADMIN to manage reviewers", () => {
-    expect(denyReviewer({ user: { role: "ADMIN" } }, { route: "test" })).toBeNull();
-  });
-
-  it("allows ORGANIZER to manage reviewers", () => {
-    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { route: "test" })).toBeNull();
-  });
-});
 
 // ── Reviewer account properties ────────────────────────────────────────────
 
@@ -248,12 +225,6 @@ describe("Reviewer: existing user role handling", () => {
 // ── Reviewer access: abstracts only ────────────────────────────────────────
 
 describe("Reviewer: abstracts-only access", () => {
-  it("reviewer is blocked from write operations by denyReviewer", () => {
-    const result = denyReviewer({ user: { role: "REVIEWER" } }, { route: "test" });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
   it("reviewer can read abstracts (GET routes skip denyReviewer)", () => {
     // GET routes for abstracts don't call denyReviewer — they use event access scoping
     const where = buildEventAccessWhere(

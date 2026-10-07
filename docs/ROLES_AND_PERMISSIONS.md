@@ -95,41 +95,43 @@ pinned by the ONSITE cross-event isolation and WEBINARS regression tests.
 
 ## 4. Visibility boundaries, exact sets (pinned by test)
 
-There is no single "can this role see it" predicate. Several exist and they
+Every boundary is a permission key, decided by `can()` (custom roles Phase 6,
+Oct 6, 2026: the role predicates that used to name these rows, `WRITE_ROLES`,
+`canWrite`, `canViewFinance` and the rest, are deleted). Several keys
 deliberately disagree; reaching for one because it is close enough is the
-signal to write a new one (four of these exist because "close enough" leaked
-something). The test reads this table by the backticked predicate name and
-compares the role column to the code; the API-key column is checked where the
-predicate takes an `isApiKey` argument.
+signal to use or add the right one. The test reads this table by the
+backticked key, judges it for each built-in role (on an event the role is
+assigned to; on a conference, so the Webinars role's webinar-only keys read
+"no"), and compares the role and API-key columns to the code. Custom roles can
+add keys to a person within their base role's areas; this table is the
+built-in roles only.
 
-| Boundary | Predicate | Roles | API key |
+| Boundary | Permission | Roles | API key |
 |---|---|---|---|
-| Full write (every non-abstract write) | `WRITE_ROLES` | SUPER_ADMIN · ADMIN · ORGANIZER | yes (routes treat a key as admin) |
-| Registration-desk opt-in | `REGISTRATION_DESK_ALLOW` | ONSITE · MEMBER · WEBINARS | n/a |
-| Webinar full-control opt-in | `WEBINAR_STAFF_ALLOW` | WEBINARS | n/a |
-| Generic "may this role write" (UI) | `canWrite` | SUPER_ADMIN · ADMIN · ORGANIZER | n/a |
-| Money: amounts, invoices, prices, payments | `canViewFinance` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE · WEBINARS | yes (redaction runs only for a session role outside the set) |
-| Door credentials: entry barcode, DTCM code | `canViewEntryBarcode` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS | yes |
-| Contact store, read | `canViewContacts` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · CRM_USER | yes |
-| Contact store, export | `canExportContacts` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER | yes |
-| Registrations CSV export | `canExportRegistrations` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS | yes |
-| Sign-in activity and who is online | `canViewLoginActivity` | SUPER_ADMIN · ADMIN | no |
-| Supporting documents (resident letters and the like) | `canViewSupportingDocument` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
-| Zoom host credentials (start URL, passcode, stream key) | `canViewZoomHostCredentials` | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS | yes |
-| Speaker reimbursements (passports, bank details) | `canManageReimbursements` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
-| CRM, read the board | `canViewCrm` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · CRM_USER | yes |
-| CRM, own deals and write | `canOwnDeals` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
-| CRM, see deal values | `canViewDealValues` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
-| CRM, archive and restore | `canDeleteCrm` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
-| CRM, CSV export | `canExportCrm` | SUPER_ADMIN · ADMIN | yes |
-| CRM, default quote terms | `canManageCrmQuoteDefaults` | SUPER_ADMIN · ADMIN | no |
-| CRM, permanent purge | `canPurgeCrm` | SUPER_ADMIN | no |
+| Edit an event (and the other management writes, on a conference) | `events.update` | SUPER_ADMIN · ADMIN · ORGANIZER | yes |
+| Registration desk: check in (and add, edit, badge, record payment) | `registrations.checkin` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE · WEBINARS | yes |
+| Money: amounts, invoices, prices, payments | `finance.view` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE · WEBINARS | yes |
+| Door credentials: entry barcode, DTCM code | `barcode.view` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS | yes |
+| Contact store, read | `contacts.read` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · CRM_USER | yes |
+| Contact store, export | `contacts.export` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER | yes |
+| Registrations CSV export | `registrations.export` | SUPER_ADMIN · ADMIN · ORGANIZER · ONSITE · WEBINARS | yes |
+| Sign-in activity and who is online | `loginActivity.read` | SUPER_ADMIN · ADMIN | no |
+| Supporting documents (resident letters and the like) | `supportingDocs.view` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
+| Zoom host credentials (start URL, passcode, stream key) | `zoomHost.view` | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS | yes |
+| Speaker reimbursements (passports, bank details) | `reimbursements.manage` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
+| CRM, read the board | `crm.read` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · CRM_USER | yes |
+| CRM, own deals and write | `crm.write` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
+| CRM, see deal values | `crm.dealValues.view` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
+| CRM, archive and restore | `crm.delete` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
+| CRM, CSV export | `crm.export` | SUPER_ADMIN · ADMIN | yes |
+| CRM, default quote terms | `crm.quoteDefaults.manage` | SUPER_ADMIN · ADMIN | no |
+| CRM, permanent purge | `crm.purge` | SUPER_ADMIN | no |
 | Staff (appears in Settings, Users; may hold a signature) | `TEAM_ROLES` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · ONSITE · CRM_USER · WEBINARS · HR_USER | n/a |
 | Grantable by an invite or a role change | `ASSIGNABLE_USER_ROLES` | ADMIN · ORGANIZER · MEMBER · ONSITE · CRM_USER · WEBINARS · HR_USER · REVIEWER | n/a |
 
-Two boundaries take a user object rather than a role and are described in §7:
-HR (`canViewHr`: SUPER_ADMIN, HR_USER, or any staff account with the per-person
-HR access tick; API keys refused) and Budgets and Procurement
+Two boundaries also read the person, not only the role, and are described in §7:
+HR (`hr.read` / `hr.write`: SUPER_ADMIN, HR_USER, or any staff account with the
+per-person HR access tick; API keys refused) and Budgets and Procurement
 (`procurement-visibility.ts`: role sets plus person grants plus custom roles).
 
 The consequences worth remembering: MEMBER sees money but not barcodes, ONSITE

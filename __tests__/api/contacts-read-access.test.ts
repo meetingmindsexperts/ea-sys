@@ -15,7 +15,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { canViewContacts, canExportContacts } from "@/lib/contact-visibility";
 
 const { mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => ({
   mockGetOrgContext: vi.fn(),
@@ -72,6 +71,7 @@ import { GET as listContacts, POST as createContact } from "@/app/api/contacts/r
 import { GET as exportContacts } from "@/app/api/contacts/export/route";
 import { GET as listTags } from "@/app/api/contacts/tags/route";
 import { GET as getContact, PUT as updateContact } from "@/app/api/contacts/[contactId]/route";
+import { canExportContacts, canViewContacts } from "../helpers/role-can";
 
 const ORG = "org_1";
 

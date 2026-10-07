@@ -296,17 +296,17 @@ different subject:
 
 | Boundary | File | Notable |
 |---|---|---|
-| Write guard | `auth-guards.ts` — `denyReviewer()` | Blocks REVIEWER/SUBMITTER/REGISTRANT/**MEMBER**/ONSITE. Desk routes opt back in via `REGISTRATION_DESK_ALLOW`. |
-| Event scoping | `event-access.ts` — `buildEventAccessWhere()` | ONSITE is **assignment-gated**, not just org-gated. Every ONSITE-reachable route must build its lookup from this. WEBINARS has **two surfaces**: `desk` is org-wide (MEMBER parity), the default `manage` is webinar-only and **must stay that way** — ~55 routes behind `WEBINAR_STAFF_ALLOW` depend on it. |
-| Money | `finance-visibility.ts` | **Includes MEMBER and ONSITE** (desk staff record payments). |
-| Door credentials | `barcode-visibility.ts` | **Excludes MEMBER, includes ONSITE** — the exact inverse of the finance set. |
-| Contact store | `contact-visibility.ts` | **Includes MEMBER, excludes ONSITE.** |
-| Zoom host creds | `zoom-visibility.ts` | Staff only — narrower than finance. |
+| Every operation | `permissions/require-permission.ts` — `requirePermission(session, key, { route, eventId })` | Since custom roles Phase 6 (Oct 6, 2026) every route asks a **permission key**, never a role name; `scripts/check-permission-guards.sh` refuses a role check in a swept route. What each built-in role holds is frozen in `system-role-grants-snapshot.test.ts`; the role predicates and allow-lists (`denyReviewer`, `WRITE_ROLES`, `canWrite`, `canViewFinance`...) are deleted. |
+| Event scoping | `gate.eventWhere` / `eventWhereFor()` | The key's scope decides the events: ONSITE is **assignment-gated** (`EventStaffAssignment`), WEBINARS manages webinars only but runs the desk on every event. `buildEventAccessWhere` remains only for REVIEWER/SUBMITTER/REGISTRANT (reached through `linkedRoles`). |
+| Money | `finance.view` | **Includes MEMBER and ONSITE** (desk staff record payments). `redactFinancialFields` strips the fields. |
+| Door credentials | `barcode.view` | **Excludes MEMBER, includes ONSITE** — the exact inverse of the finance set. |
+| Contact store | `contacts.read` | **Includes MEMBER, excludes ONSITE.** |
+| Zoom host creds | `zoomHost.view` | Staff only — narrower than finance. |
 | Cross-tenant reads | `platform-operator.ts` / `denyNonOperator()` | SUPER_ADMIN only, and **refuses org API keys**, which every other surface treats as admin-equivalent. Pair it with `dbOperator` (below); the DB lane and the RBAC check are two walls. |
 | Uploaded files | `upload-prefixes.ts` — `PUBLIC_UPLOAD_SEGMENTS` | Not a role predicate at all: an **allow-list of prefixes** the public catch-all may serve. Everything else streams only through an authed route. Fails closed. |
 
-If you find yourself reaching for an existing predicate because it's "close enough", that is the
-signal to write a new one. Four of these exist precisely because "close enough" leaked something.
+If you find yourself reaching for an existing key because it's "close enough", that is the
+signal to add the right one to the catalogue. Four of these exist precisely because "close enough" leaked something.
 
 ---
 
@@ -318,11 +318,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
   const [session, { eventId }] = await Promise.all([auth(), params]);
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const denied = denyReviewer(session);          // every POST/PUT/DELETE
-  if (denied) return denied;
+  // The operation's permission key; refuses with 403 and logs, naming the route.
+  const gate = requirePermission(session, "speakers.update", { route: "events/[eventId]/speakers:POST", eventId });
+  if (!gate.ok) return gate.response;
 
   const event = await db.event.findFirst({
-    where: { id: eventId, ...buildEventAccessWhere(session.user) },
+    where: gate.eventWhere,                      // the grant's own event filter (scope + org)
     select: { id: true },                        // select, never include, for existence checks
   });
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -335,9 +336,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
 - Bind **every** lookup to its parent (`{ id, eventId }`, `{ id, organizationId }`). Trusting a nested
   id straight from the URL is this codebase's most-repeated IDOR.
 - On a route that accepts **both** an org API key and a session, never branch on `orgCtx` to pick the
-  scope. `getOrgContext()` matches a signed-in person too, so `orgCtx ? orgScoped : roleScoped` silently
-  skips the role rules for everyone org-bound. Use `accessUserFrom(orgCtx, session?.user)` and call
-  `buildEventAccessWhere` **once**. This shipped as a live bypass in two routes (Aug 10, 2026) and
+  scope. `getOrgContext()` matches a signed-in person too, so `orgCtx ? orgScoped : personScoped` silently
+  skips the person's rules for everyone org-bound. Build ONE principal (`principalFromCaller`) and gate
+  through `requirePermission` once. This shipped as a live bypass in two routes (Aug 10, 2026) and
   survived review because both branches are correct in isolation — the defect was the condition.
 - Concurrency: claim first, then act. `updateMany` with the expected prior state as a predicate; a
   zero-row result means someone else won. Check-then-act on a counter is always a bug here.

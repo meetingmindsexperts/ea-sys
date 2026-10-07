@@ -30,10 +30,10 @@ vi.mock("@/lib/db", () => ({
 
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { isArchivedView, buildDealWhere } from "@/crm/lib/deal-filters";
 import { diffFields } from "@/crm/lib/crm-activity";
 import { setDealArchived } from "@/crm/services/deal-service";
+import { canDeleteCrm } from "../helpers/role-can";
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };

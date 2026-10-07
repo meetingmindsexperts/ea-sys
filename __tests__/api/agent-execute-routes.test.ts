@@ -19,7 +19,8 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), war
 vi.mock("@/lib/security", () => ({ checkRateLimit: mockRateLimit }));
 vi.mock("@/lib/agent/run-agent", () => ({ runAgentRequest: mockRun }));
 
-import { executeAgentRequest, AGENT_ROLES } from "@/lib/agent/execute-handler";
+import { executeAgentRequest } from "@/lib/agent/execute-handler";
+import { AGENT_ROLES } from "../helpers/role-can";
 
 const session = (role: string, organizationId: string | null = "org1"): Session =>
   ({ user: { id: "u1", role, organizationId, email: "x@y.z" }, expires: "" } as unknown as Session);

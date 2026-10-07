@@ -7,12 +7,8 @@
  * event access by linkage.
  */
 import { describe, it, expect } from "vitest";
-import {
-  canViewZoomHostCredentials,
-  redactZoomHostFields,
-  redactZoomHostFieldsFromSessions,
-  ZOOM_HOST_KEYS,
-} from "@/lib/zoom-visibility";
+import { redactZoomHostFields, redactZoomHostFieldsFromSessions, ZOOM_HOST_KEYS } from "@/lib/zoom-visibility";
+import { canViewZoomHostCredentials } from "../helpers/role-can";
 
 describe("canViewZoomHostCredentials", () => {
   it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER"])("allows the host role %s", (role) => {

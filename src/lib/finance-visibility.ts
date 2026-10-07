@@ -1,41 +1,14 @@
 /**
- * Finance visibility — who can see financial data (amounts, invoices, billing,
- * bank/tax, pricing).
+ * Finance field redaction: strips amounts, invoices, billing, bank and tax and
+ * prices from a payload for a caller who may not see money.
  *
- * Decision record:
- *   - May 2026: only SUPER_ADMIN / ADMIN / ORGANIZER saw money; MEMBER was a
- *     read-only viewer with money hidden.
- *   - June 17, 2026 (organizer): MEMBER + ONSITE are registration-desk
- *     operators who **record payments**, so they now SEE money (amounts,
- *     prices, the Record Payment flow, quotes). They remain blocked from
- *     non-registration *writes* via `denyReviewer` — finance visibility and
- *     write permission are separate boundaries.
- *
- * This module is the single source of truth. UI conditional rendering,
- * API field-stripping, the agent redaction pass, and the denyFinance
- * guard all derive from `canViewFinance()` so the boundary can't drift.
+ * WHO may see money is `finance.view`, asked through `can()` (custom roles
+ * Phase 6, Oct 6, 2026). The role list that used to live here
+ * (`canViewFinance`, `FINANCE_ROLES`) is gone; the built-in roles' answer is
+ * frozen in `system-role-grants-snapshot.test.ts` (MEMBER, ONSITE and
+ * WEBINARS see money since the June 17, 2026 "desk staff record payments"
+ * decision).
  */
-
-const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS"]);
-
-/** True when the role is permitted to see financial data. Fails closed —
- *  an unknown / missing role gets `false`. */
-export function canViewFinance(role: string | null | undefined): boolean {
-  return !!role && FINANCE_ROLES.has(role);
-}
-
-/**
- * Agent tools that are *wholly* financial — there's no non-finance payload
- * to salvage, so for non-finance roles they're refused outright rather
- * than redacted to an empty husk.
- */
-export const FINANCE_ONLY_AGENT_TOOLS = new Set<string>([
-  "list_invoices",
-  "list_unpaid_registrations",
-  // Analytics carries revenue (collected/outstanding) — finance-restricted
-  // for the read-only MEMBER role on the in-app agent.
-  "get_event_analytics",
-]);
 
 /**
  * Object keys that carry monetary / billing / tax / banking values. Used

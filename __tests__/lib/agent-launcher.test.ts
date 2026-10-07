@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 import { agentLauncherHref } from "@/lib/agent/launcher";
-import { AGENT_ROLES } from "@/lib/agent/agent-roles";
 import { can, principalFromUser } from "@/lib/permissions/can";
+import { AGENT_ROLES } from "../helpers/role-can";
 
 const mayUse = (role: string | null | undefined) => can(principalFromUser({ id: "u", role, organizationId: "o" }), "agent.use");
 

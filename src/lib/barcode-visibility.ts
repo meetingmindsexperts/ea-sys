@@ -31,17 +31,8 @@
  * not this helper.
  */
 
-const BARCODE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE", "WEBINARS"]);
-
-/** True when the role may see entry / DTCM barcodes on a registration payload.
- *  Fails closed. Pass `isApiKey` for programmatic callers (admin-equivalent). */
-export function canViewEntryBarcode(
-  role: string | null | undefined,
-  isApiKey = false,
-): boolean {
-  if (isApiKey) return true;
-  return !!role && BARCODE_ROLES.has(role);
-}
+// WHO may see barcodes is `barcode.view`, asked through `can()` (custom roles
+// Phase 6, Oct 6, 2026); the role list and `canViewEntryBarcode` are gone.
 
 /** The credential columns on a registration payload. */
 export const BARCODE_KEYS = ["qrCode", "dtcmBarcode"] as const;

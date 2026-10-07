@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
 
 // ── Abstract schemas (mirrors src/app/api/events/[eventId]/abstracts/ routes) ──
 
@@ -459,10 +460,8 @@ describe("Abstract: event access scoping", () => {
   });
 
   it("ADMIN sees all org events", () => {
-    const where = buildEventAccessWhere(
-      { id: "admin-1", role: "ADMIN", organizationId: "org-1" },
-      "evt-1"
-    );
+    // Staff scoping is the permission's filter since custom roles Phase 6.
+    const where = eventWhereFor(principalFromUser({ id: "admin-1", role: "ADMIN", organizationId: "org-1" }), "abstracts.read", "evt-1");
     expect(where).toEqual({
       id: "evt-1",
       organizationId: "org-1",
