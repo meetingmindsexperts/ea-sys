@@ -366,8 +366,10 @@ export default function PublicSessionPage() {
   // in real time (within the 60s "present" window). Paused while the tab is
   // hidden; phase reflects whether they've been admitted. Read isJoining via a
   // ref so the interval stays stable across admit transitions.
+  // "Joined" = in the Zoom embed, or watching the stream with the room open
+  // (set below, once playsStream is known). Stream viewers used to count as
+  // "lobby" unless they clicked the Zoom Join button (bug, Oct 7, 2026).
   const isJoiningRef = useRef(isJoining);
-  isJoiningRef.current = isJoining;
   useEffect(() => {
     if (!isWebinarEvent || authState.kind !== "ok") return;
     async function beat() {
@@ -416,6 +418,15 @@ export default function PublicSessionPage() {
   // scheduled end time — keep the HLS/embed alive until they actually close the
   // room (review #9). Falls back to plain wall-clock when not a managed room.
   const liveWindowActive = !isPast || (isWebinarEvent && roomOpen);
+  // Whether this page plays the HLS stream. On a webinar that is the organiser's
+  // viewing mode, not just "a stream key exists": in Zoom embed mode with a
+  // stream configured, the page showed the stream player AND, after Join, the
+  // Zoom embed under it (bug, Oct 7, 2026). Other events keep the old rule.
+  // Until a webinar's mode has loaded, nothing video-shaped is decided.
+  const viewingModeKnown = !isWebinarEvent || lobby !== null;
+  const playsStream =
+    Boolean(joinInfo?.liveStreamEnabled) && (!isWebinarEvent || lobby?.viewingMode === "hls");
+  isJoiningRef.current = isJoining || (playsStream && roomOpen && liveWindowActive);
   // The Q&A panel belongs to custom-stream viewing: a registered viewer (or
   // org staff testing). Zoom embed keeps Zoom's Q&A. Only on a webinar in
   // Custom stream mode: the one place the producers' console lists questions
@@ -747,6 +758,7 @@ export default function PublicSessionPage() {
                 : undefined
             }
             inWaitingRoom={showWaitingRoom}
+            playsStream={playsStream}
             onJoin={() => setIsJoining(true)}
             onLeave={() => setIsJoining(false)}
           />
@@ -826,7 +838,7 @@ export default function PublicSessionPage() {
             {/* HLS stream takes precedence when configured — it's the
                  branded full-screen experience. Stays mounted past the
                  scheduled end while the room is open (overrun, review #9). */}
-            {joinInfo?.liveStreamEnabled && liveWindowActive && (
+            {joinInfo && playsStream && liveWindowActive && (
               <LivePlayer
                 hlsUrl={joinInfo.hlsPlaybackUrl || ""}
                 slug={slug}
@@ -837,7 +849,10 @@ export default function PublicSessionPage() {
 
             {/* Embedded Zoom — only mounts after user clicks Join in the
                  sticky CTA. This keeps the 3 MB SDK bundle off first load. */}
+            {/* Never beside the stream player: in Custom stream mode the
+                 attendee watches the stream, not Zoom (bug, Oct 7, 2026). */}
             {isJoining &&
+              !playsStream &&
               joinInfo?.mode === "sdk" &&
               joinInfo.sdkKey &&
               joinInfo.signature &&
@@ -932,7 +947,7 @@ export default function PublicSessionPage() {
             )}
 
             {/* Upcoming session placeholder — no embed, no recording */}
-            {isUpcoming && !joinInfo?.liveStreamEnabled && (
+            {isUpcoming && viewingModeKnown && !playsStream && (
               <Card className="border-slate-200 bg-white">
                 <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
                   <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
@@ -952,7 +967,8 @@ export default function PublicSessionPage() {
                  that reinforces the CTA above rather than a blank space */}
             {(isLive || (isUpcoming && joinInfo)) &&
               !isJoining &&
-              !joinInfo?.liveStreamEnabled &&
+              viewingModeKnown &&
+              !playsStream &&
               !hasRecording &&
               !isRecordingProcessing && (
                 <Card className="border-slate-200 bg-white">
@@ -1184,6 +1200,7 @@ function StickyCta({
   hostEnded,
   onRejoin,
   inWaitingRoom,
+  playsStream,
   onJoin,
   onLeave,
 }: {
@@ -1207,6 +1224,8 @@ function StickyCta({
   onRejoin?: () => void;
   /** The branded waiting room is showing: the host has not opened the room. */
   inWaitingRoom: boolean;
+  /** The page plays the HLS stream: no Join button, the stream is below. */
+  playsStream: boolean;
   onJoin: () => void;
   onLeave: () => void;
 }) {
@@ -1407,15 +1426,19 @@ function StickyCta({
           </div>
           <div className="flex-1 text-center sm:text-left">
             <p className="font-semibold">
-              {isLive ? "Live now" : "Ready to join"}
+              {isLive ? "Live now" : playsStream ? "Starting soon" : "Ready to join"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {canEmbed
+              {playsStream
+                ? isLive
+                  ? `Watch the ${isWebinar ? "webinar" : "session"} below.`
+                  : "The live stream appears below when it starts."
+                : canEmbed
                 ? `Join the ${isWebinar ? "webinar" : "meeting"} without leaving this page.`
                 : `This ${isWebinar ? "webinar" : "meeting"} will open in Zoom.`}
             </p>
           </div>
-          {isJoining ? (
+          {playsStream ? null : isJoining ? (
             <div className="flex items-center gap-2">
               <Badge className="bg-green-100 text-green-800 border-green-200">
                 In meeting
