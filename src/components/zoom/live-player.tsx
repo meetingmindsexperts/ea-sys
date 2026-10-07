@@ -22,6 +22,30 @@ import { useFullscreen } from "@/hooks/use-fullscreen";
 const BEHIND_LIVE_THRESHOLD_S = 12;
 /** Where "Back to live" lands on native HLS, seconds before the newest chunk. */
 const LIVE_EDGE_OFFSET_S = 4;
+/**
+ * The "Mini player" (picture in picture) button. Built and working, switched
+ * off by the owner (Oct 7, 2026): flip to true to offer it.
+ */
+const PIP_ENABLED = false;
+/** Per-browser memory of the viewer's sound choice ("on" | "off"). */
+const SOUND_PREF_KEY = "ea-live-player-sound";
+
+function readSoundPref(): "on" | "off" | null {
+  try {
+    const v = window.localStorage.getItem(SOUND_PREF_KEY);
+    return v === "on" || v === "off" ? v : null;
+  } catch {
+    return null; // private window or blocked storage: ask again
+  }
+}
+
+function writeSoundPref(value: "on" | "off") {
+  try {
+    window.localStorage.setItem(SOUND_PREF_KEY, value);
+  } catch {
+    // Storage unavailable: the choice holds for this page only.
+  }
+}
 
 interface LivePlayerProps {
   hlsUrl: string;
@@ -148,6 +172,31 @@ export function LivePlayer({
       loadHls(streamData.hlsUrl || hlsUrl, streamData.hlsOriginUrl);
     }
 
+    // Start playing. A viewer who chose sound before gets it again if the
+    // browser allows sound without a tap; otherwise it plays muted and the
+    // "Tap to turn on sound" button stays (review of the player, Oct 7, 2026).
+    function startPlayback(video: HTMLVideoElement) {
+      const pref = measurable ? null : readSoundPref();
+      if (pref === "off") setSoundChosen(true);
+      if (pref !== "on") {
+        video.play().catch((err) => console.warn("live-player:autoplay-failed", err));
+        return;
+      }
+      video.muted = false;
+      video
+        .play()
+        .then(() => {
+          if (!mounted) return;
+          setIsMuted(false);
+          setSoundChosen(true);
+        })
+        .catch(() => {
+          // Sound needs a tap on this visit: fall back to muted autoplay.
+          video.muted = true;
+          video.play().catch((err) => console.warn("live-player:autoplay-failed", err));
+        });
+    }
+
     // Load `url`; on a fatal failure, fail over to `fallbackUrl` (the box
     // origin) once if the CDN edge misbehaves — then surface a retry message.
     async function loadHls(url: string, fallbackUrl?: string) {
@@ -173,7 +222,7 @@ export function LivePlayer({
           if (mounted) {
             setStatus("playing");
             onStreamStatusChangeRef.current?.("active");
-            video.play().catch(() => {});
+            startPlayback(video);
           }
         };
         video.onerror = () => {
@@ -207,7 +256,7 @@ export function LivePlayer({
           if (mounted) {
             setStatus("playing");
             onStreamStatusChangeRef.current?.("active");
-            video.play().catch(() => {});
+            startPlayback(video);
           }
         });
 
@@ -277,6 +326,7 @@ export function LivePlayer({
       videoRef.current.muted = !videoRef.current.muted;
       setIsMuted(videoRef.current.muted);
       setSoundChosen(true);
+      if (!measurable) writeSoundPref(videoRef.current.muted ? "off" : "on");
     }
   };
 
@@ -286,6 +336,7 @@ export function LivePlayer({
     video.muted = false;
     setIsMuted(false);
     setSoundChosen(true);
+    writeSoundPref("on");
     // A tap is the user gesture browsers want before playing sound.
     video.play().catch((err) => console.warn("live-player:play-with-sound-failed", err));
   };
@@ -358,7 +409,19 @@ export function LivePlayer({
     };
   }, []);
 
+  // A mini player left open when the stream drops would show a frozen last
+  // frame while the page says it is waiting: close it.
+  useEffect(() => {
+    if (status === "playing" || typeof document === "undefined" || !document.pictureInPictureElement) return;
+    document.exitPictureInPicture().catch((err) => console.warn("live-player:pip-exit-failed", err));
+  }, [status]);
+
   // How far behind live the picture is, checked once a second while playing.
+  // Chrome's built-in HLS player reports NO seekable range for a live stream:
+  // it cannot fall behind (a seek back is ignored, and it resumes at the live
+  // moment by itself after a pause or a buffer), so there "Back to live" shows
+  // only while paused. Safari and hls.js (Firefox) report the range, so a
+  // viewer who falls behind there sees the button (review, Oct 7, 2026).
   useEffect(() => {
     if (status !== "playing") {
       setIsBehind(false);
@@ -425,7 +488,8 @@ export function LivePlayer({
           {sessionName ? <span className="hidden truncate text-sm text-zinc-200 sm:inline">{sessionName}</span> : null}
         </div>
         {/* Labels drop to icons on a phone so the bar never overlaps the
-            LIVE badge; each button keeps its title for screen readers. */}
+            LIVE badge; each button names its action in aria-label (one
+            signal, no aria-pressed beside a changing name). */}
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {status === "playing" && (
             <Button
@@ -433,7 +497,6 @@ export function LivePlayer({
               size="sm"
               onClick={togglePause}
               className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
-              aria-pressed={isPaused}
               aria-label={isPaused ? "Play" : "Pause"}
               title={isPaused ? "Play" : "Pause"}
             >
@@ -452,7 +515,6 @@ export function LivePlayer({
                   ? "bg-white text-zinc-900 hover:bg-zinc-200"
                   : "bg-white/10 text-white hover:bg-white/20",
               )}
-              aria-pressed={!isMuted}
               aria-label={isMuted ? "Unmute" : "Mute"}
               title={isMuted ? "Turn the sound on" : "Mute"}
             >
@@ -460,13 +522,12 @@ export function LivePlayer({
               <span className="hidden text-xs font-medium sm:inline">{isMuted ? "Unmute" : "Mute"}</span>
             </Button>
           )}
-          {status === "playing" && pipSupported && (
+          {PIP_ENABLED && status === "playing" && pipSupported && (
             <Button
               type="button"
               size="sm"
               onClick={() => void togglePip()}
               className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
-              aria-pressed={inPip}
               aria-label={inPip ? "Exit mini player" : "Mini player"}
               title={inPip ? "Back to the page" : "Picture in picture: keep watching in a small window"}
             >
@@ -479,7 +540,6 @@ export function LivePlayer({
             size="sm"
             onClick={() => void toggleFullscreen()}
             className="h-8 gap-1.5 bg-white/10 text-white hover:bg-white/20"
-            aria-pressed={isFullscreen}
             aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
             title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
           >
@@ -507,7 +567,9 @@ export function LivePlayer({
       />
 
       {/* Tap for sound: shown over the picture until the viewer chooses. */}
-      {status === "playing" && isMuted && !soundChosen && (
+      {/* Never in the console preview (`measurable`): a producer in the Zoom
+          room who turned the preview's sound on could echo it into Zoom. */}
+      {!measurable && status === "playing" && isMuted && !soundChosen && (
         <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center">
           <Button
             type="button"
