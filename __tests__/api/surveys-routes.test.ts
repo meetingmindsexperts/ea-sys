@@ -35,6 +35,7 @@ vi.mock("@/lib/permissions/require-permission", () => ({
 
 import { POST as createRoute } from "@/app/api/events/[eventId]/surveys/route";
 import { PUT as updateRoute, DELETE as deleteRoute } from "@/app/api/events/[eventId]/surveys/[surveyId]/route";
+import { POST as duplicateRoute } from "@/app/api/events/[eventId]/surveys/[surveyId]/duplicate/route";
 
 const CONFIG = [{ id: "q1", type: "rating_1_to_5", label: "Overall", required: true }];
 const req = (body?: unknown) => ({ json: async () => body }) as unknown as Request;
@@ -85,5 +86,71 @@ describe("PUT / DELETE /surveys/[surveyId] on the CME survey", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("CERTIFICATE_SURVEY_LOCKED");
     expect(mockDb.survey.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /surveys/[surveyId]/duplicate (Oct 7, 2026)", () => {
+  const row = (over: Record<string, unknown>) => ({
+    id: "svy-src",
+    eventId: "ev1",
+    name: "Post-event survey",
+    config: CONFIG,
+    introHtml: "<p>Intro</p>",
+    thankYouHtml: null,
+    isActive: true,
+    sortOrder: 1,
+    gatesCertificates: false,
+    responseMode: "ONCE_PER_DAY",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...over,
+  });
+
+  it("copies the CME survey into a closed EXTRA survey, from the live event columns", async () => {
+    const live = [{ id: "q9", type: "text", label: "Live question", required: false }];
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      id: "ev1",
+      organizationId: "org1",
+      surveyConfig: live,
+      surveyIntroHtml: "<p>Live intro</p>",
+      surveyThankYouHtml: null,
+    });
+    mockDb.survey.findFirst
+      .mockResolvedValueOnce(row({ id: "svy-cert", gatesCertificates: true, responseMode: "ONCE", config: CONFIG }))
+      .mockResolvedValueOnce({ sortOrder: 3 });
+    const res = await duplicateRoute(req(), svParams("svy-cert"));
+    expect(res.status).toBe(201);
+    const data = mockDb.survey.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      name: "Post-event survey (copy)",
+      gatesCertificates: false,
+      isActive: false,
+      responseMode: "ONCE",
+      config: live,
+      introHtml: "<p>Live intro</p>",
+      sortOrder: 4,
+    });
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes.duplicatedFrom).toBe("svy-cert");
+  });
+
+  it("keeps an extra survey's answer mode", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(row({})).mockResolvedValueOnce(null);
+    await duplicateRoute(req(), svParams("svy-src"));
+    expect(mockDb.survey.create.mock.calls[0][0].data.responseMode).toBe("ONCE_PER_DAY");
+  });
+
+  it("404s a survey of another event", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(null);
+    const res = await duplicateRoute(req(), svParams("svy-x"));
+    expect(res.status).toBe(404);
+    expect(mockDb.survey.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a survey with no questions (409)", async () => {
+    mockDb.survey.findFirst.mockResolvedValueOnce(row({ config: [] }));
+    const res = await duplicateRoute(req(), svParams("svy-src"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("SURVEY_EMPTY");
+    expect(mockDb.survey.create).not.toHaveBeenCalled();
   });
 });

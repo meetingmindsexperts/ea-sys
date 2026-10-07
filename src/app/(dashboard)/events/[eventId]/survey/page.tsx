@@ -14,13 +14,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ArrowLeft, BarChart3, ClipboardList, Loader2, Lock, Pencil, Plus } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, BarChart3, ClipboardList, Copy, Loader2, Lock, Pencil, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
+import { duplicateSurveyRequest } from "@/lib/survey/duplicate-client";
 
 interface SurveyListRow {
   id: string;
@@ -86,7 +87,7 @@ export default function SurveysPage() {
   const extras = surveys.filter((s) => !s.gatesCertificates);
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="w-full py-8">
       <div className="mb-6">
         <Link href={`/events/${eventId}`} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="mr-1 h-3 w-3" />
@@ -170,6 +171,9 @@ export default function SurveysPage() {
 }
 
 function SurveyRow({ eventId, survey, canEdit }: { eventId: string; survey: SurveyListRow; canEdit: boolean }) {
+  const router = useRouter();
+  const [duplicating, setDuplicating] = useState(false);
+  const canDuplicate = canEdit && questionCount(survey.config) > 0;
   const editHref = survey.gatesCertificates ? `/events/${eventId}/survey/certificate` : `/events/${eventId}/survey/${survey.id}`;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
@@ -197,6 +201,23 @@ function SurveyRow({ eventId, survey, canEdit }: { eventId: string; survey: Surv
             Responses
           </Button>
         </Link>
+        {canDuplicate && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={duplicating}
+            title="Copy into a new, closed survey (never the certificate survey)"
+            onClick={async () => {
+              setDuplicating(true);
+              const id = await duplicateSurveyRequest(eventId, survey.id);
+              setDuplicating(false);
+              if (id) router.push(`/events/${eventId}/survey/${id}`);
+            }}
+          >
+            {duplicating ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+            Duplicate
+          </Button>
+        )}
         <Link href={editHref}>
           <Button variant="outline" size="sm">
             <Pencil className="mr-1.5 h-3.5 w-3.5" />

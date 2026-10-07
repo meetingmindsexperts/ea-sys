@@ -22,6 +22,7 @@
  */
 
 import { RESPONSE_MODE_LABEL, type SurveyResponseModeValue } from "@/lib/survey/response-mode";
+import { duplicateSurveyRequest } from "@/lib/survey/duplicate-client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
@@ -34,6 +35,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
+  Copy,
   ExternalLink,
   Loader2,
   Lock,
@@ -115,6 +117,7 @@ export default function SurveyBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [introHtml, setIntroHtml] = useState<string>("");
@@ -380,7 +383,7 @@ export default function SurveyBuilderPage() {
   }
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="w-full py-8">
       <div className="mb-6">
         <Link
           href={`/events/${eventId}/survey`}
@@ -391,8 +394,8 @@ export default function SurveyBuilderPage() {
         </Link>
       </div>
 
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             {isCertificate ? "Certificate (CME) survey" : surveyId ? name || "Survey" : "New survey"}
             {isCertificate && (
@@ -417,6 +420,27 @@ export default function SurveyBuilderPage() {
                 Responses ({responseCount})
               </Button>
             </Link>
+          )}
+          {canEdit && surveyId && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={duplicating}
+              title="Copies the saved survey into a new, closed survey (never the certificate survey). Save first if you have changes."
+              onClick={async () => {
+                setDuplicating(true);
+                const id = await duplicateSurveyRequest(eventId, surveyId);
+                setDuplicating(false);
+                if (id) router.push(`/events/${eventId}/survey/${id}`);
+              }}
+            >
+              {duplicating ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Duplicate
+            </Button>
           )}
           {previewLink ? (
             <Link
@@ -726,11 +750,11 @@ function QuestionCard({
           <button
             type="button"
             onClick={onToggle}
-            className="flex-1 text-left -m-1 p-1 rounded hover:bg-muted/50"
+            className="flex-1 min-w-0 text-left -m-1 p-1 rounded hover:bg-muted/50"
             aria-expanded={expanded}
           >
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground tabular-nums">
+            <div className="flex items-start gap-2">
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {index + 1}.
               </span>
               <Badge variant="secondary" className="text-xs">
@@ -745,15 +769,17 @@ function QuestionCard({
                   Optional
                 </Badge>
               )}
-              <span className="flex-1 text-sm font-medium truncate">
+              {/* min-w-0 + wrapping: a long question used to push the row
+                  past the card's edge (truncate needs a shrinkable parent). */}
+              <span className="flex-1 min-w-0 text-sm font-medium break-words line-clamp-2">
                 {question.label || (
                   <span className="text-muted-foreground italic">Untitled question</span>
                 )}
               </span>
               {expanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
             </div>
           </button>

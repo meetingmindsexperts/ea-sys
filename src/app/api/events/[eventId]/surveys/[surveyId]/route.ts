@@ -47,6 +47,7 @@ const STATUS: Record<SurveyErrorCode, number> = {
   CERTIFICATE_SURVEY_LOCKED: 409,
   SURVEY_HAS_RESPONSES: 409,
   SURVEY_MODE_LOCKED: 409,
+  SURVEY_EMPTY: 409,
 };
 
 export async function GET(_req: Request, { params }: RouteParams) {

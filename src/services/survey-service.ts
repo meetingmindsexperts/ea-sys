@@ -178,7 +178,8 @@ export type SurveyErrorCode =
   | "SURVEY_NOT_FOUND"
   | "CERTIFICATE_SURVEY_LOCKED"
   | "SURVEY_HAS_RESPONSES"
-  | "SURVEY_MODE_LOCKED";
+  | "SURVEY_MODE_LOCKED"
+  | "SURVEY_EMPTY";
 
 export type SurveyWriteResult =
   | { ok: true; surveyId: string }
@@ -386,7 +387,11 @@ async function mirrorCertificateSurveyToEvent(tx: Prisma.TransactionClient, even
 }
 
 /** Creates an ORDINARY survey. It can never be the certificate survey. */
-export async function createSurvey(scope: SurveyScope, fields: SurveyFields): Promise<SurveyWriteResult> {
+export async function createSurvey(
+  scope: SurveyScope,
+  fields: SurveyFields,
+  opts: { duplicatedFrom?: string } = {},
+): Promise<SurveyWriteResult> {
   const id = await tenantTransaction(async (tx) => {
     const last = await tx.survey.findFirst({
       where: { eventId: scope.eventId },
@@ -416,13 +421,54 @@ export async function createSurvey(scope: SurveyScope, fields: SurveyFields): Pr
         action: "SURVEY_CREATED",
         entityType: "Survey",
         entityId: survey.id,
-        changes: { name: fields.name, questions: fields.config.length, isActive: fields.isActive, source: scope.source },
+        changes: {
+          name: fields.name,
+          questions: fields.config.length,
+          isActive: fields.isActive,
+          source: scope.source,
+          ...(opts.duplicatedFrom && { duplicatedFrom: opts.duplicatedFrom }),
+        },
       },
     });
     return survey.id;
   });
   apiLogger.info({ msg: "survey:created", eventId: scope.eventId, surveyId: id, userId: scope.userId });
   return { ok: true, surveyId: id };
+}
+
+/**
+ * Copy a survey into a NEW EXTRA survey (Oct 7, 2026). Always an extra, even
+ * when the source is the CME survey: the reserved slot holds one survey, and
+ * the case this exists for is content built in the CME slot by mistake. The
+ * copy starts closed (like a duplicated email template) and has no answers;
+ * answers are never copied.
+ */
+export async function duplicateSurvey(
+  scope: SurveyScope,
+  sourceId: string,
+  ev: EventSurveyColumns,
+): Promise<SurveyWriteResult> {
+  const source = await getSurvey(scope.eventId, sourceId, ev);
+  if (!source) {
+    return { ok: false, code: "SURVEY_NOT_FOUND", message: "Survey not found" };
+  }
+  const config = parseStoredSurveyConfig(source.config, { eventId: scope.eventId, surveyId: sourceId });
+  if (!config || config.length === 0) {
+    return { ok: false, code: "SURVEY_EMPTY", message: "This survey has no questions to copy." };
+  }
+  const name = `${source.name} (copy)`.slice(0, 120);
+  return createSurvey(
+    scope,
+    {
+      name,
+      config,
+      introHtml: source.introHtml,
+      thankYouHtml: source.thankYouHtml,
+      isActive: false,
+      responseMode: source.gatesCertificates ? "ONCE" : source.responseMode,
+    },
+    { duplicatedFrom: sourceId },
+  );
 }
 
 /**
