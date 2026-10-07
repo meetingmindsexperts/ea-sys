@@ -30,9 +30,11 @@ export interface RuntimeFlags {
   procurementEnabled: boolean;
   /** Can a custom role grant every key, not only the Budgets ones? (custom roles Phase 5) */
   customRolesEnabled: boolean;
+  /** The only domain this deployment may send email from (from EMAIL_FROM); null when unset. */
+  senderDomain: string | null;
 }
 
-const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false, customRolesEnabled: false };
+const DEFAULTS: RuntimeFlags = { hrEnabled: false, procurementEnabled: false, customRolesEnabled: false, senderDomain: null };
 
 const RuntimeFlagsContext = createContext<RuntimeFlags>(DEFAULTS);
 

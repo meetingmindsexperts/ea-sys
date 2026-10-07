@@ -106,6 +106,7 @@ import { Badge } from "@/components/ui/badge";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
+import { isAllowedSenderAddress } from "@/lib/sender-domain";
 import { toast } from "sonner";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -226,7 +227,8 @@ import {
 
 export default function EventSettingsPage() {
   const params = useParams();
-  const { procurementEnabled } = useRuntimeFlags();
+  // senderDomain: the one domain this deployment may send from (sender hint).
+  const { procurementEnabled, senderDomain } = useRuntimeFlags();
   const router = useRouter();
   const eventId = params.eventId as string;
   const canSeeBudgets = useCan("procurement.budgets.view") === "allowed";
@@ -2539,8 +2541,14 @@ export default function EventSettingsPage() {
                         emailFromAddress: e.target.value,
                       })
                     }
-                    placeholder="events@yourdomain.com"
+                    placeholder={senderDomain ? `events@${senderDomain}` : "events@yourdomain.com"}
+                    aria-describedby="emailFromAddress-hint"
                   />
+                  {brandingSettings.emailFromAddress && !isAllowedSenderAddress(brandingSettings.emailFromAddress, senderDomain) && (
+                    <p className="text-sm text-destructive" role="alert">
+                      Emails can only be sent from an @{senderDomain} address. Sends from this address will fail.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="emailFromName">Sender Name</Label>
@@ -2558,7 +2566,13 @@ export default function EventSettingsPage() {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                Override the default sender for all emails from this event. The email domain must be verified in your email provider (Brevo/SendGrid). Leave blank to use the system default.
+<span id="emailFromAddress-hint">
+                  Override the default sender for all emails from this event.{" "}
+                  {senderDomain
+                    ? <>The address must end in <strong>@{senderDomain}</strong>, the only domain verified for sending.</>
+                    : "The address's domain must be verified for sending."}{" "}
+                  Leave blank to use the system default.
+                </span>
               </p>
 
               <div className="space-y-2">
