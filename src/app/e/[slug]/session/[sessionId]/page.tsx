@@ -33,7 +33,7 @@ import { PanelistsCard, collectPanelists } from "@/components/webinar/panelists-
 import { EndOfWebinarSurvey } from "@/components/webinar/end-survey-dialog";
 import { isWebinarOver, webinarBackgroundStyle, webinarVideoLayout } from "@/lib/webinar-page-layout";
 import { EventBannerBand } from "@/components/public/event-banner";
-import { formatPersonName } from "@/lib/utils";
+import { cn, formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
   formatDateInTz,
@@ -608,14 +608,19 @@ export default function PublicSessionPage() {
           stretch it. Reading tabs (details, sponsors) keep a text width. */}
       <div
         className={
-          isWebinarEvent
-            ? "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6"
-            : "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6"
+          !isWebinarEvent
+            ? "mx-auto max-w-[1920px] space-y-6 px-4 py-6 lg:px-6"
+            : backgroundUrl
+              ? // An uploaded background shows in full (owner, Oct 7, 2026):
+                // no frosted panel over it; the cards keep their own white.
+                "mx-4 my-6 max-w-[1920px] space-y-6 px-4 py-6 lg:mx-6 lg:px-6 min-[1968px]:mx-auto"
+              : "mx-4 my-6 max-w-[1920px] space-y-6 rounded-2xl lg:mx-6 min-[1968px]:mx-auto bg-white/85 px-4 py-6 shadow-sm backdrop-blur-sm lg:px-6"
         }
       >
         {/* Session title + metadata; on a webinar the uploaded logo sits to
-            its left (owner, Oct 6, 2026). */}
-        <div className="flex items-center gap-4 sm:gap-6">
+            its left (owner, Oct 6, 2026). Over a background image it gets its
+            own white card, since the page panel no longer covers the image. */}
+        <div className={cn("flex items-center gap-4 sm:gap-6", backgroundUrl && "rounded-xl bg-white px-5 py-4 shadow-sm")}>
           {branding?.logoUrl && (
             // eslint-disable-next-line @next/next/no-img-element -- an uploaded image of any size (see EventBannerBand)
             <img
@@ -706,7 +711,14 @@ export default function PublicSessionPage() {
             isWebinarEvent
               ? // Webinar (owner, Oct 6, 2026): no tinted band behind the strip,
                 // and the card's own padding trimmed so the strip stays slim.
-                "sticky top-0 z-10 py-1 [&_[data-slot=card]]:py-0 [&_[data-slot=card-content]]:px-4 [&_[data-slot=card-content]]:py-2.5"
+                // Static, not sticky (owner, Oct 7, 2026): it scrolls away
+                // with the page instead of covering the video.
+                cn(
+                  "[&_[data-slot=card]]:py-0 [&_[data-slot=card-content]]:px-4 [&_[data-slot=card-content]]:py-2.5",
+                  // White under the card's translucent tint, so over a
+                  // background image the strip reads as it does on white.
+                  backgroundUrl ? "my-1 rounded-xl bg-white" : "py-1",
+                )
               : "sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm"
           }
         >
@@ -978,7 +990,8 @@ export default function PublicSessionPage() {
           </TabsContent>
 
           {/* Tab 2 — Session Details */}
-          <TabsContent value="details" className="max-w-5xl space-y-6">
+          {/* Reading tabs sit on a white card over a background image. */}
+          <TabsContent value="details" className={cn("max-w-5xl space-y-6", backgroundUrl && "rounded-xl bg-white p-5 shadow-sm")}>
             {session?.description && (
               <section>
                 <h2 className="text-lg font-semibold mb-2">About this session</h2>
@@ -1142,7 +1155,7 @@ export default function PublicSessionPage() {
           </TabsContent>
 
           {/* Tab 3 — Sponsors */}
-          <TabsContent value="sponsors" className="max-w-5xl">
+          <TabsContent value="sponsors" className={cn("max-w-5xl", backgroundUrl && "rounded-xl bg-white p-5 shadow-sm")}>
             <SponsorsTab sponsors={sponsors} />
           </TabsContent>
         </Tabs>
