@@ -787,7 +787,7 @@ export async function submitSurveyResponse(input: SubmitSurveyInput): Promise<Su
     // A double click: the unique index already holds this answer.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       apiLogger.info({ msg: "survey:submit-race-dedup", ...ctx });
-      await consumeToken(input.consumeTokenHash, ctx);
+      await consumeToken(consumeTokenHash, ctx);
       return { ok: true, alreadyCompleted: true, answeredCount: 0 };
     }
     throw err;

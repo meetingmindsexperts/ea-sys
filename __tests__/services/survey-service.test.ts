@@ -6,6 +6,7 @@
  * that is what the certificate worker sweeps to mint CME certificates.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
@@ -279,6 +280,17 @@ describe("Phase 4: once per day (Oct 7, 2026)", () => {
     });
     expect(res).toMatchObject({ ok: true, alreadyCompleted: true });
     expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
+  });
+
+  it("a double-click race on a daily survey never deletes the link (review of Phase 4, HIGH)", async () => {
+    mockDb.surveyResponse.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }),
+    );
+    const res = await submitSurveyResponse({
+      survey: DAILY, timezone: "Asia/Dubai", registration: REG, organizationId: "org1", rawAnswers: { q1: 4 }, ipHash: null, consumeTokenHash: "tok",
+    });
+    expect(res).toMatchObject({ ok: true, alreadyCompleted: true });
     expect(mockDb.verificationToken.delete).not.toHaveBeenCalled();
   });
 
