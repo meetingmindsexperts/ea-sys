@@ -354,7 +354,9 @@ export default function SettingsPage() {
           body: JSON.stringify({
             firstName: userFormData.firstName,
             lastName: userFormData.lastName,
-            role: userFormData.role,
+            // Only a real change: a retired role (WEBINARS) is not assignable,
+            // so re-sending it would refuse a plain rename of such an account.
+            ...(userFormData.role !== editingUser.role && { role: userFormData.role }),
           }),
         });
         if (res.ok) {
