@@ -29,7 +29,7 @@ import {
 } from "@/lib/abstract-limits";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FormSection, PageHeader } from "@/components/ui/typography";
+import { FormSection, PageHeader, SettingsCard } from "@/components/ui/typography";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandingImageField } from "@/components/events/branding-image-field";
@@ -1296,39 +1296,34 @@ export default function EventSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Notification Settings</CardTitle>
-              <CardDescription>
-                Which alerts reach the bell and your mobile app. Payments,
-                check-ins and anything flagged with a warning are always sent.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Rendered from NOTIFICATION_SETTING_KEYS so the panel and the
-                  server gate can never disagree about which switches exist. */}
-              {NOTIFICATION_SETTING_KEYS.map((key) => (
-                <div key={key} className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>{NOTIFICATION_SETTING_LABELS[key].label}</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {NOTIFICATION_SETTING_LABELS[key].description}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notificationSettings[key]}
-                    onCheckedChange={(checked) =>
-                      setNotificationSettings({
-                        ...notificationSettings,
-                        [key]: checked,
-                      })
-                    }
-                  />
+          <SettingsCard
+            title="Notification Settings"
+            description="Which alerts reach the bell and your mobile app. Payments, check-ins and anything flagged with a warning are always sent."
+            contentClassName="space-y-6"
+          >
+            {/* Rendered from NOTIFICATION_SETTING_KEYS so the panel and the
+                server gate can never disagree about which switches exist. */}
+            {NOTIFICATION_SETTING_KEYS.map((key) => (
+              <div key={key} className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>{NOTIFICATION_SETTING_LABELS[key].label}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {NOTIFICATION_SETTING_LABELS[key].description}
+                  </p>
                 </div>
-              ))}
+                <Switch
+                  checked={notificationSettings[key]}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      [key]: checked,
+                    })
+                  }
+                />
+              </div>
+            ))}
 
-            </CardContent>
-          </Card>
+          </SettingsCard>
 
           {/* One Save for the tab — see handleSaveTab. */}
           {canUpdate && (
@@ -1378,682 +1373,669 @@ export default function EventSettingsPage() {
             </Link>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Registration Settings</CardTitle>
-              <CardDescription>
-                Configure how attendees can register for your event
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Registration Open</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Allow new registrations for this event
-                  </p>
-                </div>
-                <Switch
-                  checked={registrationSettings.registrationOpen}
-                  onCheckedChange={(checked) =>
-                    setRegistrationSettings({
-                      ...registrationSettings,
-                      registrationOpen: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable Waitlist</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Allow attendees to join a waitlist when tickets are sold out
-                  </p>
-                </div>
-                <Switch
-                  checked={registrationSettings.waitlistEnabled}
-                  onCheckedChange={(checked) =>
-                    setRegistrationSettings({
-                      ...registrationSettings,
-                      waitlistEnabled: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Require Approval</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Manually approve each registration before confirming
-                  </p>
-                </div>
-                <Switch
-                  checked={registrationSettings.requireApproval}
-                  onCheckedChange={(checked) =>
-                    setRegistrationSettings({
-                      ...registrationSettings,
-                      requireApproval: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Show Remaining Tickets</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Show &quot;N seats left&quot; on the public registration form for
-                    types/tiers that have a seat limit set (Registration Types page)
-                  </p>
-                </div>
-                <Switch
-                  checked={registrationSettings.showRemainingTickets}
-                  onCheckedChange={(checked) =>
-                    setRegistrationSettings({
-                      ...registrationSettings,
-                      showRemainingTickets: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="maxAttendees">Maximum Attendees (0 = unlimited)</Label>
-                <Input
-                  id="maxAttendees"
-                  type="number"
-                  min="0"
-                  value={registrationSettings.maxAttendees}
-                  onChange={(e) =>
-                    setRegistrationSettings({
-                      ...registrationSettings,
-                      maxAttendees: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className="w-48"
-                />
+          <SettingsCard
+            title="Registration Settings"
+            description="Configure how attendees can register for your event"
+            contentClassName="space-y-6"
+          >
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Registration Open</Label>
                 <p className="text-sm text-muted-foreground">
-                  Event-wide cap on in-person attendees, across all registration
-                  types. Public sign-ups and single manual adds are blocked once
-                  reached; bulk imports proceed with a warning. Virtual attendees
-                  and faculty never count. Cannot be set below the current
-                  attendee count.
+                  Allow new registrations for this event
                 </p>
               </div>
+              <Switch
+                checked={registrationSettings.registrationOpen}
+                onCheckedChange={(checked) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    registrationOpen: checked,
+                  })
+                }
+              />
+            </div>
 
-              <div className="space-y-3 border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Group Registration</Label>
-                    <p className="text-sm text-muted-foreground">
-                      A company coordinator registers several people at once with
-                      one payer and one consolidated invoice. Link-only — copy
-                      the link below and send it to company reps (it is not
-                      shown on the public register page).
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Enable Waitlist</Label>
+                <p className="text-sm text-muted-foreground">
+                  Allow attendees to join a waitlist when tickets are sold out
+                </p>
+              </div>
+              <Switch
+                checked={registrationSettings.waitlistEnabled}
+                onCheckedChange={(checked) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    waitlistEnabled: checked,
+                  })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Require Approval</Label>
+                <p className="text-sm text-muted-foreground">
+                  Manually approve each registration before confirming
+                </p>
+              </div>
+              <Switch
+                checked={registrationSettings.requireApproval}
+                onCheckedChange={(checked) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    requireApproval: checked,
+                  })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Show Remaining Tickets</Label>
+                <p className="text-sm text-muted-foreground">
+                  Show &quot;N seats left&quot; on the public registration form for
+                  types/tiers that have a seat limit set (Registration Types page)
+                </p>
+              </div>
+              <Switch
+                checked={registrationSettings.showRemainingTickets}
+                onCheckedChange={(checked) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    showRemainingTickets: checked,
+                  })
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="maxAttendees">Maximum Attendees (0 = unlimited)</Label>
+              <Input
+                id="maxAttendees"
+                type="number"
+                min="0"
+                value={registrationSettings.maxAttendees}
+                onChange={(e) =>
+                  setRegistrationSettings({
+                    ...registrationSettings,
+                    maxAttendees: parseInt(e.target.value) || 0,
+                  })
+                }
+                className="w-48"
+              />
+              <p className="text-sm text-muted-foreground">
+                Event-wide cap on in-person attendees, across all registration
+                types. Public sign-ups and single manual adds are blocked once
+                reached; bulk imports proceed with a warning. Virtual attendees
+                and faculty never count. Cannot be set below the current
+                attendee count.
+              </p>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Group Registration</Label>
+                  <p className="text-sm text-muted-foreground">
+                    A company coordinator registers several people at once with
+                    one payer and one consolidated invoice. Link-only — copy
+                    the link below and send it to company reps (it is not
+                    shown on the public register page).
+                  </p>
+                </div>
+                <Switch
+                  checked={groupSettings.enabled}
+                  onCheckedChange={(checked) =>
+                    setGroupSettings({ ...groupSettings, enabled: checked })
+                  }
+                />
+              </div>
+              {groupSettings.enabled && (
+                <div className="space-y-3">
+                  <div className="flex gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="groupMinMembers">Min members</Label>
+                      <Input
+                        id="groupMinMembers"
+                        type="number"
+                        min="1"
+                        max="50"
+                        className="w-28"
+                        value={groupSettings.minMembers}
+                        onChange={(e) =>
+                          setGroupSettings({
+                            ...groupSettings,
+                            minMembers: parseInt(e.target.value) || 1,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="groupMaxMembers">Max members</Label>
+                      <Input
+                        id="groupMaxMembers"
+                        type="number"
+                        min="1"
+                        max="50"
+                        className="w-28"
+                        value={groupSettings.maxMembers}
+                        onChange={(e) =>
+                          setGroupSettings({
+                            ...groupSettings,
+                            maxMembers: parseInt(e.target.value) || 1,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const url = `${window.location.origin}/e/${generalFormData.slug || eventId}/group/register`;
+                        navigator.clipboard
+                          .writeText(url)
+                          .then(() => toast.success("Group registration link copied"))
+                          .catch(() => toast.error("Couldn't copy — copy it manually: " + url));
+                      }}
+                    >
+                      Copy group registration link
+                    </Button>
+                    <span className="text-xs text-muted-foreground truncate">
+                      /e/{generalFormData.slug || "your-event-slug"}/group/register
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Hard ceiling: 50 members per group. Prices use whichever
+                    pricing tier is on sale at submission. Save settings to
+                    apply changes.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 p-4">
+              <div className="space-y-1">
+                <Label htmlFor="requiresDtcmBarcode" className="text-sm font-medium">
+                  Requires DTCM barcode (Dubai events)
+                </Label>
+                <p className="text-xs text-muted-foreground max-w-prose">
+                  Enable for Dubai (DET/DTCM) events only. Surfaces the per-registration
+                  DTCM barcode field so the externally-issued codes (bulk-generated by DTCM
+                  1&ndash;2 days before the event) can be imported via CSV. Does not apply to
+                  Abu Dhabi, Fujairah, Al Ain, or non-UAE events. The entry/badge barcode is
+                  always the system barcode &mdash; DTCM is a separate compliance code.
+                </p>
+              </div>
+              <Switch
+                id="requiresDtcmBarcode"
+                checked={generalFormData.requiresDtcmBarcode}
+                onCheckedChange={(checked) =>
+                  setGeneralFormData({
+                    ...generalFormData,
+                    requiresDtcmBarcode: checked,
+                  })
+                }
+              />
+            </div>
+
+          </SettingsCard>
+
+          <SettingsCard
+            title={<>Tax &amp; Payment</>}
+            description="Applied to quotes and invoices for this event."
+          >
+            <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                    <Input
+                      id="taxRate"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={generalFormData.taxRate}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, taxRate: e.target.value })
+                      }
+                      placeholder="e.g. 5"
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty for no tax. UAE: 5%, KSA: 15%
                     </p>
                   </div>
-                  <Switch
-                    checked={groupSettings.enabled}
-                    onCheckedChange={(checked) =>
-                      setGroupSettings({ ...groupSettings, enabled: checked })
+                  <div className="space-y-2">
+                    <Label htmlFor="taxLabel">Tax Label</Label>
+                    <Input
+                      id="taxLabel"
+                      value={generalFormData.taxLabel}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, taxLabel: e.target.value })
+                      }
+                      placeholder="VAT"
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Label shown on invoices and quotes (e.g. VAT, GST, Tax)
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bankDetails">Bank Transfer Details</Label>
+                  <textarea
+                    id="bankDetails"
+                    value={generalFormData.bankDetails}
+                    onChange={(e) =>
+                      setGeneralFormData({ ...generalFormData, bankDetails: e.target.value })
+                    }
+                    placeholder="Bank Name: ...&#10;Account Name: ...&#10;IBAN: ...&#10;SWIFT: ..."
+                    className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Shown on quotes for bank transfer payments. Leave empty to hide.
+                  </p>
+                </div>
+              </div>
+          </SettingsCard>
+
+          <SettingsCard
+            title="Agenda"
+            description="Controls the public agenda page for this event."
+          >
+
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Publish Agenda</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Make the event agenda visible on the public agenda page
+                  </p>
+                </div>
+                <Switch
+                  checked={agendaSettings.agendaPublished}
+                  onCheckedChange={(checked) =>
+                    setAgendaSettings({
+                      ...agendaSettings,
+                      agendaPublished: checked,
+                    })
+                  }
+                />
+              </div>
+          </SettingsCard>
+
+          {/* Webinars print no badges (no entry barcode, see entry-barcode-policy). */}
+          {!isWebinar(event) && (
+          <SettingsCard
+            title="Badge"
+            description="Size and position the printed badge on the A4 sheet, and choose what prints on it. Using pre-printed stock? Turn the border off and switch off anything already on the card."
+          >
+
+              <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
+                <div className="space-y-2">
+                  <Label htmlFor="badgeWidthMm">Width (mm)</Label>
+                  <Input
+                    id="badgeWidthMm"
+                    type="number"
+                    step="0.1"
+                    value={badgeLayout.widthMm}
+                    onChange={(e) =>
+                      setBadgeLayout({ ...badgeLayout, widthMm: e.target.value })
                     }
                   />
                 </div>
-                {groupSettings.enabled && (
-                  <div className="space-y-3">
-                    <div className="flex gap-4">
-                      <div className="space-y-1">
-                        <Label htmlFor="groupMinMembers">Min members</Label>
-                        <Input
-                          id="groupMinMembers"
-                          type="number"
-                          min="1"
-                          max="50"
-                          className="w-28"
-                          value={groupSettings.minMembers}
-                          onChange={(e) =>
-                            setGroupSettings({
-                              ...groupSettings,
-                              minMembers: parseInt(e.target.value) || 1,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="groupMaxMembers">Max members</Label>
-                        <Input
-                          id="groupMaxMembers"
-                          type="number"
-                          min="1"
-                          max="50"
-                          className="w-28"
-                          value={groupSettings.maxMembers}
-                          onChange={(e) =>
-                            setGroupSettings({
-                              ...groupSettings,
-                              maxMembers: parseInt(e.target.value) || 1,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const url = `${window.location.origin}/e/${generalFormData.slug || eventId}/group/register`;
-                          navigator.clipboard
-                            .writeText(url)
-                            .then(() => toast.success("Group registration link copied"))
-                            .catch(() => toast.error("Couldn't copy — copy it manually: " + url));
-                        }}
-                      >
-                        Copy group registration link
-                      </Button>
-                      <span className="text-xs text-muted-foreground truncate">
-                        /e/{generalFormData.slug || "your-event-slug"}/group/register
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Hard ceiling: 50 members per group. Prices use whichever
-                      pricing tier is on sale at submission. Save settings to
-                      apply changes.
-                    </p>
+                <div className="space-y-2">
+                  <Label htmlFor="badgeHeightMm">Height (mm)</Label>
+                  <Input
+                    id="badgeHeightMm"
+                    type="number"
+                    step="0.1"
+                    value={badgeLayout.heightMm}
+                    onChange={(e) =>
+                      setBadgeLayout({ ...badgeLayout, heightMm: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-2">
+                {BADGE_SIZE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setBadgeLayout({
+                        ...badgeLayout,
+                        widthMm: String(preset.widthMm),
+                        heightMm: String(preset.heightMm),
+                      })
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="mt-6 space-y-2">
+                <Label>Align on the A4 page</Label>
+                <div className="flex gap-2">
+                  {(["left", "center", "right"] as const).map((a) => (
+                    <Button
+                      key={a}
+                      type="button"
+                      variant={badgeLayout.align === a ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setBadgeLayout({ ...badgeLayout, align: a })}
+                    >
+                      {a === "center" ? "Centre" : a === "left" ? "Left" : "Right"}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Left and right sit flush to the paper edge. Most printers
+                  cannot print within about 5mm of the edge, so use the
+                  nudge below to pull the badge back in.
+                </p>
+              </div>
+
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
+                <div className="space-y-2">
+                  <Label htmlFor="badgeOffsetX">Nudge horizontally (points)</Label>
+                  <Input
+                    id="badgeOffsetX"
+                    type="number"
+                    value={badgeLayout.offsetXPt}
+                    onChange={(e) =>
+                      setBadgeLayout({ ...badgeLayout, offsetXPt: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="badgeOffsetY">Nudge vertically (points)</Label>
+                  <Input
+                    id="badgeOffsetY"
+                    type="number"
+                    value={badgeLayout.offsetYPt}
+                    onChange={(e) =>
+                      setBadgeLayout({ ...badgeLayout, offsetYPt: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                72 points = 1 inch. Positive moves right and down. Use these
+                to pull the badge in from the paper edge, or to line it up
+                with pre-cut stock.
+              </p>
+
+              <div className="mt-6 space-y-3">
+                <Label>What prints on the badge</Label>
+                <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.border}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, border: v },
+                        })
+                      }
+                    />
+                    Cutting border
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.name}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, name: v },
+                        })
+                      }
+                    />
+                    Name
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.organization}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, organization: v },
+                        })
+                      }
+                    />
+                    Organisation
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.country}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, country: v },
+                        })
+                      }
+                    />
+                    Country
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.barcode}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, barcode: v },
+                        })
+                      }
+                    />
+                    Entry barcode
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.registrationNumber}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, registrationNumber: v },
+                        })
+                      }
+                    />
+                    Registration number
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={badgeLayout.fields.badgeType}
+                      onCheckedChange={(v) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fields: { ...badgeLayout.fields, badgeType: v },
+                        })
+                      }
+                    />
+                    Role / badge type
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Organisation and country print on one line under the name,
+                  separated by a dot. Either one on its own prints on its own.
+                </p>
+              </div>
+
+              {/* Type sizes. Organiser-controlled rather than auto-fitted:
+                  a long name can be one big truncated line or two smaller
+                  complete ones, and only the person holding the stock knows
+                  which they want. The name can never overflow into the line
+                  below whichever they pick — see badgeNameBandH. */}
+              <div className="mt-6 space-y-3">
+                <Label>Type sizes (points)</Label>
+                <div className="grid gap-4 sm:grid-cols-3 max-w-2xl">
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeFontName" className="text-xs font-normal text-muted-foreground">
+                      Name
+                    </Label>
+                    <Input
+                      id="badgeFontName"
+                      type="number"
+                      min={6}
+                      max={48}
+                      value={badgeLayout.fontSizes.name}
+                      onChange={(e) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fontSizes: { ...badgeLayout.fontSizes, name: e.target.value },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeFontDetail" className="text-xs font-normal text-muted-foreground">
+                      Organisation / country
+                    </Label>
+                    <Input
+                      id="badgeFontDetail"
+                      type="number"
+                      min={6}
+                      max={48}
+                      value={badgeLayout.fontSizes.detail}
+                      onChange={(e) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fontSizes: { ...badgeLayout.fontSizes, detail: e.target.value },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="badgeFontRole" className="text-xs font-normal text-muted-foreground">
+                      Role / badge type
+                    </Label>
+                    <Input
+                      id="badgeFontRole"
+                      type="number"
+                      min={6}
+                      max={48}
+                      value={badgeLayout.fontSizes.badgeType}
+                      onChange={(e) =>
+                        setBadgeLayout({
+                          ...badgeLayout,
+                          fontSizes: { ...badgeLayout.fontSizes, badgeType: e.target.value },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A long name wraps to two lines if there is room, and is
+                  shortened with an ellipsis if there is not. On a standard
+                  4x3in badge that is about 16pt or below, so turn the name
+                  size down to keep long names whole. The registration number
+                  prints small above the name and is not resizable.
+                </p>
+              </div>
+
+              {/* Barcode vs compliance QR placement. Only bites on a
+                  DTCM-flagged event, because the QR is the only one on the
+                  badge — the copy below says so rather than hiding the
+                  control, so turning DTCM on later does not send the
+                  organiser back here to discover a setting they never saw. */}
+              <div className="mt-6 space-y-3">
+                <Label>Barcode and compliance QR</Label>
+                <div className="flex gap-2">
+                  {([
+                    { value: "stacked" as const, label: "One below the other" },
+                    { value: "side-by-side" as const, label: "Side by side" },
+                  ]).map((opt) => (
+                    <Button
+                      key={opt.value}
+                      type="button"
+                      variant={badgeLayout.barcodeArrangement === opt.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() =>
+                        setBadgeLayout({ ...badgeLayout, barcodeArrangement: opt.value })
+                      }
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {generalFormData.requiresDtcmBarcode
+                    ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
+                    : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
+                </p>
+                {/* Desk staff scan the BADGE for attendance, so the barcode
+                    is the credential and an unreadable one is a queue at the
+                    door. Shrinking the badge shrinks the bars with it, and
+                    nothing used to say so. A warning, never a block — an
+                    organiser who test-prints and finds it scans on their
+                    hardware knows more than our constant does. */}
+                {/* `hasDtcm` is the EVENT's flag, so the warning predicts the
+                    width a real badge gets. Passing it unconditionally would
+                    cry wolf on an event that prints no QR at all, and a
+                    warning that fires when it should not is one an organiser
+                    learns to scroll past. */}
+                {barcodeTooNarrow(previewBadgeLayout, generalFormData.requiresDtcmBarcode) && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                    <span className="font-medium">
+                      This badge may be too narrow to scan.
+                    </span>{" "}
+                    The barcode gets about{" "}
+                    {Math.round(
+                      ptToMm(
+                        barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode),
+                      ),
+                    )}
+                    mm here, and desk scanners want roughly 60mm or more.{" "}
+                    {generalFormData.requiresDtcmBarcode &&
+                    badgeLayout.barcodeArrangement === "side-by-side"
+                      ? "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge."
+                      : "Widen the badge, or print one and test it on your scanner before the event."}
                   </div>
                 )}
               </div>
 
-              <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 p-4">
-                <div className="space-y-1">
-                  <Label htmlFor="requiresDtcmBarcode" className="text-sm font-medium">
-                    Requires DTCM barcode (Dubai events)
-                  </Label>
-                  <p className="text-xs text-muted-foreground max-w-prose">
-                    Enable for Dubai (DET/DTCM) events only. Surfaces the per-registration
-                    DTCM barcode field so the externally-issued codes (bulk-generated by DTCM
-                    1&ndash;2 days before the event) can be imported via CSV. Does not apply to
-                    Abu Dhabi, Fujairah, Al Ain, or non-UAE events. The entry/badge barcode is
-                    always the system barcode &mdash; DTCM is a separate compliance code.
-                  </p>
-                </div>
-                <Switch
-                  id="requiresDtcmBarcode"
-                  checked={generalFormData.requiresDtcmBarcode}
-                  onCheckedChange={(checked) =>
-                    setGeneralFormData({
-                      ...generalFormData,
-                      requiresDtcmBarcode: checked,
-                    })
-                  }
-                />
-              </div>
-
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Tax &amp; Payment</CardTitle>
-              <CardDescription>Applied to quotes and invoices for this event.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="taxRate">Tax Rate (%)</Label>
-                      <Input
-                        id="taxRate"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        value={generalFormData.taxRate}
-                        onChange={(e) =>
-                          setGeneralFormData({ ...generalFormData, taxRate: e.target.value })
-                        }
-                        placeholder="e.g. 5"
-                        className="w-full"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Leave empty for no tax. UAE: 5%, KSA: 15%
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="taxLabel">Tax Label</Label>
-                      <Input
-                        id="taxLabel"
-                        value={generalFormData.taxLabel}
-                        onChange={(e) =>
-                          setGeneralFormData({ ...generalFormData, taxLabel: e.target.value })
-                        }
-                        placeholder="VAT"
-                        className="w-full"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Label shown on invoices and quotes (e.g. VAT, GST, Tax)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bankDetails">Bank Transfer Details</Label>
-                    <textarea
-                      id="bankDetails"
-                      value={generalFormData.bankDetails}
-                      onChange={(e) =>
-                        setGeneralFormData({ ...generalFormData, bankDetails: e.target.value })
-                      }
-                      placeholder="Bank Name: ...&#10;Account Name: ...&#10;IBAN: ...&#10;SWIFT: ..."
-                      className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Shown on quotes for bank transfer payments. Leave empty to hide.
-                    </p>
-                  </div>
-                </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Agenda</CardTitle>
-              <CardDescription>Controls the public agenda page for this event.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Publish Agenda</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Make the event agenda visible on the public agenda page
-                    </p>
-                  </div>
+              <div className="mt-6 space-y-3">
+                <Label>Self-service kiosk</Label>
+                <label className="flex items-start gap-3 text-sm">
                   <Switch
-                    checked={agendaSettings.agendaPublished}
-                    onCheckedChange={(checked) =>
-                      setAgendaSettings({
-                        ...agendaSettings,
-                        agendaPublished: checked,
-                      })
+                    checked={badgeLayout.allowKioskReprint}
+                    onCheckedChange={(v) =>
+                      setBadgeLayout({ ...badgeLayout, allowKioskReprint: v })
                     }
                   />
-                </div>
-            </CardContent>
-          </Card>
-
-          {/* Webinars print no badges (no entry barcode, see entry-barcode-policy). */}
-          {!isWebinar(event) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Badge</CardTitle>
-              <CardDescription>Size and position the printed badge on the A4 sheet, and choose what prints on it. Using pre-printed stock? Turn the border off and switch off anything already on the card.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-
-                <div className="grid gap-4 sm:grid-cols-2 max-w-2xl">
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeWidthMm">Width (mm)</Label>
-                    <Input
-                      id="badgeWidthMm"
-                      type="number"
-                      step="0.1"
-                      value={badgeLayout.widthMm}
-                      onChange={(e) =>
-                        setBadgeLayout({ ...badgeLayout, widthMm: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeHeightMm">Height (mm)</Label>
-                    <Input
-                      id="badgeHeightMm"
-                      type="number"
-                      step="0.1"
-                      value={badgeLayout.heightMm}
-                      onChange={(e) =>
-                        setBadgeLayout({ ...badgeLayout, heightMm: e.target.value })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {BADGE_SIZE_PRESETS.map((preset) => (
-                    <Button
-                      key={preset.label}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setBadgeLayout({
-                          ...badgeLayout,
-                          widthMm: String(preset.widthMm),
-                          heightMm: String(preset.heightMm),
-                        })
-                      }
-                    >
-                      {preset.label}
-                    </Button>
-                  ))}
-                </div>
-
-                <div className="mt-6 space-y-2">
-                  <Label>Align on the A4 page</Label>
-                  <div className="flex gap-2">
-                    {(["left", "center", "right"] as const).map((a) => (
-                      <Button
-                        key={a}
-                        type="button"
-                        variant={badgeLayout.align === a ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setBadgeLayout({ ...badgeLayout, align: a })}
-                      >
-                        {a === "center" ? "Centre" : a === "left" ? "Left" : "Right"}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Left and right sit flush to the paper edge. Most printers
-                    cannot print within about 5mm of the edge, so use the
-                    nudge below to pull the badge back in.
-                  </p>
-                </div>
-
-                <div className="mt-6 grid gap-4 sm:grid-cols-2 max-w-2xl">
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeOffsetX">Nudge horizontally (points)</Label>
-                    <Input
-                      id="badgeOffsetX"
-                      type="number"
-                      value={badgeLayout.offsetXPt}
-                      onChange={(e) =>
-                        setBadgeLayout({ ...badgeLayout, offsetXPt: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="badgeOffsetY">Nudge vertically (points)</Label>
-                    <Input
-                      id="badgeOffsetY"
-                      type="number"
-                      value={badgeLayout.offsetYPt}
-                      onChange={(e) =>
-                        setBadgeLayout({ ...badgeLayout, offsetYPt: e.target.value })
-                      }
-                    />
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  72 points = 1 inch. Positive moves right and down. Use these
-                  to pull the badge in from the paper edge, or to line it up
-                  with pre-cut stock.
-                </p>
-
-                <div className="mt-6 space-y-3">
-                  <Label>What prints on the badge</Label>
-                  <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.border}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, border: v },
-                          })
-                        }
-                      />
-                      Cutting border
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.name}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, name: v },
-                          })
-                        }
-                      />
-                      Name
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.organization}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, organization: v },
-                          })
-                        }
-                      />
-                      Organisation
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.country}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, country: v },
-                          })
-                        }
-                      />
-                      Country
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.barcode}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, barcode: v },
-                          })
-                        }
-                      />
-                      Entry barcode
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.registrationNumber}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, registrationNumber: v },
-                          })
-                        }
-                      />
-                      Registration number
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={badgeLayout.fields.badgeType}
-                        onCheckedChange={(v) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fields: { ...badgeLayout.fields, badgeType: v },
-                          })
-                        }
-                      />
-                      Role / badge type
-                    </label>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Organisation and country print on one line under the name,
-                    separated by a dot. Either one on its own prints on its own.
-                  </p>
-                </div>
-
-                {/* Type sizes. Organiser-controlled rather than auto-fitted:
-                    a long name can be one big truncated line or two smaller
-                    complete ones, and only the person holding the stock knows
-                    which they want. The name can never overflow into the line
-                    below whichever they pick — see badgeNameBandH. */}
-                <div className="mt-6 space-y-3">
-                  <Label>Type sizes (points)</Label>
-                  <div className="grid gap-4 sm:grid-cols-3 max-w-2xl">
-                    <div className="space-y-2">
-                      <Label htmlFor="badgeFontName" className="text-xs font-normal text-muted-foreground">
-                        Name
-                      </Label>
-                      <Input
-                        id="badgeFontName"
-                        type="number"
-                        min={6}
-                        max={48}
-                        value={badgeLayout.fontSizes.name}
-                        onChange={(e) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fontSizes: { ...badgeLayout.fontSizes, name: e.target.value },
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="badgeFontDetail" className="text-xs font-normal text-muted-foreground">
-                        Organisation / country
-                      </Label>
-                      <Input
-                        id="badgeFontDetail"
-                        type="number"
-                        min={6}
-                        max={48}
-                        value={badgeLayout.fontSizes.detail}
-                        onChange={(e) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fontSizes: { ...badgeLayout.fontSizes, detail: e.target.value },
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="badgeFontRole" className="text-xs font-normal text-muted-foreground">
-                        Role / badge type
-                      </Label>
-                      <Input
-                        id="badgeFontRole"
-                        type="number"
-                        min={6}
-                        max={48}
-                        value={badgeLayout.fontSizes.badgeType}
-                        onChange={(e) =>
-                          setBadgeLayout({
-                            ...badgeLayout,
-                            fontSizes: { ...badgeLayout.fontSizes, badgeType: e.target.value },
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    A long name wraps to two lines if there is room, and is
-                    shortened with an ellipsis if there is not. On a standard
-                    4x3in badge that is about 16pt or below, so turn the name
-                    size down to keep long names whole. The registration number
-                    prints small above the name and is not resizable.
-                  </p>
-                </div>
-
-                {/* Barcode vs compliance QR placement. Only bites on a
-                    DTCM-flagged event, because the QR is the only one on the
-                    badge — the copy below says so rather than hiding the
-                    control, so turning DTCM on later does not send the
-                    organiser back here to discover a setting they never saw. */}
-                <div className="mt-6 space-y-3">
-                  <Label>Barcode and compliance QR</Label>
-                  <div className="flex gap-2">
-                    {([
-                      { value: "stacked" as const, label: "One below the other" },
-                      { value: "side-by-side" as const, label: "Side by side" },
-                    ]).map((opt) => (
-                      <Button
-                        key={opt.value}
-                        type="button"
-                        variant={badgeLayout.barcodeArrangement === opt.value ? "default" : "outline"}
-                        size="sm"
-                        onClick={() =>
-                          setBadgeLayout({ ...badgeLayout, barcodeArrangement: opt.value })
-                        }
-                      >
-                        {opt.label}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {generalFormData.requiresDtcmBarcode
-                      ? "Side by side puts both symbols on one row and frees the band underneath. It costs the entry barcode about 17mm of width, so a badge that was comfortably scannable stacked may not be."
-                      : "This event does not collect DTCM compliance barcodes, so only the entry barcode prints and this setting changes nothing. It applies if you turn DTCM barcodes on."}
-                  </p>
-                  {/* Desk staff scan the BADGE for attendance, so the barcode
-                      is the credential and an unreadable one is a queue at the
-                      door. Shrinking the badge shrinks the bars with it, and
-                      nothing used to say so. A warning, never a block — an
-                      organiser who test-prints and finds it scans on their
-                      hardware knows more than our constant does. */}
-                  {/* `hasDtcm` is the EVENT's flag, so the warning predicts the
-                      width a real badge gets. Passing it unconditionally would
-                      cry wolf on an event that prints no QR at all, and a
-                      warning that fires when it should not is one an organiser
-                      learns to scroll past. */}
-                  {barcodeTooNarrow(previewBadgeLayout, generalFormData.requiresDtcmBarcode) && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                      <span className="font-medium">
-                        This badge may be too narrow to scan.
-                      </span>{" "}
-                      The barcode gets about{" "}
-                      {Math.round(
-                        ptToMm(
-                          barcodeWidthPt(previewBadgeLayout, generalFormData.requiresDtcmBarcode),
-                        ),
-                      )}
-                      mm here, and desk scanners want roughly 60mm or more.{" "}
-                      {generalFormData.requiresDtcmBarcode &&
-                      badgeLayout.barcodeArrangement === "side-by-side"
-                        ? "Putting the compliance QR beside it is what costs the width — move it back below, or widen the badge."
-                        : "Widen the badge, or print one and test it on your scanner before the event."}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-6 space-y-3">
-                  <Label>Self-service kiosk</Label>
-                  <label className="flex items-start gap-3 text-sm">
-                    <Switch
-                      checked={badgeLayout.allowKioskReprint}
-                      onCheckedChange={(v) =>
-                        setBadgeLayout({ ...badgeLayout, allowKioskReprint: v })
-                      }
-                    />
-                    <span>
-                      Let attendees reprint their own badge at the kiosk
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        Off by default: an attendee prints once, and a second copy is a
-                        staffed action at the desk. Switch on for a lost-badge
-                        self-service &mdash; scanning an already-checked-in badge reprints
-                        it, capped at 3 per person per hour.
-                      </span>
+                  <span>
+                    Let attendees reprint their own badge at the kiosk
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Off by default: an attendee prints once, and a second copy is a
+                      staffed action at the desk. Switch on for a lost-badge
+                      self-service &mdash; scanning an already-checked-in badge reprints
+                      it, capped at 3 per person per hour.
                     </span>
-                  </label>
-                </div>
+                  </span>
+                </label>
+              </div>
 
-                <div className="mt-6">
-                  <Button type="button" variant="outline" size="sm" asChild>
-                    <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
-                      Preview one badge
-                    </a>
-                  </Button>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Opens a sample badge using the values above, before you
-                    save. Print it on your stock to check the alignment.
-                  </p>
-                </div>
-            </CardContent>
-          </Card>
+              <div className="mt-6">
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <a href={badgePreviewUrl()} target="_blank" rel="noopener noreferrer">
+                    Preview one badge
+                  </a>
+                </Button>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Opens a sample badge using the values above, before you
+                  save. Print it on your stock to check the alignment.
+                </p>
+              </div>
+          </SettingsCard>
           )}
 
           {/* ONE Save for the tab. It used to carry two: the first you met
@@ -2079,350 +2061,340 @@ export default function EventSettingsPage() {
             tabs - so no single screen answered "how is abstract submission
             configured for this event?". */}
         <TabsContent value="abstracts" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Submissions</CardTitle>
-              <CardDescription>
-                Control who may submit, when the windows close, and the limits applied
-                to each submission.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <h3 className="text-base font-semibold mb-4">Abstract Submissions</h3>
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Allow Abstract Submissions</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Allow speakers to submit abstracts for consideration
-                      </p>
-                    </div>
-                    <Switch
-                      checked={abstractSettings.allowAbstractSubmissions}
-                      onCheckedChange={(checked) =>
-                        setAbstractSettings({
-                          ...abstractSettings,
-                          allowAbstractSubmissions: checked,
-                        })
-                      }
-                    />
-                  </div>
-
-                  {abstractSettings.allowAbstractSubmissions && (
-                    <div className="space-y-2">
-                      <Label htmlFor="abstractDeadline">
-                        Abstract Submission Deadline{" "}
-                        <span className="font-normal text-muted-foreground">
-                          (event time, {tzLabel(new Date(), eventTimezone)})
-                        </span>
-                      </Label>
-                      <Input
-                        id="abstractDeadline"
-                        type="datetime-local"
-                        value={abstractSettings.abstractDeadline}
-                        onChange={(e) =>
-                          setAbstractSettings({
-                            ...abstractSettings,
-                            abstractDeadline: e.target.value,
-                          })
-                        }
-                        className="w-72"
-                      />
-                    </div>
-                  )}
-
-                  {abstractSettings.allowAbstractSubmissions && (
-                    <div className="space-y-4 pt-2">
-                      <div>
-                        <h4 className="text-sm font-medium">Submission limits</h4>
-                        <p className="text-sm text-muted-foreground">
-                          Applied to new submissions. Lowering a limit never invalidates
-                          abstracts that already exist; they stay editable and can be
-                          shortened, just not extended.
-                        </p>
-                      </div>
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="maxTitleWords">Title word limit</Label>
-                          <Input
-                            id="maxTitleWords"
-                            type="number"
-                            min={1}
-                            max={TITLE_WORDS_CEILING}
-                            value={abstractLimits.maxTitleWords}
-                            onChange={(e) =>
-                              setAbstractLimits({ ...abstractLimits, maxTitleWords: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="maxContentWords">Abstract word limit</Label>
-                          <Input
-                            id="maxContentWords"
-                            type="number"
-                            min={1}
-                            max={CONTENT_WORDS_CEILING}
-                            value={abstractLimits.maxContentWords}
-                            onChange={(e) =>
-                              setAbstractLimits({ ...abstractLimits, maxContentWords: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="maxCoAuthors">Co-authors per abstract</Label>
-                          <Input
-                            id="maxCoAuthors"
-                            type="number"
-                            min={1}
-                            max={CO_AUTHORS_CEILING}
-                            value={abstractLimits.maxCoAuthors}
-                            onChange={(e) =>
-                              setAbstractLimits({ ...abstractLimits, maxCoAuthors: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="maxAbstractsPerSubmitter">Abstracts per person</Label>
-                          <Input
-                            id="maxAbstractsPerSubmitter"
-                            type="number"
-                            min={1}
-                            max={ABSTRACTS_PER_SUBMITTER_CEILING}
-                            placeholder="Unlimited"
-                            value={abstractLimits.maxAbstractsPerSubmitter}
-                            onChange={(e) =>
-                              setAbstractLimits({
-                                ...abstractLimits,
-                                maxAbstractsPerSubmitter: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5 pr-6">
-                          <Label>Ask submitters to pay at submission</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Off by default. Submitters still receive their quote either way, so
-                            they know the amount; this only decides whether the confirmation
-                            invites them to pay straight away. They can always pay later from
-                            their registration portal.
-                          </p>
-                        </div>
-                        <Switch
-                          checked={presenterPayNow}
-                          onCheckedChange={(checked) => {
-                            // Turning it ON is the consequential direction, so it
-                            // is confirmed. Turning it OFF just stops asking for
-                            // money and needs no ceremony.
-                            if (checked) setConfirmPayNowOpen(true);
-                            else setPresenterPayNow(false);
-                          }}
-                        />
-                      </div>
-
-                      <AlertDialog open={confirmPayNowOpen} onOpenChange={setConfirmPayNowOpen}>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Ask every submitter to pay at submission?</AlertDialogTitle>
-                            <AlertDialogDescription asChild>
-                              <div className="space-y-3 text-sm">
-                                <p>
-                                  Every future abstract submitter will get a Pay Now link with
-                                  their confirmation, before you have reviewed their abstract.
-                                </p>
-                                <p>
-                                  Most conferences comp or discount the majority of presenters
-                                  once abstracts are accepted. Anyone who pays and is later
-                                  comped has to be refunded, which needs a credit note.
-                                </p>
-                                <p>
-                                  Leaving this off does not stop anyone paying. They still get
-                                  the quote, and they can pay whenever they like from their
-                                  registration portal.
-                                </p>
-                              </div>
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Keep it off</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => setPresenterPayNow(true)}>
-                              Turn on Pay Now
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-
-                      <p className="text-sm text-muted-foreground">
-                        <strong>Abstracts per person</strong> counts only what is in the review
-                        pool: drafts are free, and a withdrawn or rejected abstract returns the
-                        slot. Leave it empty for no limit. Your team can still add abstracts on
-                        someone&apos;s behalf past the limit.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t pt-6">
-                <h3 className="text-base font-semibold mb-4">Session Proposals</h3>
-                <div className="space-y-2">
-                  <Label htmlFor="sessionProposalDeadline">
-                    Session Proposal Deadline{" "}
-                    <span className="font-normal text-muted-foreground">
-                      (event time, {tzLabel(new Date(), eventTimezone)})
-                    </span>
-                  </Label>
-                  <Input
-                    id="sessionProposalDeadline"
-                    type="datetime-local"
-                    value={sessionProposalDeadline}
-                    // "now" in the EVENT's timezone. The value is event-local,
-                    // so a browser-local min would disagree with it and reject
-                    // genuinely-future deadlines.
-                    min={localDateTimeInTz(new Date(), eventTimezone)}
-                    onChange={(e) => setSessionProposalDeadline(e.target.value)}
-                    className="w-72"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Proposal sign-ups and submissions close automatically at this time. Leave
-                    empty for no deadline — you can extend it any time (past dates are not
-                    accepted). Your team can still add proposals after it closes.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Travel Grant</CardTitle>
-              <CardDescription>
-                Offer a travel grant to abstract authors based outside the countries you
-                pick below &mdash; usually the one your venue is in. When on, a personal
-                consent link rides inside the submission-confirmation email of every author
-                recorded elsewhere. Authors in those countries receive nothing extra.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable Travel Grant</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Applies to abstracts submitted from now on. Turn this on{" "}
-                    <strong>before</strong> your call for abstracts opens, so every author is
-                    covered automatically.
-                  </p>
-                </div>
-                <Switch checked={travelGrantEnabled} onCheckedChange={setTravelGrantEnabled} />
-              </div>
-
-              {travelGrantEnabled && (
-                <div className="space-y-3 border-t pt-4">
+          <SettingsCard
+            title="Abstract submissions"
+            description="Who may submit, when the window closes, and the limits applied to each abstract."
+            contentClassName="space-y-6"
+          >
+            <div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>
-                      Countries treated as local <span className="text-destructive">*</span>
-                    </Label>
+                    <Label>Allow Abstract Submissions</Label>
                     <p className="text-sm text-muted-foreground">
-                      Authors recorded in these countries are <strong>not</strong> offered a
-                      grant. Usually just the one your venue is in; add more if a neighbouring
-                      country is a short trip.
+                      Allow speakers to submit abstracts for consideration
                     </p>
                   </div>
-
-                  {travelGrantHomeCountries.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {countryNamesFor(travelGrantHomeCountries).map((name, i) => (
-                        <Badge key={travelGrantHomeCountries[i]} variant="secondary" className="gap-1 pr-1">
-                          {name}
-                          <button
-                            type="button"
-                            aria-label={`Remove ${name}`}
-                            className="rounded-sm p-0.5 hover:bg-muted"
-                            onClick={() =>
-                              setTravelGrantHomeCountries((prev) =>
-                                prev.filter((c) => c !== travelGrantHomeCountries[i]),
-                              )
-                            }
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  <CountrySelect
-                    value={null}
-                    placeholder="Add a country"
-                    onChange={(name) => {
-                      // The picker hands back a display NAME; we store the ISO
-                      // code, so a legacy row holding "AE" and a fresh one
-                      // holding "United Arab Emirates" compare equal.
-                      const code = resolveCountryCode(name);
-                      if (!code) return;
-                      setTravelGrantHomeCountries((prev) =>
-                        prev.includes(code) ? prev : [...prev, code],
-                      );
-                    }}
+                  <Switch
+                    checked={abstractSettings.allowAbstractSubmissions}
+                    onCheckedChange={(checked) =>
+                      setAbstractSettings({
+                        ...abstractSettings,
+                        allowAbstractSubmissions: checked,
+                      })
+                    }
                   />
+                </div>
 
-                  {travelGrantHomeCountries.length === 0 && (
-                    <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                      Pick at least one country, or Travel Grant stays <strong>off</strong>. With
-                      none set, every recognised country would count as overseas and every author
-                      would be offered a grant &mdash; so the feature refuses to run instead.
-                    </p>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="travel-grant-cta">Button text</Label>
-                    <Input
-                      id="travel-grant-cta"
-                      value={travelGrantCtaLabel}
-                      maxLength={TRAVEL_GRANT_CTA_LABEL_MAX}
-                      onChange={(e) => setTravelGrantCtaLabel(e.target.value)}
-                      placeholder={DEFAULT_TRAVEL_GRANT_CTA_LABEL}
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      The button in the confirmation email and on the author&rsquo;s form. Leave
-                      blank for &ldquo;{DEFAULT_TRAVEL_GRANT_CTA_LABEL}&rdquo;.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="travel-grant-deadline">
-                      Application deadline{" "}
+                {abstractSettings.allowAbstractSubmissions && (
+                  <div className="space-y-2">
+                    <Label htmlFor="abstractDeadline">
+                      Abstract Submission Deadline{" "}
                       <span className="font-normal text-muted-foreground">
-                        (optional, event time, {tzLabel(new Date(), eventTimezone)})
+                        (event time, {tzLabel(new Date(), eventTimezone)})
                       </span>
                     </Label>
                     <Input
-                      id="travel-grant-deadline"
+                      id="abstractDeadline"
                       type="datetime-local"
-                      value={travelGrantDeadline}
-                      onChange={(e) => setTravelGrantDeadline(e.target.value)}
+                      value={abstractSettings.abstractDeadline}
+                      onChange={(e) =>
+                        setAbstractSettings({
+                          ...abstractSettings,
+                          abstractDeadline: e.target.value,
+                        })
+                      }
                       className="w-72"
                     />
+                  </div>
+                )}
+
+                {abstractSettings.allowAbstractSubmissions && (
+                  <div className="space-y-4 pt-2">
+                    <div>
+                      <h4 className="text-sm font-medium">Submission limits</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Applied to new submissions. Lowering a limit never invalidates
+                        abstracts that already exist; they stay editable and can be
+                        shortened, just not extended.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="maxTitleWords">Title word limit</Label>
+                        <Input
+                          id="maxTitleWords"
+                          type="number"
+                          min={1}
+                          max={TITLE_WORDS_CEILING}
+                          value={abstractLimits.maxTitleWords}
+                          onChange={(e) =>
+                            setAbstractLimits({ ...abstractLimits, maxTitleWords: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="maxContentWords">Abstract word limit</Label>
+                        <Input
+                          id="maxContentWords"
+                          type="number"
+                          min={1}
+                          max={CONTENT_WORDS_CEILING}
+                          value={abstractLimits.maxContentWords}
+                          onChange={(e) =>
+                            setAbstractLimits({ ...abstractLimits, maxContentWords: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="maxCoAuthors">Co-authors per abstract</Label>
+                        <Input
+                          id="maxCoAuthors"
+                          type="number"
+                          min={1}
+                          max={CO_AUTHORS_CEILING}
+                          value={abstractLimits.maxCoAuthors}
+                          onChange={(e) =>
+                            setAbstractLimits({ ...abstractLimits, maxCoAuthors: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="maxAbstractsPerSubmitter">Abstracts per person</Label>
+                        <Input
+                          id="maxAbstractsPerSubmitter"
+                          type="number"
+                          min={1}
+                          max={ABSTRACTS_PER_SUBMITTER_CEILING}
+                          placeholder="Unlimited"
+                          value={abstractLimits.maxAbstractsPerSubmitter}
+                          onChange={(e) =>
+                            setAbstractLimits({
+                              ...abstractLimits,
+                              maxAbstractsPerSubmitter: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5 pr-6">
+                        <Label>Ask submitters to pay at submission</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Off by default. Submitters still receive their quote either way, so
+                          they know the amount; this only decides whether the confirmation
+                          invites them to pay straight away. They can always pay later from
+                          their registration portal.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={presenterPayNow}
+                        onCheckedChange={(checked) => {
+                          // Turning it ON is the consequential direction, so it
+                          // is confirmed. Turning it OFF just stops asking for
+                          // money and needs no ceremony.
+                          if (checked) setConfirmPayNowOpen(true);
+                          else setPresenterPayNow(false);
+                        }}
+                      />
+                    </div>
+
+                    <AlertDialog open={confirmPayNowOpen} onOpenChange={setConfirmPayNowOpen}>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Ask every submitter to pay at submission?</AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-3 text-sm">
+                              <p>
+                                Every future abstract submitter will get a Pay Now link with
+                                their confirmation, before you have reviewed their abstract.
+                              </p>
+                              <p>
+                                Most conferences comp or discount the majority of presenters
+                                once abstracts are accepted. Anyone who pays and is later
+                                comped has to be refunded, which needs a credit note.
+                              </p>
+                              <p>
+                                Leaving this off does not stop anyone paying. They still get
+                                the quote, and they can pay whenever they like from their
+                                registration portal.
+                              </p>
+                            </div>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep it off</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => setPresenterPayNow(true)}>
+                            Turn on Pay Now
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+
                     <p className="text-sm text-muted-foreground">
-                      Shown in the email and on the author&rsquo;s form. After it passes, the form
-                      stops accepting answers, no new offers go out, and the console&rsquo;s send
-                      buttons pause until you extend it. Leave empty for no deadline.
+                      <strong>Abstracts per person</strong> counts only what is in the review
+                      pool: drafts are free, and a withdrawn or rejected abstract returns the
+                      slot. Leave it empty for no limit. Your team can still add abstracts on
+                      someone&apos;s behalf past the limit.
                     </p>
                   </div>
+                )}
+              </div>
+            </div>
 
+          </SettingsCard>
+
+          <SettingsCard
+            title="Session proposals"
+            description="When proposals for whole sessions stop being accepted."
+          >
+            <div>
+              <div className="space-y-2">
+                <Label htmlFor="sessionProposalDeadline">
+                  Session Proposal Deadline{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (event time, {tzLabel(new Date(), eventTimezone)})
+                  </span>
+                </Label>
+                <Input
+                  id="sessionProposalDeadline"
+                  type="datetime-local"
+                  value={sessionProposalDeadline}
+                  // "now" in the EVENT's timezone. The value is event-local,
+                  // so a browser-local min would disagree with it and reject
+                  // genuinely-future deadlines.
+                  min={localDateTimeInTz(new Date(), eventTimezone)}
+                  onChange={(e) => setSessionProposalDeadline(e.target.value)}
+                  className="w-72"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Proposal sign-ups and submissions close automatically at this time. Leave
+                  empty for no deadline — you can extend it any time (past dates are not
+                  accepted). Your team can still add proposals after it closes.
+                </p>
+              </div>
+            </div>
+          </SettingsCard>
+
+          <SettingsCard
+            title="Travel Grant"
+            description={<>Offer a travel grant to abstract authors based outside the countries you pick below &mdash; usually the one your venue is in. When on, a personal consent link rides inside the submission-confirmation email of every author recorded elsewhere. Authors in those countries receive nothing extra.</>}
+          >
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Enable Travel Grant</Label>
+                <p className="text-sm text-muted-foreground">
+                  Applies to abstracts submitted from now on. Turn this on{" "}
+                  <strong>before</strong> your call for abstracts opens, so every author is
+                  covered automatically.
+                </p>
+              </div>
+              <Switch checked={travelGrantEnabled} onCheckedChange={setTravelGrantEnabled} />
+            </div>
+
+            {travelGrantEnabled && (
+              <div className="space-y-3 border-t pt-4">
+                <div className="space-y-0.5">
+                  <Label>
+                    Countries treated as local <span className="text-destructive">*</span>
+                  </Label>
                   <p className="text-sm text-muted-foreground">
-                    Write the email message and the consent-form terms under{" "}
-                    <strong>Content &rarr; Abstracts</strong>. Authors whose country is blank or
-                    unrecognised are <strong>not</strong> emailed, and are listed separately in the
-                    Travel Grants console so you can decide by hand.
+                    Authors recorded in these countries are <strong>not</strong> offered a
+                    grant. Usually just the one your venue is in; add more if a neighbouring
+                    country is a short trip.
                   </p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+
+                {travelGrantHomeCountries.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {countryNamesFor(travelGrantHomeCountries).map((name, i) => (
+                      <Badge key={travelGrantHomeCountries[i]} variant="secondary" className="gap-1 pr-1">
+                        {name}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${name}`}
+                          className="rounded-sm p-0.5 hover:bg-muted"
+                          onClick={() =>
+                            setTravelGrantHomeCountries((prev) =>
+                              prev.filter((c) => c !== travelGrantHomeCountries[i]),
+                            )
+                          }
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <CountrySelect
+                  value={null}
+                  placeholder="Add a country"
+                  onChange={(name) => {
+                    // The picker hands back a display NAME; we store the ISO
+                    // code, so a legacy row holding "AE" and a fresh one
+                    // holding "United Arab Emirates" compare equal.
+                    const code = resolveCountryCode(name);
+                    if (!code) return;
+                    setTravelGrantHomeCountries((prev) =>
+                      prev.includes(code) ? prev : [...prev, code],
+                    );
+                  }}
+                />
+
+                {travelGrantHomeCountries.length === 0 && (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                    Pick at least one country, or Travel Grant stays <strong>off</strong>. With
+                    none set, every recognised country would count as overseas and every author
+                    would be offered a grant &mdash; so the feature refuses to run instead.
+                  </p>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="travel-grant-cta">Button text</Label>
+                  <Input
+                    id="travel-grant-cta"
+                    value={travelGrantCtaLabel}
+                    maxLength={TRAVEL_GRANT_CTA_LABEL_MAX}
+                    onChange={(e) => setTravelGrantCtaLabel(e.target.value)}
+                    placeholder={DEFAULT_TRAVEL_GRANT_CTA_LABEL}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    The button in the confirmation email and on the author&rsquo;s form. Leave
+                    blank for &ldquo;{DEFAULT_TRAVEL_GRANT_CTA_LABEL}&rdquo;.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="travel-grant-deadline">
+                    Application deadline{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (optional, event time, {tzLabel(new Date(), eventTimezone)})
+                    </span>
+                  </Label>
+                  <Input
+                    id="travel-grant-deadline"
+                    type="datetime-local"
+                    value={travelGrantDeadline}
+                    onChange={(e) => setTravelGrantDeadline(e.target.value)}
+                    className="w-72"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Shown in the email and on the author&rsquo;s form. After it passes, the form
+                    stops accepting answers, no new offers go out, and the console&rsquo;s send
+                    buttons pause until you extend it. Leave empty for no deadline.
+                  </p>
+                </div>
+
+                <p className="text-sm text-muted-foreground">
+                  Write the email message and the consent-form terms under{" "}
+                  <strong>Content &rarr; Abstracts</strong>. Authors whose country is blank or
+                  unrecognised are <strong>not</strong> emailed, and are listed separately in the
+                  Travel Grants console so you can decide by hand.
+                </p>
+              </div>
+            )}
+          </SettingsCard>
 
           {/*
             One Save for the whole tab (see handleSaveTab), positioned AFTER the
@@ -2442,227 +2414,209 @@ export default function EventSettingsPage() {
           </div>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Abstract Themes</CardTitle>
-              <CardDescription>
-                Define themes that submitters can tag their abstracts with.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AbstractThemesSettings eventId={eventId} />
-            </CardContent>
-          </Card>
+          <SettingsCard
+            title="Abstract Themes"
+            description="Define themes that submitters can tag their abstracts with."
+          >
+            <AbstractThemesSettings eventId={eventId} />
+          </SettingsCard>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Review Criteria</CardTitle>
-              <CardDescription>
-                Define weighted scoring criteria for abstract reviews. Weights should total 100%.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ReviewCriteriaSettings eventId={eventId} />
-            </CardContent>
-          </Card>
+          <SettingsCard
+            title="Review Criteria"
+            description="Define weighted scoring criteria for abstract reviews. Weights should total 100%."
+          >
+            <ReviewCriteriaSettings eventId={eventId} />
+          </SettingsCard>
         </TabsContent>
 
         {/* Branding Settings */}
         <TabsContent value="branding">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Branding Settings</CardTitle>
-              <CardDescription>
-                Customize the appearance of your public event pages
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <BrandingImageField
-                eventId={eventId}
-                label="Banner Image (desktop)"
-                value={brandingSettings.bannerImage}
-                onChange={(url) =>
-                  setBrandingSettings({ ...brandingSettings, bannerImage: url })
+          <SettingsCard
+            title="Branding Settings"
+            description="Customize the appearance of your public event pages"
+            contentClassName="space-y-6"
+          >
+            <BrandingImageField
+              eventId={eventId}
+              label="Banner Image (desktop)"
+              value={brandingSettings.bannerImage}
+              onChange={(url) =>
+                setBrandingSettings({ ...brandingSettings, bannerImage: url })
+              }
+              hint="Shown atop your public event pages at 576px and above. Recommended ~1200×300px (the same size as the email header, so one artwork serves both). Uploads also appear in this event's Media library."
+              previewClassName="w-full h-48 object-contain"
+            />
+
+            <BrandingImageField
+              eventId={eventId}
+              label="Mobile Banner (optional)"
+              value={brandingSettings.bannerImageMobile}
+              onChange={(url) =>
+                setBrandingSettings({ ...brandingSettings, bannerImageMobile: url })
+              }
+              hint="Shown on phones (screens under 576px); the desktop banner shows at 576px and above. Recommended ~700×400px — a taller ratio keeps the heading ~200px tall and legible on mobile. Leave empty to use the desktop banner everywhere."
+              previewClassName="w-full h-48 object-contain"
+            />
+
+            <div className="space-y-2">
+              <Label>Custom Footer</Label>
+              <TiptapEditor
+                content={brandingSettings.footerHtml}
+                onChange={(html) =>
+                  setBrandingSettings({
+                    ...brandingSettings,
+                    footerHtml: html,
+                  })
                 }
-                hint="Shown atop your public event pages at 576px and above. Recommended ~1200×300px (the same size as the email header, so one artwork serves both). Uploads also appear in this event's Media library."
-                previewClassName="w-full h-48 object-contain"
+                placeholder="Design your public event page footer..."
               />
+              <p className="text-sm text-muted-foreground">
+                Customize the footer shown on your public event pages. Use the toolbar for formatting or switch to source mode for raw HTML.
+              </p>
+            </div>
 
-              <BrandingImageField
-                eventId={eventId}
-                label="Mobile Banner (optional)"
-                value={brandingSettings.bannerImageMobile}
-                onChange={(url) =>
-                  setBrandingSettings({ ...brandingSettings, bannerImageMobile: url })
-                }
-                hint="Shown on phones (screens under 576px); the desktop banner shows at 576px and above. Recommended ~700×400px — a taller ratio keeps the heading ~200px tall and legible on mobile. Leave empty to use the desktop banner everywhere."
-                previewClassName="w-full h-48 object-contain"
-              />
-
-              <div className="space-y-2">
-                <Label>Custom Footer</Label>
-                <TiptapEditor
-                  content={brandingSettings.footerHtml}
-                  onChange={(html) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      footerHtml: html,
-                    })
-                  }
-                  placeholder="Design your public event page footer..."
-                />
-                <p className="text-sm text-muted-foreground">
-                  Customize the footer shown on your public event pages. Use the toolbar for formatting or switch to source mode for raw HTML.
-                </p>
-              </div>
-
-              {canEditSettings && (
-              <div className="flex justify-end">
-                <Button onClick={handleSaveBranding} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Branding"}
-                </Button>
-              </div>
-              )}
-            </CardContent>
-          </Card>
+            {canEditSettings && (
+            <div className="flex justify-end">
+              <Button onClick={handleSaveBranding} disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                {saving ? "Saving..." : "Save Branding"}
+              </Button>
+            </div>
+            )}
+          </SettingsCard>
         </TabsContent>
 
         {/* Email Branding */}
         <TabsContent value="email-branding">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Email Branding</CardTitle>
-              <CardDescription>
-                Add a header image and footer to all outgoing emails for this event
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="emailFromAddress">Sender Email Address</Label>
-                  <Input
-                    id="emailFromAddress"
-                    type="email"
-                    value={brandingSettings.emailFromAddress}
-                    onChange={(e) =>
-                      setBrandingSettings({
-                        ...brandingSettings,
-                        emailFromAddress: e.target.value,
-                      })
-                    }
-                    placeholder={senderDomain ? `events@${senderDomain}` : "events@yourdomain.com"}
-                    aria-describedby="emailFromAddress-hint"
-                  />
-                  {brandingSettings.emailFromAddress && !isAllowedSenderAddress(brandingSettings.emailFromAddress, senderDomain) && (
-                    <p className="text-sm text-destructive" role="alert">
-                      Emails can only be sent from an @{senderDomain} address. Sends from this address will fail.
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="emailFromName">Sender Name</Label>
-                  <Input
-                    id="emailFromName"
-                    value={brandingSettings.emailFromName}
-                    onChange={(e) =>
-                      setBrandingSettings({
-                        ...brandingSettings,
-                        emailFromName: e.target.value,
-                      })
-                    }
-                    placeholder="Event Name Team"
-                  />
-                </div>
+          <SettingsCard
+            title="Email Branding"
+            description="Add a header image and footer to all outgoing emails for this event"
+            contentClassName="space-y-6"
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="emailFromAddress">Sender Email Address</Label>
+                <Input
+                  id="emailFromAddress"
+                  type="email"
+                  value={brandingSettings.emailFromAddress}
+                  onChange={(e) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      emailFromAddress: e.target.value,
+                    })
+                  }
+                  placeholder={senderDomain ? `events@${senderDomain}` : "events@yourdomain.com"}
+                  aria-describedby="emailFromAddress-hint"
+                />
+                {brandingSettings.emailFromAddress && !isAllowedSenderAddress(brandingSettings.emailFromAddress, senderDomain) && (
+                  <p className="text-sm text-destructive" role="alert">
+                    Emails can only be sent from an @{senderDomain} address. Sends from this address will fail.
+                  </p>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground">
+              <div className="space-y-2">
+                <Label htmlFor="emailFromName">Sender Name</Label>
+                <Input
+                  id="emailFromName"
+                  value={brandingSettings.emailFromName}
+                  onChange={(e) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      emailFromName: e.target.value,
+                    })
+                  }
+                  placeholder="Event Name Team"
+                />
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
 <span id="emailFromAddress-hint">
-                  Override the default sender for all emails from this event.{" "}
-                  {senderDomain
-                    ? <>The address must end in <strong>@{senderDomain}</strong>, the only domain verified for sending.</>
-                    : "The address's domain must be verified for sending."}{" "}
-                  Leave blank to use the system default.
-                </span>
+                Override the default sender for all emails from this event.{" "}
+                {senderDomain
+                  ? <>The address must end in <strong>@{senderDomain}</strong>, the only domain verified for sending.</>
+                  : "The address's domain must be verified for sending."}{" "}
+                Leave blank to use the system default.
+              </span>
+            </p>
+
+            <div className="space-y-2">
+              <Label>Auto-CC Addresses</Label>
+              <TagInput
+                value={brandingSettings.emailCcAddresses}
+                onChange={(next) =>
+                  setBrandingSettings({
+                    ...brandingSettings,
+                    emailCcAddresses: next
+                      .map((e) => e.trim().toLowerCase())
+                      .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+                  })
+                }
+                placeholder="ops@yourdomain.com, then Enter"
+              />
+              <p className="text-sm text-muted-foreground">
+                These addresses are silently CC&apos;d on every email this event sends — registration confirmations, payment receipts, speaker invites, abstract status updates, bulk emails, manual single-sends. The recipient sees them. Leave empty for no auto-CC. Invalid addresses are rejected on save.
               </p>
+            </div>
 
-              <div className="space-y-2">
-                <Label>Auto-CC Addresses</Label>
-                <TagInput
-                  value={brandingSettings.emailCcAddresses}
-                  onChange={(next) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      emailCcAddresses: next
-                        .map((e) => e.trim().toLowerCase())
-                        .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
-                    })
-                  }
-                  placeholder="ops@yourdomain.com, then Enter"
-                />
-                <p className="text-sm text-muted-foreground">
-                  These addresses are silently CC&apos;d on every email this event sends — registration confirmations, payment receipts, speaker invites, abstract status updates, bulk emails, manual single-sends. The recipient sees them. Leave empty for no auto-CC. Invalid addresses are rejected on save.
-                </p>
-              </div>
+            <BrandingImageField
+              eventId={eventId}
+              label="Email Header Image"
+              value={brandingSettings.emailHeaderImage}
+              onChange={(url) =>
+                setBrandingSettings({ ...brandingSettings, emailHeaderImage: url })
+              }
+              hint={
+                <>
+                  Top-of-email banner. <strong>Recommended size: 1200×300px</strong> (renders crisp at 600×150 on retina displays). Keep under 150KB. Renders responsive on Gmail / Outlook / Apple Mail. Uploads also appear in this event&apos;s Media library.
+                </>
+              }
+              previewWrapClassName="max-w-[600px]"
+              previewClassName="w-full h-auto object-cover"
+            />
 
-              <BrandingImageField
-                eventId={eventId}
-                label="Email Header Image"
-                value={brandingSettings.emailHeaderImage}
-                onChange={(url) =>
-                  setBrandingSettings({ ...brandingSettings, emailHeaderImage: url })
+            <BrandingImageField
+              eventId={eventId}
+              label="Email Footer Image"
+              value={brandingSettings.emailFooterImage}
+              onChange={(url) =>
+                setBrandingSettings({ ...brandingSettings, emailFooterImage: url })
+              }
+              hint={
+                <>
+                  Bottom-of-email logo or sign-off image. Optional. <strong>Recommended size: 1200×200px</strong> (slim footer renders at 600×100 with retina sharpness). Keep under 100KB. Same responsive treatment as the header — fits the email body width across every client. Uploads also appear in this event&apos;s Media library.
+                </>
+              }
+              previewWrapClassName="max-w-[600px]"
+              previewClassName="w-full h-auto object-cover"
+            />
+
+            <div className="space-y-2">
+              <Label>Email Footer</Label>
+              <TiptapEditor
+                content={brandingSettings.emailFooterHtml}
+                onChange={(html) =>
+                  setBrandingSettings({
+                    ...brandingSettings,
+                    emailFooterHtml: html,
+                  })
                 }
-                hint={
-                  <>
-                    Top-of-email banner. <strong>Recommended size: 1200×300px</strong> (renders crisp at 600×150 on retina displays). Keep under 150KB. Renders responsive on Gmail / Outlook / Apple Mail. Uploads also appear in this event&apos;s Media library.
-                  </>
-                }
-                previewWrapClassName="max-w-[600px]"
-                previewClassName="w-full h-auto object-cover"
+                placeholder="Design your email footer..."
               />
+              <p className="text-sm text-muted-foreground">
+                Custom footer shown at the bottom of all event emails. Leave blank for the default footer.
+              </p>
+            </div>
 
-              <BrandingImageField
-                eventId={eventId}
-                label="Email Footer Image"
-                value={brandingSettings.emailFooterImage}
-                onChange={(url) =>
-                  setBrandingSettings({ ...brandingSettings, emailFooterImage: url })
-                }
-                hint={
-                  <>
-                    Bottom-of-email logo or sign-off image. Optional. <strong>Recommended size: 1200×200px</strong> (slim footer renders at 600×100 with retina sharpness). Keep under 100KB. Same responsive treatment as the header — fits the email body width across every client. Uploads also appear in this event&apos;s Media library.
-                  </>
-                }
-                previewWrapClassName="max-w-[600px]"
-                previewClassName="w-full h-auto object-cover"
-              />
-
-              <div className="space-y-2">
-                <Label>Email Footer</Label>
-                <TiptapEditor
-                  content={brandingSettings.emailFooterHtml}
-                  onChange={(html) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      emailFooterHtml: html,
-                    })
-                  }
-                  placeholder="Design your email footer..."
-                />
-                <p className="text-sm text-muted-foreground">
-                  Custom footer shown at the bottom of all event emails. Leave blank for the default footer.
-                </p>
-              </div>
-
-              {canEditSettings && (
-              <div className="flex justify-end">
-                <Button onClick={handleSaveBranding} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Email Branding"}
-                </Button>
-              </div>
-              )}
-            </CardContent>
-          </Card>
+            {canEditSettings && (
+            <div className="flex justify-end">
+              <Button onClick={handleSaveBranding} disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                {saving ? "Saving..." : "Save Email Branding"}
+              </Button>
+            </div>
+            )}
+          </SettingsCard>
 
           <div className="mt-6">
             <SpeakerAgreementTemplateCard eventId={eventId} />
@@ -2681,53 +2635,51 @@ export default function EventSettingsPage() {
 
         {/* Danger Zone */}
         <TabsContent value="danger">
-          <Card className="border-red-200">
-            <CardHeader>
-              <CardTitle className="text-lg text-red-600">Danger Zone</CardTitle>
-              <CardDescription>
-                Irreversible and destructive actions
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg">
-                <div>
-                  <h4 className="font-medium text-red-600">Delete Event</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Permanently delete this event and all its data. This action cannot be undone.
-                  </p>
-                </div>
-                {canDeleteEvent && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive">
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete Event
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will permanently delete the event &quot;{event.name}&quot; and all
-                        associated data including registrations, speakers, sessions, and
-                        accommodations. This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleDeleteEvent}
-                        className="bg-red-600 hover:bg-red-700"
-                      >
-                        Delete Event
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                )}
+          <SettingsCard
+            className="border-red-200"
+            title="Danger Zone"
+            titleClassName="text-red-600"
+            description="Irreversible and destructive actions"
+            contentClassName="space-y-6"
+          >
+            <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg">
+              <div>
+                <h4 className="font-medium text-red-600">Delete Event</h4>
+                <p className="text-sm text-muted-foreground">
+                  Permanently delete this event and all its data. This action cannot be undone.
+                </p>
               </div>
-            </CardContent>
-          </Card>
+              {canDeleteEvent && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Event
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete the event &quot;{event.name}&quot; and all
+                      associated data including registrations, speakers, sessions, and
+                      accommodations. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteEvent}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Delete Event
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              )}
+            </div>
+          </SettingsCard>
         </TabsContent>
       </Tabs>
     </div>

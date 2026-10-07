@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 /**
@@ -89,11 +90,13 @@ export function FormSection({
   description,
   children,
   className,
+  contentClassName,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
 }) {
   return (
     <section
@@ -106,8 +109,43 @@ export function FormSection({
         <h3 className="text-base font-semibold">{title}</h3>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
-      <div className="min-w-0 space-y-4">{children}</div>
+      <div className={cn("min-w-0 space-y-4", contentClassName)}>{children}</div>
     </section>
+  );
+}
+
+/**
+ * A settings card: one FormSection in its own card. The title column matches
+ * the grouped General tab, so every settings tab reads the same way: what the
+ * group is on the left, its fields on the right.
+ */
+export function SettingsCard({
+  title,
+  description,
+  children,
+  className,
+  titleClassName,
+  contentClassName,
+}: {
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  titleClassName?: string;
+  contentClassName?: string;
+}) {
+  return (
+    <Card className={className}>
+      <CardContent>
+        <FormSection
+          title={<span className={titleClassName}>{title}</span>}
+          description={description}
+          contentClassName={contentClassName}
+        >
+          {children}
+        </FormSection>
+      </CardContent>
+    </Card>
   );
 }
 
