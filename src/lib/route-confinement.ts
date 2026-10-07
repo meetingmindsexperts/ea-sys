@@ -66,7 +66,39 @@ function staffRedirect(areas: readonly AreaGrant[], pathname: string): string | 
   if (under(sub, "registrations") || under(sub, "check-in")) return null;
   return `/events/${eventPath[1]}/registrations`;
 }
-export function confinementRedirect(role: string | null | undefined, pathname: string): string | null {
+/**
+ * The per-person grants that open a module whatever the base role, exactly as
+ * the module's own API does: the HR tick (`hrAccess`) opens HR, and any of the
+ * legacy procurement columns or a custom procurement key opens Budgets. Without
+ * them the middleware sent, say, a CRM user with a budget grant away from
+ * /procurement although its API admitted them (review of 0875035c, Oct 7,
+ * 2026). Custom roles never add an area (key-areas.ts), so these are the only
+ * additions.
+ */
+export interface ConfinementGrants {
+  hrAccess?: boolean | null;
+  procurementRequest?: boolean | null;
+  procurementSettle?: boolean | null;
+  procurementApproveUnlimited?: boolean | null;
+  procurementApproveCeilingAed?: number | null;
+  procurementPermissions?: readonly string[] | null;
+}
+
+function personAreas(g: ConfinementGrants | null | undefined): AreaGrant[] {
+  if (!g) return [];
+  const out: AreaGrant[] = [];
+  if (g.hrAccess === true) out.push({ area: "hr" });
+  const budgets =
+    g.procurementRequest === true ||
+    g.procurementSettle === true ||
+    g.procurementApproveUnlimited === true ||
+    (typeof g.procurementApproveCeilingAed === "number" && g.procurementApproveCeilingAed > 0) ||
+    (g.procurementPermissions ?? []).some((k) => k.startsWith("procurement."));
+  if (budgets) out.push({ area: "procurement" });
+  return out;
+}
+
+export function confinementRedirect(role: string | null | undefined, pathname: string, grants?: ConfinementGrants | null): string | null {
   if (pathname.startsWith("/api/")) return null;
 
   // REGISTRANT: everything goes to the registration portal.
@@ -75,7 +107,11 @@ export function confinementRedirect(role: string | null | undefined, pathname: s
   // Staff: the AREAS their role works in (custom roles Phase 3, Oct 5, 2026).
   // A path outside them goes to the role's home area. Reviewers and
   // submitters are not catalogue roles and keep their own rule below.
-  if (role && role !== "REVIEWER" && role !== "SUBMITTER") return staffRedirect(systemRoleFor(role)?.areas ?? [], pathname);
+  if (role && role !== "REVIEWER" && role !== "SUBMITTER") {
+    const base = systemRoleFor(role)?.areas ?? [];
+    // Person grants add a module only to a role that works somewhere already.
+    return staffRedirect(base.length > 0 ? [...base, ...personAreas(grants)] : base, pathname);
+  }
 
   if (!role) return null;
 

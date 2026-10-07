@@ -328,7 +328,9 @@ function ViewEditor({
   const pendingField = REGISTRATION_SHARE_FIELDS.find((f) => f.key === pendingContact);
   const filterGroups = [
     { key: "ticketTypeIds" as const, title: "Registration types", items: options.ticketTypes.map((t) => ({ id: t.id, label: t.name })) },
-    { key: "sponsorIds" as const, title: "Sponsors", items: seesSponsors ? options.sponsors.map((s) => ({ id: s.id, label: s.name })) : [] },
+    // Without finance.view, only the sponsors a view already filters on are
+    // listed, so they can be unticked; the server refuses saving them.
+    { key: "sponsorIds" as const, title: "Sponsors", items: options.sponsors.filter((s) => seesSponsors || body.sponsorIds.includes(s.id)).map((s) => ({ id: s.id, label: s.name })) },
     { key: "promoCodeIds" as const, title: "Promo codes", items: options.promoCodes.map((p) => ({ id: p.id, label: p.code })) },
   ].filter((g) => g.items.length > 0);
 
@@ -412,7 +414,7 @@ function ViewEditor({
             {(["people", "submission"] as const).map((group) => (
               <div key={group} className="rounded-lg border bg-muted/30 p-3 space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{REGISTRATION_GROUP_TITLE[group]}</p>
-                {REGISTRATION_SHARE_FIELDS.filter((f) => f.group === group && (seesSponsors || f.key !== "sponsor")).map((f) => (
+                {REGISTRATION_SHARE_FIELDS.filter((f) => f.group === group && (seesSponsors || f.key !== "sponsor" || body.fields.includes("sponsor"))).map((f) => (
                   <label key={f.key} className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox checked={body.fields.includes(f.key)} onCheckedChange={(v) => toggleField(f.key, false, v === true)} />
                     {f.label}

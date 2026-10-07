@@ -36,28 +36,46 @@ const VERBOSE = process.argv.includes("--verbose");
 
 /** The calls that decide access by permission (or by a module's own guard). */
 const PRIMITIVES = [
+  // The route guard, and the filters that confine a query to the events a
+  // key covers. A bare `can()` does NOT count (review of 0875035c): a handler
+  // that only uses it to choose a redaction has asked nothing that decides
+  // whether it runs.
   "requirePermission",
-  "can",
-  "canEverywhere",
   "eventWhereFor",
   "hubEventWhere",
   "eventListWhere",
   "isEventOrgStaff",
-  "crmCan",
   "buildEventAccessWhere",
-  // The module guards (CRM, HR, procurement) and the agent's handler, each of
-  // which asks permissions itself.
-  "deny[A-Z]\\w*",
-  "requireCrm\\w*",
+  // The module guards, by name (exported from src/crm, src/hr, src/procurement
+  // and src/lib), never "anything called deny*": a local helper named
+  // denyEverythingElse must earn its place by calling one of these.
+  "crmCan",
+  "denyCrmAccess",
+  "denyCrmDelete",
+  "denyCrmExport",
+  "denyCrmProseRead",
+  "denyCrmPurge",
+  "denyCrmWrite",
+  "requireCrmRead",
+  "requireCrmWrite",
+  "requireCrmDelete",
+  "requireCrmExport",
+  "requireCrmPurge",
+  "denyNonHr",
+  "denyNonProcurement",
+  "denyNonRoleAdmin",
+  "denyNonOperator",
+  "denyUnlessRequestOrAdmin",
+  "denyWithoutFinance",
   "procurementGuard",
-  "requireProcurement\\w*",
+  "guardedRead",
   "canViewProcurement",
   "canAuthorBudgets",
   "canAdminProcurement",
+  // The agent's handler asks agent.use and every tool's key itself.
   "executeAgentRequest",
   // The platform operator door.
   "isPlatformOperator",
-  "requireOperator\\w*",
 ];
 
 /** Open to every signed-in account (or to its own row) by design. Path prefix + reason. */
@@ -66,7 +84,7 @@ const EXEMPT = [
   ["src/app/api/auth/", "sign-in, invitation and password flows"],
   ["src/app/api/webhooks/", "Stripe webhooks: signature verified"],
   ["src/app/api/cron/", "cron shims: CRON_SECRET bearer"],
-  ["src/app/api/health", "liveness probe"],
+  ["src/app/api/health/", "liveness probe"],
   ["src/app/api/openapi.json", "public API description"],
   ["src/app/api/mcp/", "MCP and its OAuth endpoints: the token or key is the credential; tools are gated per call (mcp-key-gate, tool-gate)"],
   ["src/app/api/registrant/", "a person's OWN registrations, groups and invoices: owner-scoped by userId in every query"],
@@ -75,11 +93,22 @@ const EXEMPT = [
   ["src/app/api/help-chat/", "the help assistant: answers from the user guide, reads no organisation data"],
   ["src/app/api/upload/photo/", "a person's own profile or form photo, size and type checked"],
   ["src/app/api/organization/branding/", "the organisation's logo and colours, shown in every account's header"],
-  ["src/app/api/organization/route.ts:GET", "the organisation's name and general preferences; projected to safe fields (Oct 7, 2026)"],
+  ["src/app/api/organization/route.ts:GET", "the organisation profile the Settings screens show (name, logo, company and invoice details, general preferences); credentials and the staff list are never selected (Oct 7, 2026)"],
+  ["src/app/api/profile/", "a staff member's own email signature: staff only (isTeamRole), their own row"],
   ["src/app/api/events/[eventId]/submitter-context/", "a SUBMITTER's own speaker row on the event, role-checked and scoped by userId"],
 ];
 
 const PRIMITIVE_RE = new RegExp(String.raw`\b(?:${PRIMITIVES.join("|")})\s*\(`);
+
+/**
+ * `can()` counts only beside a refusal: a handler (or helper) that calls it
+ * AND can answer 403 is deciding whether to run; one that calls it to pick a
+ * redaction is not. Inline gates like `if (!managesUsers) return 403` are the
+ * users routes' shape, which a pattern on the call alone cannot see.
+ */
+const CAN_RE = /\bcan(?:Everywhere)?\s*\(/;
+const REFUSES_RE = /status:\s*403|\bforbidden\s*\(/;
+const asksPermission = (body) => PRIMITIVE_RE.test(body) || (CAN_RE.test(body) && REFUSES_RE.test(body));
 
 /** Top-level helpers in a file: name -> body (function declarations and arrow consts). */
 function localFunctions(code) {
@@ -104,7 +133,7 @@ function guardingHelpers(fns) {
     grew = false;
     for (const [name, body] of fns) {
       if (guards.has(name)) continue;
-      const callsGuard = PRIMITIVE_RE.test(body) || [...guards].some((g) => new RegExp(String.raw`\b${g}\s*\(`).test(body));
+      const callsGuard = asksPermission(body) || [...guards].some((g) => new RegExp(String.raw`\b${g}\s*\(`).test(body));
       if (callsGuard) {
         guards.add(name);
         grew = true;
@@ -127,7 +156,7 @@ for (const file of walkRoutes(API_DIR)) {
   for (const { method, body } of splitHandlers(code)) {
     if (method === "OPTIONS" || method === "HEAD") continue;
     checked++;
-    const asks = PRIMITIVE_RE.test(body) || [...guards].some((g) => new RegExp(String.raw`\b${g}\s*\(`).test(body));
+    const asks = asksPermission(body) || [...guards].some((g) => new RegExp(String.raw`\b${g}\s*\(`).test(body));
     if (asks) continue;
     const ex = exemption(rel, method);
     if (ex) {

@@ -468,11 +468,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     let customRolesCleared = 0;
     let updatedUser;
     try {
-      updatedUser = await tenantTransaction(async (tx) => {
+      // On the org's tenant lane, as the old clear was: UserPermissionSet is
+      // policied, and without the lane the clear matches nothing under RLS.
+      updatedUser = await runWithTenant(session.user.organizationId!, () => tenantTransaction(async (tx) => {
         // Lock every super admin row, in id order, BEFORE the write: two
         // concurrent demotions then run one after the other, and the second
         // counts the first's committed change (a bare count would not).
         if (losesSuperAdmin) {
+          // The target's row first, the lock an assignment to them takes first
+          // too, so the two cannot deadlock; then every super admin in id order.
+          await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
           await tx.$queryRaw`SELECT id FROM "User" WHERE "organizationId" = ${session.user.organizationId!} AND role = 'SUPER_ADMIN' ORDER BY id FOR UPDATE`;
         }
         const row = await tx.user.update({
@@ -534,7 +539,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           if (remaining === 0) throw new LastSuperAdminError();
         }
         return row;
-      });
+      }));
     } catch (err) {
       if (err instanceof LastSuperAdminError) {
         apiLogger.warn({ msg: "organization/users:last-super-admin-refused", targetUserId: userId, byUserId: session.user.id });

@@ -6,7 +6,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
-import { requirePermission } from "@/lib/permissions/require-permission";
+import { can } from "@/lib/permissions/can";
+import { principalFromSession, requirePermission } from "@/lib/permissions/require-permission";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -84,7 +85,15 @@ export async function GET(req: Request) {
     const settings = Object.fromEntries(
       ORG_GENERAL_SETTINGS.filter((k) => k in stored).map((k) => [k, stored[k]]),
     );
-    const organization = { ...row, settings };
+    // Company and tax details only for the people whose screens use them (the
+    // Billing card: billingAccounts.manage, or org.settings); any other account
+    // in the org, an internal registrant included, gets the profile alone
+    // (review of 0875035c, Oct 7, 2026).
+    const principal = principalFromSession(session);
+    const seesBilling = can(principal, "org.settings") || can(principal, "billingAccounts.manage");
+    const { companyName, companyAddress, companyCity, companyState, companyZipCode, companyCountry, companyPhone, companyEmail, taxId, invoicePrefix, ...profile } = row;
+    const billing = { companyName, companyAddress, companyCity, companyState, companyZipCode, companyCountry, companyPhone, companyEmail, taxId, invoicePrefix };
+    const organization = { ...profile, ...(seesBilling ? billing : {}), settings };
 
     return NextResponse.json(organization);
   } catch (error) {

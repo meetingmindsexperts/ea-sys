@@ -60,4 +60,24 @@ describe("PUT /api/organization/users/[userId]: role change", () => {
     // The role write comes first, so it holds the row lock during the clear.
     expect(mockDb.user.update.mock.invocationCallOrder[0]).toBeLessThan(mockDb.userPermissionSet.deleteMany.mock.invocationCallOrder[0]);
   });
+
+  it("locks the target row first, then every super admin in id order, both FOR UPDATE", async () => {
+    mockDb.user.count.mockResolvedValue(1);
+    await put({ role: "ADMIN" });
+    const sql = mockDb.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"));
+    expect(sql).toHaveLength(2);
+    expect(sql[0]).toMatch(/WHERE id = \? FOR UPDATE$/);
+    expect(sql[1]).toMatch(/role = 'SUPER_ADMIN' ORDER BY id FOR UPDATE$/);
+  });
+
+  it("takes no super-admin lock and runs no count for an ordinary role change", async () => {
+    const admin = { id: TARGET, role: "ORGANIZER", organizationId: ORG, email: "o@example.com" };
+    mockDb.user.findFirst.mockResolvedValue(admin);
+    mockDb.user.findUnique.mockResolvedValue(admin);
+    const res = await put({ role: "MEMBER" });
+    expect(res.status).toBe(200);
+    expect(mockDb.$queryRaw).not.toHaveBeenCalled();
+    expect(mockDb.user.count).not.toHaveBeenCalled();
+    expect(mockDb.userPermissionSet.deleteMany).toHaveBeenCalled();
+  });
 });

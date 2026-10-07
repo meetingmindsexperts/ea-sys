@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/lib/auth.config";
 import { maxBodySizeFor } from "@/lib/body-limits";
-import { confinementRedirect } from "@/lib/route-confinement";
+import { confinementRedirect, type ConfinementGrants } from "@/lib/route-confinement";
 
 // Use the Edge-compatible auth config (no Node.js modules like bcrypt, prisma)
 const { auth } = NextAuth(authConfig);
@@ -147,7 +147,7 @@ export default auth((req) => {
   // ── Confinement: where this person may go in the dashboard UI ──
   // One pure function (src/lib/route-confinement.ts), pinned by a role-by-path
   // matrix. API routes always pass: each carries its own permission check.
-  const target = confinementRedirect(req.auth?.user?.role, pathname);
+  const target = confinementRedirect(req.auth?.user?.role, pathname, req.auth?.user as ConfinementGrants | undefined);
   if (target) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = target;

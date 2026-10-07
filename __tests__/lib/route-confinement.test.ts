@@ -55,3 +55,24 @@ describe("middleware confinement", () => {
     await expect(lines.join("\n") + "\n").toMatchFileSnapshot("./__snapshots__/route-confinement.txt");
   });
 });
+
+// Review of 0875035c (Oct 7, 2026): /hr and /procurement entered the matcher,
+// so the middleware must honour the per-person grants their APIs honour.
+describe("per-person grants open their module", () => {
+  it("the HR tick opens /hr for a role that works elsewhere", () => {
+    expect(confinementRedirect("ONSITE", "/hr")).toBe("/events");
+    expect(confinementRedirect("ONSITE", "/hr", { hrAccess: true })).toBeNull();
+    expect(confinementRedirect("CRM_USER", "/hr", { hrAccess: true })).toBeNull();
+  });
+
+  it("a budget grant opens /procurement", () => {
+    expect(confinementRedirect("CRM_USER", "/procurement")).toBe("/crm");
+    expect(confinementRedirect("CRM_USER", "/procurement", { procurementRequest: true })).toBeNull();
+    expect(confinementRedirect("HR_USER", "/procurement", { procurementApproveCeilingAed: 5000 })).toBeNull();
+    expect(confinementRedirect("HR_USER", "/procurement", { procurementApproveCeilingAed: 0 })).toBe("/hr");
+  });
+
+  it("a grant opens only its own module", () => {
+    expect(confinementRedirect("ONSITE", "/crm", { hrAccess: true, procurementSettle: true })).toBe("/events");
+  });
+});

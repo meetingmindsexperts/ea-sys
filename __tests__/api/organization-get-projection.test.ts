@@ -24,6 +24,7 @@ beforeEach(() => {
   mockFindUnique.mockResolvedValue({
     id: "org1", name: "MMG", slug: "mmg", logo: null, primaryColor: null,
     settings: { timezone: "Asia/Dubai", currency: "AED", zoom: { clientSecret: "enc:abc" }, stripe: { secretKey: "enc:sk" }, ai: { apiKey: "enc:k" } },
+    taxId: "TRN-123", companyEmail: "accounts@mmg.example", companyPhone: "+971",
     _count: { events: 3, users: 9 },
   });
 });
@@ -38,5 +39,14 @@ describe("GET /api/organization", () => {
     const args = mockFindUnique.mock.calls[0][0];
     expect(args).not.toHaveProperty("include");
     expect(args.select).not.toHaveProperty("users");
+  });
+
+  it("keeps the company and tax details for the people whose Billing screen uses them", async () => {
+    const onsite = await (await GET(new Request("http://localhost/api/organization"))).json();
+    expect(onsite).not.toHaveProperty("taxId");
+    expect(onsite).not.toHaveProperty("companyEmail");
+    mockAuth.mockResolvedValue({ user: { id: "a1", role: "ADMIN", organizationId: "org1" } });
+    const admin = await (await GET(new Request("http://localhost/api/organization"))).json();
+    expect(admin.taxId).toBe("TRN-123");
   });
 });
