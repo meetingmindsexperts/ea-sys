@@ -50,14 +50,22 @@ describe("GET /api/procurement/budgets/[budgetId]/activity", () => {
     expect(svc.listBudgetActivity).not.toHaveBeenCalled();
   });
   it("org staff read the described rows, bound to their org", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await GET(req(), params);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ items, truncated: false });
     expect(svc.listBudgetActivity).toHaveBeenCalledWith(ORG, "b1");
   });
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("a MEMBER is refused by role and reads with the budgets view key", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    expect((await GET(req(), params)).status).toBe(403);
+    expect(svc.listBudgetActivity).not.toHaveBeenCalled();
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
+    expect((await GET(req(), params)).status).toBe(200);
+  });
   it("a budget outside the org is a logged 404", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     svc.listBudgetActivity.mockResolvedValue({ ok: false, code: "BUDGET_NOT_FOUND", message: "The budget was not found." });
     const res = await GET(req(), params);
     expect(res.status).toBe(404);

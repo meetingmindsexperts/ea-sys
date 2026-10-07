@@ -77,12 +77,18 @@ describe("procurement routes: flag and authentication", () => {
 });
 
 describe("procurement routes: reading and authoring", () => {
-  it("MEMBER reads the list but cannot create; ORGANIZER creates", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("ORGANIZER and MEMBER are refused by role; a view key reads but cannot create; ADMIN creates", async () => {
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      authMock.mockResolvedValue(user({ role }));
+      expect((await listGet(new NextRequest("http://localhost/api/procurement/budgets"))).status).toBe(403);
+      expect((await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }))).status).toBe(403);
+    }
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
     expect((await listGet(new NextRequest("http://localhost/api/procurement/budgets"))).status).toBe(200);
     expect((await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }))).status).toBe(403);
     expect(svc.createBudget).not.toHaveBeenCalled();
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }));
     expect(res.status).toBe(201);
     expect(svc.createBudget).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG, actorUserId: "u1", source: "ui", eventId: "e1" }));
@@ -112,12 +118,12 @@ describe("procurement routes: reading and authoring", () => {
     expect((await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }))).status).toBe(403);
   });
   it("a bad body is a logged 400, never a service call", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     expect((await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "XXX" }))).status).toBe(400);
     expect(svc.createBudget).not.toHaveBeenCalled();
   });
   it("maps a service refusal onto its status and carries the code", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     svc.createBudget.mockResolvedValue({ ok: false, code: "EVENT_CODE_REQUIRED", message: "no code" });
     const res = await createPost(post("/api/procurement/budgets", { eventId: "e1", reportingCurrency: "AED" }));
     expect(res.status).toBe(409);
@@ -136,7 +142,8 @@ describe("procurement routes: deciding and the lifecycle moves", () => {
     expect(svc.decideBudget).toHaveBeenCalledWith(expect.objectContaining({ decider: expect.objectContaining({ id: "u1", procurementApproveCeilingAed: 1_000_000 }) }));
   });
   it("transition: freeze is the author's, sign-off the settle grant's, reopen the admin's", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    // An author who is not an admin: an organiser holding the budget authoring keys.
+    authMock.mockResolvedValue(user({ role: "ORGANIZER", procurementPermissions: ["procurement.budgets.create", "procurement.budgets.edit"] }));
     expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "freeze" }), params)).status).toBe(200);
     expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "sign-off" }), params)).status).toBe(403);
     expect((await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "reopen", reason: "x" }), params)).status).toBe(403);
@@ -151,7 +158,7 @@ describe("procurement routes: deciding and the lifecycle moves", () => {
     expect(svc.reopenBudget).toHaveBeenCalledWith(expect.objectContaining({ reason: "audit" }));
   });
   it("close surfaces the lines that still need a variance note as 422 with their keys", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await transitionPost(post("/api/procurement/budgets/b1/transition", { action: "close" }), params);
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ code: "VARIANCE_NOTES_REQUIRED", meta: { lineKeys: ["k"] } });

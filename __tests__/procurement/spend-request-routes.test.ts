@@ -77,8 +77,18 @@ describe("GET /api/procurement/requests", () => {
     expect((await list(new NextRequest("http://localhost/api/procurement/requests"))).status).toBe(403);
     expect(svc.listSpendRequests).not.toHaveBeenCalled();
   });
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses ORGANIZER and MEMBER by role; the request grant admits a MEMBER", async () => {
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      authMock.mockResolvedValue(user({ role }));
+      expect((await list(new NextRequest("http://localhost/api/procurement/requests"))).status).toBe(403);
+    }
+    expect(svc.listSpendRequests).not.toHaveBeenCalled();
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementRequest: true }));
+    expect((await list(new NextRequest("http://localhost/api/procurement/requests"))).status).toBe(200);
+  });
   it("org staff read, the filters reach the service, and a bad status is a logged 400", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await list(new NextRequest("http://localhost/api/procurement/requests?status=PENDING_APPROVAL&budgetId=b1&mine=1"));
     expect(res.status).toBe(200);
     expect(svc.listSpendRequests).toHaveBeenCalledWith(ORG, { status: "PENDING_APPROVAL", budgetId: "b1", requesterUserId: "u1" });

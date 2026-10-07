@@ -283,7 +283,7 @@ describe("createDealQuote", () => {
   // the redaction knows. These run the payload the service actually wrote.
   describe("History rows and the money redaction", () => {
     const MEMBER_CTX = { organizationId: ORG, userId: "u-m", role: "MEMBER", fromApiKey: false } as never;
-    const STAFF_CTX = { organizationId: ORG, userId: "u-s", role: "ORGANIZER", fromApiKey: false } as never;
+    const STAFF_CTX = { organizationId: ORG, userId: "u-s", role: "ADMIN", fromApiKey: false } as never;
 
     function recordedChanges(): Record<string, unknown> {
       const call = dbMock.crmActivity.create.mock.calls.at(-1)![0] as { data: { changes: Record<string, unknown> } };

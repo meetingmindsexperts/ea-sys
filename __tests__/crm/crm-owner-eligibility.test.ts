@@ -25,14 +25,15 @@ describe("mayOwnCrmRecords", () => {
   });
 
   it("admits the CRM-capable base roles without reading custom roles", async () => {
-    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"]) {
+    for (const role of ["SUPER_ADMIN", "ADMIN", "CRM_USER"]) {
       expect(await mayOwnCrmRecords("o", { id: "u", role })).toBe(true);
     }
     expect(mockDb.userPermissionSet.findMany).not.toHaveBeenCalled();
   });
 
-  it("refuses a Member, Onsite or Webinars user with no custom role", async () => {
-    for (const role of ["MEMBER", "ONSITE", "WEBINARS"]) {
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses an Organizer, Member, Onsite or Webinars user with no custom role", async () => {
+    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "WEBINARS"]) {
       expect(await mayOwnCrmRecords("o", { id: "u", role })).toBe(false);
     }
   });
@@ -40,5 +41,10 @@ describe("mayOwnCrmRecords", () => {
   it("admits a Member whose custom role grants crm.write", async () => {
     mockDb.userPermissionSet.findMany.mockResolvedValue(crmWriteRole);
     expect(await mayOwnCrmRecords("o", { id: "u", role: "MEMBER" })).toBe(true);
+  });
+
+  it("admits an Organizer whose custom role grants crm.write", async () => {
+    mockDb.userPermissionSet.findMany.mockResolvedValue(crmWriteRole);
+    expect(await mayOwnCrmRecords("o", { id: "u", role: "ORGANIZER" })).toBe(true);
   });
 });

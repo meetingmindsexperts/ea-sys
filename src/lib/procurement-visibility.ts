@@ -40,10 +40,14 @@ function holds(user: ProcurementUserLike | null | undefined, key: PermissionKey)
   return Array.isArray(keys) && keys.includes(key);
 }
 
-/** Org staff who read procurement data without any grant (spec §4: MEMBER is read-only). */
-const PROCUREMENT_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]);
-/** Event-scoped budget authoring: create, edit, submit, reallocate, close (spec §4). */
-const BUDGET_AUTHOR_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+/**
+ * Org staff who read procurement data without any grant. ORGANIZER and MEMBER
+ * left on Oct 7, 2026 (owner: no Budgets on those base roles; a custom role or
+ * a person grant gives it). Mirrors system-roles.ts, pinned by the parity test.
+ */
+const PROCUREMENT_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
+/** Event-scoped budget authoring: create, edit, submit, reallocate, close (spec §4). ORGANIZER left Oct 7, 2026. */
+const BUDGET_AUTHOR_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
 /** Module administration: templates, categories, workflow, reopening closed budgets. */
 const PROCUREMENT_ADMIN_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
 
@@ -157,7 +161,7 @@ export function canDecideSuppliers(user: ProcurementUserLike | null | undefined)
   return user.procurementSettle === true || user.role === "SUPER_ADMIN" || user.procurementApproveUnlimited === true;
 }
 
-const SUPPLIER_FINANCIALS_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+const SUPPLIER_FINANCIALS_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
 
 /**
  * Supplier tax numbers and bank details are classified (spec §2.9): they follow

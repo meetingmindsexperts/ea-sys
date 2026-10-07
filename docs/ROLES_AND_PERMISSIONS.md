@@ -30,8 +30,8 @@ Eleven roles on `User.role`, plus two principals that are not roles.
 |---|---|---|---|
 | **SUPER_ADMIN** | yes (an org-less Super Admin is the platform operator) | every event in the org (every event, when org-less) | Everything an Admin can do, plus the operator surfaces (Logs, ID lookup, Backups, Help queries, Agent messages, Docs, alert silencing), INTERNAL API-key and OAuth tiers, the Roles and System tabs, HR without a grant, CRM purge. |
 | **ADMIN** | yes | every event in the org | Full control of every event and of the organisation: settings, users and invites, integrations, API keys, Activity, sign-in activity, CRM incl. export, budget authoring and the catalogue. |
-| **ORGANIZER** | yes | **every event in the org** (org-wide, never "assigned events only") | Full control of every event: registrations, money movement, speakers, programme, communications, certificates, reimbursements, travel grants. Contacts read, write and export. May create Onsite Staff accounts and assign them. Cannot touch org settings, users, API keys, integrations, the Activity page or sign-in activity, and cannot approve a claude.ai (MCP OAuth) connection (admins only since Oct 6, 2026). |
-| **MEMBER** | yes | every event in the org | Internal staff who read everything, **money included**, and run the registration desk (add, edit, check in, badges, record a payment). No other write. Reads survey answers (since Oct 2, 2026) and lists a speaker's documents without opening the files. Never sees entry or DTCM barcodes, cannot export registrations or webinar attendance, cannot open supporting documents. CRM read only, no deal values. AI Agent with the same permissions as its screens (since Oct 5, 2026): the desk actions, never the reviewers list, media library, scheduled emails or certificate templates. |
+| **ORGANIZER** | yes | **every event in the org** (org-wide, never "assigned events only") | Full control of every event: registrations, money movement, speakers, programme, communications, certificates, reimbursements, travel grants. Contacts read, write and export. No CRM and no Budgets of its own since Oct 7, 2026 (a custom role adds them). May create Onsite Staff accounts and assign them. Cannot touch org settings, users, API keys, integrations, the Activity page or sign-in activity, and cannot approve a claude.ai (MCP OAuth) connection (admins only since Oct 6, 2026). |
+| **MEMBER** | yes | every event in the org | Internal staff who read everything, **money included**, and run the registration desk (add, edit, check in, badges, record a payment). No other write. Reads survey answers (since Oct 2, 2026) and lists a speaker's documents without opening the files. Never sees entry or DTCM barcodes, cannot export registrations or webinar attendance, cannot open supporting documents. No CRM and no Budgets since Oct 7, 2026 (a custom role adds them). AI Agent with the same permissions as its screens (since Oct 5, 2026): the desk actions, never the reviewers list, media library, scheduled emails or certificate templates. |
 | **ONSITE** | yes | **only events it is assigned to** (Settings, Onsite Staff) | Temporary desk staff and contractors. On an assigned event: the registrations list, add and edit, check in and undo, badges, record a payment, export the list, entry and DTCM codes, spare DTCM codes. Sees amounts. Also reads, on an assigned event, the registration types, promo codes, agenda, speakers, abstracts and proposals, and the webinar console's attendance screens, and the event's invoices, quotes and invoice CSV (kept as found by the owner, Oct 1 to 5, 2026). Never the organisation's invoice book, which it could read until Oct 5, 2026; it reads the payer list (for the add-registration form) but not a payer's detail. Nothing else, and unassigned events do not exist for it. |
 | **WEBINARS** | yes | WEBINAR-type events for management; every org event for the desk | **Retired Oct 7, 2026: no longer assignable** (the webinar team are MEMBER plus the "Corporate" custom role; production had no WEBINARS account left). A leftover account keeps what follows. Organizer-grade control of webinar events, registration desk on every other event (Member parity, no assignment needed). Never: org settings or users, API keys, CRM, contacts, sign-in activity, refunds, credit notes, cancellations, certificates (including the certificate bulk email, since Oct 6, 2026), reimbursements, the AI Agent, event delete or clone, promo codes, the org invoice ledger. |
 | **CRM_USER** | yes | none | The sponsorship pipeline only: deals, companies, CRM contacts, tasks, inbox, deal values, archive. Contact-store read. No events, no CSV export, no purge. |
@@ -119,9 +119,9 @@ built-in roles only.
 | Supporting documents (resident letters and the like) | `supportingDocs.view` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
 | Zoom host credentials (start URL, passcode, stream key) | `zoomHost.view` | SUPER_ADMIN · ADMIN · ORGANIZER · WEBINARS | yes |
 | Speaker reimbursements (passports, bank details) | `reimbursements.manage` | SUPER_ADMIN · ADMIN · ORGANIZER | no |
-| CRM, read the board | `crm.read` | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER · CRM_USER | yes |
-| CRM, own deals and write | `crm.write` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
-| CRM, see deal values | `crm.dealValues.view` | SUPER_ADMIN · ADMIN · ORGANIZER · CRM_USER | yes |
+| CRM, read the board | `crm.read` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
+| CRM, own deals and write | `crm.write` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
+| CRM, see deal values | `crm.dealValues.view` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
 | CRM, archive and restore | `crm.delete` | SUPER_ADMIN · ADMIN · CRM_USER | yes |
 | CRM, CSV export | `crm.export` | SUPER_ADMIN · ADMIN | yes |
 | CRM, default quote terms | `crm.quoteDefaults.manage` | SUPER_ADMIN · ADMIN | no |
@@ -194,8 +194,8 @@ whatever their base role.
 
 | Capability | Who |
 |---|---|
-| Read budgets, requests, orders | SUPER_ADMIN · ADMIN · ORGANIZER · MEMBER, or anyone holding a grant or a custom role |
-| Author a budget (create, edit, submit, new version) | SUPER_ADMIN · ADMIN · ORGANIZER, or `procurement.budgets.create` / `.edit` |
+| Read budgets, requests, orders | SUPER_ADMIN · ADMIN, or anyone holding a grant or a custom role (ORGANIZER and MEMBER since Oct 7, 2026) |
+| Author a budget (create, edit, submit, new version) | SUPER_ADMIN · ADMIN, or `procurement.budgets.create` / `.edit` |
 | Manage the product catalogue | SUPER_ADMIN · ADMIN, or `procurement.catalogue.manage` |
 | Raise a spend request | the per-person request grant, or `procurement.requests.create` (the final approver's account is refused as a requester) |
 | Approve or reject | the per-person approval ceiling in AED, or unlimited; the ceiling always lives on the person, never on a role. When the super admin saves an approval chain (Settings, Approvals tab since Oct 6 2026; first shipped under Roles on Sep 28 2026), the chain names WHO decides spend requests (2 to 4 people in order, the last unlimited) and budgets and moves (one approver), whatever the amount; each must still hold approval access |
@@ -203,16 +203,16 @@ whatever their base role.
 | Set the approval chains | SUPER_ADMIN only; the super admin is never an approver |
 | Sign off a closed budget | the per-person settle grant, or `procurement.budgets.signoff`; a signer who approved some of the event's purchases may sign off, and the close-out names them |
 | Decide a proposed supplier | the settle grant, SUPER_ADMIN, an unlimited approver, or `procurement.suppliers.decide` |
-| See a supplier's bank details and tax number | SUPER_ADMIN · ADMIN · ORGANIZER, the settle grant, or `procurement.suppliers.financials.view` |
+| See a supplier's bank details and tax number | SUPER_ADMIN · ADMIN, the settle grant, or `procurement.suppliers.financials.view` |
 | Create and edit custom roles, tag them on people | SUPER_ADMIN only |
 
 Custom roles: twenty permission keys, four starter roles seeded on first open
 (PO Author, PO Approver, Requester, Finance Settle), several roles on one
 person add up, and two combinations are refused at save time and again at the
 route: the final approver cannot also raise requests, and signing off a closed
-budget cannot sit beside approving. The sidebar shows Budgets to an ORGANIZER
-only when they hold a grant or a custom role (owner decision, Sep 15, 2026);
-the API answers regardless. Design record: [PROCUREMENT_ROLES_PLAN.md](PROCUREMENT_ROLES_PLAN.md).
+budget cannot sit beside approving. Since Oct 7, 2026 (owner) ORGANIZER and
+MEMBER hold no CRM and no Budgets access of their own: a per-person grant or a
+custom role gives it, and the sidebar follows the permissions. Design record: [PROCUREMENT_ROLES_PLAN.md](PROCUREMENT_ROLES_PLAN.md).
 
 ---
 

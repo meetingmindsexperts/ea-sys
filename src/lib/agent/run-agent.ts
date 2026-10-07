@@ -117,7 +117,7 @@ export function approvalRequiredResult(toolName: string): string {
 export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): Promise<AgentLoopEnd> {
   // The model is offered only the tools this person could use somewhere; the
   // gate still judges each call on its event.
-  const registered = deps.tools ?? collectToolsForActor({ organizationId: req.organizationId, actor: req.actor, source: "agent" });
+  const registered = deps.tools ?? collectToolsForActor({ organizationId: req.organizationId, actor: { ...req.actor, principal: req.principal }, source: "agent" });
   const tools = registered.filter((t) => {
     const key = toolPermission(t.name);
     return key !== null && can(req.principal, key);

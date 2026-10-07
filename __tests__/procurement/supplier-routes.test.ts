@@ -57,15 +57,25 @@ describe("supplier routes: flag, reads and redaction", () => {
     authMock.mockResolvedValue(user({ role: "SUPER_ADMIN" }));
     expect((await listGet(req("/api/procurement/suppliers"))).status).toBe(404);
   });
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses ORGANIZER and MEMBER by role", async () => {
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      authMock.mockResolvedValue(user({ role }));
+      expect((await listGet(req("/api/procurement/suppliers"))).status).toBe(403);
+    }
+    expect(svc.listSuppliers).not.toHaveBeenCalled();
+  });
   it("a MEMBER without the settle grant reads the list with the classified fields redacted", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.suppliers.view"] }));
     const res = await listGet(req("/api/procurement/suppliers"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.suppliers[0]).toMatchObject({ code: "ACME", taxRegistrationNo: null, bankDetails: null, financialsRedacted: true });
   });
-  it("an ORGANIZER, and a MEMBER holding settle, read the classified fields", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+  it("an ADMIN, an ORGANIZER holding the financials key, and a MEMBER holding settle, read the classified fields", async () => {
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
+    expect((await (await oneGet(req("/api/procurement/suppliers/s1"), params)).json()).supplier).toMatchObject({ taxRegistrationNo: "TRN-1", financialsRedacted: false });
+    authMock.mockResolvedValue(user({ role: "ORGANIZER", procurementPermissions: ["procurement.suppliers.view", "procurement.suppliers.financials.view"] }));
     expect((await (await oneGet(req("/api/procurement/suppliers/s1"), params)).json()).supplier).toMatchObject({ taxRegistrationNo: "TRN-1", financialsRedacted: false });
     authMock.mockResolvedValue(user({ role: "MEMBER", procurementSettle: true }));
     expect((await (await oneGet(req("/api/procurement/suppliers/s1"), params)).json()).supplier).toMatchObject({ taxRegistrationNo: "TRN-1", financialsRedacted: false });

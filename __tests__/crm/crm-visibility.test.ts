@@ -8,8 +8,9 @@
  *
  *                     read board   own/write   see money
  *   SUPER_ADMIN/ADMIN     ✓            ✓           ✓
- *   ORGANIZER             ✓            ✓           ✓
- *   MEMBER                ✓            ✗           ✗   ← the interesting row
+ *   ORGANIZER             ✗            ✗           ✗   (Oct 7, 2026; a custom role adds it)
+ *   MEMBER                ✗            ✗           ✗   (Oct 7, 2026; a custom role adds it)
+ *   CRM_USER              ✓            ✓           ✓
  *   ONSITE                ✗            ✗           ✗
  *   REVIEWER/SUBMITTER    ✗            ✗           ✗
  *   REGISTRANT            ✗            ✗           ✗
@@ -29,8 +30,16 @@ vi.mock("@/lib/logger", () => ({
 import { denyCrmAccess, denyCrmWrite, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 import { apiLogger } from "@/lib/logger";
 import { canExportCrm, canOwnDeals, canPurgeCrm, canViewCrm, canViewDealValues } from "../helpers/role-can";
+import { can, principalFromUser } from "@/lib/permissions/can";
+import type { PermissionKey } from "@/lib/permissions/catalogue";
 
-const STAFF = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"] as const;
+const STAFF = ["SUPER_ADMIN", "ADMIN"] as const;
+/** The base roles that lost the CRM on Oct 7, 2026. */
+const NO_CRM_STAFF = ["ORGANIZER", "MEMBER"] as const;
+
+/** A base role plus custom-role keys, as the session carries them. */
+const withCustomKeys = (role: string, keys: PermissionKey[]) =>
+  principalFromUser({ id: `u-${role}`, role, organizationId: "org-1", procurementPermissions: keys });
 const BLOCKED = ["ONSITE", "REVIEWER", "SUBMITTER", "REGISTRANT"] as const;
 
 // An organisation is part of the caller since the guards ask `can()` (custom
@@ -49,8 +58,14 @@ describe("canViewCrm — who may READ the board", () => {
     expect(canViewCrm(role)).toBe(true);
   });
 
-  it("allows MEMBER — leadership is exactly who wants the board", () => {
-    expect(canViewCrm("MEMBER")).toBe(true);
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it.each(NO_CRM_STAFF)("refuses %s by role, and admits it with the crm.read custom key", (role) => {
+    expect(canViewCrm(role)).toBe(false);
+    expect(can(withCustomKeys(role, ["crm.read"]), "crm.read")).toBe(true);
+  });
+
+  it("allows CRM_USER", () => {
+    expect(canViewCrm("CRM_USER")).toBe(true);
   });
 
   it.each(BLOCKED)("blocks %s", (role) => {
@@ -83,6 +98,12 @@ describe("canOwnDeals — who may WRITE / own", () => {
     expect(canOwnDeals("MEMBER")).toBe(false);
   });
 
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses ORGANIZER by role, and admits it with the crm.write custom key", () => {
+    expect(canOwnDeals("ORGANIZER")).toBe(false);
+    expect(can(withCustomKeys("ORGANIZER", ["crm.write"]), "crm.write")).toBe(true);
+  });
+
   it.each(BLOCKED)("blocks %s", (role) => {
     expect(canOwnDeals(role)).toBe(false);
   });
@@ -105,21 +126,33 @@ describe("canViewDealValues — who sees the money", () => {
     expect(canViewDealValues("MEMBER")).toBe(false);
   });
 
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses ORGANIZER by role", () => {
+    expect(canViewDealValues("ORGANIZER")).toBe(false);
+  });
+
   it("is strictly narrower than the read predicate", () => {
     // Every role that can see values can read the board, but not vice versa.
-    const roles = [...STAFF, "MEMBER", ...BLOCKED];
+    const roles = [...STAFF, "MEMBER", "ORGANIZER", "CRM_USER", ...BLOCKED];
     for (const r of roles) {
       if (canViewDealValues(r)) expect(canViewCrm(r)).toBe(true);
     }
-    // …and at least one role differentiates them, else the two are redundant.
-    expect(canViewCrm("MEMBER") && !canViewDealValues("MEMBER")).toBe(true);
+    // …and a custom role can hold the board without the money, else the two are redundant.
+    const reader = withCustomKeys("MEMBER", ["crm.read"]);
+    expect(can(reader, "crm.read") && !can(reader, "crm.dealValues.view")).toBe(true);
   });
 });
 
 describe("denyCrmAccess", () => {
   it("returns null for a permitted role", () => {
-    expect(denyCrmAccess(ctx("ORGANIZER"))).toBeNull();
-    expect(denyCrmAccess(ctx("MEMBER"))).toBeNull();
+    expect(denyCrmAccess(ctx("ADMIN"))).toBeNull();
+    expect(denyCrmAccess(ctx("CRM_USER"))).toBeNull();
+  });
+
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("403s ORGANIZER and MEMBER by role", () => {
+    expect(denyCrmAccess(ctx("ORGANIZER"))!.status).toBe(403);
+    expect(denyCrmAccess(ctx("MEMBER"))!.status).toBe(403);
   });
 
   it("403s a blocked role with a machine-readable code", async () => {
@@ -220,8 +253,8 @@ describe("denyCrmPurge", () => {
  *   CRM_USER  — works the pipeline daily, may edit and ARCHIVE records, and is
  *               still refused the bulk dump. A rep leaving for a competitor with
  *               a CSV of the whole book is the exact loss this exists to stop.
- *   ORGANIZER — may write, may not export.
- *   MEMBER    — reads the board, may not export.
+ *   ORGANIZER: no CRM by role since Oct 7, 2026; with a write custom role, still no export.
+ *   MEMBER:    no CRM by role since Oct 7, 2026; with a read custom role, still no export.
  *
  * If someone ever "simplifies" canExportCrm() into canViewCrm() or canOwnDeals(),
  * every one of those three gets the book and these tests fail loudly.
@@ -238,14 +271,18 @@ describe("canExportCrm", () => {
     expect(canExportCrm("CRM_USER")).toBe(false);
   });
 
-  it("REFUSES ORGANIZER — writes the pipeline, does not export it", () => {
-    expect(canOwnDeals("ORGANIZER")).toBe(true);
+  it("REFUSES ORGANIZER, even with the crm.write custom key: writing the pipeline is not exporting it", () => {
     expect(canExportCrm("ORGANIZER")).toBe(false);
+    const writer = withCustomKeys("ORGANIZER", ["crm.read", "crm.write"]);
+    expect(can(writer, "crm.write")).toBe(true);
+    expect(can(writer, "crm.export")).toBe(false);
   });
 
-  it("REFUSES MEMBER — reads the board, does not export it", () => {
-    expect(canViewCrm("MEMBER")).toBe(true);
+  it("REFUSES MEMBER, even with the crm.read custom key: reading the board is not exporting it", () => {
     expect(canExportCrm("MEMBER")).toBe(false);
+    const reader = withCustomKeys("MEMBER", ["crm.read"]);
+    expect(can(reader, "crm.read")).toBe(true);
+    expect(can(reader, "crm.export")).toBe(false);
   });
 
   it("refuses every non-CRM role", () => {

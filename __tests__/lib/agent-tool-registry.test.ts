@@ -49,10 +49,13 @@ describe("collectToolsForActor", () => {
     expect(new Set(names).size, "no duplicate names").toBe(names.length);
   });
 
-  it("applies the CRM door's own role rules: MEMBER reads the board, WEBINARS never sees it", () => {
+  it("applies the CRM door's own role rules: CRM_USER works the board, MEMBER and WEBINARS never see it", () => {
+    const crmUser = collect("CRM_USER").map((t) => t.name);
+    expect(crmUser).toContain("list_crm_deals");
+    expect(crmUser).toContain("create_crm_deal");
+    // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
     const member = collect("MEMBER").map((t) => t.name);
-    expect(member).toContain("list_crm_deals");
-    expect(member).not.toContain("create_crm_deal");
+    expect(member.some((n) => n.includes("crm"))).toBe(false);
     const webinars = collect("WEBINARS").map((t) => t.name);
     expect(webinars.some((n) => n.includes("crm"))).toBe(false);
   });

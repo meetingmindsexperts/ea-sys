@@ -24,8 +24,8 @@ GET integrations/quickbooks/chart
   SUPER_ADMIN 409
   OPERATOR    403
   ADMIN       409
-  ORGANIZER   409
-  MEMBER      409
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -109,8 +109,8 @@ GET integrations/quickbooks
   SUPER_ADMIN 200
   OPERATOR    403
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -143,8 +143,8 @@ POST integrations/quickbooks/test
   SUPER_ADMIN 409
   OPERATOR    403
   ADMIN       409
-  ORGANIZER   409
-  MEMBER      409
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -194,8 +194,8 @@ POST procurement/approvals/[requestId]/decide
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -211,8 +211,8 @@ GET procurement/approvals
   SUPER_ADMIN 0
   OPERATOR    403
   ADMIN       0
-  ORGANIZER   0
-  MEMBER      0
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -228,8 +228,8 @@ GET procurement/budgets/[budgetId]/activity
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -262,8 +262,8 @@ GET procurement/budgets/[budgetId]/export
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -279,7 +279,7 @@ PATCH procurement/budgets/[budgetId]/lines/[lineId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -296,7 +296,7 @@ DELETE procurement/budgets/[budgetId]/lines/[lineId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -313,7 +313,7 @@ POST procurement/budgets/[budgetId]/lines
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -330,7 +330,7 @@ POST procurement/budgets/[budgetId]/reallocate
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -347,7 +347,7 @@ PATCH procurement/budgets/[budgetId]/revenue/[lineId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -364,7 +364,7 @@ DELETE procurement/budgets/[budgetId]/revenue/[lineId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -381,8 +381,8 @@ GET procurement/budgets/[budgetId]/revenue
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -398,7 +398,7 @@ POST procurement/budgets/[budgetId]/revenue
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -415,8 +415,8 @@ GET procurement/budgets/[budgetId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -432,7 +432,7 @@ PATCH procurement/budgets/[budgetId]
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -449,7 +449,7 @@ DELETE procurement/budgets/[budgetId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -466,7 +466,7 @@ POST procurement/budgets/[budgetId]/submit
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -483,8 +483,8 @@ POST procurement/budgets/[budgetId]/transition
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -500,7 +500,7 @@ POST procurement/budgets/[budgetId]/versions
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -517,8 +517,8 @@ GET procurement/budgets
   SUPER_ADMIN 0
   OPERATOR    403
   ADMIN       0
-  ORGANIZER   0
-  MEMBER      0
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -534,7 +534,7 @@ POST procurement/budgets
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -568,8 +568,8 @@ GET procurement/categories
   SUPER_ADMIN 200 w
   OPERATOR    403
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -602,8 +602,8 @@ POST procurement/commitments/[commitmentId]/cancel
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -619,8 +619,8 @@ POST procurement/commitments/[commitmentId]/confirm-receipt
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -636,8 +636,8 @@ GET procurement/commitments/[commitmentId]/pdf
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -653,8 +653,8 @@ POST procurement/commitments/[commitmentId]/receive
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -670,8 +670,8 @@ GET procurement/commitments/[commitmentId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -687,8 +687,8 @@ POST procurement/commitments/[commitmentId]/send
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -704,8 +704,8 @@ POST procurement/commitments/[commitmentId]/undo-receipt
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -721,8 +721,8 @@ GET procurement/commitments
   SUPER_ADMIN 0
   OPERATOR    403
   ADMIN       0
-  ORGANIZER   0
-  MEMBER      0
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -772,8 +772,8 @@ GET procurement/products
   SUPER_ADMIN 200 w
   OPERATOR    403
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -823,8 +823,8 @@ POST procurement/requests/[requestId]/order
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -857,8 +857,8 @@ GET procurement/requests/[requestId]/quotes/[quoteId]/file
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -925,8 +925,8 @@ GET procurement/requests/[requestId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -993,8 +993,8 @@ GET procurement/requests/budget-check
   SUPER_ADMIN 400
   OPERATOR    403
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -1010,8 +1010,8 @@ GET procurement/requests
   SUPER_ADMIN 200
   OPERATOR    403
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -1061,8 +1061,8 @@ GET procurement/suppliers/[supplierId]
   SUPER_ADMIN 404
   OPERATOR    403
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -1129,8 +1129,8 @@ GET procurement/suppliers
   SUPER_ADMIN 200
   OPERATOR    403
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403
@@ -1231,8 +1231,8 @@ GET procurement/templates
   SUPER_ADMIN 200 w
   OPERATOR    403
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    403

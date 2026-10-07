@@ -31,7 +31,7 @@ import { redactForCaller } from "@/crm/lib/crm-route";
 
 /** A money-blind MEMBER context; redactForCaller only reads role + fromApiKey. */
 const MEMBER_CTX = { organizationId: "org-1", userId: "u-m", role: "MEMBER", fromApiKey: false } as never;
-const STAFF_CTX = { organizationId: "org-1", userId: "u-s", role: "ORGANIZER", fromApiKey: false } as never;
+const STAFF_CTX = { organizationId: "org-1", userId: "u-s", role: "ADMIN", fromApiKey: false } as never;
 
 describe("prose-key stripping for MEMBER (R2-M12)", () => {
   it("strips task `description` and deal `lostReason` — free text that quotes the money the dealValue redaction hides", () => {

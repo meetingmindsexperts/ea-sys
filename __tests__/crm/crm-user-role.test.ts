@@ -43,8 +43,9 @@ describe("CRM_USER is walled off from everything outside the CRM", () => {
 });
 
 describe("CRM_USER vs MEMBER — the meaningful difference", () => {
-  it("both read the board, but only CRM_USER can write and see money", () => {
-    expect(canViewCrm("MEMBER")).toBe(true);
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("only CRM_USER reads the board, writes it and sees money; MEMBER does none of it by role", () => {
+    expect(canViewCrm("MEMBER")).toBe(false);
     expect(canViewCrm("CRM_USER")).toBe(true);
 
     expect(canOwnDeals("MEMBER")).toBe(false); // read-only

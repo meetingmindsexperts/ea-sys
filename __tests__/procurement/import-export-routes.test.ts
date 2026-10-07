@@ -77,8 +77,14 @@ describe("GET /api/procurement/budgets/[budgetId]/export", () => {
     expect((await exportGet(exportReq(), params)).status).toBe(404);
     expect(budgetSvc.getBudget).not.toHaveBeenCalled();
   });
-  it("streams the CSV to org staff with the BOM, a filename and an audit row", async () => {
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses a MEMBER by role, and reads nothing", async () => {
     authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    expect((await exportGet(exportReq(), params)).status).toBe(403);
+    expect(budgetSvc.getBudget).not.toHaveBeenCalled();
+  });
+  it("streams the CSV to org staff with the BOM, a filename and an audit row", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
     const res = await exportGet(exportReq(), params);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
@@ -93,7 +99,7 @@ describe("GET /api/procurement/budgets/[budgetId]/export", () => {
     expect(audit.recordExport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityType: "EventBudget", rowCount: 1, format: "csv", organizationId: ORG, userId: "u1", role: "MEMBER", filters: expect.objectContaining({ budgetId: "b1", eventCode: "HM2026", versionNo: 2, revenue: "included" }) }));
   });
   it("adds revenue and margin for a caller with finance sight, read for the same budget", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const body = await (await exportGet(exportReq(), params)).text();
     expect(revenueSvc.getBudgetRevenue).toHaveBeenCalledWith(ORG, "b1");
     expect(body).toContain("430005,In-House Delegate Sales,1000.00,250.00,-750.00");

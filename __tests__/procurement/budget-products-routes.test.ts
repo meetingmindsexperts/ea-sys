@@ -58,8 +58,12 @@ describe("procurement products routes", () => {
     expect((await listGet()).status).toBe(404);
     expect(svc.ensureBudgetProducts).not.toHaveBeenCalled();
   });
-  it("MEMBER reads the catalogue, and the read seeds it for the org", async () => {
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("MEMBER is refused by role; with the budgets view key it reads the catalogue, and the read seeds it for the org", async () => {
     authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    expect((await listGet()).status).toBe(403);
+    expect(svc.ensureBudgetProducts).not.toHaveBeenCalled();
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
     const res = await listGet();
     expect(res.status).toBe(200);
     expect((await res.json()).products).toHaveLength(1);

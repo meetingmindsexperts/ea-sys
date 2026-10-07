@@ -37,7 +37,7 @@ import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isProcurementModuleEnabled } from "@/lib/module-flags";
 import { canAuthorBudgets, canViewProcurement } from "@/lib/procurement-visibility";
-import { can, principalFromUser } from "@/lib/permissions/can";
+import { can, principalFromUser, type Principal } from "@/lib/permissions/can";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE } from "@/lib/agent/approvals";
 import { createBudget, deleteBudgetLine, getBudget, listBudgets, upsertBudgetLine, type BudgetLineView, type BudgetView } from "@/procurement/services/budget-service";
 import { ensureBudgetCategories } from "@/procurement/services/budget-category-service";
@@ -55,6 +55,13 @@ export interface ProcurementMcpActor {
   role: string | null;
   /** Procurement refuses API keys; kept on the shape for symmetry with the CRM. */
   fromApiKey: boolean;
+  /**
+   * The person as the routes see them: custom roles AND the per-person
+   * request / approve / settle grants. Set by the in-app agent; without it the
+   * tools follow the base role alone. Since Oct 7, 2026 ORGANIZER and MEMBER
+   * reach Budgets only this way.
+   */
+  principal?: Principal;
 }
 
 export interface ProcurementMcpOptions {
@@ -129,18 +136,22 @@ export function registerProcurementMcpTools(server: McpServer, organizationId: s
     apiLogger.info({ msg: "mcp:procurement-tools-not-registered", reason: "api-key", organizationId });
     return;
   }
-  if (!canViewProcurement({ role: actor.role })) {
+  const p = actor.principal;
+  // Any procurement permission enters the module, as canViewProcurement.
+  const viewsProcurement = p ? p.grants.some((g) => g.permission.startsWith("procurement.")) : canViewProcurement({ role: actor.role });
+  if (!viewsProcurement) {
     apiLogger.info({ msg: "mcp:procurement-tools-not-registered", reason: "role", role: actor.role, organizationId });
     return;
   }
   // finance.view by the base role (custom roles Phase 6); this door is never an API key.
-  const financeSight = can(principalFromUser({ role: actor.role, organizationId }), "finance.view");
+  const financeSight = can(p ?? principalFromUser({ role: actor.role, organizationId }), "finance.view");
   const source = opts.source ?? "mcp";
   const actorUserId = opts.actorUserId ?? null;
   // The writes need a person: the in-app door's signed-in user with a role
   // that may author budgets. Reads-only otherwise, logged so the absence is
   // explained rather than mysterious.
-  const canWrite = source === "agent" && !!actorUserId && canAuthorBudgets({ role: actor.role });
+  const authors = p ? can(p, "procurement.budgets.create") : canAuthorBudgets({ role: actor.role });
+  const canWrite = source === "agent" && !!actorUserId && authors;
   if (!canWrite) {
     apiLogger.info({
       msg: "mcp:procurement-writes-not-registered",

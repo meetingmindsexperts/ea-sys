@@ -83,19 +83,26 @@ describe("registration gate", () => {
     registerProcurementMcpTools(server, "org-1", { role: "WEBINARS", fromApiKey: false });
     expect(tools.size).toBe(0);
   });
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses ORGANIZER and MEMBER by role, on either door", () => {
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      const mcp = fakeServer();
+      registerProcurementMcpTools(mcp.server, "org-1", { role, fromApiKey: false });
+      expect(mcp.tools.size).toBe(0);
+      const inApp = fakeServer();
+      registerProcurementMcpTools(inApp.server, "org-1", { role, fromApiKey: false }, IN_APP);
+      expect(inApp.tools.size).toBe(0);
+    }
+  });
   it("registers the six reads for a reading role on the MCP door, and no write", () => {
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "ORGANIZER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     expect([...tools.keys()].sort()).toEqual(READS);
   });
   it("registers the writes only on the in-app door, for a role that may author budgets", () => {
     const a = fakeServer();
-    registerProcurementMcpTools(a.server, "org-1", { role: "ORGANIZER", fromApiKey: false }, IN_APP);
+    registerProcurementMcpTools(a.server, "org-1", { role: "ADMIN", fromApiKey: false }, IN_APP);
     expect([...a.tools.keys()].sort()).toEqual([...READS, ...WRITES].sort());
-    // MEMBER reads the module but does not author budgets.
-    const m = fakeServer();
-    registerProcurementMcpTools(m.server, "org-1", { role: "MEMBER", fromApiKey: false }, IN_APP);
-    expect([...m.tools.keys()].sort()).toEqual(READS);
     // The MCP door carries a placeholder id, not a person: reads only even for an admin.
     const d = fakeServer();
     registerProcurementMcpTools(d.server, "org-1", { role: "ADMIN", fromApiKey: false }, { actorUserId: "mcp-system", source: "mcp" });
@@ -110,7 +117,7 @@ describe("registration gate", () => {
 describe("the setup reads", () => {
   it("list_budget_categories names active expense codes and leaves contingency and retired ones out", async () => {
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const text = (await tools.get("list_budget_categories")!({})).content[0].text;
     expect(text).toContain("- 510400: Venue");
     expect(text).toContain("- 500700: F&B");
@@ -120,7 +127,7 @@ describe("the setup reads", () => {
   });
   it("list_budget_templates lists the active templates with their ids and line counts", async () => {
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const text = (await tools.get("list_budget_templates")!({})).content[0].text;
     expect(text).toContain("- Conference (CONFERENCE), 2 line(s)\n  ID: t1");
     expect(text).not.toContain("Old");
@@ -130,7 +137,7 @@ describe("the setup reads", () => {
 describe("the writes (in-app door)", () => {
   function authoring() {
     const f = fakeServer();
-    registerProcurementMcpTools(f.server, "org-1", { role: "ORGANIZER", fromApiKey: false }, IN_APP);
+    registerProcurementMcpTools(f.server, "org-1", { role: "ADMIN", fromApiKey: false }, IN_APP);
     return f;
   }
 
@@ -241,7 +248,7 @@ describe("the tools", () => {
   it("list_budgets passes the org from the grant and the filters from the input", async () => {
     svc.listBudgets.mockResolvedValue([budget]);
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const out = await tools.get("list_budgets")!({ eventId: "ev1", status: "ACTIVE" });
     expect(svc.listBudgets).toHaveBeenCalledWith("org-1", { eventId: "ev1", status: "ACTIVE" });
     expect(out.isError).toBeUndefined();
@@ -273,7 +280,7 @@ describe("revenue and margin on the budget reads", () => {
   it("get_budget adds the accounts, what sits outside them and the margin against the target", async () => {
     svc.getBudget.mockResolvedValue({ ok: true, budget });
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "ORGANIZER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const text = (await tools.get("get_budget")!({ budgetId: "b1" })).content[0].text;
     expect(revSvc.getBudgetRevenue).toHaveBeenCalledWith("org-1", "b1");
     expect(text).toContain("Revenue and margin (AED, ex-VAT), actuals from 24 paid registration(s) and 2 won deal(s):");
@@ -300,7 +307,7 @@ describe("revenue and margin on the budget reads", () => {
     svc.getBudget.mockResolvedValue({ ok: true, budget });
     svc.listBudgets.mockResolvedValue([budget]);
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const got = (await tools.get("get_budget")!({ budgetId: "b1" })).content[0].text;
     const listed = (await tools.get("list_budgets")!({})).content[0].text;
     expect(revSvc.getBudgetRevenue).not.toHaveBeenCalled();
@@ -314,7 +321,7 @@ describe("the purchasing reads (slice 3)", () => {
   it("list_spend_requests names the status, the figures, the requester and the order once issued", async () => {
     reqSvc.listSpendRequests.mockResolvedValue([{ id: "sr1", requestNo: "PR-2026-0007", statusLabel: "Ordered", title: "LED wall", currency: "EUR", amount: "1000.0000", taxAmount: "50.0000", eventCode: "HM2026", budget: { versionNo: 1 }, budgetCheckStatus: "WITHIN_BUDGET", requesterName: "Dev Admin", supplier: { displayName: "Gulf AV" }, proposedVendorName: null, lineKey: "k-av", order: { commitmentNo: "PO-2026-0003", fulfillmentLabel: "Not received" } }]);
     const { tools, server } = fakeServer();
-    registerProcurementMcpTools(server, "org-1", { role: "MEMBER", fromApiKey: false });
+    registerProcurementMcpTools(server, "org-1", { role: "ADMIN", fromApiKey: false });
     const out = await tools.get("list_spend_requests")!({ status: "CONVERTED" });
     expect(reqSvc.listSpendRequests).toHaveBeenCalledWith("org-1", { status: "CONVERTED", budgetId: undefined });
     expect(out.content[0].text).toContain("PR-2026-0007 [Ordered] LED wall: EUR 1000.0000 ex-VAT (VAT 50.0000), event HM2026 v1");

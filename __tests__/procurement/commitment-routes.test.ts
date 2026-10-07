@@ -83,19 +83,26 @@ describe("the guard", () => {
     expect((await pdf(get("/api/procurement/commitments/c1/pdf"), cParams())).status).toBe(401);
   });
   it("org staff read the list; an unknown status filter is a 400; a role outside the module is refused", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const ok = await list(get("/api/procurement/commitments?status=APPROVED&budgetId=b1"));
     expect(ok.status).toBe(200);
     expect(svc.listCommitments).toHaveBeenCalledWith(ORG, { status: "APPROVED", budgetId: "b1", supplierId: undefined });
     expect((await list(get("/api/procurement/commitments?status=NOPE"))).status).toBe(400);
     authMock.mockResolvedValue(user({ role: "CRM_USER" }));
     expect((await list(get("/api/procurement/commitments"))).status).toBe(403);
+    // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      authMock.mockResolvedValue(user({ role }));
+      expect((await list(get("/api/procurement/commitments"))).status).toBe(403);
+    }
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.orders.view"] }));
+    expect((await list(get("/api/procurement/commitments"))).status).toBe(200);
   });
 });
 
 describe("the PDF", () => {
   it("streams the rendered order inline as application/pdf", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await pdf(get("/api/procurement/commitments/c1/pdf"), cParams());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
@@ -187,7 +194,8 @@ describe("the quote file", () => {
     expect(storage.deleteStoredFile).toHaveBeenLastCalledWith("/uploads/procurement-quotes/org-1/q1-x.pdf", "/uploads/procurement-quotes/");
   });
   it("GET streams the file bound to the request for a reader, and 404s a quote without one", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    // A reader who is not an author: a member holding the requests view key.
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.requests.view"] }));
     const res = await readQuote(get("/x"), qParams("q1"));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
@@ -218,7 +226,7 @@ describe("review fixes, 15 September 2026", () => {
     expect(storage.deleteStoredFile).toHaveBeenCalledWith("/uploads/procurement-quotes/org-1/q2-new.pdf", "/uploads/procurement-quotes/");
   });
   it("the quote file is served with nosniff and a content security policy", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await readQuote(get("/x"), qParams("q1"));
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");

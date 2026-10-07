@@ -24,8 +24,8 @@ GET crm/activity/feed
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -41,8 +41,8 @@ GET crm/activity
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
-  MEMBER      400
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    400
@@ -58,8 +58,8 @@ GET crm/companies/[companyId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -75,7 +75,7 @@ PATCH crm/companies/[companyId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -109,8 +109,8 @@ GET crm/companies/facets
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -126,8 +126,8 @@ GET crm/companies
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -143,7 +143,7 @@ POST crm/companies
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -160,8 +160,8 @@ GET crm/companies/tags
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -177,8 +177,8 @@ GET crm/contacts/[crmContactId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -194,7 +194,7 @@ PATCH crm/contacts/[crmContactId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -228,8 +228,8 @@ GET crm/contacts
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -245,7 +245,7 @@ POST crm/contacts
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -262,8 +262,8 @@ GET crm/contacts/tags
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -279,7 +279,7 @@ PATCH crm/deal-types/[dealTypeId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -296,8 +296,8 @@ GET crm/deal-types
   SUPER_ADMIN 200 w
   OPERATOR    401
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200 w
@@ -313,7 +313,7 @@ POST crm/deal-types
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -330,7 +330,7 @@ PATCH crm/deal-types
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -347,7 +347,7 @@ POST crm/deals/[dealId]/close
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -364,7 +364,7 @@ POST crm/deals/[dealId]/contacts
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -381,7 +381,7 @@ DELETE crm/deals/[dealId]/contacts
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -398,8 +398,8 @@ GET crm/deals/[dealId]/documents/[documentId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -415,7 +415,7 @@ DELETE crm/deals/[dealId]/documents/[documentId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -432,8 +432,8 @@ GET crm/deals/[dealId]/documents
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -449,7 +449,7 @@ POST crm/deals/[dealId]/documents
   SUPER_ADMIN 500
   OPERATOR    401
   ADMIN       500
-  ORGANIZER   500
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -466,8 +466,8 @@ GET crm/deals/[dealId]/products
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -483,7 +483,7 @@ POST crm/deals/[dealId]/products
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -500,7 +500,7 @@ PATCH crm/deals/[dealId]/products
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -517,7 +517,7 @@ DELETE crm/deals/[dealId]/products
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -534,7 +534,7 @@ GET crm/deals/[dealId]/quote
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -551,7 +551,7 @@ POST crm/deals/[dealId]/quote
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -568,7 +568,7 @@ PATCH crm/deals/[dealId]/quotes/[quoteId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -602,8 +602,8 @@ GET crm/deals/[dealId]/quotes
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -619,8 +619,8 @@ GET crm/deals/[dealId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
-  MEMBER      404
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    404
@@ -636,7 +636,7 @@ PATCH crm/deals/[dealId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -670,7 +670,7 @@ PATCH crm/deals/[dealId]/stage
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -704,8 +704,8 @@ GET crm/deals
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -721,7 +721,7 @@ POST crm/deals
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -738,7 +738,7 @@ PATCH crm/email-templates/[templateId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -772,8 +772,8 @@ GET crm/email-templates
   SUPER_ADMIN 200 w
   OPERATOR    401
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200 w
@@ -789,7 +789,7 @@ POST crm/email-templates
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -806,8 +806,8 @@ GET crm/events-lite
   SUPER_ADMIN 500
   OPERATOR    401
   ADMIN       500
-  ORGANIZER   500
-  MEMBER      500
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    500
@@ -823,7 +823,7 @@ POST crm/import/companies
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -840,7 +840,7 @@ POST crm/import/contacts
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -857,7 +857,7 @@ POST crm/import/deals
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -874,7 +874,7 @@ GET crm/inbox/[threadId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -891,7 +891,7 @@ GET crm/inbox/messages/[messageId]/attachments/[index]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -908,7 +908,7 @@ GET crm/inbox
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -925,7 +925,7 @@ PATCH crm/notes/[noteId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -942,7 +942,7 @@ DELETE crm/notes/[noteId]
   SUPER_ADMIN 404
   OPERATOR    401
   ADMIN       404
-  ORGANIZER   404
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -959,7 +959,7 @@ GET crm/notes
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -976,7 +976,7 @@ POST crm/notes
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -993,8 +993,8 @@ GET crm/notifications
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -1010,7 +1010,7 @@ PATCH crm/notifications
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1027,7 +1027,7 @@ PATCH crm/pipeline-stages/[stageId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1061,8 +1061,8 @@ GET crm/pipeline-stages
   SUPER_ADMIN 200 w
   OPERATOR    401
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200 w
@@ -1078,7 +1078,7 @@ POST crm/pipeline-stages
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1095,7 +1095,7 @@ PATCH crm/pipeline-stages
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1112,7 +1112,7 @@ PATCH crm/products/[productId]
   SUPER_ADMIN 500 w
   OPERATOR    401
   ADMIN       500 w
-  ORGANIZER   500 w
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1146,8 +1146,8 @@ GET crm/products
   SUPER_ADMIN 200 w
   OPERATOR    401
   ADMIN       200 w
-  ORGANIZER   200 w
-  MEMBER      200 w
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200 w
@@ -1163,7 +1163,7 @@ POST crm/products
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1197,8 +1197,8 @@ GET crm/reports
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -1214,8 +1214,8 @@ GET crm/reps
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -1231,7 +1231,7 @@ GET crm/sponsor-email/recipients
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1248,7 +1248,7 @@ POST crm/sponsor-email/send
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1265,7 +1265,7 @@ PATCH crm/tasks/[taskId]
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403
@@ -1299,8 +1299,8 @@ GET crm/tasks
   SUPER_ADMIN 200
   OPERATOR    401
   ADMIN       200
-  ORGANIZER   200
-  MEMBER      200
+  ORGANIZER   403
+  MEMBER      403
   ONSITE      403
   WEBINARS    403
   CRM_USER    200
@@ -1316,7 +1316,7 @@ POST crm/tasks
   SUPER_ADMIN 400
   OPERATOR    401
   ADMIN       400
-  ORGANIZER   400
+  ORGANIZER   403
   MEMBER      403
   ONSITE      403
   WEBINARS    403

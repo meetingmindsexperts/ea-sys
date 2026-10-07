@@ -16,7 +16,7 @@
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { can } from "@/lib/permissions/can";
+import { can, principalFromUser } from "@/lib/permissions/can";
 import type { PermissionKey } from "@/lib/permissions/catalogue";
 import { principalFromCaller } from "@/lib/permissions/require-permission";
 
@@ -30,6 +30,8 @@ export interface CrmCaller {
   userId: string | null;
   role: string | null;
   fromApiKey: boolean;
+  /** The session's custom-role keys (`getOrgContext` carries them). */
+  customGrants?: readonly string[] | null;
 }
 
 /**
@@ -39,13 +41,15 @@ export interface CrmCaller {
  * The system grants equal the old role predicates in `crm-roles.ts`, pinned by
  * system-roles-parity.test.ts; the UI still reads those client-safe predicates.
  *
- * Built from the org context, not the session: custom keys that are live today
- * are procurement only, so a session would add nothing here. When CRM keys can
- * be granted by a custom role, thread the session through (principalFromCaller
- * already prefers it).
+ * A signed-in person is judged with their custom roles (the context carries
+ * the session's keys): since Oct 7, 2026 ORGANIZER and MEMBER reach the CRM
+ * only through one. An API key or a mobile token keeps its own principal.
  */
 export function crmCan(ctx: CrmCaller, key: PermissionKey): boolean {
-  const principal = principalFromCaller(null, ctx);
+  const principal =
+    !ctx.fromApiKey && ctx.customGrants && ctx.customGrants.length > 0
+      ? principalFromUser({ id: ctx.userId, role: ctx.role, organizationId: ctx.organizationId, procurementPermissions: ctx.customGrants })
+      : principalFromCaller(null, ctx);
   return principal !== null && can(principal, key);
 }
 

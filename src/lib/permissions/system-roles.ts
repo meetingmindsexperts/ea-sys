@@ -289,6 +289,22 @@ const ORGANIZER_ORG: PermissionKey[] = [
   "contacts.delete",
   "contacts.import",
   "contacts.export",
+  "agent.use",
+  "finance.view",
+  "barcode.view",
+  "honorarium.view",
+  "supportingDocs.view",
+  "zoomHost.view",
+];
+
+/**
+ * The CRM and Budgets base access. ORGANIZER held it until Oct 7, 2026, when
+ * the owner took CRM and Budgets off the ORGANIZER and MEMBER base roles
+ * ("remove CRM and Budgets from base roles, except CRM roles"): those two run
+ * and read events, and whoever needs either module gets it through a custom
+ * role. ADMIN keeps it, and CRM_USER keeps the CRM.
+ */
+const MODULE_BASE: PermissionKey[] = [
   "crm.read",
   "crm.write",
   "crm.inbox.read",
@@ -296,12 +312,6 @@ const ORGANIZER_ORG: PermissionKey[] = [
   ...PROCUREMENT_VIEW,
   ...BUDGET_AUTHOR,
   "procurement.suppliers.financials.view",
-  "agent.use",
-  "finance.view",
-  "barcode.view",
-  "honorarium.view",
-  "supportingDocs.view",
-  "zoomHost.view",
 ];
 
 /** What ADMIN holds above ORGANIZER: the organisation, and the module-wide CRM and procurement powers. */
@@ -332,7 +342,7 @@ const ADMIN_EXTRA: PermissionKey[] = [
 ];
 
 const ORGANIZER_GRANTS: Grant[] = [...at("ALL", ...ORGANIZER_EVENT), ...org(...ORGANIZER_ORG)];
-const ADMIN_GRANTS: Grant[] = [...ORGANIZER_GRANTS, ...org(...ADMIN_EXTRA)];
+const ADMIN_GRANTS: Grant[] = [...ORGANIZER_GRANTS, ...org(...MODULE_BASE), ...org(...ADMIN_EXTRA)];
 
 export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
   SUPER_ADMIN: {
@@ -376,12 +386,13 @@ export const SYSTEM_ROLES: Readonly<Record<SystemRoleKey, SystemRole>> = {
     name: "Member",
     baseRole: "MEMBER",
     // Internal read-everything staff, money included (June 17 2026), with the
-    // desk. No codes, no export, no supporting documents, no per-event
+    // desk. No CRM and no Budgets since Oct 7, 2026 (owner): a custom role adds
+    // either. No codes, no export, no supporting documents, no per-event
     // activity (`canWrite`), no RSVP roster. Lists a speaker's documents but
     // cannot open the files (`speakers.documents.open`; owner, Oct 2, 2026).
     grants: [
       ...at("ALL", ...EVENT_READ, ...DESK, "speakers.documents.read"),
-      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "crm.read", ...PROCUREMENT_VIEW, "agent.use", "finance.view", "hr.read", "hr.write"),
+      ...org("invoices.ledger", "billingAccounts.read", "users.read", "contacts.read", "contacts.export", "agent.use", "finance.view", "hr.read", "hr.write"),
     ],
     impliedPersonGrants: [],
     areas: STAFF_AREAS,

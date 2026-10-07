@@ -42,7 +42,7 @@ describe("procurementGrantsFromRow: custom-role permissions", () => {
     const g = procurementGrantsFromRow({ procurementRequest: true });
     expect(g.procurementPermissions).toBeUndefined();
     // And the legacy arm still decides for that caller, unchanged.
-    expect(canAuthorBudgets({ role: "ORGANIZER", ...g })).toBe(true);
+    expect(canAuthorBudgets({ role: "ADMIN", ...g })).toBe(true);
     expect(canAuthorBudgets({ role: "MEMBER", ...g })).toBe(false);
   });
 

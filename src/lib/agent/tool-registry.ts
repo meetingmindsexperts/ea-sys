@@ -18,6 +18,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { registerAllMcpTools } from "./register-mcp-tools";
 import type { AgentSource } from "./tools/_shared";
+import type { Principal } from "@/lib/permissions/can";
 import { APPROVAL_CONFIRM_PARAM } from "./approvals";
 
 export interface AgentActor {
@@ -27,6 +28,8 @@ export interface AgentActor {
   role: string;
   /** API keys are admin-equivalent; the in-app door is never one. */
   fromApiKey: boolean;
+  /** The person with their custom roles and grants; decides the CRM and Budgets tools when set. */
+  principal?: Principal;
 }
 
 export interface ToolRunResult {
@@ -108,7 +111,7 @@ export function collectToolsForActor(opts: {
 
   registerAllMcpTools(stub, opts.organizationId, {
     systemUserId: opts.actor.userId,
-    actor: { role: opts.actor.role, fromApiKey: opts.actor.fromApiKey },
+    actor: { role: opts.actor.role, fromApiKey: opts.actor.fromApiKey, principal: opts.actor.principal },
     source: opts.source,
   });
 

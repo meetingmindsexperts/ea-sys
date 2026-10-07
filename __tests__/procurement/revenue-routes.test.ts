@@ -44,10 +44,17 @@ afterEach(() => {
 
 describe("GET revenue", () => {
   it("is read by a budget reader who sees money", async () => {
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    // MEMBER sees money; the budgets view key makes it a budget reader.
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
     const res = await revenueGet(req("GET"), params);
     expect(res.status).toBe(200);
     expect(svc.getBudgetRevenue).toHaveBeenCalledWith(ORG, "b1");
+  });
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("refuses a MEMBER by role, before any read", async () => {
+    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    expect((await revenueGet(req("GET"), params)).status).toBe(403);
+    expect(svc.getBudgetRevenue).not.toHaveBeenCalled();
   });
   it("refuses a grant holder whose role sees no money, before any read, and logs it", async () => {
     authMock.mockResolvedValue(user({ role: "CRM_USER", procurementRequest: true }));
@@ -66,15 +73,15 @@ describe("GET revenue", () => {
 
 describe("writing revenue lines", () => {
   it("lets an author add a line and refuses a reader", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     const res = await revenuePost(req("POST", validLine), params);
     expect(res.status).toBe(201);
     expect(svc.upsertRevenueLine).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG, actorUserId: "u1", source: "ui", budgetId: "b1", categoryId: "c-430005", description: "Early bird physicians" }));
-    authMock.mockResolvedValue(user({ role: "MEMBER" }));
+    authMock.mockResolvedValue(user({ role: "MEMBER", procurementPermissions: ["procurement.budgets.view"] }));
     expect((await revenuePost(req("POST", validLine), params)).status).toBe(403);
   });
   it("refuses a body without an account or a description", async () => {
-    authMock.mockResolvedValue(user({ role: "ORGANIZER" }));
+    authMock.mockResolvedValue(user({ role: "ADMIN" }));
     expect((await revenuePost(req("POST", { description: "x" }), params)).status).toBe(400);
     expect(svc.upsertRevenueLine).not.toHaveBeenCalled();
   });

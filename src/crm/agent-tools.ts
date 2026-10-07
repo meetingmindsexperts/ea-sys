@@ -23,6 +23,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { crmCan } from "@/crm/lib/crm-visibility";
+import { can, type Principal } from "@/lib/permissions/can";
+import type { PermissionKey } from "@/lib/permissions/catalogue";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
 import { companyDealValueBreakdown, type RollupDeal } from "@/crm/lib/company-rollup";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
@@ -159,6 +161,13 @@ export interface CrmMcpActor {
   /** API keys stay admin-equivalent — they are minted by an admin. */
   fromApiKey: boolean;
   /**
+   * The person as the routes see them, custom roles included. Set by the
+   * in-app agent; without it the tools follow the base role alone. Since
+   * Oct 7, 2026 the CRM reaches an ORGANIZER or MEMBER only through a custom
+   * role, so a role-only check would hide the tools that role granted.
+   */
+  principal?: Principal;
+  /**
    * Which door the registrations serve: an MCP client (default) or the
    * in-app Event Agent, which reuses the same registrations. Stamped on
    * every CrmActivity row a write leaves.
@@ -176,10 +185,11 @@ export function registerCrmMcpTools(
   // should not appear in their tool list at all, rather than 403 on call.
   // The caller's CRM keys (custom roles Phase 6): what each route asks.
   const caller = { organizationId, userId: null, role: actor.role, fromApiKey: actor.fromApiKey };
-  if (!crmCan(caller, "crm.read")) return;
+  const holds = (key: PermissionKey) => (actor.principal ? can(actor.principal, key) : crmCan(caller, key));
+  if (!holds("crm.read")) return;
   const auditSource = actor.source ?? "mcp";
-  const canSeeValues = crmCan(caller, "crm.dealValues.view");
-  const canWrite = crmCan(caller, "crm.write");
+  const canSeeValues = holds("crm.dealValues.view");
+  const canWrite = holds("crm.write");
 
   /**
    * Registrar for the MUTATING tools. A caller who may read the board but not

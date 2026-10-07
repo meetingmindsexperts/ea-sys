@@ -19,8 +19,9 @@ import {
 
 describe("procurement visibility", () => {
   it("reads: org staff without a grant, or anyone holding a grant; nobody else", () => {
-    for (const role of ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]) expect(canViewProcurement({ role })).toBe(true);
-    for (const role of ["ONSITE", "CRM_USER", "HR_USER", "WEBINARS", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
+    for (const role of ["SUPER_ADMIN", "ADMIN"]) expect(canViewProcurement({ role })).toBe(true);
+    // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+    for (const role of ["ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "HR_USER", "WEBINARS", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
       expect(canViewProcurement({ role })).toBe(false);
       expect(canViewProcurement({ role, procurementRequest: true })).toBe(true);
     }
@@ -30,7 +31,10 @@ describe("procurement visibility", () => {
   });
 
   it("authoring and admin stay role-based for anyone holding no custom role", () => {
-    expect(canAuthorBudgets({ role: "ORGANIZER" })).toBe(true);
+    expect(canAuthorBudgets({ role: "ADMIN" })).toBe(true);
+    // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+    expect(canAuthorBudgets({ role: "ORGANIZER" })).toBe(false);
+    expect(canAuthorBudgets({ role: "ORGANIZER", procurementPermissions: ["procurement.budgets.create"] })).toBe(true);
     // The three GRANTS still do not confer authoring: only a custom role does.
     expect(canAuthorBudgets({ role: "MEMBER", procurementRequest: true, procurementSettle: true })).toBe(false);
     expect(canAdminProcurement({ role: "ADMIN" })).toBe(true);
@@ -75,7 +79,8 @@ describe("procurement visibility", () => {
     // "holds nothing", so every un-taught caller behaves exactly as before.
     expect(canViewProcurement({ role: "ONSITE", procurementPermissions: [] })).toBe(false);
     expect(canViewProcurement({ role: "ONSITE" })).toBe(false);
-    expect(canAuthorBudgets({ role: "ORGANIZER", procurementPermissions: [] })).toBe(true);
+    expect(canAuthorBudgets({ role: "ADMIN", procurementPermissions: [] })).toBe(true);
+    expect(canAuthorBudgets({ role: "ORGANIZER", procurementPermissions: [] })).toBe(false);
     expect(canAuthorBudgets({ role: "MEMBER", procurementPermissions: [] })).toBe(false);
     expect(canViewProcurement({ role: "ONSITE", procurementPermissions: ["procurement.orders.view"] })).toBe(true);
   });

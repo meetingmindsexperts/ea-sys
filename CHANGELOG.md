@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed: CRM and Budgets leave the Organizer and Member base roles (October 7)
+
+- Owner: ORGANIZER and MEMBER hold no CRM and no Budgets of their own; a
+  custom role (or a per-person budget grant) adds them. ADMIN and SUPER_ADMIN
+  keep both, CRM_USER keeps the CRM. Route matrices: only ORGANIZER and MEMBER
+  rows moved, every one to 403.
+- Custom roles now really open both: `crmCan` reads the session's custom keys
+  (through `getOrgContext`), and the agent registers its CRM and Budgets tools
+  from the person's permissions, not the role name.
+- The sidebar's ORGANIZER-only rule hiding CRM and Budgets is gone; the
+  permissions decide.
+
 ### Changed: the Webinars role is retired (October 7)
 
 - Owner: "Member + the Corporate custom role covers everything." WEBINARS is

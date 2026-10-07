@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import { webinarModuleFilter } from "@/lib/webinar";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
-import { hasAnyProcurementGrant, holdsCustomProcurementKey } from "@/lib/procurement-visibility";
+import { holdsCustomProcurementKey } from "@/lib/procurement-visibility";
 import { can, inArea, principalFromUser, type EventFacts } from "@/lib/permissions/can";
 import type { PermissionKey } from "@/lib/permissions/catalogue";
 import type { Area } from "@/lib/permissions/system-roles";
@@ -289,18 +289,16 @@ export function computeSidebarNav(input: SidebarNavInput): SidebarNav {
   const p = principalFromUser((user ?? {}) as Parameters<typeof principalFromUser>[0]);
   const customKeys = (user as { procurementPermissions?: string[] } | null | undefined)?.procurementPermissions;
   const holdsAnyCustomKey = holdsCustomProcurementKey(customKeys);
-  // A display preference, not a permission (owner, Sep 15 2026; kept Oct 5):
-  // organisers run events, not the sales pipeline or budgets. The pages and
-  // APIs still answer an organiser; one holding a procurement grant sees Budgets.
-  const isOrganizer = role === "ORGANIZER";
+  // CRM and Budgets follow the keys alone since Oct 7, 2026, when ORGANIZER
+  // and MEMBER lost both as base access: an organiser's old display rule
+  // would now hide a CRM a custom role gave them.
 
   const baseNavigation = navigation.filter((item) => {
     if (!item.areas.some((area) => inArea(p, area))) return false;
-    if (item.crmOnly && (!CRM_IN_SIDEBAR || isOrganizer)) return false;
+    if (item.crmOnly && !CRM_IN_SIDEBAR) return false;
     if (item.hrOnly && !hrEnabled) return false;
     if (item.procurementOnly) {
       if (!procurementEnabled) return false;
-      if (isOrganizer && !hasAnyProcurementGrant(user as Parameters<typeof hasAnyProcurementGrant>[0])) return false;
       // Any custom procurement key enters the module (as canViewProcurement).
       if (holdsAnyCustomKey) return true;
     }

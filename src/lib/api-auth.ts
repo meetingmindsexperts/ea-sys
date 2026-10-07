@@ -14,6 +14,13 @@ export interface OrgContext {
   fromMobile: boolean;
   /** An API key's role as grants (Phase 5); null or absent for a key with no role (full). */
   apiKeyGrants?: import("@/lib/permissions/system-roles").Grant[] | null;
+  /**
+   * A signed-in person's custom-role keys (`key` or `key@SCOPE`, as the
+   * session carries them). Routes that judge permissions from this context
+   * rather than the session (the CRM) need them, or a custom role could never
+   * open the CRM (Oct 7, 2026). Absent for API keys and mobile tokens.
+   */
+  customGrants?: readonly string[] | null;
 }
 
 /**
@@ -41,6 +48,7 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
       role: session.user.role ?? null,
       fromApiKey: false,
       fromMobile: false,
+      customGrants: (session.user as { procurementPermissions?: string[] }).procurementPermissions ?? null,
     };
   }
 

@@ -118,10 +118,10 @@ describe("GET draft", () => {
   });
 
   it("returns the draft, and lets only an admin save the default terms", async () => {
-    requireCrmRead.mockResolvedValue(ctx("ORGANIZER"));
-    const organizer = await getDraft(request(), dealParams);
-    expect(organizer.status).toBe(200);
-    expect(await organizer.json()).toMatchObject({ draft: pricedDraft, canSaveDefaultTerms: false });
+    requireCrmRead.mockResolvedValue(ctx("CRM_USER"));
+    const salesRep = await getDraft(request(), dealParams);
+    expect(salesRep.status).toBe(200);
+    expect(await salesRep.json()).toMatchObject({ draft: pricedDraft, canSaveDefaultTerms: false });
 
     requireCrmRead.mockResolvedValue(ctx("ADMIN"));
     const admin = await getDraft(request(), dealParams);
@@ -162,7 +162,7 @@ describe("POST create", () => {
   });
 
   it("lets only an admin save the default terms", async () => {
-    requireCrmWrite.mockResolvedValue(ctx("ORGANIZER"));
+    requireCrmWrite.mockResolvedValue(ctx("CRM_USER"));
     const res = await createQuote(request({ ...fullBody, saveTermsAsDefault: true }), dealParams);
 
     expect(res.status).toBe(403);

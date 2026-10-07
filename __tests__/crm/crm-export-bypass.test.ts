@@ -108,22 +108,22 @@ describe("H4 — CRM MCP registration is gated on the granting user's role", () 
     expect(names).toContain("create_crm_deal");
   });
 
-  it("ORGANIZER keeps the CRM tools it legitimately has — the fix must not break event work", () => {
+  it("CRM_USER keeps the CRM tools it legitimately has: read and write", () => {
     const { names, server } = fakeServer();
-    registerCrmMcpTools(server, "org-1", "sys", { role: "ORGANIZER", fromApiKey: false });
-    // ORGANIZER can read and write the CRM in the app, so it should here too.
+    registerCrmMcpTools(server, "org-1", "sys", { role: "CRM_USER", fromApiKey: false });
+    // CRM_USER reads and writes the CRM in the app, so it should here too.
     // What it must NOT get is the admin-only export, which is not an MCP tool.
     expect(names).toContain("list_crm_deals");
     expect(names).toContain("create_crm_deal");
   });
 
-  it("MEMBER gets the READ tools only — it may never move a card", () => {
-    const { names, server } = fakeServer();
-    registerCrmMcpTools(server, "org-1", "sys", { role: "MEMBER", fromApiKey: false });
-    expect(names).toContain("list_crm_deals");
-    expect(names).not.toContain("create_crm_deal");
-    expect(names).not.toContain("close_crm_deal");
-    expect(names).not.toContain("update_crm_company");
+  // Owner, Oct 7, 2026: ORGANIZER and MEMBER hold no CRM or Budgets of their own; a custom role or person grant adds them.
+  it("ORGANIZER and MEMBER register NOTHING by role: not even a read tool", () => {
+    for (const role of ["ORGANIZER", "MEMBER"]) {
+      const { names, server } = fakeServer();
+      registerCrmMcpTools(server, "org-1", "sys", { role, fromApiKey: false });
+      expect(names, `${role} should see no CRM tools`).toHaveLength(0);
+    }
   });
 
   it("a role with no CRM access registers NOTHING — not even a read tool", () => {
