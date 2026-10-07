@@ -19,7 +19,7 @@ const { mockAuth, mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => 
     speaker: { findFirst: vi.fn(), update: vi.fn() },
     registration: { findFirst: vi.fn(), count: vi.fn(), update: vi.fn() },
     attendee: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    user: { findFirst: vi.fn(), update: vi.fn() },
+    user: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     contact: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
     crmContact: { updateMany: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
@@ -169,7 +169,7 @@ describe("PATCH /api/events/[eventId]/speakers/[speakerId]/email", () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
     mockDb.speaker.findFirst
-      .mockResolvedValueOnce({ id: "spk-1", email: "old@x.com", userId: "u-1", firstName: "A", lastName: "B" })
+      .mockResolvedValueOnce({ id: "spk-1", email: "old@x.com", userId: "u-1", user: { role: "SUBMITTER" }, firstName: "A", lastName: "B" })
       .mockResolvedValueOnce(null); // no speaker collision
     mockDb.user.findFirst.mockResolvedValueOnce({ id: "u-2" }); // user collision
     const res = await speakerPatch(makeReq({ newEmail: "new@x.com" }), speakerParams);
@@ -181,11 +181,11 @@ describe("PATCH /api/events/[eventId]/speakers/[speakerId]/email", () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
     mockDb.speaker.findFirst
-      .mockResolvedValueOnce({ id: "spk-1", email: "old@x.com", userId: "u-1", firstName: "A", lastName: "B" })
+      .mockResolvedValueOnce({ id: "spk-1", email: "old@x.com", userId: "u-1", user: { role: "SUBMITTER" }, firstName: "A", lastName: "B" })
       .mockResolvedValueOnce(null);
     mockDb.user.findFirst.mockResolvedValueOnce(null);
     mockDb.speaker.update.mockResolvedValueOnce({ id: "spk-1", email: "new@x.com" });
-    mockDb.user.update.mockResolvedValueOnce({ id: "u-1", email: "new@x.com" });
+    mockDb.user.updateMany.mockResolvedValueOnce({ count: 1 });
     mockDb.contact.findFirst
       .mockResolvedValueOnce({ id: "c-old" }) // find old contact
       .mockResolvedValueOnce(null); // no collision at new
@@ -200,12 +200,31 @@ describe("PATCH /api/events/[eventId]/speakers/[speakerId]/email", () => {
       where: { id: "spk-1" },
       data: { email: "new@x.com" },
     });
-    expect(mockDb.user.update).toHaveBeenCalledWith({
-      where: { id: "u-1" },
+    expect(mockDb.user.updateMany).toHaveBeenCalledWith({
+      where: { id: "u-1", role: { in: ["REGISTRANT", "SUBMITTER", "REVIEWER"] } },
       data: { email: "new@x.com" },
     });
     expect(mockDb.auditLog.create).toHaveBeenCalled();
   });
+
+  // Phase 6 review H1 (Oct 7, 2026): repointing a staff account's sign-in
+  // email from an event screen is an account takeover via forgot-password.
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "WEBINARS", "MEMBER"])(
+    "refuses 409 LINKED_STAFF_ACCOUNT when the linked account is %s, writing nothing",
+    async (role) => {
+      mockAuth.mockResolvedValueOnce(adminSession);
+      mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+      mockDb.speaker.findFirst.mockResolvedValueOnce({
+        id: "spk-1", email: "old@x.com", userId: "u-staff", user: { role }, firstName: "A", lastName: "B",
+      });
+      const res = await speakerPatch(makeReq({ newEmail: "attacker@x.com" }), speakerParams);
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe("LINKED_STAFF_ACCOUNT");
+      expect(mockDb.speaker.update).not.toHaveBeenCalled();
+      expect(mockDb.user.updateMany).not.toHaveBeenCalled();
+      expect(mockDb.user.update).not.toHaveBeenCalled();
+    },
+  );
 
   it("skips User cascade when speaker.userId is null but still checks for shadow User", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
@@ -301,17 +320,18 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     mockDb.registration.findFirst.mockResolvedValueOnce({
       id: "reg-1",
       userId: "u-1",
+      user: { role: "REGISTRANT" },
       attendee: { id: "att-1", email: "old@x.com" },
     });
     mockDb.user.findFirst.mockResolvedValueOnce(null);
     mockDb.attendee.update.mockResolvedValueOnce({ id: "att-1", email: "new@x.com" });
-    mockDb.user.update.mockResolvedValueOnce({ id: "u-1", email: "new@x.com" });
+    mockDb.user.updateMany.mockResolvedValueOnce({ count: 1 });
     mockDb.contact.findFirst.mockResolvedValueOnce(null);
 
     const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
     expect(res.status).toBe(200);
-    expect(mockDb.user.update).toHaveBeenCalledWith({
-      where: { id: "u-1" },
+    expect(mockDb.user.updateMany).toHaveBeenCalledWith({
+      where: { id: "u-1", role: { in: ["REGISTRANT", "SUBMITTER", "REVIEWER"] } },
       data: { email: "new@x.com" },
     });
     expect(mockDb.attendee.update).toHaveBeenCalledWith({
@@ -320,12 +340,40 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     });
   });
 
+  it("refuses 409 LINKED_STAFF_ACCOUNT when the registration belongs to an ADMIN, writing nothing", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      id: "reg-1", userId: "u-admin", user: { role: "ADMIN" }, attendee: { id: "att-1", email: "admin@x.com" },
+    });
+    const res = await regPatch(makeReq({ newEmail: "attacker@x.com" }), regParams);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("LINKED_STAFF_ACCOUNT");
+    expect(mockDb.attendee.update).not.toHaveBeenCalled();
+    expect(mockDb.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses 409 when the account was promoted between the check and the write (the guarded write matches nothing)", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      id: "reg-1", userId: "u-1", user: { role: "REGISTRANT" }, attendee: { id: "att-1", email: "old@x.com" },
+    });
+    mockDb.user.findFirst.mockResolvedValueOnce(null);
+    mockDb.registration.count.mockResolvedValueOnce(0);
+    mockDb.attendee.update.mockResolvedValueOnce({ id: "att-1", email: "new@x.com" });
+    mockDb.user.updateMany.mockResolvedValueOnce({ count: 0 });
+    const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("LINKED_STAFF_ACCOUNT");
+  });
+
   it("returns 409 USER_EMAIL_TAKEN on global user collision", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
     mockDb.registration.findFirst.mockResolvedValueOnce({
       id: "reg-1",
-      userId: "u-1",
+      userId: "u-1", user: { role: "REGISTRANT" },
       attendee: { id: "att-1", email: "old@x.com" },
     });
     mockDb.user.findFirst.mockResolvedValueOnce({ id: "u-2" });

@@ -1,8 +1,50 @@
-import type { Contact, Prisma } from "@prisma/client";
+import type { Contact, Prisma, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 
 const emailSchema = z.string().email().max(255);
+
+/**
+ * The registration and speaker email changes also rewrite the linked User's
+ * SIGN-IN email. For a registrant, submitter or reviewer account that is the
+ * point (staff fix a typo). For a staff account it is a takeover: whoever
+ * may edit a registration would repoint an admin's login to their own
+ * mailbox and use forgot-password (Phase 6 review H1, Oct 7, 2026). So a
+ * linked staff account is refused, and the write itself re-checks the role so
+ * a promotion between the check and the commit cannot slip through. An
+ * allow-list, so a role added later is protected until someone decides
+ * otherwise.
+ */
+const CASCADABLE_ROLES: UserRole[] = ["REGISTRANT", "SUBMITTER", "REVIEWER"];
+
+export const LINKED_STAFF_ACCOUNT = {
+  error:
+    "This person signs in with a staff account, so its email cannot be changed from here. The account holder changes it themselves.",
+  code: "LINKED_STAFF_ACCOUNT",
+} as const;
+
+export function isProtectedLinkedAccount(role: string | null | undefined): boolean {
+  return !(CASCADABLE_ROLES as string[]).includes(role ?? "");
+}
+
+export class LinkedStaffAccountError extends Error {
+  constructor() {
+    super("LINKED_STAFF_ACCOUNT");
+  }
+}
+
+/** Rewrites a linked User's email unless it is a staff account; throws inside the transaction if it became one. */
+export async function cascadeLinkedUserEmail(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  newEmail: string,
+): Promise<void> {
+  const res = await tx.user.updateMany({
+    where: { id: userId, role: { in: CASCADABLE_ROLES } },
+    data: { email: newEmail },
+  });
+  if (res.count !== 1) throw new LinkedStaffAccountError();
+}
 
 export function normalizeEmail(raw: unknown): string | null {
   const parsed = emailSchema.safeParse(typeof raw === "string" ? raw.trim().toLowerCase() : raw);

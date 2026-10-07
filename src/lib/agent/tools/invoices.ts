@@ -38,7 +38,7 @@ const createInvoiceExec: ToolExecutor = async (input, ctx) =>
 
     // Verify registration belongs to this org's event
     const registration = await db.registration.findFirst({
-      where: { id: registrationId, event: { organizationId: ctx.organizationId } },
+      where: { id: registrationId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, eventId: true },
     });
     if (!registration) return { error: `Registration ${registrationId} not found or access denied` };
@@ -77,7 +77,7 @@ const sendInvoiceExec: ToolExecutor = async (input, ctx) =>
     if (!invoiceId) return { error: "invoiceId is required" };
 
     const existing = await db.invoice.findFirst({
-      where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
+      where: { id: invoiceId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, eventId: true, invoiceNumber: true, status: true, registrationId: true, groupId: true },
     });
     if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
@@ -131,7 +131,7 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) =>
     }
 
     const existing = await db.invoice.findFirst({
-      where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
+      where: { id: invoiceId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true },
     });
     if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };

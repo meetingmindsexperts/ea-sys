@@ -12,7 +12,14 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderM
 import { getTitleLabel } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
-import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
+import {
+  cascadeLinkedUserEmail,
+  isProtectedLinkedAccount,
+  LINKED_STAFF_ACCOUNT,
+  LinkedStaffAccountError,
+  normalizeEmail,
+  repointOrgContactEmail,
+} from "@/lib/email-change";
 import {
   buildAgreementBlock,
   buildSpeakerEmailContext,
@@ -595,7 +602,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }),
       db.speaker.findFirst({
         where: { id: speakerId, eventId },
-        select: { id: true, email: true, userId: true, firstName: true, lastName: true, sourceRegistrationId: true },
+        select: { id: true, email: true, userId: true, user: { select: { role: true } }, firstName: true, lastName: true, sourceRegistrationId: true },
       }),
     ]);
 
@@ -604,6 +611,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     if (!speaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+    }
+
+    if (speaker.userId && isProtectedLinkedAccount(speaker.user?.role)) {
+      apiLogger.warn({ msg: "events/speakers/email:linked-staff-account-refused", eventId, speakerId, linkedUserId: speaker.userId });
+      return NextResponse.json(LINKED_STAFF_ACCOUNT, { status: 409 });
     }
 
     const oldEmail = speaker.email.toLowerCase();
@@ -676,10 +688,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       });
 
       if (speaker.userId) {
-        await tx.user.update({
-          where: { id: speaker.userId },
-          data: { email: newEmail },
-        });
+        await cascadeLinkedUserEmail(tx, speaker.userId, newEmail);
       }
 
       const contactAction = await repointOrgContactEmail(tx, {
@@ -746,6 +755,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
     });
   } catch (error) {
+    if (error instanceof LinkedStaffAccountError) {
+      apiLogger.warn({ msg: "events/speakers/email:linked-staff-account-refused-in-tx" });
+      return NextResponse.json(LINKED_STAFF_ACCOUNT, { status: 409 });
+    }
     // P2002 — race between collision check and transaction commit.
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
       return NextResponse.json(

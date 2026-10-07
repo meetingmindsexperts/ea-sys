@@ -473,7 +473,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
     }
 
     const existing = await db.accommodation.findFirst({
-      where: { id: accommodationId, event: { organizationId: ctx.organizationId } },
+      where: { id: accommodationId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, eventId: true, status: true, roomTypeId: true },
     });
     if (!existing) return { error: `Accommodation ${accommodationId} not found or access denied` };

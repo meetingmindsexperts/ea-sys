@@ -234,26 +234,60 @@ export async function POST(req: Request) {
       // PROMOTE: an org-independent account (REGISTRANT/SUBMITTER/REVIEWER) — or
       // an org-bound non-team account already in THIS org (e.g. an
       // internal-domain registrant) — is attached to our org and given the
-      // invited team role. The user keeps their existing password and any
-      // linked registrations; this is how an internal attendee becomes staff
-      // without the global-email check blocking the invite.
-      const promoted = await db.user.update({
-        where: { id: existingUser.id },
-        // A promoted account starts the new role with no module duties, the
-        // same rule the users PUT applies on a role change (owner, Sep 16 2026).
-        // Defensive here: this path only promotes org-null or non-team accounts,
-        // which cannot hold grants today (both are team-only to set).
-        data: {
-          organizationId: session.user.organizationId!,
-          role,
-          hrAccess: false,
-          procurementRequest: false,
-          procurementApproveCeilingAed: null,
-          procurementApproveUnlimited: false,
-          procurementSettle: false,
-          procurementDelegateUserId: null,
-        },
-        select: { id: true, email: true, firstName: true, lastName: true, role: true, createdAt: true },
+      // invited team role, keeping its linked registrations; this is how an
+      // internal attendee becomes staff without the global-email check
+      // blocking the invite.
+      //
+      // The PASSWORD is not kept (Phase 6 review H2, Oct 7, 2026). Public
+      // registration lets anyone create an account at any address without
+      // proving the mailbox, so keeping it let a stranger pre-register
+      // newhire@ourdomain and sign in as the admin that address was later
+      // invited as. The promotion therefore sets credentials the way a fresh
+      // invite would: the inviter's password, or an invitation link to the
+      // real mailbox. Every existing session is ended.
+      let credentials: { passwordHash: string; emailVerified?: Date };
+      let promoteToken: { invitationTokenHash: string; tokenExpiry: Date } | null = null;
+      if (password) {
+        credentials = { passwordHash: await bcrypt.hash(password, 10), emailVerified: new Date() };
+      } else {
+        const sent = await sendInvitation(session.user, { email, firstName, lastName, role });
+        if (!sent.ok) {
+          return NextResponse.json(
+            { error: "Failed to send invitation email. Please check the email address and try again." },
+            { status: 502 }
+          );
+        }
+        credentials = { passwordHash: sent.placeholderHash };
+        promoteToken = { invitationTokenHash: sent.invitationTokenHash, tokenExpiry: sent.tokenExpiry };
+      }
+
+      const promoted = await db.$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id: existingUser.id },
+          // A promoted account starts the new role with no module duties, the
+          // same rule the users PUT applies on a role change (owner, Sep 16 2026).
+          // Defensive here: this path only promotes org-null or non-team accounts,
+          // which cannot hold grants today (both are team-only to set).
+          data: {
+            organizationId: session.user.organizationId!,
+            role,
+            ...credentials,
+            tokenVersion: { increment: 1 },
+            hrAccess: false,
+            procurementRequest: false,
+            procurementApproveCeilingAed: null,
+            procurementApproveUnlimited: false,
+            procurementSettle: false,
+            procurementDelegateUserId: null,
+          },
+          select: { id: true, email: true, firstName: true, lastName: true, role: true, createdAt: true },
+        });
+        if (promoteToken) {
+          await tx.verificationToken.create({
+            data: { identifier: email, token: promoteToken.invitationTokenHash, expires: promoteToken.tokenExpiry },
+          });
+        }
+        return updated;
       });
 
       apiLogger.info({
@@ -275,7 +309,7 @@ export async function POST(req: Request) {
             action: "PROMOTE_USER",
             entityType: "User",
             entityId: promoted.id,
-            changes: { email, fromRole: existingUser.role, toRole: role, ip: getClientIp(req) },
+            changes: { email, fromRole: existingUser.role, toRole: role, credentials: password ? "password" : "invitation", ip: getClientIp(req) },
           },
         })
         .catch((err: unknown) =>
@@ -286,7 +320,11 @@ export async function POST(req: Request) {
         {
           ...promoted,
           promoted: true,
-          message: `${promoted.firstName || "User"}'s existing account was promoted to ${ROLE_LABELS[role] ?? role}.`,
+          invitationSent: !password,
+          passwordSet: Boolean(password),
+          message: password
+            ? `${promoted.firstName || "User"}'s existing account was promoted to ${ROLE_LABELS[role] ?? role}. Their old password no longer works; share the one you set.`
+            : `${promoted.firstName || "User"}'s existing account was promoted to ${ROLE_LABELS[role] ?? role}. An invitation email was sent so they can set a new password.`,
         },
         { status: 200 }
       );
@@ -343,66 +381,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Generate a secure invitation token
-    const invitationToken = crypto.randomBytes(32).toString("hex");
-    const invitationTokenHash = hashVerificationToken(invitationToken);
-    const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    // Create a placeholder password hash (user will set their own via invitation link)
-    const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
-
-    // Get organization name for the email
-    const organization = await db.organization.findUnique({
-      where: { id: session.user.organizationId! },
-      select: { name: true },
-    });
-
-    // Send invitation email BEFORE creating the user — if email fails, don't
-    // leave an orphaned user record that blocks re-invitation.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
-
-    const inviterName = session.user.firstName && session.user.lastName
-      ? `${session.user.firstName} ${session.user.lastName}`
-      : session.user.email || "A team member";
-
-    const roleDisplayName = ROLE_LABELS[role] ?? role;
-
-    const emailTemplate = emailTemplates.userInvitation({
-      recipientName: `${firstName} ${lastName}`,
-      recipientEmail: email,
-      organizationName: organization?.name || "your organization",
-      inviterName,
-      role: roleDisplayName,
-      setupLink,
-      expiresIn: "7 days",
-    });
-
-    // Note: the invited user doesn't exist yet — we send first, then create the
-    // user + token atomically if the email succeeds. So entityId is null; the
-    // log row is still searchable by email + templateSlug.
-    const emailResult = await sendEmail({
-      to: [{ email, name: `${firstName} ${lastName}` }],
-      subject: emailTemplate.subject,
-      htmlContent: emailTemplate.htmlContent,
-      textContent: emailTemplate.textContent,
-      emailType: "user_invitation",
-      stream: "transactional",
-      logContext: {
-        organizationId: session.user.organizationId,
-        entityType: "USER",
-        templateSlug: "user-invitation",
-        triggeredByUserId: session.user.id,
-      },
-    });
-
-    if (!emailResult.success) {
-      apiLogger.warn({ msg: "Failed to send invitation email", email, error: emailResult.error });
+    const invitation = await sendInvitation(session.user, { email, firstName, lastName, role });
+    if (!invitation.ok) {
       return NextResponse.json(
         { error: "Failed to send invitation email. Please check the email address and try again." },
         { status: 502 }
       );
     }
+    const { invitationTokenHash, tokenExpiry, placeholderHash } = invitation;
 
     // Email sent successfully — now create the user + token atomically
     const user = await db.$transaction(async (tx) => {
@@ -478,4 +464,77 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+type Inviter = { id: string; organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null };
+
+/**
+ * Sends the invitation email and returns the token to store. Sent BEFORE any
+ * user row is written, so a failed send leaves nothing that blocks a retry.
+ * Shared by a fresh invite and by a promotion (review H2), so a promoted
+ * account proves its mailbox the same way a new one does.
+ */
+async function sendInvitation(
+  inviter: Inviter,
+  invitee: { email: string; firstName: string; lastName: string; role: string },
+): Promise<{ ok: true; invitationTokenHash: string; tokenExpiry: Date; placeholderHash: string } | { ok: false }> {
+  const { email, firstName, lastName, role } = invitee;
+  // Generate a secure invitation token
+  const invitationToken = crypto.randomBytes(32).toString("hex");
+  const invitationTokenHash = hashVerificationToken(invitationToken);
+  const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+  // Create a placeholder password hash (user will set their own via invitation link)
+  const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+
+  // Get organization name for the email
+  const organization = await db.organization.findUnique({
+    where: { id: inviter.organizationId! },
+    select: { name: true },
+  });
+
+  // Sent BEFORE the caller writes the user, so a failed send leaves no
+  // orphaned row that blocks re-invitation.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
+
+  const inviterName = inviter.firstName && inviter.lastName
+    ? `${inviter.firstName} ${inviter.lastName}`
+    : inviter.email || "A team member";
+
+  const roleDisplayName = ROLE_LABELS[role] ?? role;
+
+  const emailTemplate = emailTemplates.userInvitation({
+    recipientName: `${firstName} ${lastName}`,
+    recipientEmail: email,
+    organizationName: organization?.name || "your organization",
+    inviterName,
+    role: roleDisplayName,
+    setupLink,
+    expiresIn: "7 days",
+  });
+
+  // The caller writes the user + token only after this succeeds, so entityId
+  // is null; the log row is still searchable by email + templateSlug.
+  const emailResult = await sendEmail({
+    to: [{ email, name: `${firstName} ${lastName}` }],
+    subject: emailTemplate.subject,
+    htmlContent: emailTemplate.htmlContent,
+    textContent: emailTemplate.textContent,
+    emailType: "user_invitation",
+    stream: "transactional",
+    logContext: {
+      organizationId: inviter.organizationId,
+      entityType: "USER",
+      templateSlug: "user-invitation",
+      triggeredByUserId: inviter.id,
+    },
+  });
+
+  if (!emailResult.success) {
+    apiLogger.warn({ msg: "Failed to send invitation email", email, error: emailResult.error });
+    return { ok: false };
+  }
+
+  return { ok: true, invitationTokenHash, tokenExpiry, placeholderHash };
 }

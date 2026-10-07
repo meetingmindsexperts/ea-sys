@@ -237,7 +237,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     // we bind the speaker to the caller's org BEFORE handing the (speakerId,
     // eventId) pair to the service (which takes organizationId on trust).
     const existing = await db.speaker.findFirst({
-      where: { id: speakerId, event: { organizationId: ctx.organizationId } },
+      where: { id: speakerId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, eventId: true },
     });
     if (!existing) return { error: `Speaker ${speakerId} not found or access denied` };

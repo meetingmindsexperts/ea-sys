@@ -232,7 +232,7 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
     // update-by-id after a findFirst was the compound-where class).
     return await runWithTenant(ctx.organizationId, async () => {
     const existing = await db.scheduledEmail.findFirst({
-      where: { id: scheduledEmailId, event: { organizationId: ctx.organizationId } },
+      where: { id: scheduledEmailId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, status: true, eventId: true },
     });
     if (!existing) return { error: `Scheduled email ${scheduledEmailId} not found or access denied` };

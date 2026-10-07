@@ -114,7 +114,7 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
     if (!promoCodeId) return { error: "promoCodeId is required" };
 
     const existing = await db.promoCode.findFirst({
-      where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
+      where: { id: promoCodeId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: {
         id: true, eventId: true, discountType: true, discountValue: true,
         sponsorId: true, sponsorCoversFee: true, maxUses: true,
@@ -230,7 +230,7 @@ const deletePromoCode: ToolExecutor = async (input, ctx) => {
     if (!promoCodeId) return { error: "promoCodeId is required" };
 
     const existing = await db.promoCode.findFirst({
-      where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
+      where: { id: promoCodeId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: { id: true, isActive: true, usedCount: true },
     });
     if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };

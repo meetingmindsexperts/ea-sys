@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security: Phase 6 final review, the three HIGHs (October 7)
+
+- **H1 staff account takeover by email change.** Changing a registration's or
+  a speaker's email also rewrote the linked account's sign-in email, whatever
+  that account was, so anyone who may edit a registration could repoint an
+  admin's login and use forgot-password. Only registrant, submitter and
+  reviewer accounts follow now; a staff account answers 409
+  `LINKED_STAFF_ACCOUNT`, re-checked inside the write.
+- **H2 promotion kept the old password.** Promoting an existing account to a
+  team role now replaces its password (the inviter's, or an invitation link
+  to the real mailbox) and ends its sessions. Before, a stranger could
+  pre-register a future colleague's address and sign in as them once invited.
+- **H3 agent and MCP tools left the gated event.** Eleven entity lookups
+  (speaker, bulk registration status, promo codes, accommodation, scheduled
+  email, invoices) were scoped by organisation only, so a grant scoped to some
+  events could act on others. Each is now bound to the event the gate judged,
+  pinned by `agent-tools-event-binding.test.ts`.
+
 ### Changed: the old role checks are retired (custom roles Phase 6, October 6 and 7)
 
 - Every access decision in the app is now a permission (`can()` /

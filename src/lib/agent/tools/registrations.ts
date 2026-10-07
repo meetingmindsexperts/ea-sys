@@ -683,15 +683,17 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       const affected = await db.registration.findMany({
         where: {
           id: { in: registrationIds },
+          eventId: ctx.eventId,
           event: { organizationId: ctx.organizationId },
         },
         // Seat-routing fields: release/claim the counter each reg actually holds
         // (tier vs ticket type), and skip virtual regs (no seat) — P1.1 + hybrid.
         select: {
           id: true,
-          // The tool contract is ORG-scoped (ids may span sibling events), so
-          // event-seat deltas must group per row's OWN event — applying them
-          // to ctx.eventId would corrupt two events' counters (review HIGH-1).
+          // Ids are bound to ctx.eventId, the event the permission gate judged
+          // (Phase 6 review H3, Oct 7, 2026: an org-wide contract let a
+          // webinar-scoped grant cancel conference rows). Seat deltas still
+          // group per row's own event, which is now always ctx.eventId.
           eventId: true,
           status: true,
           ticketTypeId: true,
@@ -803,6 +805,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         const res = await tx.registration.updateMany({
           where: {
             id: { in: registrationIds },
+            eventId: ctx.eventId,
             event: { organizationId: ctx.organizationId },
           },
           data,
@@ -813,6 +816,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       const res = await db.registration.updateMany({
         where: {
           id: { in: registrationIds },
+          eventId: ctx.eventId,
           event: { organizationId: ctx.organizationId },
         },
         data,

@@ -14,7 +14,14 @@ import { getTitleLabel } from "@/lib/utils";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
+import {
+  cascadeLinkedUserEmail,
+  isProtectedLinkedAccount,
+  LINKED_STAFF_ACCOUNT,
+  LinkedStaffAccountError,
+  normalizeEmail,
+  repointOrgContactEmail,
+} from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
 import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import { surveyExpiryDaysSchema } from "@/lib/survey/expiry";
@@ -679,6 +686,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         select: {
           id: true,
           userId: true,
+          user: { select: { role: true } },
           attendee: { select: { id: true, email: true } },
         },
       }),
@@ -689,6 +697,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     if (!registration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    if (registration.userId && isProtectedLinkedAccount(registration.user?.role)) {
+      apiLogger.warn({ msg: "events/registrations/email:linked-staff-account-refused", eventId, registrationId, linkedUserId: registration.userId });
+      return NextResponse.json(LINKED_STAFF_ACCOUNT, { status: 409 });
     }
 
     const oldEmail = registration.attendee.email.toLowerCase();
@@ -812,10 +825,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }
 
       if (registration.userId) {
-        await tx.user.update({
-          where: { id: registration.userId },
-          data: { email: newEmail },
-        });
+        await cascadeLinkedUserEmail(tx, registration.userId, newEmail);
       }
 
       const contactAction = await repointOrgContactEmail(tx, {
@@ -879,6 +889,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
     });
   } catch (error) {
+    if (error instanceof LinkedStaffAccountError) {
+      apiLogger.warn({ msg: "events/registrations/email:linked-staff-account-refused-in-tx" });
+      return NextResponse.json(LINKED_STAFF_ACCOUNT, { status: 409 });
+    }
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
       return NextResponse.json(
         { error: "That email was just taken by another record. Try again.", code: "EMAIL_TAKEN" },
