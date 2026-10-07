@@ -32,6 +32,7 @@
  * the persisted copy lives only in the SUPER_ADMIN-gated table above.
  */
 
+import { decodeSessionGrant, describePermission } from "@/lib/permissions/catalogue";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -203,6 +204,7 @@ export async function POST(req: NextRequest) {
   const config = getModelConfig("helpChat", aiConfig.provider);
   const system = buildSystemPrompt({
     role,
+    extraPermissions: customPermissionLabels(session.user.procurementPermissions),
     organizationName,
     firstName: session.user.firstName ?? null,
   });
@@ -315,4 +317,14 @@ export async function POST(req: NextRequest) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+/**
+ * The custom-role keys the session carries (`key` or `key@SCOPE`), as the
+ * catalogue's plain labels for the help chat. Unknown keys are dropped.
+ */
+function customPermissionLabels(grants: readonly string[] | null | undefined): string[] {
+  return (grants ?? [])
+    .map((g) => describePermission(decodeSessionGrant(g).permission)?.label)
+    .filter((l): l is string => Boolean(l));
 }

@@ -41,6 +41,7 @@ import {
   resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
+import { computeTopicTimes } from "@/lib/topic-times";
 import {
   formatSessionRole,
   formatSessionType,
@@ -563,6 +564,11 @@ export default function PublicSessionPage() {
   const branding = isWebinarEvent ? event?.webinarBranding ?? null : null;
   const backgroundUrl = branding?.backgroundUrl ?? null;
 
+  // Topic clock times, the same as the public agenda shows them.
+  const topicTimes = session
+    ? computeTopicTimes(session.startTime, session.topics, event?.timezone ?? DEFAULT_EVENT_TIMEZONE)
+    : null;
+
   return (
     <div
       className={
@@ -1003,7 +1009,10 @@ export default function PublicSessionPage() {
                             {topic.title}
                           </p>
                           {topic.duration ? (
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+                              {topicTimes?.get(topic.id) ? (
+                                <span className="font-medium text-foreground">{topicTimes.get(topic.id)} · </span>
+                              ) : null}
                               {topic.duration} min
                             </p>
                           ) : null}

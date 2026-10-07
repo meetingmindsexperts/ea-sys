@@ -205,3 +205,15 @@ describe("buildRoleTail — name + org fallbacks", () => {
     expect(tail).toContain("Unknown role");
   });
 });
+
+describe("buildRoleTail: custom roles (Oct 7, 2026)", () => {
+  it("lists what a custom role adds and tells the bot to treat it as allowed", () => {
+    const tail = buildRoleTail({ role: "MEMBER", extraPermissions: ["Edit the programme", "Run the webinar", "Edit the programme"] });
+    expect(tail).toContain("Edit the programme; Run the webinar");
+    expect(tail).toContain("never tell them their role cannot");
+  });
+
+  it("adds nothing when there are no custom roles", () => {
+    expect(buildRoleTail({ role: "MEMBER" })).not.toContain("custom roles that add");
+  });
+});

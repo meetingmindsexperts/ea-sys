@@ -37,6 +37,7 @@ import {
   TBA_LABEL,
 } from "@/lib/session-enums";
 import { buildAgendaRows, type AgendaRow } from "@/lib/agenda-layout";
+import { computeTopicTimes } from "@/lib/topic-times";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -141,32 +142,6 @@ function formatDayTabDate(dateStr: string) {
 
 function getDurationMin(start: string, end: string) {
   return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000);
-}
-
-/**
- * Per-topic start–end times computed by stacking topic durations from the
- * session start (SessionTopic stores no start time). SAME convention as the
- * {{moderatorDetails}} run-sheet in speaker-agreement.ts: a topic with no
- * duration shows no time range and does NOT advance the clock.
- */
-function computeTopicTimes(
-  sessionStart: string,
-  topics: Topic[],
-  timezone: string,
-): Map<string, string | null> {
-  const times = new Map<string, string | null>();
-  let clock = new Date(sessionStart).getTime();
-  for (const topic of topics) {
-    if (topic.duration && topic.duration > 0) {
-      const start = new Date(clock);
-      const end = new Date(clock + topic.duration * 60_000);
-      times.set(topic.id, `${formatTimeInTz(start, timezone)} – ${formatTimeInTz(end, timezone)}`);
-      clock = end.getTime();
-    } else {
-      times.set(topic.id, null);
-    }
-  }
-  return times;
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────

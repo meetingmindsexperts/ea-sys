@@ -26,6 +26,12 @@ import type { SystemBlock } from "@/lib/ai";
 
 export interface HelpChatSystemPromptOpts {
   role: string | null | undefined;
+  /**
+   * What the person's custom roles add on top of the base role, as plain
+   * labels ("Edit the programme"). A Member with the Corporate role can edit
+   * sessions, and the bot used to tell her she could not (Oct 7, 2026).
+   */
+  extraPermissions?: readonly string[];
   organizationName?: string | null;
   firstName?: string | null;
 }
@@ -100,12 +106,17 @@ export function buildRoleTail(opts: HelpChatSystemPromptOpts): string {
     ROLE_GUIDANCE[role] ??
     "Unknown role — give generic guidance and recommend they contact their organizer.";
 
+  const extras = [...new Set(opts.extraPermissions ?? [])];
+  const extraText = extras.length
+    ? `\n\nThis user ALSO holds custom roles that add these permissions on top of the base role: ${extras.join("; ")}. Treat these as allowed: never tell them their role cannot do something on this list, and answer with the steps.`
+    : "";
+
   return `The user you are helping:
 - Name: ${name}
 - Role: ${role}
 - Organization: ${org}
 
-Role-specific guidance: ${guidance}
+Role-specific guidance: ${guidance}${extraText}
 
 When the user asks how to do something their role doesn't permit, say so clearly and explain who CAN do it instead. Don't tell them to ask for elevated permissions.`;
 }
