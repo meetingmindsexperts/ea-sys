@@ -21,6 +21,13 @@ export async function pollContextFor(eventWhere: Prisma.EventWhereInput) {
   };
 }
 
+/**
+ * A cancelled registration's answer stops counting (review of polls, MED): the
+ * row is kept, so a person who cancels and registers again would otherwise
+ * count twice. The same rule as Q&A upvotes.
+ */
+export const COUNTED_VOTE = { registration: { status: { not: "CANCELLED" as const } } } satisfies Prisma.LivePollVoteWhereInput;
+
 export interface ConsolePoll {
   id: string;
   question: string;
@@ -56,7 +63,7 @@ export async function listPollsWithTally(eventId: string, sessionId: string): Pr
   });
   if (polls.length === 0) return [];
   const votes = await db.livePollVote.findMany({
-    where: { pollId: { in: polls.map((p) => p.id) } },
+    where: { pollId: { in: polls.map((p) => p.id) }, ...COUNTED_VOTE },
     select: { pollId: true, choices: true },
   });
   return polls.map((p) => {
@@ -91,16 +98,11 @@ const tallyCache = new Map<string, { at: number; tally: PollTally }>();
 async function cachedTally(pollId: string, options: LivePollOption[]): Promise<PollTally> {
   const hit = tallyCache.get(pollId);
   if (hit && Date.now() - hit.at < TALLY_TTL_MS) return hit.tally;
-  const votes = await db.livePollVote.findMany({ where: { pollId }, select: { choices: true } });
+  const votes = await db.livePollVote.findMany({ where: { pollId, ...COUNTED_VOTE }, select: { choices: true } });
   const tally = tallyPoll(options, votes);
   tallyCache.set(pollId, { at: Date.now(), tally });
   if (tallyCache.size > 500) tallyCache.clear();
   return tally;
-}
-
-/** Forget a poll's cached results (after this viewer's own vote). */
-export function forgetTally(pollId: string): void {
-  tallyCache.delete(pollId);
 }
 
 /**

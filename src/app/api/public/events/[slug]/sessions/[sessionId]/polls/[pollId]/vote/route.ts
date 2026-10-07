@@ -7,7 +7,6 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { livePollsEnabled, readPollOptions, validChoices } from "@/lib/webinar/live-polls";
-import { forgetTally } from "@/lib/webinar/live-polls-server";
 import { loadQuestionContext, resolveAsker } from "@/lib/webinar/viewer-question-access";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string; pollId: string }> };
@@ -88,7 +87,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
         throw err;
       }
-      forgetTally(pollId);
+      // No cache flush here (review of polls): the viewer's own card already
+      // shows their answer, and results catch up within the 5 s cache.
       apiLogger.info({ eventId: event.id, pollId }, "live-poll-vote:recorded");
       return NextResponse.json({ ok: true, choices: parsed.data.choices }, { status: 201 });
     });

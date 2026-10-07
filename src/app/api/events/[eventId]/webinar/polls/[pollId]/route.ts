@@ -86,8 +86,13 @@ export async function PATCH(req: Request, { params }: RouteParams): Promise<Next
             { status: 409 },
           );
         }
-        // One open poll at a time: close the others in the same write.
+        // One open poll at a time: close the others in the same write. The
+        // session row lock serializes two launches at once (review of polls,
+        // MED: under READ COMMITTED each could miss the other's OPEN and leave
+        // two open). A partial unique index would do it too, but Prisma
+        // cannot express one and CI's schema parity check would fail.
         await tenantTransaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "EventSession" WHERE id = ${ctx.sessionId} FOR UPDATE`;
           await tx.livePoll.updateMany({
             where: { sessionId: ctx.sessionId!, eventId: ctx.eventId, status: "OPEN", id: { not: pollId } },
             data: { status: "CLOSED", closedAt: new Date() },
@@ -116,14 +121,20 @@ export async function PATCH(req: Request, { params }: RouteParams): Promise<Next
         apiLogger.warn({ eventId, pollId, status: poll.status }, "live-polls:edit-not-draft");
         return NextResponse.json({ error: "Only a draft can be edited." }, { status: 409 });
       }
-      await db.livePoll.update({
-        where: { id: pollId },
+      // Conditional on still being a draft, so a launch that lands between the
+      // check and this write cannot have its options regenerated under votes.
+      const edited = await db.livePoll.updateMany({
+        where: { id: pollId, status: "DRAFT" },
         data: {
           question: data.question,
           options: data.options.map((label) => ({ id: randomUUID().slice(0, 8), label })),
           allowMultiple: data.allowMultiple,
         },
       });
+      if (edited.count === 0) {
+        apiLogger.warn({ eventId, pollId }, "live-polls:edit-lost-race");
+        return NextResponse.json({ error: "Only a draft can be edited." }, { status: 409 });
+      }
       apiLogger.info({ eventId, pollId, userId: session.user.id }, "live-polls:edited");
       return NextResponse.json({ ok: true });
     });
@@ -152,7 +163,7 @@ export async function DELETE(_req: Request, { params }: RouteParams): Promise<Ne
       }
       const poll = await db.livePoll.findFirst({
         where: { id: pollId, eventId: ctx.eventId, sessionId: ctx.sessionId },
-        select: { id: true, _count: { select: { votes: true } } },
+        select: { id: true, status: true, _count: { select: { votes: true } } },
       });
       if (!poll) {
         apiLogger.warn({ eventId, pollId }, "live-polls:poll-not-found");
@@ -165,7 +176,19 @@ export async function DELETE(_req: Request, { params }: RouteParams): Promise<Ne
           { status: 409 },
         );
       }
-      await db.livePoll.delete({ where: { id: pollId } });
+      if (poll.status === "OPEN") {
+        apiLogger.warn({ eventId, pollId }, "live-polls:delete-open");
+        return NextResponse.json({ error: "Close the poll before deleting it." }, { status: 409 });
+      }
+      // Conditional on still having no answers and not being open, so a vote
+      // or a launch landing after the checks is never silently deleted.
+      const deleted = await db.livePoll.deleteMany({
+        where: { id: pollId, status: { not: "OPEN" }, votes: { none: {} } },
+      });
+      if (deleted.count === 0) {
+        apiLogger.warn({ eventId, pollId }, "live-polls:delete-lost-race");
+        return NextResponse.json({ error: "The poll was launched or answered meanwhile, so it was kept." }, { status: 409 });
+      }
       apiLogger.info({ eventId, pollId, userId: session.user.id }, "live-polls:deleted");
       return NextResponse.json({ ok: true });
     });

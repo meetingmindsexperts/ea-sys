@@ -121,6 +121,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         apiLogger.warn({ userId: authSession.user.id, eventId: event.id }, "webinar-question:list-not-registered");
         return NextResponse.json({ error: "Not registered", code: "NOT_REGISTERED" }, { status: 403 });
       }
+      // The current live poll rides this same refresh (no extra request per
+      // viewer); started now so it runs beside the question reads (review of
+      // polls). Nothing when the organiser has polls switched off.
+      const pollPromise = viewerPoll({
+        eventId: event.id,
+        sessionId,
+        enabled: livePollsEnabled(event.webinar),
+        registrationId: asker.kind === "attendee" ? asker.registrationId : null,
+      });
+      // Marked handled now; the await below still throws into the catch.
+      pollPromise.catch(() => undefined);
       const [mine, shown] = await Promise.all([
         asker.kind === "staff"
           ? Promise.resolve([])
@@ -169,14 +180,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         voteCount: countById.get(q.id) ?? 0,
         votedByMe: votedIds.has(q.id),
       }));
-      // The current live poll rides this same refresh (no extra request per
-      // viewer); nothing when the organiser has polls switched off.
-      const poll = await viewerPoll({
-        eventId: event.id,
-        sessionId,
-        enabled: livePollsEnabled(event.webinar),
-        registrationId: asker.kind === "attendee" ? asker.registrationId : null,
-      });
+      const poll = await pollPromise;
       return NextResponse.json({
         questions: mine,
         published: upvote ? sortByVotes(published) : published,

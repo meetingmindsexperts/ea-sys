@@ -53,12 +53,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         select: {
           choices: true,
           createdAt: true,
-          registration: { select: { serialId: true, attendee: { select: { firstName: true, lastName: true, email: true } } } },
+          registration: { select: { serialId: true, status: true, attendee: { select: { firstName: true, lastName: true, email: true } } } },
         },
       });
       const options = readPollOptions(poll.options);
       const label = new Map(options.map((o) => [o.id, o.label]));
-      const tally = tallyPoll(options, votes);
+      // Counts leave out cancelled registrations (as on screen); their rows stay
+      // below, marked, as the record of who answered.
+      const tally = tallyPoll(options, votes.filter((v) => v.registration.status !== "CANCELLED"));
       const lines = [
         row(["Question", poll.question]),
         row(["Voters", tally.voters]),
@@ -66,12 +68,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         row(["Option", "Votes", "Percent"]),
         ...options.map((o) => row([o.label, tally.counts[o.id], `${percentOf(tally.counts[o.id], tally.voters)}%`])),
         "",
-        row(["Name", "Email", "Registration #", "Answer", "Answered at (UTC)"]),
+        row(["Name", "Email", "Registration #", "Registration status", "Answer", "Answered at (UTC)"]),
         ...votes.map((v) =>
           row([
             `${v.registration.attendee.firstName} ${v.registration.attendee.lastName}`.trim(),
             v.registration.attendee.email,
             v.registration.serialId ?? "",
+            v.registration.status === "CANCELLED" ? "Cancelled (not counted)" : v.registration.status,
             readChoices(v.choices).map((c) => label.get(c) ?? c).join("; "),
             v.createdAt.toISOString(),
           ]),

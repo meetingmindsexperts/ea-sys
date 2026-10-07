@@ -307,6 +307,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return { ...current, webinar: { ...currentWebinar, ...patch } };
     });
 
+    // Switching live polls off closes any open poll (review of polls), so it
+    // does not reappear on attendees' screens when polls are turned on again.
+    if (validated.data.livePolls === false) {
+      const closed = await db.livePoll.updateMany({
+        where: { eventId, status: "OPEN" },
+        data: { status: "CLOSED", closedAt: new Date() },
+      });
+      if (closed.count > 0) apiLogger.info({ eventId, closed: closed.count }, "live-polls:closed-on-switch-off");
+    }
+
     apiLogger.info(
       { eventId, userId: session.user.id, webinar: nextWebinar },
       "webinar:settings-updated",

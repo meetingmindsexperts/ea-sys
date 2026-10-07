@@ -6,14 +6,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
 const { mockDb, mockAuth, mockTx } = vi.hoisted(() => {
-  const mockTx = { livePoll: { updateMany: vi.fn(), update: vi.fn() } };
+  const mockTx = { livePoll: { updateMany: vi.fn(), update: vi.fn() }, $queryRaw: vi.fn() };
   return {
     mockTx,
     mockAuth: vi.fn(),
     mockDb: {
       event: { findFirst: vi.fn() },
       registration: { findFirst: vi.fn() },
-      livePoll: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+      livePoll: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
       livePollVote: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
       webinarViewerQuestion: { findMany: vi.fn() },
       webinarQuestionVote: { groupBy: vi.fn(), findMany: vi.fn() },
@@ -71,6 +71,8 @@ beforeEach(() => {
   mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "OPEN", options: OPTS, allowMultiple: false, _count: { votes: 0 } });
   mockDb.livePoll.create.mockResolvedValue({ id: "p1" });
+  mockDb.livePoll.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.livePoll.deleteMany.mockResolvedValue({ count: 1 });
   mockDb.livePollVote.create.mockResolvedValue({});
   mockDb.livePollVote.findMany.mockResolvedValue([]);
   mockDb.livePollVote.findUnique.mockResolvedValue(null);
@@ -130,7 +132,7 @@ describe("console", () => {
 
   it("a poll people answered cannot be deleted (kept as a record)", async () => {
     mockAuth.mockResolvedValue(organizer);
-    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", _count: { votes: 3 } });
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "CLOSED", _count: { votes: 3 } });
     expect((await deletePoll(new Request("http://x"), pollParams)).status).toBe(409);
     expect(mockDb.livePoll.delete).not.toHaveBeenCalled();
   });
@@ -229,5 +231,52 @@ describe("results never block answering (review of polls, HIGH)", () => {
     mockDb.livePollVote.findMany.mockResolvedValue([{ choices: ["a"] }]);
     const body = (await (await getQuestions()).json()) as { poll: { results: unknown } };
     expect(body.poll.results).toEqual({ counts: { a: 1, b: 0 }, voters: 1 });
+  });
+});
+
+describe("review of polls (Oct 7, 2026)", () => {
+  it("launch locks the session row first, so two launches at once cannot both stay open", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "DRAFT" });
+    await patchPoll(jsonReq({ action: "launch" }), pollParams);
+    const [strings, sessionId] = mockTx.$queryRaw.mock.calls[0] as [TemplateStringsArray, string];
+    expect(strings.join("?")).toContain('FROM "EventSession" WHERE id = ? FOR UPDATE');
+    expect(sessionId).toBe("s1");
+    // The lock comes before closing the others and opening this one.
+    expect(mockTx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(mockTx.livePoll.updateMany.mock.invocationCallOrder[0]);
+  });
+
+  it("an edit is conditional on still being a draft (a launch in between wins)", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "DRAFT" });
+    mockDb.livePoll.updateMany.mockResolvedValueOnce({ count: 0 });
+    const res = await patchPoll(jsonReq({ question: "New?", options: ["A", "B"], allowMultiple: false }), pollParams);
+    expect(res.status).toBe(409);
+    expect(mockDb.livePoll.updateMany.mock.calls[0][0].where).toEqual({ id: "p1", status: "DRAFT" });
+  });
+
+  it("an open poll cannot be deleted; a delete is conditional on no answers and not open", async () => {
+    mockAuth.mockResolvedValue(organizer);
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "OPEN", _count: { votes: 0 } });
+    expect((await deletePoll(new Request("http://x"), pollParams)).status).toBe(409);
+    expect(mockDb.livePoll.deleteMany).not.toHaveBeenCalled();
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p1", status: "DRAFT", _count: { votes: 0 } });
+    mockDb.livePoll.deleteMany.mockResolvedValueOnce({ count: 0 });
+    expect((await deletePoll(new Request("http://x"), pollParams)).status).toBe(409);
+    expect(mockDb.livePoll.deleteMany.mock.calls[0][0].where).toEqual({ id: "p1", status: { not: "OPEN" }, votes: { none: {} } });
+  });
+
+  it("a cancelled registration's answer is left out of the console tally", async () => {
+    mockAuth.mockResolvedValue(member);
+    mockDb.livePoll.findMany.mockResolvedValue([{ id: "p1", question: "Q", options: OPTS, allowMultiple: false, status: "OPEN", showResults: false }]);
+    await listPolls(new Request("http://x"), staff);
+    expect(mockDb.livePollVote.findMany.mock.calls[0][0].where).toMatchObject({ registration: { status: { not: "CANCELLED" } } });
+  });
+
+  it("the attendee results leave cancelled registrations out too", async () => {
+    asRegistrant();
+    mockDb.livePoll.findFirst.mockResolvedValue({ id: "p-cancel", question: "Q", options: OPTS, allowMultiple: false, status: "CLOSED", showResults: true });
+    await listQuestions(new Request("http://x"), { params: Promise.resolve({ slug: "web", sessionId: "s1" }) });
+    expect(mockDb.livePollVote.findMany.mock.calls[0][0].where).toEqual({ pollId: "p-cancel", registration: { status: { not: "CANCELLED" } } });
   });
 });

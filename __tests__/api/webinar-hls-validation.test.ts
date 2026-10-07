@@ -18,6 +18,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUpdateEventSettings } = vi.hoisted(
     eventSession: { findFirst: vi.fn(), updateMany: vi.fn() },
     zoomMeeting: { findFirst: vi.fn() },
     survey: { findFirst: vi.fn() },
+    livePoll: { updateMany: vi.fn() },
   },
 }));
 
@@ -144,6 +145,21 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
     expect(res.status).toBe(200);
     // The gate only fires when the REQUEST sets hls.
     expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("switching live polls off closes any open poll on the event (review of polls)", async () => {
+    mockDb.livePoll.updateMany.mockResolvedValue({ count: 1 });
+    expect((await callPut({ livePolls: false })).status).toBe(200);
+    expect(mockDb.livePoll.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { eventId: "ev1", status: "OPEN" },
+      data: { status: "CLOSED" },
+    });
+  });
+
+  it("switching live polls on, or any other save, closes nothing", async () => {
+    expect((await callPut({ livePolls: true })).status).toBe(200);
+    expect((await callPut({ lobbyMessage: "Soon" })).status).toBe(200);
+    expect(mockDb.livePoll.updateMany).not.toHaveBeenCalled();
   });
 
   it("saves the attendee-page branding images", async () => {

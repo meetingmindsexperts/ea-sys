@@ -149,6 +149,16 @@ shown. Results are cached per poll for 5 s so 1,000 viewers do not each read
 every vote. Not done: the attendance-export column (§5 export bullet).
 Tests in `live-polls.test.ts` (lib and api).
 
+**Review of polls (Oct 6 to 7, 2026): 1 HIGH, 2 MED, 5 LOW, all fixed.** HIGH:
+shown results never replace the question for someone who can still answer.
+A cancelled registration's answer stops counting (the export keeps the row,
+marked). Launch locks the session row, so two launches at once cannot leave
+two polls open (a partial unique index was rejected: Prisma cannot express it
+and CI's schema parity check would fail). Edit and delete are conditional on
+state at write time; an open poll cannot be deleted. No cache flush per vote.
+The poll read runs beside the question reads. Switching polls off closes any
+open poll.
+
 ## 6. Public chat
 
 A chat panel beside the video. The producer can switch it on or off, mute

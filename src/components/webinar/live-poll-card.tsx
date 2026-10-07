@@ -61,7 +61,9 @@ export function LivePollCard({
         setError(data.error || "Your answer could not be sent. Please try again.");
         return;
       }
-      onAnswered(poll.id, picked);
+      // Already answered elsewhere (another tab): show as answered without
+      // guessing which option; the next refresh brings the real answer.
+      onAnswered(poll.id, data.code === "ALREADY_ANSWERED" ? [] : picked);
     } catch (err) {
       console.warn("live-poll:vote-failed", err);
       setError("Your answer could not be sent. Please check your connection.");
