@@ -36,7 +36,7 @@ import { ensurePersonalSurveyLink, surveyLinkWasRepaired } from "./survey/invita
 import { buildThankYouSurveyBlock, registrationsThatAnswered, resolveThankYouSurvey, withThankYouSurveyBlock } from "./webinar-thank-you-survey";
 import { resolveInvitationSurvey, responseWhereForSurvey, surveyTokenIdentifier } from "@/services/survey-service";
 import { surveyRespondedSchema } from "./survey/responded-filter";
-import { isDailyMode } from "./survey/response-mode";
+import { isDailyMode, type SurveyResponseModeValue } from "./survey/response-mode";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
   excludesGroupMembers,
@@ -854,7 +854,7 @@ export interface BulkEmailViability {
   rsvpCampaign: { id: string; name: string } | null;
   /** survey-invitation only: the survey the links open (id null = an event
    *  with no Survey row, which the legacy two-part link handles). */
-  surveyTarget: { id: string | null; name: string; gatesCertificates: boolean } | null;
+  surveyTarget: { id: string | null; name: string; gatesCertificates: boolean; responseMode: SurveyResponseModeValue } | null;
   /** filters.surveyResponded: the survey whose response rows decide the audience. */
   respondedSurvey: { id: string; eventId: string; gatesCertificates: boolean; answered: "yes" | "no" } | null;
 }
@@ -1050,7 +1050,7 @@ export async function precheckBulkEmailViability(
       apiLogger.warn({ msg: "bulk-email:survey-unavailable", eventId, surveyId: filters?.surveyId, reason: target.message });
       throw new BulkEmailError(target.message, 400, filters?.surveyId ? INVALID_FILTER_CODE : undefined);
     }
-    surveyTarget = { id: target.surveyId, name: target.name, gatesCertificates: target.gatesCertificates };
+    surveyTarget = { id: target.surveyId, name: target.name, gatesCertificates: target.gatesCertificates, responseMode: target.responseMode };
   }
 
   // {{rsvpLink}} in a general send (Sep 10, 2026): the campaign must be this
@@ -2085,15 +2085,21 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       const surveyIdentifier = isCmeLink
         ? surveyTokenIdentifier(null, recipient.id)
         : surveyTokenIdentifier(surveyTarget?.id ?? null, recipient.id);
-      await db.verificationToken.deleteMany({
-        where: {
-          identifier: {
-            in: isCmeLink && surveyTarget?.id
-              ? [surveyIdentifier, surveyTokenIdentifier(surveyTarget.id, recipient.id)]
-              : [surveyIdentifier],
+      // A daily survey's earlier links keep working (review of Phase 4): people
+      // are told to reuse their link, so a reminder adds a link and never
+      // revokes the one in yesterday's email. Answer-once surveys still
+      // replace it, exactly as before.
+      if (isCmeLink || !isDailyMode(surveyTarget?.responseMode)) {
+        await db.verificationToken.deleteMany({
+          where: {
+            identifier: {
+              in: isCmeLink && surveyTarget?.id
+                ? [surveyIdentifier, surveyTokenIdentifier(surveyTarget.id, recipient.id)]
+                : [surveyIdentifier],
+            },
           },
-        },
-      });
+        });
+      }
       const rawToken = crypto.randomBytes(32).toString("hex");
       const hashedToken = hashVerificationToken(rawToken);
       const surveyExpiryDays: SurveyExpiryDays =
@@ -2141,7 +2147,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         // person's CME link (`survey:{regId}`) alive. A re-send replaces
         // only this survey's link, as the Survey Invitation does.
         const identifier = surveyTokenIdentifier(thankYouSurvey.id, recipient.id);
-        await db.verificationToken.deleteMany({ where: { identifier } });
+        // A daily survey keeps the person's earlier links working.
+        if (!isDailyMode(thankYouSurvey.responseMode)) await db.verificationToken.deleteMany({ where: { identifier } });
         const rawToken = crypto.randomBytes(32).toString("hex");
         await db.verificationToken.create({
           data: {

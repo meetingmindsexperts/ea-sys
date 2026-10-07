@@ -40,7 +40,7 @@ interface Props {
   onReset: () => void;
   /** An EXTRA survey to reset (step 3, Oct 6, 2026): only that answer goes,
    *  and certificates are not involved. Absent = the CME survey, as before. */
-  extraSurvey?: { id: string; name: string };
+  extraSurvey?: { id: string; name: string; daily?: boolean };
 }
 
 export function ResetSurveyDialog({ eventId, registrationId, personName, open, onOpenChange, onReset, extraSurvey }: Props) {
@@ -91,10 +91,12 @@ export function ResetSurveyDialog({ eventId, registrationId, personName, open, o
         <DialogHeader>
           <DialogTitle>Reset survey?</DialogTitle>
           <DialogDescription>
-            {extraSurvey
-              ? `${personName}'s answers to "${extraSurvey.name}" will be deleted and they can answer it again. Their certificate survey is not affected.`
-              : `${personName}'s answers will be deleted and they can take the survey again.`}{" "}
-            Send them a new link afterwards from Send Email, Survey Invitation.
+            {extraSurvey?.daily
+              ? `${personName}'s answer to "${extraSurvey.name}" for today will be deleted and they can answer again today with the same link. Earlier days are kept, and their certificate survey is not affected.`
+              : extraSurvey
+                ? `${personName}'s answers to "${extraSurvey.name}" will be deleted and they can answer it again. Their certificate survey is not affected.`
+                : `${personName}'s answers will be deleted and they can take the survey again.`}{" "}
+            {!extraSurvey?.daily && "Send them a new link afterwards from Send Email, Survey Invitation."}
           </DialogDescription>
         </DialogHeader>
 

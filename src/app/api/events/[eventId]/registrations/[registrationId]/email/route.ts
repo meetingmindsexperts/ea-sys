@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasAnswered } from "@/services/survey-service";
 import { singleSendSlugFor, singleSendTypesFor } from "@/lib/email-template-registry";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -158,10 +159,36 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      if (registration.surveyCompletedAt) {
-        apiLogger.warn({ msg: "registration-email:survey-invitation-already-completed", eventId, registrationId });
+      // Already answered THE SURVEY BEING SENT (review of Phase 4): CME
+      // completion used to refuse every survey, so someone who finished the
+      // CME survey could never be sent an extra one. The CME survey keeps its
+      // surveyCompletedAt rule; an extra survey uses the shared rule (today,
+      // for a daily one). A survey that is not this event's is refused by the
+      // send's own precheck below.
+      const target = surveyId
+        ? await db.survey.findFirst({
+            where: { id: surveyId, eventId },
+            select: { id: true, gatesCertificates: true, responseMode: true },
+          })
+        : null;
+      const sendingCme = !surveyId || target?.gatesCertificates === true;
+      const answered = sendingCme
+        ? registration.surveyCompletedAt !== null
+        : target
+          ? await hasAnswered({
+              survey: { id: target.id, gatesCertificates: false, responseMode: target.responseMode },
+              registration: { id: registrationId, surveyCompletedAt: registration.surveyCompletedAt },
+              timezone: event.timezone,
+            })
+          : false;
+      if (answered) {
+        const daily = !sendingCme && target?.responseMode === "ONCE_PER_DAY";
+        apiLogger.warn({ msg: "registration-email:survey-invitation-already-completed", eventId, registrationId, surveyId, daily });
         return NextResponse.json(
-          { error: "This person has already completed the survey.", code: "SURVEY_ALREADY_COMPLETED" },
+          {
+            error: daily ? "This person has already answered this survey today." : "This person has already completed the survey.",
+            code: "SURVEY_ALREADY_COMPLETED",
+          },
           { status: 409 },
         );
       }

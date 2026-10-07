@@ -57,7 +57,7 @@ import { ResetSurveyDialog } from "@/components/survey/reset-survey-dialog";
 interface ResponsesPayload {
   event: { id: string; name: string };
   /** The survey reported on (null = an event still on the old columns). */
-  survey: { id: string; name: string; gatesCertificates: boolean; isActive: boolean } | null;
+  survey: { id: string; name: string; gatesCertificates: boolean; isActive: boolean; responseMode?: "ONCE" | "ONCE_PER_DAY" } | null;
   config: SurveyConfig;
   totalCount: number;
   aggregates: QuestionAggregate[];
@@ -360,7 +360,9 @@ export default function SurveyResponsesPage() {
         personName={resetTarget?.name ?? "This person"}
         open={resetTarget !== null}
         extraSurvey={
-          data.survey && !data.survey.gatesCertificates ? { id: data.survey.id, name: data.survey.name } : undefined
+          data.survey && !data.survey.gatesCertificates
+            ? { id: data.survey.id, name: data.survey.name, daily: data.survey.responseMode === "ONCE_PER_DAY" }
+            : undefined
         }
         onOpenChange={(open) => {
           if (!open) setResetTarget(null);

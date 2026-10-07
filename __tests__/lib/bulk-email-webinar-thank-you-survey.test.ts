@@ -180,6 +180,8 @@ describe("webinar thank-you: the end-of-webinar survey link", () => {
     expect(where.surveyId).toBe("svy-fb");
     expect(where.dedupKey.in[0]).toMatch(/^reg-1:\d{4}-\d{2}-\d{2}$/);
     expect(where.registrationId).toBeUndefined();
+    // A daily survey's earlier links stay alive (review of Phase 4).
+    expect(mockDb.verificationToken.deleteMany).not.toHaveBeenCalled();
   });
 
   it("NEVER the CME survey, even if it were set", async () => {

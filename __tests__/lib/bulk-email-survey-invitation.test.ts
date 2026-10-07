@@ -215,6 +215,14 @@ describe("survey-invitation links name their survey (step 3, Oct 6, 2026)", () =
     ]);
   });
 
+  it("a daily survey's re-send ADDS a link and never revokes the earlier one (review of Phase 4)", async () => {
+    mockGetEventTemplate.mockResolvedValue(savedTemplate('<a href="{{surveyLink}}">Go</a>', "{{surveyLink}}"));
+    mockDb.survey.findFirst.mockResolvedValue(ROW({ id: "svy-day", name: "Daily", gatesCertificates: false, responseMode: "ONCE_PER_DAY" }));
+    await executeBulkEmail({ ...INPUT, filters: { surveyId: "svy-day" } });
+    expect(mockDb.verificationToken.create.mock.calls[0][0].data.identifier).toMatch(/^survey:svy-day:/);
+    expect(mockDb.verificationToken.deleteMany).not.toHaveBeenCalled();
+  });
+
   it("refuses a closed survey before anything is sent", async () => {
     mockDb.survey.findFirst.mockResolvedValue(ROW({ id: "svy-fb", name: "Webinar feedback", gatesCertificates: false, isActive: false }));
     await expect(executeBulkEmail({ ...INPUT, filters: { surveyId: "svy-fb" } })).rejects.toThrow(/closed/);

@@ -21,6 +21,7 @@
  *
  * Both the registration sheet and the survey responses page call this route.
  */
+import { isDailyMode, responseDay, responseDedupKey } from "@/lib/survey/response-mode";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
@@ -67,7 +68,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, timezone: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "survey-reset:event-not-found", eventId, userId: session.user.id });
@@ -78,20 +79,33 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // event's own org (an org-null SUPER_ADMIN legitimately reaches this).
     return await runWithTenant(event.organizationId, async () => {
       const survey = surveyIdParam
-        ? await db.survey.findFirst({ where: { id: surveyIdParam, eventId }, select: { id: true, eventId: true, gatesCertificates: true } })
+        ? await db.survey.findFirst({
+            where: { id: surveyIdParam, eventId },
+            select: { id: true, eventId: true, gatesCertificates: true, responseMode: true },
+          })
         : null;
       if (surveyIdParam && !survey) {
         apiLogger.warn({ msg: "survey-reset:survey-not-found", eventId, surveyId: surveyIdParam });
         return NextResponse.json({ error: "Survey not found" }, { status: 404 });
       }
       // An extra survey: remove that one answer, nothing else. It never
-      // touched completion, the tag or certificates.
+      // touched completion, the tag or certificates. A daily survey removes
+      // only TODAY's answer (review of Phase 4): earlier days are feedback
+      // already given, and a reset exists to let today's be redone.
       if (survey && !survey.gatesCertificates) {
-        const removed = await db.surveyResponse.deleteMany({ where: { surveyId: survey.id, registrationId } });
+        const daily = isDailyMode(survey.responseMode);
+        const removed = await db.surveyResponse.deleteMany({
+          where: daily
+            ? { surveyId: survey.id, dedupKey: responseDedupKey(survey.responseMode, registrationId, new Date(), event.timezone) }
+            : { surveyId: survey.id, registrationId },
+        });
         if (removed.count === 0) {
-          apiLogger.warn({ msg: "survey-reset:nothing-to-reset", eventId, registrationId, surveyId: survey.id });
+          apiLogger.warn({ msg: "survey-reset:nothing-to-reset", eventId, registrationId, surveyId: survey.id, daily });
           return NextResponse.json(
-            { error: "This person has not answered this survey.", code: "NOTHING_TO_RESET" },
+            {
+              error: daily ? "This person has not answered this survey today." : "This person has not answered this survey.",
+              code: "NOTHING_TO_RESET",
+            },
             { status: 409 },
           );
         }
@@ -103,11 +117,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
               action: "SURVEY_RESET",
               entityType: "Registration",
               entityId: registrationId,
-              changes: { surveyId: survey.id, certificate: false, ip: getClientIp(req) },
+              changes: {
+                surveyId: survey.id,
+                certificate: false,
+                removed: removed.count,
+                ...(daily && { day: responseDay(new Date(), event.timezone) }),
+                ip: getClientIp(req),
+              },
             },
           })
           .catch((err) => apiLogger.warn({ err, msg: "survey-reset:audit-log-failed", eventId, registrationId }));
-        apiLogger.info({ msg: "survey-reset:done", eventId, registrationId, surveyId: survey.id, userId: session.user.id });
+        apiLogger.info({ msg: "survey-reset:done", eventId, registrationId, surveyId: survey.id, removed: removed.count, daily, userId: session.user.id });
         return NextResponse.json({ success: true, keptCertificates: [] });
       }
 

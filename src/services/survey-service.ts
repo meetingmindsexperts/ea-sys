@@ -128,19 +128,29 @@ export async function resolveTokenSurvey(
 export async function resolveInvitationSurvey(
   event: { id: string } & EventSurveyColumns,
   surveyId: string | undefined,
-): Promise<{ ok: true; surveyId: string | null; name: string; gatesCertificates: boolean } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; surveyId: string | null; name: string; gatesCertificates: boolean; responseMode: SurveyResponseModeValue }
+  | { ok: false; message: string }
+> {
   if (!surveyId) {
     if (!isLiveConfig(event.surveyConfig)) {
       return { ok: false, message: "No survey is configured for this event. Build the survey at Survey first." };
     }
     const cert = await getCertificateSurvey(event.id);
-    return { ok: true, surveyId: cert?.id ?? null, name: cert?.name ?? DEFAULT_CERTIFICATE_SURVEY_NAME, gatesCertificates: true };
+    return { ok: true, surveyId: cert?.id ?? null, name: cert?.name ?? DEFAULT_CERTIFICATE_SURVEY_NAME, gatesCertificates: true, responseMode: "ONCE" };
   }
   const row = await getSurvey(event.id, surveyId, event);
   if (!row) return { ok: false, message: "That survey does not belong to this event." };
   if (!row.isActive) return { ok: false, message: `The survey "${row.name}" is closed. Open it before sending its link.` };
   if (!isLiveConfig(row.config)) return { ok: false, message: `The survey "${row.name}" has no questions yet.` };
-  return { ok: true, surveyId: row.id, name: row.name, gatesCertificates: row.gatesCertificates };
+  return {
+    ok: true,
+    surveyId: row.id,
+    name: row.name,
+    gatesCertificates: row.gatesCertificates,
+    // The CME survey is answered once, always.
+    responseMode: row.gatesCertificates ? "ONCE" : row.responseMode,
+  };
 }
 
 export type SurveyServiceSource = "rest" | "mcp" | "agent" | "public";

@@ -164,6 +164,16 @@ describe("survey reset, per survey (step 3, Oct 6, 2026)", () => {
     expect(mockDb.attendee.update).not.toHaveBeenCalled();
   });
 
+  it("a daily survey removes only TODAY's answer, and the audit records the count and day (review of Phase 4)", async () => {
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-day", eventId: "ev1", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
+    const res = await resetSurvey("svy-day");
+    expect(res.status).toBe(200);
+    const where = mockDb.surveyResponse.deleteMany.mock.calls[0][0].where;
+    expect(where.surveyId).toBe("svy-day");
+    expect(where.dedupKey).toMatch(/^reg1:\d{4}-\d{2}-\d{2}$/);
+    expect(where.registrationId).toBeUndefined();
+  });
+
   it("naming the CME survey resets exactly as before", async () => {
     mockDb.survey.findFirst.mockResolvedValue({ id: "svy-cert", eventId: "ev1", gatesCertificates: true });
     const res = await resetSurvey("svy-cert");

@@ -22,6 +22,8 @@ const { mockDb, mockAuth, executeBulkEmailSpy, MockBulkEmailError } = vi.hoisted
     mockDb: {
       event: { findFirst: vi.fn() },
       registration: { findFirst: vi.fn() },
+      survey: { findFirst: vi.fn() },
+      surveyResponse: { count: vi.fn() },
       user: {
         findUnique: vi.fn().mockResolvedValue({
           firstName: "Rana",
@@ -136,6 +138,32 @@ describe("Survey Invitation to one registration", () => {
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe("SURVEY_ALREADY_COMPLETED");
     expect(executeBulkEmailSpy).not.toHaveBeenCalled();
+  });
+
+  it("CME completion does not block sending an EXTRA survey (review of Phase 4)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ surveyCompletedAt: new Date() }));
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-fb", gatesCertificates: false, responseMode: "ONCE" });
+    mockDb.surveyResponse.count.mockResolvedValue(0);
+    const res = await send({ type: "survey-invitation", surveyId: "svy-fb" });
+    expect(res.status).toBe(200);
+    expect(executeBulkEmailSpy).toHaveBeenCalled();
+  });
+
+  it("an extra survey already answered (today, for a daily one) is refused", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ surveyCompletedAt: null }));
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-day", gatesCertificates: false, responseMode: "ONCE_PER_DAY" });
+    mockDb.surveyResponse.count.mockResolvedValue(1);
+    const res = await send({ type: "survey-invitation", surveyId: "svy-day" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/today/);
+    expect(mockDb.surveyResponse.count.mock.calls[0][0].where.dedupKey).toMatch(/^reg1:\d{4}-\d{2}-\d{2}$/);
+    expect(executeBulkEmailSpy).not.toHaveBeenCalled();
+  });
+
+  it("naming the CME survey still uses CME completion", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(registration({ surveyCompletedAt: new Date() }));
+    mockDb.survey.findFirst.mockResolvedValue({ id: "svy-cert", gatesCertificates: true, responseMode: "ONCE" });
+    expect((await send({ type: "survey-invitation", surveyId: "svy-cert" })).status).toBe(409);
   });
 
   it("passes the bulk send's refusal through, e.g. no survey built", async () => {
