@@ -140,6 +140,19 @@ describe("M-2 — eventType flip refused on the PUT", () => {
     expect(mockDb.event.update).not.toHaveBeenCalled();
   });
 
+  // Phase 6 review (Oct 7, 2026): `null` read through `??` became "keep the
+  // stored WEBINAR", so clearing the type passed the scope check.
+  it("WEBINARS PUT eventType=null on a webinar → 403 WEBINAR_ONLY, no write", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evWeb", slug: "s", status: "DRAFT", eventType: "WEBINAR", settings: {},
+      startDate: new Date(), endDate: new Date(), timezone: "Asia/Dubai",
+    });
+    const res = await eventPUT(jsonReq("PUT", { eventType: null }), eventParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("WEBINAR_ONLY");
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+  });
+
   it("re-asserting eventType=WEBINAR is allowed through the gate", async () => {
     mockDb.event.findFirst.mockResolvedValue(null); // stop later at 404 — gate passed
     const res = await eventPUT(jsonReq("PUT", { eventType: "WEBINAR" }), eventParams);

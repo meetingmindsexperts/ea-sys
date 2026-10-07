@@ -108,10 +108,29 @@ describe("H8 — registrant barcode route assignment-scoping", () => {
     });
     const res = await BARCODE_GET(barcodeReq(), barcodeParams);
     expect(res.status).toBe(404);
-    // The event filter must carry the ONSITE assignment predicate, not a bare org id.
-    const where = capturedBarcodeWhere.value as { event?: { OR?: unknown; organizationId?: string } };
-    expect(where.event?.OR).toEqual(assignedToEventWhere("o1").OR);
-    expect(where.event?.organizationId).toBe("org1");
+    // The event filter must carry the ONSITE assignment predicate, not a bare
+    // org id; the caller's own registration is the other arm.
+    const where = capturedBarcodeWhere.value as { OR: [{ userId: string }, { event: { OR?: unknown; organizationId?: string } }] };
+    expect(where.OR[0]).toEqual({ userId: "o1" });
+    expect(where.OR[1].event.OR).toEqual(assignedToEventWhere("o1").OR);
+    expect(where.OR[1].event.organizationId).toBe("org1");
+  });
+
+  // Phase 6 review (Oct 7, 2026): MEMBER holds registrations.read on every
+  // event but no barcode.view, and pulled any attendee's entry credential.
+  it("confines a staff caller without barcode.view to their own registration", async () => {
+    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      user: { id: "m1", role: "MEMBER", organizationId: "org1" },
+    });
+    mockDb.registration.findFirst.mockImplementation((args: { where: unknown }) => {
+      capturedBarcodeWhere.value = args.where;
+      return Promise.resolve(null);
+    });
+    expect((await BARCODE_GET(barcodeReq(), barcodeParams)).status).toBe(404);
+    const where = capturedBarcodeWhere.value as { userId?: string; event?: unknown; OR?: unknown };
+    expect(where.userId).toBe("m1");
+    expect(where.event).toBeUndefined();
+    expect(where.OR).toBeUndefined();
   });
 
   it("owner-scopes a REGISTRANT to their own row", async () => {

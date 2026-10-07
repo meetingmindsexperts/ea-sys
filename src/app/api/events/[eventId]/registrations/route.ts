@@ -153,7 +153,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // barcode boundary). Refused before the query runs.
     const caller = principalFromCaller(await auth(), orgCtx);
     const listRoute = "events/[eventId]/registrations:GET";
-    const gate = new URL(req.url).searchParams.get("export") === "csv"
+    // Both files are exports: the sales CSV carries names, emails, payer,
+    // sponsor and amounts, and asked only `registrations.read` until the
+    // Phase 6 review (Oct 7, 2026), so MEMBER could take it away.
+    const exportMode = new URL(req.url).searchParams.get("export");
+    const wantsFile = exportMode === "csv" || exportMode === "sales";
+    const gate = wantsFile
       ? requirePermission(caller, "registrations.export", { route: listRoute, eventId })
       : requirePermission(caller, "registrations.read", { route: listRoute, eventId, onMissing: "hide" });
     if (!gate.ok) return gate.response;
@@ -165,8 +170,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Resolved BEFORE the query so a refused export doesn't first run an
     // unbounded findMany + per-row financials on the box that also serves the
     // door scanner.
-    const wantsCsv = searchParams.get("export") === "csv";
-    if (wantsCsv) {
+    if (wantsFile) {
       // A bulk PII pull gets its own budget, matching the contacts export.
       const rl = checkRateLimit({
         key: `registrations-export:${eventId}:${orgCtx.userId ?? orgCtx.organizationId}`,

@@ -216,3 +216,22 @@ describe("MCP promo-code tools carry sponsor attribution", () => {
     expect(update![0]).toContain("INVALID_SPONSOR_COVER");
   });
 });
+
+describe("the redactors leave values alone", () => {
+  // Phase 6 verification (Oct 7, 2026): rebuilding every object turned a
+  // registration's createdAt into {} for MEMBER (barcodes redacted).
+  it("keeps a Date and a class instance intact while stripping keys around them", async () => {
+    const { redactBarcodeFields } = await import("@/lib/barcode-visibility");
+    class Money { constructor(public v: number) {} }
+    const at = new Date("2026-10-05T05:44:00Z");
+    const row = { createdAt: at, qrCode: "Q", fee: new Money(5), nested: { when: at, amount: 1 } };
+    const b = redactBarcodeFields(row) as Record<string, unknown>;
+    expect(b.createdAt).toBe(at);
+    expect(b.fee).toBeInstanceOf(Money);
+    expect(b).not.toHaveProperty("qrCode");
+    const f = redactFinancialFields(row) as Record<string, unknown> & { nested: Record<string, unknown> };
+    expect(f.createdAt).toBe(at);
+    expect(f.nested.when).toBe(at);
+    expect(f.nested).not.toHaveProperty("amount");
+  });
+});

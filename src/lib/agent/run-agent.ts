@@ -10,10 +10,10 @@ import type { Message, MessageParam, MessageStreamEvent, ToolUnion, WebSearchToo
 import { apiLogger } from "@/lib/logger";
 import { resolveAnthropicApiKey } from "@/lib/ai/credentials";
 import { getModelConfig } from "@/lib/ai/config";
-import { redactFinancialFields } from "@/lib/finance-visibility";
 import { buildSystemPrompt } from "./system-prompt";
 import { gateToolCall } from "./tool-gate";
 import { wrapToolResultAsData } from "./tool-result";
+import { redactToolText, type ToolRedactions } from "./tool-result-redaction";
 import { collectToolsForActor, toAnthropicTool, type AgentActor, type RegisteredTool } from "./tool-registry";
 import { APPROVAL_CONFIRM_PARAM, APPROVAL_REQUIRED_CODE, approvalLabel, requiresApproval } from "./approvals";
 import { mintApprovalToken } from "./approval-token";
@@ -69,8 +69,8 @@ export interface AgentRequest {
   history: MessageParam[];
   /** MEMBER: every non-read tool is refused. */
   readOnly: boolean;
-  /** Roles outside canViewFinance: money is refused or redacted. */
-  blockFinance: boolean;
+  /** The fields tool results lose for this person (money, barcodes, Zoom host). */
+  redactions: ToolRedactions;
   /** A call the person approved on the page; the route verified its token. */
   approvedCall?: ApprovedCall;
   /** The stored-run recorder; absent means nothing is recorded. */
@@ -98,14 +98,6 @@ export interface AgentDeps {
 }
 
 /** A JSON tool result is redacted like any other payload; text stays text. */
-export function redactToolText(text: string): string {
-  try {
-    return JSON.stringify(redactFinancialFields(JSON.parse(text)), null, 2);
-  } catch {
-    return text;
-  }
-}
-
 function parseForClient(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -221,7 +213,7 @@ export async function runAgentRequest(req: AgentRequest, deps: AgentDeps = {}): 
     } else {
       if (decision.write) writesSoFar++;
       const ran = await tool.run(opts.approved ? { ...toolInput, [APPROVAL_CONFIRM_PARAM]: true } : toolInput);
-      text = req.blockFinance ? redactToolText(ran.text) : ran.text;
+      text = redactToolText(ran.text, req.redactions);
       isError = ran.isError;
       stepOutcome = isError ? "ERROR" : "RAN";
       stepCode = isError ? stepCodeFromResult(ran.text) : null;

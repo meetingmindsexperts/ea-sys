@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security: Phase 6 final review, the MEDs (October 7)
+
+- **Event edit:** `settings.cme`, `settings.reimbursement` and `settings.webinar`
+  are dropped from the event PUT (their own routes own them; WEBINARS could
+  rewrite a webinar's CME accreditation), and `eventType: null` is judged as
+  a change, so a webinar-only grant cannot clear a webinar's type.
+- **Barcodes:** the agent and the role-keyed MCP door now remove money,
+  entry barcodes and Zoom host credentials the way REST does (one shared
+  redactor); the speaker detail sends `hasEntryBarcode`, never the code; the
+  registrant barcode route needs `barcode.view` for anyone else's row.
+- **Activity feed:** audit diffs are redacted on the server for readers
+  without `finance.view` / `barcode.view`.
+- **Sales CSV:** `export=sales` needs `registrations.export` and is rate
+  limited like the full CSV; the Export menu hides without the key.
+- **Invites:** a `users.invite` holder may only invite a role whose built-in
+  grants they hold (403 `ROLE_BEYOND_YOUR_ACCESS`).
+- **Agent search and dashboard** also need the read keys of the people they
+  return (registrations, speakers, abstracts, contacts).
+- **Fixed on the way:** both redactors rebuilt `Date` values as `{}`, so
+  MEMBER's Registered column read "undefined NaN".
+
 ### Security: Phase 6 final review, the three HIGHs (October 7)
 
 - **H1 staff account takeover by email change.** Changing a registration's or

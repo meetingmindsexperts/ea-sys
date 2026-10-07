@@ -18,6 +18,7 @@ import {
   EVENT_SETTINGS_FIELDS,
   EVENT_SURVEY_FIELDS,
   changedEventFields,
+  editableEventSettings,
   eventFieldPermissions,
 } from "@/lib/permissions/field-permissions";
 import { eventFactsOf } from "@/lib/permissions/event-facts";
@@ -283,7 +284,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const outOfScope = refuseOutOfScope(
       gate.principal,
       entryKey,
-      { eventType: validated.data.eventType ?? existingEvent.eventType ?? "" },
+      // `null` is a change too (to no type), never "keep the stored one":
+      // reading it with ?? let a webinar-only grant clear a webinar's type.
+      { eventType: validated.data.eventType !== undefined ? validated.data.eventType ?? "" : existingEvent.eventType ?? "" },
       { route: "events/[eventId]:PUT", eventId },
     );
     if (outOfScope) return outOfScope;
@@ -645,9 +648,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
           );
         }
       }
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { reviewerUserIds: _protected, ...safeSettings } = settings;
-      const cleanSettings = JSON.parse(JSON.stringify(safeSettings));
+      // Route-owned keys (reviewer pool, handouts, CME, reimbursement,
+      // webinar) are written by their own routes and dropped here.
+      const dropped = Object.keys(settings).filter((k) => !(k in editableEventSettings(settings)));
+      if (dropped.length > 0) {
+        apiLogger.warn({ msg: "events/[eventId]:PUT route-owned-settings-dropped", eventId, userId: session.user.id, dropped });
+      }
+      const cleanSettings = JSON.parse(JSON.stringify(editableEventSettings(settings)));
       // Handouts are owned by the handouts routes: keep the stored list.
       await updateEventSettings(eventId, (current) => keepStoredHandouts(current, { ...current, ...cleanSettings }));
     }

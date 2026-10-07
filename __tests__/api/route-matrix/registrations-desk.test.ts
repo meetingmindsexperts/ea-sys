@@ -97,6 +97,7 @@ const shareBody = {
 const CASES: HandlerCase[] = [
   { name: "GET registrations", handler: listGET, method: "GET" },
   { name: "GET registrations (csv)", handler: listGET, method: "GET", query: "export=csv" },
+  { name: "GET registrations (sales csv)", handler: listGET, method: "GET", query: "export=sales" },
   {
     name: "POST registrations",
     handler: createPOST,

@@ -14,6 +14,8 @@ import { isInternalEmail } from "@/lib/internal-domains";
 import { UserRole } from "@prisma/client";
 import { requirePermission, principalFromSession } from "@/lib/permissions/require-permission";
 import { can } from "@/lib/permissions/can";
+import { firstGrantBeyondActor } from "@/lib/permissions/escalation";
+import { systemRoleFor } from "@/lib/permissions/system-roles";
 import { isOnsiteDeskAccount, isRoleGrantableHere } from "@/lib/team-roles";
 
 /** Human label for a team role (used in invite emails + promote messages). */
@@ -174,6 +176,29 @@ export async function POST(req: Request) {
         { error: "Organizers can only create Onsite Staff accounts.", code: "ONSITE_ONLY" },
         { status: 403 },
       );
+    }
+
+    // "No wider than your own access" (the catalogue's promise for this key),
+    // enforced since the Phase 6 review (Oct 7, 2026): `users.invite` is
+    // grantable in a custom role, and without this a MEMBER holding it
+    // could create an ADMIN, which holds the admin-only keys. An inviter may
+    // create only a role whose built-in grants they hold themselves. Applies
+    // to a promotion too, which runs below.
+    if (invitesAnyRole) {
+      const roleGrants = (systemRoleFor(role)?.grants ?? []).map((g) => ({ permission: g.permission, scope: g.scope ?? null }));
+      const beyond = firstGrantBeyondActor(principal, roleGrants);
+      if (beyond) {
+        apiLogger.warn({
+          msg: "organization/users:invite-role-beyond-access",
+          requestedRole: role,
+          missingPermission: beyond.permission,
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          { error: "You can only invite people to a role whose access you hold yourself.", code: "ROLE_BEYOND_YOUR_ACCESS" },
+          { status: 403 },
+        );
+      }
     }
 
     // Check if user already exists — in THIS org or org-independent. The

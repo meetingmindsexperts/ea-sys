@@ -82,6 +82,23 @@ export const EVENT_SETTINGS_FIELDS = [
   "requiresDtcmBarcode",
 ] as const;
 
+/**
+ * `settings` sub-keys that belong to another permission and are written only
+ * by their own routes, so the event edit drops them (Phase 6 review, Oct 7,
+ * 2026): `events.settings` once rewrote the CME accreditation printed on
+ * certificates (`certificates.templates.manage`), the reimbursement claim
+ * items (`reimbursements.manage`) and the webinar config (`webinar.manage`).
+ * `reviewerUserIds` is the reviewer pool's and `handouts` the handouts
+ * routes'. No screen sends any of them through this route.
+ */
+export const ROUTE_OWNED_SETTINGS_KEYS = ["reviewerUserIds", "handouts", "cme", "reimbursement", "webinar"] as const;
+const ROUTE_OWNED_SETTINGS = new Set<string>(ROUTE_OWNED_SETTINGS_KEYS);
+
+/** The settings an event edit may write: everything but the route-owned keys. */
+export function editableEventSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => !ROUTE_OWNED_SETTINGS.has(k)));
+}
+
 /** The keys a caller may hold to reach the event edit at all. */
 export const EVENT_EDIT_KEYS = ["events.update", "events.settings", "surveys.manage"] as const satisfies readonly PermissionKey[];
 
@@ -116,7 +133,24 @@ export function bulkEmailTypePermission(emailType: unknown): PermissionKey | nul
  * allow-list and no form), so each field present counts.
  */
 export function toolInputPermissions(toolName: string, input: Record<string, unknown> | undefined): PermissionKey[] {
-  if (!input) return [];
+  // Read tools whose RESULT spans other domains' people (Phase 6 review, Oct
+  // 7, 2026): their tool key is `events.read`, but the search returns
+  // attendees, speakers, abstract authors and contacts, and the dashboard the
+  // latest registrations, with names and emails. Every built-in role that
+  // may use the agent holds all of these, so only a narrower custom role
+  // notices.
+  const extra = RESULT_DOMAIN_KEYS[toolName] ?? [];
+  if (!input) return [...extra];
+  const own = inputPermissions(toolName, input);
+  return [...new Set([...extra, ...own])];
+}
+
+const RESULT_DOMAIN_KEYS: Readonly<Record<string, readonly PermissionKey[]>> = {
+  search_event: ["registrations.read", "speakers.read", "abstracts.read", "contacts.read"],
+  get_event_dashboard: ["registrations.read"],
+};
+
+function inputPermissions(toolName: string, input: Record<string, unknown>): PermissionKey[] {
   if (toolName === "update_event") {
     return eventFieldPermissions(Object.keys(input).filter((k) => k !== "eventId" && input[k] !== undefined));
   }
@@ -159,7 +193,7 @@ export function eventFieldChanged(field: string, incoming: unknown, stored: unkn
 export function changedEventFields(body: Record<string, unknown>, stored: Record<string, unknown>): string[] {
   return Object.keys(body).filter((field) => {
     if (field === "settings") {
-      const incoming = (body.settings ?? {}) as Record<string, unknown>;
+      const incoming = editableEventSettings((body.settings ?? {}) as Record<string, unknown>);
       const current = (stored.settings && typeof stored.settings === "object" ? stored.settings : {}) as Record<string, unknown>;
       return Object.keys(incoming).some((k) => eventFieldChanged(k, incoming[k], current[k]));
     }

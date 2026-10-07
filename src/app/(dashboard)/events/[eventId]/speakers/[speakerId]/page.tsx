@@ -169,7 +169,7 @@ interface Speaker {
     paymentStatus: string;
     attendanceMode: string;
     badgeType: string | null;
-    qrCode: string | null;
+    hasEntryBarcode: boolean;
     checkedInAt: string | null;
     surveyCompletedAt: string | null;
     createdSource: string | null;
@@ -1410,7 +1410,7 @@ export default function SpeakerDetailPage() {
                     <div className="flex items-center gap-2">
                       <ScanLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span className="text-muted-foreground">Entry barcode:</span>
-                      {speaker.sourceRegistration.qrCode ? (
+                      {speaker.sourceRegistration.hasEntryBarcode ? (
                         <span className="ml-auto font-medium text-emerald-700">Issued</span>
                       ) : (
                         <span className="ml-auto text-muted-foreground">—</span>

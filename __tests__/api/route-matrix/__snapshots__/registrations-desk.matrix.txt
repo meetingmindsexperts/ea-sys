@@ -36,6 +36,23 @@ GET registrations (csv)
   API_KEY     200 r w     200 r w     200 r w     404
   NONE        401         401         401         401
 
+GET registrations (sales csv)
+  caller      conf        assigned    webinar     foreign
+  SUPER_ADMIN 200 r w     200 r w     200 r w     404
+  OPERATOR    401         401         401         401
+  ADMIN       200 r w     200 r w     200 r w     404
+  ORGANIZER   200 r w     200 r w     200 r w     404
+  MEMBER      403         403         403         403
+  ONSITE      404         200 r w     404         404
+  WEBINARS    200 r w     200 r w     200 r w     404
+  CRM_USER    403         403         403         403
+  HR_USER     403         403         403         403
+  REVIEWER    401         401         401         401
+  SUBMITTER   401         401         401         401
+  REGISTRANT  401         401         401         401
+  API_KEY     200 r w     200 r w     200 r w     404
+  NONE        401         401         401         401
+
 POST registrations
   caller      conf        assigned    webinar     foreign
   SUPER_ADMIN 404 r       404 r       404 r       404

@@ -73,4 +73,35 @@ describe("the MCP door for a key with a role", () => {
     expect((await wrapped({ eventId: "c1" }, {})).isError).toBe(true);
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  // Phase 6 review (Oct 7, 2026): the role-keyed door gated each call but
+  // returned results whole, so a role with registrations.read and no
+  // finance.view / barcode.view read money and entry barcodes.
+  it("removes money and barcodes from results for a role without those keys", async () => {
+    const server = fakeServer();
+    const payload = { registrations: [{ id: "r1", qrCode: "QR-1", totalPaid: 100, status: "CONFIRMED" }] };
+    const run = vi.fn(async () => ({ content: [{ type: "text" as const, text: JSON.stringify(payload) }] }));
+    const gated = gateMcpServerForKey(server as never, principalFromApiKey("org-1", [{ permission: "registrations.read", scope: "ALL" }]), "org-1");
+    gated.tool("list_registrations", "d", {}, run);
+    const wrapped = server.tool.mock.calls[0][3] as (input: unknown, extra: unknown) => Promise<{ content: { text: string }[] }>;
+    mockLoadEventFacts.mockResolvedValueOnce(conference);
+    const text = (await wrapped({ eventId: "c1" }, {})).content[0].text;
+    expect(text).not.toContain("QR-1");
+    expect(text).not.toContain("totalPaid");
+    expect(text).toContain("CONFIRMED");
+  });
+
+  it("returns results whole when the role holds finance, barcodes and Zoom host", async () => {
+    const server = fakeServer();
+    const payload = { registrations: [{ id: "r1", qrCode: "QR-1" }] };
+    const run = vi.fn(async () => ({ content: [{ type: "text" as const, text: JSON.stringify(payload) }] }));
+    const grants = (["registrations.read", "finance.view", "barcode.view", "zoomHost.view"] as const).map((permission) =>
+      permission === "registrations.read" ? { permission, scope: "ALL" as const } : { permission },
+    );
+    const gated = gateMcpServerForKey(server as never, principalFromApiKey("org-1", grants), "org-1");
+    gated.tool("list_registrations", "d", {}, run);
+    const wrapped = server.tool.mock.calls[0][3] as (input: unknown, extra: unknown) => Promise<{ content: { text: string }[] }>;
+    mockLoadEventFacts.mockResolvedValueOnce(conference);
+    expect((await wrapped({ eventId: "c1" }, {})).content[0].text).toBe(JSON.stringify(payload));
+  });
 });

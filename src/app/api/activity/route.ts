@@ -6,6 +6,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { isHrModuleEnabled, isProcurementModuleEnabled } from "@/lib/module-flags";
 import { HR_AUDIT_ENTITY_TYPES } from "@/lib/hr-visibility";
 import { can } from "@/lib/permissions/can";
+import { redactFinancialFields } from "@/lib/finance-visibility";
+import { redactBarcodeFields } from "@/lib/barcode-visibility";
 import { canViewProcurement, PROCUREMENT_AUDIT_ENTITY_TYPES } from "@/lib/procurement-visibility";
 import { describeProcurementActivity, type DescribeContext } from "@/lib/procurement-activity";
 import type { Prisma } from "@prisma/client";
@@ -260,7 +262,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only SUPER_ADMIN and ADMIN can view global activity
+    // `activity.org.read`: the admins by role, and grantable in a custom role.
     const gate = requirePermission(session, "activity.org.read", { route: "activity:GET" });
     if (!gate.ok) return gate.response;
 
@@ -400,7 +402,22 @@ export async function GET(req: Request) {
       return rows;
     });
 
-    return NextResponse.json(logs);
+    // The diffs are raw audit rows: payment and refund amounts, invoice
+    // totals, scanned entry codes. `activity.org.read` is grantable in a
+    // custom role, so the server removes what the reader may not see (Phase 6
+    // review, Oct 7, 2026); the page hiding money was not a control.
+    const hideFinance = !can(gate.principal, "finance.view");
+    const hideBarcodes = !can(gate.principal, "barcode.view");
+    const visible = hideFinance || hideBarcodes
+      ? logs.map((row) => {
+          let changes = row.changes;
+          if (hideFinance) changes = redactFinancialFields(changes);
+          if (hideBarcodes) changes = redactBarcodeFields(changes);
+          return { ...row, changes };
+        })
+      : logs;
+
+    return NextResponse.json(visible);
   } catch (error) {
     apiLogger.error({ err: error, msg: "Failed to fetch global activity" });
     return NextResponse.json(

@@ -18,6 +18,7 @@ import { getModelConfig } from "@/lib/ai/config";
 import { runAgentRequest, type AgentSseEvent } from "./run-agent";
 import { verifyApprovalToken } from "./approval-token";
 import { MAX_STORED_REPLY_LENGTH, startAgentRun } from "./run-store";
+import { redactionsFor } from "./tool-result-redaction";
 
 
 
@@ -65,8 +66,9 @@ export async function executeAgentRequest(
   }
   // The prompt's read-only banner, for a person who edits no event.
   const readOnly = !can(principal, "events.update");
-  // Money is redacted from tool results for a person without finance.view.
-  const blockFinance = !can(principal, "finance.view");
+  // Money, barcodes and Zoom host credentials are removed from tool results
+  // for a person without the matching key (Phase 6 review, Oct 7, 2026).
+  const redactions = redactionsFor(principal);
 
   // 20 agent requests per user per hour, shared by both routes.
   const rl = checkRateLimit({ key: `agent-${session.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
@@ -166,7 +168,7 @@ export async function executeAgentRequest(
           message: parsed.data.message,
           history,
           readOnly,
-          blockFinance,
+          redactions,
           approvedCall,
           run,
           send,

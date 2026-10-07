@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/ai/credentials", () => ({ resolveAnthropicApiKey: vi.fn(async () => "key") }));
 
+import { NO_REDACTIONS } from "@/lib/agent/tool-result-redaction";
 import { runAgentRequest, MAX_TURNS, type AgentSseEvent, type ModelStream, type ModelStreamParams } from "@/lib/agent/run-agent";
 import { principalFromUser } from "@/lib/permissions/can";
 import { MAX_WRITES_PER_REQUEST } from "@/lib/agent/tool-gate";
@@ -68,7 +69,7 @@ function baseReq(over: Partial<Parameters<typeof runAgentRequest>[0]> = {}) {
       message: "create the summit",
       history: [],
       readOnly: false,
-      blockFinance: false,
+      redactions: NO_REDACTIONS,
       send: (e: AgentSseEvent) => events.push(e),
       ...over,
       principal: over.principal ?? principalFromUser({ id: "u1", role: over.actor?.role ?? "ADMIN", organizationId: "org1" }),
@@ -154,13 +155,33 @@ describe("runAgentRequest", () => {
       { blocks: [toolUse("list_registrations", { eventId: "ev1" })], stop: "tool_use" },
       { blocks: [], stop: "end_turn" },
     ]);
-    const { req, events } = baseReq({ blockFinance: true });
+    const { req, events } = baseReq({ redactions: { finance: true, barcodes: false, zoomHost: false } });
     await runAgentRequest(req, { eventFacts, createStream, tools: [list] });
     const result = events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>;
     expect(JSON.stringify(result.result)).not.toContain("financials");
     expect(JSON.stringify(result.result)).toContain("PAID");
     const block = (calls[1].messages.at(-1)!.content as Array<{ content: string }>)[0];
     expect(block.content).not.toContain("financials");
+  });
+
+  // Phase 6 review (Oct 7, 2026): the agent redacted money only, so a MEMBER
+  // (no barcode.view) read every entry barcode through list_registrations.
+  it("redacts entry barcodes and Zoom host credentials for a person without those keys", async () => {
+    const list = fakeTool("list_registrations", {
+      registrations: [{ id: "r1", qrCode: "QR-1", dtcmBarcode: "D-1", status: "CONFIRMED" }],
+      zoom: { passcode: "123", startUrl: "https://host", joinUrl: "https://join" },
+    });
+    const { createStream, calls } = scripted([
+      { blocks: [toolUse("list_registrations", { eventId: "ev1" })], stop: "tool_use" },
+      { blocks: [], stop: "end_turn" },
+    ]);
+    const { req, events } = baseReq({ redactions: { finance: false, barcodes: true, zoomHost: true } });
+    await runAgentRequest(req, { eventFacts, createStream, tools: [list] });
+    const result = JSON.stringify((events.find((e) => e.type === "tool_result") as Extract<AgentSseEvent, { type: "tool_result" }>).result);
+    for (const leaked of ["QR-1", "D-1", "123", "https://host"]) expect(result).not.toContain(leaked);
+    expect(result).toContain("https://join");
+    const block = (calls[1].messages.at(-1)!.content as Array<{ content: string }>)[0];
+    expect(block.content).not.toContain("QR-1");
   });
 
   it("answers an unknown tool with an error result instead of throwing", async () => {

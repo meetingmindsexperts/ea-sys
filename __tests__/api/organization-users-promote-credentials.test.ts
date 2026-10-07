@@ -106,3 +106,38 @@ describe("POST /api/organization/users: promoting an existing account", () => {
     expect(mockDb.user.update).not.toHaveBeenCalled();
   });
 });
+
+// Phase 6 review (Oct 7, 2026): `users.invite` promises "no wider than your
+// own access", and a custom role holding it on a MEMBER base could invite an
+// ADMIN. The inviter must now hold the invited role's built-in grants.
+describe("POST /api/organization/users: no wider than your own access", () => {
+  const inviter = (role: string, custom: string[] = []) => ({
+    user: { id: "i1", role, organizationId: "org-1", email: "i@x.com", procurementPermissions: custom },
+  });
+
+  it.each(["ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS", "HR_USER", "REVIEWER"])(
+    "an ADMIN may still invite %s",
+    async (role) => {
+      // HR_USER is grantable only where the HR module is on.
+      vi.stubEnv("HR_MODULE_ENABLED", "true");
+      mockAuth.mockResolvedValue(inviter("ADMIN"));
+      const res = await POST(req({ ...body, role, password: "adminchosen1" }));
+      vi.unstubAllEnvs();
+      expect(res.status).toBe(200);
+    },
+  );
+
+  it("a MEMBER with users.invite in a custom role cannot invite an ADMIN", async () => {
+    mockAuth.mockResolvedValue(inviter("MEMBER", ["users.invite"]));
+    const res = await POST(req({ ...body, role: "ADMIN", password: "pw-12345678" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("ROLE_BEYOND_YOUR_ACCESS");
+    expect(mockTx.user.update).not.toHaveBeenCalled();
+  });
+
+  it("the same MEMBER may invite another MEMBER", async () => {
+    mockAuth.mockResolvedValue(inviter("MEMBER", ["users.invite"]));
+    const res = await POST(req({ ...body, role: "MEMBER", password: "pw-12345678" }));
+    expect(res.status).toBe(200);
+  });
+});

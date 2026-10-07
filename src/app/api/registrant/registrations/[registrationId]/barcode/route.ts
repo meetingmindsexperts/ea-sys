@@ -7,7 +7,8 @@ import { runWithTenantLane } from "@/lib/tenant-lane";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
-import { eventWhereFor, principalFromUser } from "@/lib/permissions/can";
+import { can, eventWhereFor } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { checkRateLimit } from "@/lib/security";
 
 interface RouteParams {
@@ -45,6 +46,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // `session` is a `let` above (assigned by the destructuring), so its
     // narrowing does not survive into the closure below. Capture it.
     const authedUser = session.user;
+    // From the session, so a custom role's grants count (principalFromUser
+    // knows only the base role).
+    const staffPrincipal = principalFromSession(session);
+    const staffSeesBarcodes = can(staffPrincipal, "barcode.view");
     const orgId = await resolveRequestOrgId(req);
     return await runWithTenantLane(orgId, { route: "registrant/registrations/[registrationId]/barcode", userId: authedUser.id }, async () => {
 
@@ -78,9 +83,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         // `buildEventAccessWhere` (no eventId) makes this ASSIGNMENT-scoped for
         // ONSITE (EventStaffAssignment) instead of org-wide, so an ONSITE
         // temp assigned to Event A can no longer pull a barcode for Event B.
-        ...(ownerScoped
+        //
+        // Staff also need `barcode.view` to read SOMEONE ELSE's code (Phase 6
+        // review, Oct 7, 2026): the event route asks it, and this one did
+        // not, so a MEMBER could pull any attendee's entry credential here.
+        // Their own registration stays readable, as on My Registration.
+        ...(ownerScoped || !staffSeesBarcodes
           ? { userId: authedUser.id }
-          : { event: eventWhereFor(principalFromUser(authedUser), "registrations.read") }),
+          : { OR: [{ userId: authedUser.id }, { event: eventWhereFor(staffPrincipal, "registrations.read") }] }),
       },
       select: { qrCode: true, serialId: true, event: { select: { eventType: true } } },
     });

@@ -165,8 +165,19 @@ export async function GET(req: Request, { params }: RouteParams) {
     // The organiser-agreed honorarium is reimbursement data (staff only —
     // the Sep 3, 2026 boundary); `include` returns the whole row, so strip
     // the two columns for MEMBER / ONSITE / WEBINARS.
+    // The detail shows only whether an entry barcode was issued, so the
+    // code itself never leaves the server: it is a door credential, and
+    // speakers.read reaches MEMBER, which holds no barcode.view (Phase 6
+    // review, Oct 7, 2026).
+    const { sourceRegistration, ...rest } = speaker;
+    const withoutCode = {
+      ...rest,
+      sourceRegistration: sourceRegistration
+        ? (({ qrCode, ...reg }) => ({ ...reg, hasEntryBarcode: Boolean(qrCode) }))(sourceRegistration)
+        : null,
+    };
     return NextResponse.json(
-      can(gate.principal, "honorarium.view") ? speaker : stripHonorariumFields(speaker),
+      can(gate.principal, "honorarium.view") ? withoutCode : stripHonorariumFields(withoutCode),
     );
     });
   } catch (error) {

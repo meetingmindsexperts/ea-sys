@@ -190,6 +190,8 @@ export default function RegistrationsPage() {
   // Webinars works the desk on a conference without its types or sponsors.
   const canReadTickets = useCan("tickets.read", eventId) === "allowed";
   const canShareViews = useCan("registrations.share", eventId) === "allowed";
+  // Both export files ask `registrations.export` on the server.
+  const canExport = useCan("registrations.export", eventId) === "allowed";
   const canReadSponsors = useCan("sponsors.read", eventId) === "allowed";
   const canReadSurveys = useCan("surveys.read", eventId) === "allowed";
   const { data: eventSurveys = [] } = useEventSurveys(eventId, canReadSurveys);
@@ -531,6 +533,7 @@ export default function RegistrationsPage() {
               <SharedViewsDialog eventId={eventId} open={viewsOpen} onOpenChange={setViewsOpen} />
             </>
           )}
+          {canExport && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={exporting}>
@@ -551,6 +554,7 @@ export default function RegistrationsPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
           {!isReviewer && (
             <>
               {/* Management-only actions — hidden for ONSITE (desk staff). */}
@@ -929,7 +933,16 @@ export default function RegistrationsPage() {
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Badge variant="outline">{displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty, attendeeRegistrationType: registration.attendee.registrationType })}</Badge>
-                        {registration.group && (
+                        {registration.group && !canExport && (
+                          <Badge
+                            variant="outline"
+                            className="bg-violet-50 text-violet-800 border-violet-200"
+                            title={`Group registration — coordinator ${registration.group.coordinatorName}.`}
+                          >
+                            Group
+                          </Badge>
+                        )}
+                        {registration.group && canExport && (
                           <button
                             onClick={(e) => {
                               // The row opens the registration sheet.

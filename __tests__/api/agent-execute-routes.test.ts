@@ -71,15 +71,15 @@ describe("executeAgentRequest", () => {
       eventId: null,
       actor: { userId: "u1", role: "ORGANIZER", fromApiKey: false },
       readOnly: false,
-      blockFinance: false,
+      redactions: { finance: false, barcodes: false, zoomHost: false },
       message: "hi",
     });
     expect(mockEventFindFirst).not.toHaveBeenCalled();
   });
 
-  it("MEMBER is read-only but keeps finance sight (canViewFinance includes MEMBER)", async () => {
+  it("MEMBER is read-only, keeps finance sight, and loses barcodes and Zoom host credentials", async () => {
     await readSse(await executeAgentRequest(post({ message: "hi" }), session("MEMBER"), "org1", { route: "t" }));
-    expect(mockRun.mock.calls[0][0]).toMatchObject({ readOnly: true, blockFinance: false });
+    expect(mockRun.mock.calls[0][0]).toMatchObject({ readOnly: true, redactions: { finance: false, barcodes: true, zoomHost: true } });
   });
 
   it("binds a body eventId to the org and refuses one it does not own", async () => {

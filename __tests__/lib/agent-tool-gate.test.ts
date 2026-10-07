@@ -147,6 +147,18 @@ describe("gateToolCall", () => {
     expect(missing.kind === "refuse" && missing.result.code).toBe("PERMISSION_DENIED");
   });
 
+  // Phase 6 review (Oct 7, 2026): search_event and get_event_dashboard are
+  // keyed events.read but return people from other domains.
+  it("refuses the people-returning reads to a role holding events.read alone", () => {
+    const narrow = principalFromUser({ id: "u1", role: "CRM_USER", organizationId: "org1", procurementPermissions: ["agent.use", "events.read@ALL"] });
+    const event = { organizationId: "org1", eventType: "CONFERENCE", staffUserIds: [] };
+    for (const name of ["search_event", "get_event_dashboard"]) {
+      const d = gateToolCall(name, { principal: narrow, event, writesSoFar: 0, input: { eventId: "e1" } });
+      expect(d.kind === "refuse" && d.result.code, name).toBe("PERMISSION_DENIED");
+    }
+    expect(gateToolCall("get_event_info", { principal: narrow, event, writesSoFar: 0, input: { eventId: "e1" } }).kind).toBe("run");
+  });
+
   /**
    * Against the role rules it replaced (read-only Member, the roster and the
    * finance reads), for every role the agent admits, on a conference in the

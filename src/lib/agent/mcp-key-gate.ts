@@ -5,6 +5,7 @@ import { describePermission, type PermissionKey } from "@/lib/permissions/catalo
 import { loadEventFacts } from "./event-facts-loader";
 import { gateToolCall } from "./tool-gate";
 import { toolPermission } from "./tool-permissions";
+import { needsRedaction, redactionsFor, redactToolText } from "./tool-result-redaction";
 
 /** The key each MCP resource reads with (the matching list routes' keys). */
 const RESOURCE_PERMISSIONS: Readonly<Record<string, PermissionKey>> = {
@@ -38,6 +39,20 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
     return { content: [{ type: "text" as const, text: JSON.stringify({ error, code }) }], isError: true as const };
   };
 
+  // The fields this key's role may not read, removed from every tool result
+  // the way the matching REST routes remove them (Phase 6 review, Oct 7, 2026).
+  const redactions = redactionsFor(principal);
+  type ToolOutput = { content?: { type: string; text?: string }[] };
+  const redactOutput = (out: unknown): unknown => {
+    if (!needsRedaction(redactions) || !out || typeof out !== "object") return out;
+    const result = out as ToolOutput;
+    if (!Array.isArray(result.content)) return out;
+    return {
+      ...result,
+      content: result.content.map((c) => (c.type === "text" && typeof c.text === "string" ? { ...c, text: redactToolText(c.text, redactions) } : c)),
+    };
+  };
+
   const tool = (...args: unknown[]) => {
     const name = String(args[0]);
     const key = toolPermission(name);
@@ -47,7 +62,7 @@ export function gateMcpServerForKey(server: McpServer, principal: Principal, org
       const input = (callArgs.length > 1 ? callArgs[0] : {}) as Record<string, unknown>;
       const decision = gateToolCall(name, { principal, event: await factsFor(key, input?.eventId), writesSoFar: 0, maxWrites: Number.MAX_SAFE_INTEGER, input });
       if (decision.kind === "refuse") return refusal(name, decision.result.code, decision.result.error);
-      return run(...callArgs);
+      return redactOutput(await run(...callArgs));
     };
     return (server.tool as (...a: unknown[]) => unknown)(...args);
   };

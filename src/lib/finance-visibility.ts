@@ -146,6 +146,11 @@ export function redactFinancialFields<T>(value: T): T {
   if (Array.isArray(value)) {
     return value.map((v) => redactFinancialFields(v)) as unknown as T;
   }
+  // A Date, a Prisma Decimal or any other class instance is a value, not a
+  // record: rebuilding it from its own keys turned a registration's createdAt
+  // into {} (the Registered column read "undefined NaN" for MEMBER).
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (FINANCIAL_KEYS.has(k)) continue;

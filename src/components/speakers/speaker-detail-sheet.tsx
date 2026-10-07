@@ -145,7 +145,7 @@ interface Speaker {
     status: string;
     paymentStatus: string;
     badgeType: string | null;
-    qrCode: string | null;
+    hasEntryBarcode: boolean;
     checkedInAt: string | null;
     surveyCompletedAt: string | null;
     createdSource: string | null;
@@ -948,9 +948,9 @@ export function SpeakerDetailSheet({
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-muted-foreground">Entry barcode</span>
                           <span
-                            className={`font-medium ${speaker.sourceRegistration.qrCode ? "text-emerald-700" : "text-muted-foreground"}`}
+                            className={`font-medium ${speaker.sourceRegistration.hasEntryBarcode ? "text-emerald-700" : "text-muted-foreground"}`}
                           >
-                            {speaker.sourceRegistration.qrCode ? "Issued" : "—"}
+                            {speaker.sourceRegistration.hasEntryBarcode ? "Issued" : "—"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
