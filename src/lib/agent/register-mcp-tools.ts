@@ -361,7 +361,7 @@ export function registerAllMcpTools(
       bio: z.string().optional(), organization: z.string().optional(), jobTitle: z.string().optional(),
       status: z.enum(["INVITED", "CONFIRMED"]).optional(),
     }},
-    { name: "create_session", description: "Create a session or agenda break item. Set type to WORKSHOP or SYMPOSIUM for those program formats (speakers/topics/track allowed, like SESSION), or REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics.", params: {
+    { name: "create_session", description: "Create a session or agenda break item. Set type to WORKSHOP or SYMPOSIUM for those program formats (speakers/topics/track allowed, like SESSION), or REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics. On a WEBINAR event, add the talks of the webinar as topics on its existing webinar session (add_topic_to_session; list_sessions finds it), not as new sessions: the streaming page and the Zoom panelist import read only that session's speakers and its topics' speakers. Create another session on a webinar only when the user asks for a separate session.", params: {
       name: z.string(), startTime: z.string(), endTime: z.string(),
       type: z.enum(["SESSION", "WORKSHOP", "SYMPOSIUM", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]).optional().describe("Defaults to SESSION. WORKSHOP/SYMPOSIUM are program types (speakers/topics allowed); REGISTRATION/BREAK/LUNCH/NETWORKING create a break item (no speakers/topics allowed)."),
       trackId: z.string().optional(), location: z.string().optional(), description: z.string().optional(),
@@ -370,7 +370,7 @@ export function registerAllMcpTools(
       sessionRoles: z.array(z.object({ speakerId: z.string(), role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]) })).optional(),
       topics: z.array(z.object({ title: z.string(), duration: z.number().optional(), abstractId: z.string().optional(), speakerIds: z.array(z.string()).optional() })).optional(),
     }},
-    { name: "add_topic_to_session", description: "Add a topic to a session.", params: {
+    { name: "add_topic_to_session", description: "Add a topic to a session, with its speakers. On a WEBINAR event this is how each talk of the webinar is added: one topic per talk on the webinar session, so its speakers show on the streaming page and import to Zoom as panelists.", params: {
       sessionId: z.string(), title: z.string(), duration: z.number().optional(), speakerIds: z.array(z.string()).optional(),
     }},
     { name: "create_ticket_type", description: "Create a registration type.", params: { name: z.string(), description: z.string().optional() }},

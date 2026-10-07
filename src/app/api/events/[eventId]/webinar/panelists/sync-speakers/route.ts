@@ -57,20 +57,26 @@ export async function POST(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
 
-    // Pull anchor-session speakers + existing Zoom panelists in parallel.
-    // We'll filter out emails that are already on Zoom so the bulk add
-    // doesn't fail with 409 Conflict on re-imports.
-    const [sessionSpeakers, existingPanelists] = await Promise.all([
+    // Pull the webinar session's speakers (session-level AND topic-level:
+    // a webinar's parts are topics, each with its own speakers; owner,
+    // Oct 7, 2026) + existing Zoom panelists in parallel. Emails already on
+    // Zoom are filtered out so the bulk add doesn't 409 on re-imports.
+    const SPEAKER_SELECT = { id: true, firstName: true, lastName: true, email: true } as const;
+    const [sessionSpeakerRows, topicSpeakerRows, existingPanelists] = await Promise.all([
       db.sessionSpeaker.findMany({
         where: { sessionId: resolved.anchorSessionId },
-        select: {
-          speaker: {
-            select: { id: true, firstName: true, lastName: true, email: true },
-          },
-        },
+        select: { speaker: { select: SPEAKER_SELECT } },
+      }),
+      db.topicSpeaker.findMany({
+        where: { topic: { sessionId: resolved.anchorSessionId } },
+        select: { speaker: { select: SPEAKER_SELECT } },
       }),
       listWebinarPanelists(resolved.event.organizationId, resolved.zoomMeetingId),
     ]);
+    // One entry per speaker, whichever way they are attached.
+    const sessionSpeakers = [
+      ...new Map([...sessionSpeakerRows, ...topicSpeakerRows].map((r) => [r.speaker.id, r])).values(),
+    ];
 
     const existingEmails = new Set(
       existingPanelists

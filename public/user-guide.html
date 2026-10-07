@@ -1921,6 +1921,20 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>The system <strong>auto-provisions</strong> everything you need: an anchor session, a Zoom webinar via your org&rsquo;s Zoom credentials, a 5-stage email sequence (confirmation, reminders at 24h/1h, &ldquo;Live now&rdquo;, post-event thank-you). The sidebar swaps out Accommodation / Check-In / Promo Codes / Abstracts and adds the <strong>Webinar Console</strong>.</p>
       </div>
 
+      <div class="sub" id="s11-programme">
+        <div class="sub-title">Building the programme: talks are topics on the webinar session</div>
+        <p>Every webinar has a <strong>webinar session</strong>: the session the system created with the event. It holds the Zoom webinar, so it is the join link, the room and the attendance list. The <strong>streaming page</strong> shows that session&rsquo;s speakers and its topics&rsquo; speakers, and <strong>Import from Speakers</strong> on the Webinar Console adds the same people as Zoom panelists.</p>
+        <p>So add the talks of the webinar as <strong>topics</strong> on that session:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Open <strong>Agenda</strong> and click the webinar session to edit it.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Under <strong>Topics</strong>, click <strong>Add Topic</strong> once per talk: give it a title, a duration in minutes, and pick its speakers.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Keep the session&rsquo;s own speakers for the people who run the whole webinar (chair, moderator, the closing panel).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Save. The streaming page then lists every topic with its speakers, and Import from Speakers adds everyone, session and topic speakers alike, as panelists.</div></div>
+        </div>
+        <p>You can still add a second or third session to a webinar when you need a genuinely separate one. Its speakers are not shown on the webinar&rsquo;s streaming page and are not imported as panelists of the webinar.</p>
+        <div class="callout c-tip"><div class="c-icon">&#x1F50E;</div><div class="c-body"><div class="c-title">Only one speaker shows on the streaming page?</div><div class="c-text">The streaming page shows the speakers of the webinar session and of its topics, nothing else. If you see fewer speakers than expected, the others were added to separate sessions (or to no session). Open the Agenda, add each talk as a topic on the webinar session with its speakers, then delete the extra sessions if you do not need them.</div></div></div>
+      </div>
+
       <div class="sub" id="s11-flow">
         <div class="sub-title">The live-day flow &mdash; start to finish</div>
         <p>Attendees watch the webinar <strong>on your event page</strong> (no Zoom account or app needed). You decide exactly when to let them in. The full flow:</p>
@@ -1940,15 +1954,26 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s11-panelists">
         <div class="sub-title">Speakers &amp; panelists &mdash; how presenters join</div>
-        <p>Your presenters do <strong>not</strong> go through the attendee lobby &mdash; they join the Zoom webinar directly as <strong>panelists</strong> (camera + mic + screen share). On the Webinar Console <strong>Setup</strong> tab, the <strong>Panelists</strong> card manages this:</p>
+        <p>Your presenters do <strong>not</strong> go through the attendee lobby &mdash; they join the Zoom webinar directly as <strong>panelists</strong> (camera + mic + screen share). On the Webinar Console, the <strong>Panelists</strong> tab manages this:</p>
         <ul>
-          <li><strong>Import from Speakers</strong> &mdash; one click adds every speaker on the webinar session (who has an email) as a Zoom panelist. Safe to re-run: people who are already panelists are skipped, never duplicated.</li>
+          <li><strong>Import from Speakers</strong> &mdash; one click adds every speaker on the webinar session and on its topics (who has an email) as a Zoom panelist. Safe to re-run: people who are already panelists are skipped, never duplicated.</li>
           <li><strong>Add manually</strong> &mdash; name + email, for a guest presenter who isn&rsquo;t in your Speakers list.</li>
           <li>Each panelist receives <strong>Zoom&rsquo;s own panelist invitation email</strong> with their personal join link &mdash; that link gives them presenter access, so tell them to use it (not the attendee link). You can <strong>resend</strong> an invite from the card if someone lost it.</li>
         </ul>
         <p>Your producer/host uses <strong>Start as Host</strong> in the console&rsquo;s status bar. A good backstage rhythm: host + panelists in ~15 minutes early, check audio and slides &mdash; attendees can&rsquo;t see any of it while the room is closed.</p>
         <div class="callout c-new"><div class="c-icon">&#x25B6;&#xFE0F;</div><div class="c-body"><div class="c-title">Going live is two steps, and the console now says so (August 2026)</div><div class="c-text"><strong>Start as Host</strong> begins the broadcast. It does <strong>not</strong> let anyone in. Attendees stay in the waiting room until you click <strong>Open the room / Go live</strong>. That is deliberate (it is what gives you a private backstage), but the two controls used to sit far apart, so it was easy to start the Zoom, see an empty room, and not realise the audience was still held outside.<br><br>Now the status bar shows a <strong>Room OPEN / Room closed</strong> badge right next to Start as Host, and if you press Start while the room is closed it asks whether to open it too: <strong>&ldquo;Start and open the room&rdquo;</strong> for the normal case, or <strong>&ldquo;Start only&rdquo;</strong> when you want to rehearse with panelists first.</div></div></div>
         <div class="callout c-new"><div class="c-icon">&#x1F441;&#xFE0F;</div><div class="c-body"><div class="c-title">You can now preview a published webinar any time (August 2026)</div><div class="c-text">Admins and organizers can open the attendee page for their own webinar <strong>whenever they like</strong>, not just in the 15 minutes before it starts. Previously the only way to rehearse was to keep the event in Draft, which meant publishing it took the preview away, so you could not check what registrants would see until shortly before going live.<br><br>This applies to your organisation&rsquo;s own events only. Registered attendees still cannot join early: they see the countdown until the session is live or within 15 minutes of the start.</div></div></div>
+      </div>
+
+      <div class="sub" id="s11-branding">
+        <div class="sub-title">Branding the streaming page</div>
+        <p>The webinar&rsquo;s attendee page (the streaming page) and its waiting room have their own branding, set on the Webinar Console <strong>Branding</strong> tab under <strong>Attendee page branding</strong>:</p>
+        <ul>
+          <li><strong>Logo</strong>: shown left of the session title. A transparent PNG of about 600&times;160px works best.</li>
+          <li><strong>Page background</strong>: covers the whole page behind the content. About 1920&times;1080px, under 2 MB.</li>
+          <li><strong>Footer image</strong>: shown under the video, panelists and Q&amp;A, for example a sponsor strip.</li>
+        </ul>
+        <p>Click <strong>Save branding</strong>. Leave a field empty to show nothing there. The event banner from Event Settings &rarr; Branding is <strong>not</strong> shown on webinar pages; the logo and background replace it. The waiting room&rsquo;s own image and holding video are set on the console as well (see the waiting room section below).</p>
       </div>
 
       <div class="sub" id="s11-schedule">
