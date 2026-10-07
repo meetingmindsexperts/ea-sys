@@ -10,6 +10,8 @@
  * The registry is built against a recording stub (tool-registry.ts), so no
  * tool runs; the database is mocked away because the executors import it.
  */
+import { eventFieldPermissions } from "@/lib/permissions/field-permissions";
+import { EVENT_UPDATE_FIELD_WHITELIST } from "@/lib/agent/tools/events";
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ db: {}, dbOperator: {}, tenantTransaction: vi.fn() }));
@@ -54,6 +56,9 @@ describe("the API key (full) system role is exactly the key's reach", () => {
       ...keyTools.map((n) => TOOL_PERMISSIONS[n]),
       ...REST_API_KEY_PERMISSIONS.map((r) => r.permission),
       ...API_KEY_FIELD_PERMISSIONS,
+      // update_event asks each changed field's own key beside its tool key
+      // (field-permissions.ts), so its allowed fields are reach too.
+      ...eventFieldPermissions([...EVENT_UPDATE_FIELD_WHITELIST]),
     ]);
     const held = new Set(SYSTEM_ROLES.API_KEY.grants.map((g) => g.permission));
     expect([...held].filter((k) => !reach.has(k)).sort(), "held by the system role but reachable by no tool or key route").toEqual([]);

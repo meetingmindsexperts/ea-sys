@@ -763,6 +763,14 @@ export async function setUserPermissionSets(input: {
 
   try {
     await tenantTransaction(async (tx) => {
+      // The person's base role as judged above must still be theirs (Phase 6
+      // review LOW, Oct 7, 2026). Locking their row serialises this with a
+      // role change, which writes the same row in one transaction with the
+      // clearing of their custom roles; a role changed meanwhile refuses.
+      const locked = await tx.$queryRaw<{ role: string }[]>`SELECT role::text AS role FROM "User" WHERE id = ${input.userId} FOR UPDATE`;
+      if (locked[0]?.role !== person.role) {
+        throw new PermissionSetSentinel(fail("STALE_WRITE", "This person's base role changed while you were saving. Reload and try again."));
+      }
       // The roles as judged above must still be the roles being written
       // (review L3): an edit or archive in between refuses the save.
       if (sets.length > 0) {

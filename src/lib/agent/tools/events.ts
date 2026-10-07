@@ -272,7 +272,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
 // slug + startDate + endDate + eventType + timezone are intentionally excluded
 // because they cascade to registered URLs, scheduled-email fire times, webinar
 // provisioning, and session start/end math respectively.
-const EVENT_UPDATE_FIELD_WHITELIST = new Set([
+export const EVENT_UPDATE_FIELD_WHITELIST = new Set([
   "name",
   "description",
   "venue",

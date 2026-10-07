@@ -180,6 +180,15 @@ export const config = {
     // App-wide Analytics (Sep 25, 2026): in the matcher so the confined roles
     // are redirected from it like every other org page.
     "/analytics/:path*",
+    // The module and org pages route-confinement.ts already maps to an area,
+    // which were outside the matcher, so their rules never ran (Phase 6
+    // review, Oct 7, 2026): a desk or HR account opened the CRM's page shell.
+    // The API stays the authority; this is the UI redirect.
+    "/crm/:path*",
+    "/hr/:path*",
+    "/procurement/:path*",
+    "/activity/:path*",
+    "/media/:path*",
     "/my-registration/:path*",
     "/api/:path*",
   ],

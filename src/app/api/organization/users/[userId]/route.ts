@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { revokeUserOAuthTokens } from "@/lib/mcp-oauth";
@@ -126,6 +126,9 @@ export async function GET(req: Request, { params }: RouteParams) {
  * manage roles. `roles.manage` is never in a custom role, so this is the
  * built-in role in practice.
  */
+/** Thrown inside the role-change transaction to roll it back. */
+class LastSuperAdminError extends Error {}
+
 function protectsRoleAdmin(target: { id: string; role: string }, organizationId: string, callerManagesRoles: boolean): boolean {
   return !callerManagesRoles && can(principalFromUser({ id: target.id, role: target.role, organizationId }), "roles.manage");
 }
@@ -452,65 +455,99 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // 2026), for the reason above: they were given for the job the person held,
     // and a demoted admin must not keep "edit every event" through a role tag.
     // Cleared BEFORE the role write, so a failure leaves them with less, never more.
+    // ONE TRANSACTION (Phase 6 review LOW, Oct 7, 2026). The role write comes
+    // first, so it holds the person's row lock while their custom roles are
+    // cleared; an assignment running at the same moment locks the same row and
+    // re-reads the role, so it cannot land a role for the old job after the
+    // clear. The same transaction refuses a change that would leave the
+    // organisation with no active SUPER_ADMIN (two super admins demoting each
+    // other at once both passed the per-request check).
+    // The organisation's role administrator (`roles.manage`, the super admin's alone).
+    const isRoleAdmin = can(principalFromUser({ id: user.id, role: user.role, organizationId: session.user.organizationId! }), "roles.manage");
+    const losesSuperAdmin = isRoleAdmin && (roleChanged || deactivated === true);
     let customRolesCleared = 0;
-    if (roleChanged) {
-      const cleared = await runWithTenant(session.user.organizationId!, () =>
-        db.userPermissionSet.deleteMany({ where: { organizationId: session.user.organizationId!, userId } }),
-      );
-      customRolesCleared = cleared.count;
-      if (customRolesCleared > 0) {
-        apiLogger.info({ msg: "organization/users:custom-roles-cleared-on-role-change", targetUserId: userId, count: customRolesCleared, byUserId: session.user.id });
-      }
-    }
-
-    const updatedUser = await db.user.update({
-      // Org-bound on the WRITE, not only on the read above — the house
-      // invariant, so a future refactor that drops the lookup can't turn this
-      // into a cross-org role change.
-      where: { id: userId, organizationId: session.user.organizationId! },
-      data: {
-        ...(clearModuleAccess
-          ? {
-              hrAccess: false,
-              procurementRequest: false,
-              procurementApproveCeilingAed: null,
-              procurementApproveUnlimited: false,
-              procurementSettle: false,
-              procurementDelegateUserId: null,
-            }
-          : {}),
-        ...rest,
-        ...(clearStaleDelegate ? { procurementDelegateUserId: null } : {}),
-        // `deactivated` is the API's boolean; the column is a timestamp, so
-        // the trail records WHEN, not merely that it happened.
-        ...(deactivated === undefined
-          ? {}
-          : deactivated
+    let updatedUser;
+    try {
+      updatedUser = await tenantTransaction(async (tx) => {
+        // Lock every super admin row, in id order, BEFORE the write: two
+        // concurrent demotions then run one after the other, and the second
+        // counts the first's committed change (a bare count would not).
+        if (losesSuperAdmin) {
+          await tx.$queryRaw`SELECT id FROM "User" WHERE "organizationId" = ${session.user.organizationId!} AND role = 'SUPER_ADMIN' ORDER BY id FOR UPDATE`;
+        }
+        const row = await tx.user.update({
+        // Org-bound on the WRITE, not only on the read above — the house
+        // invariant, so a future refactor that drops the lookup can't turn this
+        // into a cross-org role change.
+        where: { id: userId, organizationId: session.user.organizationId! },
+        data: {
+          ...(clearModuleAccess
             ? {
-                deactivatedAt: new Date(),
-                // Kill every live session immediately rather than waiting for
-                // the next periodic check. Staff are re-validated on every
-                // request, so this takes effect on their next click.
-                tokenVersion: { increment: 1 },
+                hrAccess: false,
+                procurementRequest: false,
+                procurementApproveCeilingAed: null,
+                procurementApproveUnlimited: false,
+                procurementSettle: false,
+                procurementDelegateUserId: null,
               }
-            : { deactivatedAt: null }),
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        hrAccess: true,
-        procurementRequest: true,
-        procurementApproveCeilingAed: true,
-        procurementApproveUnlimited: true,
-        procurementSettle: true,
-        procurementDelegateUserId: true,
-        deactivatedAt: true,
-        createdAt: true,
-      },
-    });
+            : {}),
+          ...rest,
+          ...(clearStaleDelegate ? { procurementDelegateUserId: null } : {}),
+          // `deactivated` is the API's boolean; the column is a timestamp, so
+          // the trail records WHEN, not merely that it happened.
+          ...(deactivated === undefined
+            ? {}
+            : deactivated
+              ? {
+                  deactivatedAt: new Date(),
+                  // Kill every live session immediately rather than waiting for
+                  // the next periodic check. Staff are re-validated on every
+                  // request, so this takes effect on their next click.
+                  tokenVersion: { increment: 1 },
+                }
+              : { deactivatedAt: null }),
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          hrAccess: true,
+          procurementRequest: true,
+          procurementApproveCeilingAed: true,
+          procurementApproveUnlimited: true,
+          procurementSettle: true,
+          procurementDelegateUserId: true,
+          deactivatedAt: true,
+          createdAt: true,
+        },
+      });
+        if (roleChanged) {
+          const cleared = await tx.userPermissionSet.deleteMany({ where: { organizationId: session.user.organizationId!, userId } });
+          customRolesCleared = cleared.count;
+        }
+        if (losesSuperAdmin) {
+          const remaining = await tx.user.count({
+            where: { organizationId: session.user.organizationId!, role: "SUPER_ADMIN", deactivatedAt: null },
+          });
+          if (remaining === 0) throw new LastSuperAdminError();
+        }
+        return row;
+      });
+    } catch (err) {
+      if (err instanceof LastSuperAdminError) {
+        apiLogger.warn({ msg: "organization/users:last-super-admin-refused", targetUserId: userId, byUserId: session.user.id });
+        return NextResponse.json(
+          { error: "The organisation must keep at least one active super admin.", code: "LAST_SUPER_ADMIN" },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
+    if (customRolesCleared > 0) {
+      apiLogger.info({ msg: "organization/users:custom-roles-cleared-on-role-change", targetUserId: userId, count: customRolesCleared, byUserId: session.user.id });
+    }
 
     // Deactivation also disconnects claude.ai: OAuth grants never read
     // tokenVersion (G6). The MCP route refuses a deactivated grantee as well.

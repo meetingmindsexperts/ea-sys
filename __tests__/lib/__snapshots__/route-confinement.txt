@@ -22,6 +22,11 @@
   /agent -> pass
   /invoices -> pass
   /analytics -> pass
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # ADMIN
@@ -48,6 +53,11 @@
   /agent -> pass
   /invoices -> pass
   /analytics -> pass
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # ORGANIZER
@@ -74,6 +84,11 @@
   /agent -> pass
   /invoices -> pass
   /analytics -> pass
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # MEMBER
@@ -100,6 +115,11 @@
   /agent -> pass
   /invoices -> pass
   /analytics -> pass
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # ONSITE
@@ -126,6 +146,11 @@
   /agent -> /events
   /invoices -> /events
   /analytics -> /events
+  /crm -> /events
+  /hr -> /events
+  /procurement -> /events
+  /activity -> /events
+  /media -> /events
   /my-registration -> pass
   /api/events -> pass
 # WEBINARS
@@ -152,6 +177,11 @@
   /agent -> /events
   /invoices -> /events
   /analytics -> /events
+  /crm -> /events
+  /hr -> /events
+  /procurement -> pass
+  /activity -> /events
+  /media -> /events
   /my-registration -> pass
   /api/events -> pass
 # CRM_USER
@@ -178,6 +208,11 @@
   /agent -> /crm
   /invoices -> /crm
   /analytics -> /crm
+  /crm -> pass
+  /hr -> /crm
+  /procurement -> /crm
+  /activity -> /crm
+  /media -> /crm
   /my-registration -> pass
   /api/events -> pass
 # HR_USER
@@ -204,6 +239,11 @@
   /agent -> /hr
   /invoices -> /hr
   /analytics -> /hr
+  /crm -> /hr
+  /hr -> pass
+  /procurement -> /hr
+  /activity -> /hr
+  /media -> /hr
   /my-registration -> pass
   /api/events -> pass
 # REVIEWER
@@ -230,6 +270,11 @@
   /agent -> /events
   /invoices -> pass
   /analytics -> /events
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # SUBMITTER
@@ -256,6 +301,11 @@
   /agent -> /events
   /invoices -> pass
   /analytics -> /events
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass
 # REGISTRANT
@@ -282,6 +332,11 @@
   /agent -> /my-registration
   /invoices -> /my-registration
   /analytics -> /my-registration
+  /crm -> /my-registration
+  /hr -> /my-registration
+  /procurement -> /my-registration
+  /activity -> /my-registration
+  /media -> /my-registration
   /my-registration -> pass
   /api/events -> pass
 # CUSTOM
@@ -308,6 +363,11 @@
   /agent -> /events
   /invoices -> /events
   /analytics -> /events
+  /crm -> /events
+  /hr -> /events
+  /procurement -> /events
+  /activity -> /events
+  /media -> /events
   /my-registration -> pass
   /api/events -> pass
 # UNKNOWN
@@ -334,6 +394,11 @@
   /agent -> /events
   /invoices -> /events
   /analytics -> /events
+  /crm -> /events
+  /hr -> /events
+  /procurement -> /events
+  /activity -> /events
+  /media -> /events
   /my-registration -> pass
   /api/events -> pass
 # (no role)
@@ -360,5 +425,10 @@
   /agent -> pass
   /invoices -> pass
   /analytics -> pass
+  /crm -> pass
+  /hr -> pass
+  /procurement -> pass
+  /activity -> pass
+  /media -> pass
   /my-registration -> pass
   /api/events -> pass

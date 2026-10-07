@@ -84,7 +84,10 @@ describe("executeAgentRequest", () => {
 
   it("binds a body eventId to the org and refuses one it does not own", async () => {
     await readSse(await executeAgentRequest(post({ message: "hi", eventId: "ev1" }), session("ADMIN"), "org1", { route: "t" }));
-    expect(mockEventFindFirst).toHaveBeenCalledWith({ where: { id: "ev1", organizationId: "org1" }, select: { id: true } });
+    // The org AND the person's own events.read filter (Phase 6 review, Oct 7, 2026).
+    const where = mockEventFindFirst.mock.calls[0][0].where as { AND: [unknown, { organizationId?: string }] };
+    expect(where.AND[0]).toEqual({ id: "ev1", organizationId: "org1" });
+    expect(where.AND[1]).toMatchObject({ organizationId: "org1" });
     expect(mockRun.mock.calls[0][0]).toMatchObject({ eventId: "ev1" });
 
     mockEventFindFirst.mockResolvedValue(null);
@@ -100,7 +103,7 @@ describe("executeAgentRequest", () => {
         eventIdFromRoute: "route-event",
       }),
     );
-    expect(mockEventFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "route-event", organizationId: "org1" } }));
+    expect((mockEventFindFirst.mock.calls[0][0].where as { AND: unknown[] }).AND[0]).toEqual({ id: "route-event", organizationId: "org1" });
     expect(mockRun.mock.calls[0][0]).toMatchObject({ eventId: "route-event" });
   });
 

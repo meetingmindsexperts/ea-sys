@@ -20,6 +20,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import {
   updateRegistration,
@@ -280,6 +281,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // portal, not this admin endpoint).
     if (!can(gate.principal, "barcode.view")) {
       payload = redactBarcodeFields(payload);
+    }
+    if (!can(gate.principal, "supportingDocs.view")) {
+      payload = redactSupportingDocumentFields(payload);
     }
 
     const response = NextResponse.json(payload);

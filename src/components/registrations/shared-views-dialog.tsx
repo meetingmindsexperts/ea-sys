@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useCan } from "@/hooks/use-can";
 import {
   LABEL_MAX,
   MAX_REGISTRATION_VIEWS,
@@ -249,7 +250,13 @@ function ViewEditor({
   onSaved: (id: string) => void;
 }) {
   const mutate = useRegistrationViewMutation(eventId);
-  const [body, setBody] = useState<RegistrationViewBody>(() => initialBody(view, preset));
+  // Sponsor attribution is finance data: the server refuses a view showing or
+  // filtering by it to someone without finance.view, so it is not offered.
+  const seesSponsors = useCan("finance.view") === "allowed";
+  const [body, setBody] = useState<RegistrationViewBody>(() => {
+    const b = initialBody(view, preset);
+    return seesSponsors || view ? b : { ...b, fields: b.fields.filter((f) => f !== "sponsor") };
+  });
   const [pendingContact, setPendingContact] = useState<string | null>(null);
   // Contact details must be confirmed once before they are saved: by the
   // tick-box prompt, or (for a preset that includes them) by a prompt on save.
@@ -321,7 +328,7 @@ function ViewEditor({
   const pendingField = REGISTRATION_SHARE_FIELDS.find((f) => f.key === pendingContact);
   const filterGroups = [
     { key: "ticketTypeIds" as const, title: "Registration types", items: options.ticketTypes.map((t) => ({ id: t.id, label: t.name })) },
-    { key: "sponsorIds" as const, title: "Sponsors", items: options.sponsors.map((s) => ({ id: s.id, label: s.name })) },
+    { key: "sponsorIds" as const, title: "Sponsors", items: seesSponsors ? options.sponsors.map((s) => ({ id: s.id, label: s.name })) : [] },
     { key: "promoCodeIds" as const, title: "Promo codes", items: options.promoCodes.map((p) => ({ id: p.id, label: p.code })) },
   ].filter((g) => g.items.length > 0);
 
@@ -405,7 +412,7 @@ function ViewEditor({
             {(["people", "submission"] as const).map((group) => (
               <div key={group} className="rounded-lg border bg-muted/30 p-3 space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{REGISTRATION_GROUP_TITLE[group]}</p>
-                {REGISTRATION_SHARE_FIELDS.filter((f) => f.group === group).map((f) => (
+                {REGISTRATION_SHARE_FIELDS.filter((f) => f.group === group && (seesSponsors || f.key !== "sponsor")).map((f) => (
                   <label key={f.key} className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox checked={body.fields.includes(f.key)} onCheckedChange={(v) => toggleField(f.key, false, v === true)} />
                     {f.label}

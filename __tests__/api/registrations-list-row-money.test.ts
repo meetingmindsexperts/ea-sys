@@ -62,7 +62,7 @@ const req = () => new Request("http://localhost/x");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", taxRate: 5, taxLabel: "VAT", settings: {} });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", taxRate: 5, taxLabel: "VAT", settings: {}, organizationId: "org1", eventType: "CONFERENCE", staffAssignments: [] });
   mockDb.registration.findMany.mockResolvedValue(REGS.map((r) => ({ ...r, payments: r.payments.map((p) => ({ ...p })) })));
   mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
 });
@@ -124,6 +124,15 @@ describe("registrations list answeredSurveyIds (several surveys, Phase 2)", () =
     expect(mockDb.surveyResponse.findMany.mock.calls[0][0].where).toEqual({ eventId: "ev1" });
     // No legacy row, so the CME survey is not even looked up.
     expect(mockDb.survey.findFirst).not.toHaveBeenCalled();
+  });
+
+  // Phase 6 review (Oct 7, 2026): surveys.read is event-bound, so a grant
+  // scoped to webinars must not reveal answers on a conference.
+  it("does not attach answers when the caller's survey access does not cover this event", async () => {
+    mockOrgCtx.mockResolvedValue({ organizationId: "org1", role: "WEBINARS", userId: "w1" });
+    const body = await (await LIST_GET(req(), params)).json();
+    expect(body[0]).not.toHaveProperty("answeredSurveyIds");
+    expect(mockDb.surveyResponse.findMany).not.toHaveBeenCalled();
   });
 
   it("a legacy response with no surveyId counts as the CME survey, as the send does (review of Phase 2)", async () => {

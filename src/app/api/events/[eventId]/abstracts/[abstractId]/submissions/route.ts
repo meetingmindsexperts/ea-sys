@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { can } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -69,7 +70,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // computeSubmissionAggregates run INSIDE the wrap.
     const event = await db.event.findFirst({
       where: gate.eventWhere,
-      select: { id: true, organizationId: true, settings: true },
+      select: { id: true, organizationId: true, settings: true, eventType: true, staffAssignments: { select: { userId: true } } },
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
@@ -95,7 +96,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
     const isOrgMember = event.organizationId === session.user.organizationId;
     // Who-said-what is for the people who decide (abstracts.decide).
-    const isOrgStaff = isOrgMember && can(gate.principal, "abstracts.decide");
+    // Asked on THIS event: a grant scoped to webinars must not unmask reviewer
+    // identities on a conference abstract (Phase 6 review, Oct 7, 2026).
+    const facts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+    const isOrgStaff = isOrgMember && facts !== null && can(gate.principal, "abstracts.decide", { event: facts });
     const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
     if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -235,3 +235,13 @@ describe("the redactors leave values alone", () => {
     expect(f.nested).not.toHaveProperty("amount");
   });
 });
+
+describe("the supporting-document pointer", () => {
+  it("is dropped from rows and a single row, other fields kept", async () => {
+    const { redactSupportingDocumentFields } = await import("@/lib/supporting-document");
+    const at = new Date();
+    const row = { id: "r1", createdAt: at, supportingDocumentUrl: "/uploads/resident-letters/x.pdf", supportingDocumentFilename: "visa-ahmed.pdf" };
+    expect(redactSupportingDocumentFields([row])).toEqual([{ id: "r1", createdAt: at }]);
+    expect(redactSupportingDocumentFields(row)).toEqual({ id: "r1", createdAt: at });
+  });
+});

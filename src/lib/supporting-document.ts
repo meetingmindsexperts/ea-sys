@@ -138,3 +138,22 @@ export function isSupportingDocumentPath(url: string): boolean {
     /^\/uploads\/resident-letters\/[A-Za-z0-9_-]+\/[A-Za-z0-9-]+\.(pdf|jpg|png)$/.test(url)
   );
 }
+
+/** The registration columns that point at an uploaded supporting document. */
+export const SUPPORTING_DOCUMENT_KEYS = ["supportingDocumentUrl", "supportingDocumentFilename"] as const;
+
+/**
+ * Drops the supporting-document pointer from a registration payload (rows or
+ * one row) for a reader without `supportingDocs.view` (Phase 6 review LOW,
+ * Oct 7, 2026). The file was already refused to them; the filename and URL
+ * were not, and a filename can itself be personal ("visa-ahmed.pdf").
+ */
+export function redactSupportingDocumentFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => redactSupportingDocumentFields(v)) as unknown as T;
+  if (value === null || typeof value !== "object") return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out = { ...(value as Record<string, unknown>) };
+  for (const k of SUPPORTING_DOCUMENT_KEYS) delete out[k];
+  return out as T;
+}

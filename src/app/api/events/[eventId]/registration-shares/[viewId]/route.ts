@@ -9,7 +9,8 @@ import { apiLogger } from "@/lib/logger";
 import { requirePermission } from "@/lib/permissions/require-permission";
 import { runWithTenant } from "@/lib/tenant-context";
 import { resolveShareEvent } from "@/lib/share-link-access";
-import { registrationViewBodySchema, toViewInput, viewErrorResponse } from "@/lib/registration-share-http";
+import { registrationViewBodySchema, SPONSOR_NEEDS_FINANCE, toViewInput, viewDisclosesSponsors, viewErrorResponse } from "@/lib/registration-share-http";
+import { can } from "@/lib/permissions/can";
 import { deleteRegistrationView, listRegistrationViews, updateRegistrationView } from "@/services/registration-share-service";
 
 interface RouteParams {
@@ -30,6 +31,10 @@ export async function PUT(req: Request, { params }: RouteParams): Promise<NextRe
     if (!parsed.success) {
       apiLogger.warn({ msg: "registration-shares:invalid-input", eventId, viewId, errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+    }
+    if (viewDisclosesSponsors(parsed.data) && !can(gate.principal, "finance.view")) {
+      apiLogger.warn({ msg: "registration-shares:sponsor-needs-finance", eventId, userId: session.user.id });
+      return NextResponse.json(SPONSOR_NEEDS_FINANCE, { status: 403 });
     }
     const scope = { eventId: r.event.id, slug: r.event.slug, organizationId: r.event.organizationId, userId: session.user.id };
     return await runWithTenant(r.event.organizationId, async () => {

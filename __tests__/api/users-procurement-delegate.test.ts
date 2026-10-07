@@ -31,7 +31,7 @@ vi.mock("next/server", () => ({
   NextResponse: { json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b }) },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({ db: mockDb, tenantTransaction: (fn: (tx: typeof mockDb) => unknown) => fn(mockDb) }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "127.0.0.1" }));
 vi.mock("@/lib/auth-guards", () => ({ ASSIGNABLE_USER_ROLES: ["ADMIN", "ORGANIZER", "MEMBER"] }));

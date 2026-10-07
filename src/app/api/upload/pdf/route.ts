@@ -24,6 +24,7 @@
  * upload (denyReviewer + 50/hr per user).
  */
 
+import { eventWhereFor } from "@/lib/permissions/can";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { randomUUID } from "crypto";
@@ -171,8 +172,11 @@ export async function POST(req: Request) {
       apiLogger.warn({ msg: "cert-upload:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // Through the grant's own event filter (Phase 6 review, Oct 7, 2026): the
+    // key is event-bound, so a role scoped to some events must not upload
+    // into another event's certificate folder. eventWhereFor carries the org.
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+      where: { AND: [{ id: eventId, organizationId: session.user.organizationId }, eventWhereFor(gate.principal, "certificates.templates.manage", eventId)] },
       select: { id: true },
     });
     if (!event) {

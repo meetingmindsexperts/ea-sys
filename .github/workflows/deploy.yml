@@ -177,6 +177,12 @@ jobs:
       - name: Every API route handler establishes identity
         run: node scripts/check-route-auth.mjs
 
+      # One layer further (Phase 6 review, Oct 7, 2026): knowing WHO is calling
+      # is not deciding WHAT they may do. A handler that signs the caller in
+      # and asks no permission lets every account in the org through; two did.
+      - name: Every API route handler asks a permission
+        run: node scripts/check-route-permission.mjs
+
       # Same class of absence, one layer in: a handler that reads req.json()
       # and destructures it is holding attacker-shaped data typed `any`, which
       # surfaces as an unhelpful 500 rather than a 400 naming the field. The

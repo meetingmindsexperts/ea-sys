@@ -31,6 +31,9 @@ const updateOrganizationSchema = z.object({
   invoicePrefix: z.string().max(10).nullable().optional(),
 });
 
+/** The organisation preferences the Settings screen reads and any staff member may see. */
+const ORG_GENERAL_SETTINGS = ["timezone", "dateFormat", "currency", "emailNotifications"] as const;
+
 export async function GET(req: Request) {
   try {
     const session = await auth();
@@ -44,31 +47,44 @@ export async function GET(req: Request) {
       route: "organization:GET",
     });
 
-    const organization = await db.organization.findUnique({
+    // Exactly what the Settings screens show, nothing more (Phase 6 review,
+    // Oct 7, 2026). Any signed-in account in the org reaches this GET, and it
+    // used to return the whole row: the `settings` JSON with the encrypted
+    // Zoom, Stripe and AI credentials, and the staff list with emails, which
+    // `users.read` otherwise restricts.
+    const row = await db.organization.findUnique({
       where: { id: orgId },
-      include: {
-        users: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            createdAt: true,
-          },
-        },
-        _count: {
-          select: {
-            events: true,
-            users: true,
-          },
-        },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logo: true,
+        primaryColor: true,
+        settings: true,
+        companyName: true,
+        companyAddress: true,
+        companyCity: true,
+        companyState: true,
+        companyZipCode: true,
+        companyCountry: true,
+        companyPhone: true,
+        companyEmail: true,
+        taxId: true,
+        invoicePrefix: true,
+        createdAt: true,
+        _count: { select: { events: true, users: true } },
       },
     });
 
-    if (!organization) {
+    if (!row) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
+    // Only the general preferences; every credential and integration key stays on the server.
+    const stored = (row.settings && typeof row.settings === "object" ? row.settings : {}) as Record<string, unknown>;
+    const settings = Object.fromEntries(
+      ORG_GENERAL_SETTINGS.filter((k) => k in stored).map((k) => [k, stored[k]]),
+    );
+    const organization = { ...row, settings };
 
     return NextResponse.json(organization);
   } catch (error) {

@@ -22,6 +22,22 @@ export const registrationViewBodySchema = z.object({
   includeFaculty: z.boolean(),
 });
 
+/**
+ * Does this view publish sponsor attribution? The `sponsor` field shows it, and
+ * a sponsor filter reveals it by elimination. Attribution is finance data
+ * (FINANCIAL_KEYS strips `sponsorId`), so the routes refuse such a view to a
+ * person without `finance.view` (Phase 6 review LOW, Oct 7, 2026): otherwise a
+ * custom role could put on a public link what its own screens hide.
+ */
+export function viewDisclosesSponsors(body: Pick<z.infer<typeof registrationViewBodySchema>, "fields" | "sponsorIds">): boolean {
+  return body.fields.includes("sponsor") || body.sponsorIds.length > 0;
+}
+
+export const SPONSOR_NEEDS_FINANCE = {
+  error: "Sharing sponsor attribution needs access to finance. Remove the Sponsor column and any sponsor filter.",
+  code: "SPONSOR_NEEDS_FINANCE",
+} as const;
+
 export function toViewInput(body: z.infer<typeof registrationViewBodySchema>): RegistrationViewInput {
   return { ...body, expiresAt: body.expiresAt ? new Date(body.expiresAt) : null };
 }

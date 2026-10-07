@@ -1,4 +1,6 @@
 import { auth } from "@/lib/auth";
+import { can, eventWhereFor } from "@/lib/permissions/can";
+import { principalFromSession } from "@/lib/permissions/require-permission";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
 import { formatDate, formatPersonName } from "@/lib/utils";
@@ -70,6 +72,11 @@ export default async function ContactDetailPage({
 
   if (!session?.user) redirect("/login");
 
+  // The page asks what the contacts API asks (Phase 6 review, Oct 7, 2026): it
+  // read the org's contact by id for any signed-in account.
+  const principal = principalFromSession(session);
+  if (!session.user.organizationId || !can(principal, "contacts.read")) notFound();
+
   const contact = await db.contact.findFirst({
     where: { id: contactId, organizationId: session.user.organizationId! },
   });
@@ -80,7 +87,8 @@ export default async function ContactDetailPage({
     db.speaker.findMany({
       where: {
         email: contact.email,
-        event: { organizationId: session.user.organizationId! },
+        // Only events this person may read speakers on.
+        event: { AND: [{ organizationId: session.user.organizationId! }, eventWhereFor(principal, "speakers.read")] },
       },
       select: {
         id: true,
@@ -93,7 +101,8 @@ export default async function ContactDetailPage({
     db.registration.findMany({
       where: {
         attendee: { email: contact.email },
-        event: { organizationId: session.user.organizationId! },
+        // Only events this person may read registrations on.
+        event: { AND: [{ organizationId: session.user.organizationId! }, eventWhereFor(principal, "registrations.read")] },
       },
       select: {
         id: true,

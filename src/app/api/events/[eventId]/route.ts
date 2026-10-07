@@ -286,7 +286,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
       entryKey,
       // `null` is a change too (to no type), never "keep the stored one":
       // reading it with ?? let a webinar-only grant clear a webinar's type.
-      { eventType: validated.data.eventType !== undefined ? validated.data.eventType ?? "" : existingEvent.eventType ?? "" },
+      {
+        eventType: validated.data.eventType !== undefined ? validated.data.eventType ?? "" : existingEvent.eventType ?? "",
+        // The event's own desk staff: an edit does not change them, and without
+        // them a grant scoped to ASSIGNED events could never save an event it
+        // was assigned to (Phase 6 review, Oct 7, 2026).
+        staffUserIds: ((existingEvent as { staffAssignments?: { userId: string }[] }).staffAssignments ?? []).map((a) => a.userId),
+      },
       { route: "events/[eventId]:PUT", eventId },
     );
     if (outOfScope) return outOfScope;

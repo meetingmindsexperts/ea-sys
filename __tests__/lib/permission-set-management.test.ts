@@ -24,6 +24,12 @@ const { mockDb } = vi.hoisted(() => ({
     permissionSetGrant: { deleteMany: vi.fn(), createMany: vi.fn() },
     userPermissionSet: { findMany: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn(), groupBy: vi.fn() },
     user: { findFirst: vi.fn() },
+    // The assignment's in-transaction row lock reads the person's role back:
+    // echo whatever the test's user lookup last returned (unchanged role).
+    $queryRaw: vi.fn(async () => {
+      const last = (await (mockDb.user.findFirst.mock.results.at(-1)?.value as Promise<{ role?: string } | null> | undefined)) ?? null;
+      return [{ role: last?.role }];
+    }),
     auditLog: { create: vi.fn() },
   },
 }));
@@ -326,6 +332,20 @@ describe("setUserPermissionSets", () => {
     procurementRequest: false,
     procurementSettle: false,
   };
+
+  // Phase 6 review LOW (Oct 7, 2026): the base role is re-read under a row
+  // lock inside the write, so a role change that lands between the area check
+  // and the write refuses rather than tagging a role for the old job.
+  it("refuses when the person's base role changed while saving", async () => {
+    mockDb.permissionSet.findMany.mockResolvedValue([
+      { id: "s1", name: "Desk", version: 1, archivedAt: null, permissions: [{ permission: "registrations.read", scope: "ALL" }] },
+    ]);
+    mockDb.user.findFirst.mockResolvedValue({ ...person, role: "ORGANIZER" });
+    mockDb.$queryRaw.mockResolvedValueOnce([{ role: "CRM_USER" }]);
+    const result = await setUserPermissionSets({ ...base, userId: "u1", permissionSetIds: ["s1"] });
+    expect(result).toMatchObject({ ok: false, code: "STALE_WRITE" });
+    expect(mockDb.userPermissionSet.createMany).not.toHaveBeenCalled();
+  });
 
   it("refuses an archived role rather than tagging somebody with dead access", async () => {
     mockDb.permissionSet.findMany.mockResolvedValue([

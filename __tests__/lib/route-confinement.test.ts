@@ -35,6 +35,12 @@ const PATHS = [
   "/agent",
   "/invoices",
   "/analytics",
+  // In the matcher since Oct 7, 2026 (Phase 6 review).
+  "/crm",
+  "/hr",
+  "/procurement",
+  "/activity",
+  "/media",
   "/my-registration",
   "/api/events",
 ];

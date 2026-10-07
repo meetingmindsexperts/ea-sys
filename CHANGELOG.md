@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security: Phase 6 review LOWs, and two more found on the way (October 7)
+
+- **New CI gate** `check-route-permission.mjs`: every API handler must ask a
+  permission (directly or through a helper in its file), or be exempt with a
+  reason. It found two real leaks:
+  - `GET /api/organization` returned the whole row to any account in the org,
+    the encrypted Zoom/Stripe/AI credentials and the staff list included; now
+    the fields the Settings screens show, and only the general preferences;
+  - `/api/registration-types` had no key; now `tickets.read`, events in scope.
+- **Event-bound keys judged on the event:** reviewer identities on abstract
+  submissions, survey answers on the registrations list, the PDF upload, and
+  the agent's opening event.
+- **One tool-permission list** (the agent's), re-exported; the "API key
+  (full)" role now matches what a full key reaches.
+- **Roles:** the assign dialog explains and disables a role that does not fit
+  the person's base role; a role change and the clearing of custom roles are
+  one locked transaction, the assignment re-checks the base role under the
+  same lock, and the organisation can no longer be left without an active
+  super admin (409 `LAST_SUPER_ADMIN`). An ASSIGNED-scope custom role can save
+  an event it is assigned to.
+- **Smaller:** the middleware now covers /crm, /hr, /procurement, /activity and
+  /media; the contact page asks `contacts.read` and lists only events in scope;
+  a shared view cannot publish sponsor attribution without `finance.view`; the
+  supporting-document pointer is dropped for readers without
+  `supportingDocs.view`.
+
 ### Changed: CRM and Budgets leave the Organizer and Member base roles (October 7)
 
 - Owner: ORGANIZER and MEMBER hold no CRM and no Budgets of their own; a

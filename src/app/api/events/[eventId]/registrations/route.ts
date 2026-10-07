@@ -8,6 +8,7 @@ import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
 import { can } from "@/lib/permissions/can";
+import { eventFactsOf } from "@/lib/permissions/event-facts";
 import { principalFromCaller, requirePermission } from "@/lib/permissions/require-permission";
 import { getOrgContext } from "@/lib/api-auth";
 import { redactFinancialFields } from "@/lib/finance-visibility";
@@ -17,6 +18,7 @@ import {
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
 import { redactBarcodeFields } from "@/lib/barcode-visibility";
+import { redactSupportingDocumentFields } from "@/lib/supporting-document";
 import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -326,7 +328,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         // numbers are computed under the event's own tax configuration.
         // `settings` carries the sponsor list, so the export can print a NAME
         // rather than the raw id the row holds.
-        select: { id: true, taxRate: true, taxLabel: true, settings: true },
+        // organizationId, eventType and the desk staff: the facts the
+        // event-bound keys asked below are judged on.
+        select: { id: true, taxRate: true, taxLabel: true, settings: true, organizationId: true, eventType: true, staffAssignments: { select: { userId: true } } },
       }),
       db.registration.findMany({
         where: {
@@ -495,7 +499,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // agree with the send (src/lib/survey/responded-filter.ts). Only for
     // people who can read surveys (review: desk roles got it on every row).
     // Started here so it runs beside the credit-note read below.
-    const canReadSurveys = can(gate.principal, "surveys.read");
+    // On THIS event: a webinar-scoped surveys.read says nothing about a
+    // conference's answers (Phase 6 review, Oct 7, 2026).
+    const eventFacts = eventFactsOf({ ...event, staffUserIds: (event.staffAssignments ?? []).map((a) => a.userId) });
+    const canReadSurveys = eventFacts !== null && can(gate.principal, "surveys.read", { event: eventFacts });
     const answeredSurveysPromise = canReadSurveys ? answeredSurveysByRegistration(eventId) : null;
 
     const cancelledPaid = registrations.filter(
@@ -570,6 +577,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // API keys (role null) are admin-equivalent → keep.
     if (!can(gate.principal, "barcode.view")) {
       payload = redactBarcodeFields(payload);
+    }
+    if (!can(gate.principal, "supportingDocs.view")) {
+      payload = redactSupportingDocumentFields(payload);
     }
 
     // ── CSV export ────────────────────────────────────────────────────────

@@ -93,7 +93,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
         permissionSetIds: parsed.data.permissionSetIds,
         ip,
       });
-      if (!result.ok) return permissionSetErrorResponse(result);
+      if (!result.ok) {
+        // The shared response logs the code; this line says WHO it was for, so
+        // a refused assignment can be traced to the person (Oct 7, 2026).
+        apiLogger.warn({ msg: "permissions:assignment-refused", targetUserId: userId, actorUserId, code: result.code });
+        return permissionSetErrorResponse(result);
+      }
       return NextResponse.json(result);
     });
   } catch (error) {

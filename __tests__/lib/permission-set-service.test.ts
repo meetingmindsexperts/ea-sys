@@ -14,6 +14,12 @@ const { mockDb } = vi.hoisted(() => ({
     permissionSetGrant: { deleteMany: vi.fn(), createMany: vi.fn() },
     userPermissionSet: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     user: { findFirst: vi.fn() },
+    // The assignment's in-transaction row lock reads the person's role back:
+    // echo whatever the test's user lookup last returned (unchanged role).
+    $queryRaw: vi.fn(async () => {
+      const last = (await (mockDb.user.findFirst.mock.results.at(-1)?.value as Promise<{ role?: string } | null> | undefined)) ?? null;
+      return [{ role: last?.role }];
+    }),
     auditLog: { create: vi.fn() },
   },
 }));
