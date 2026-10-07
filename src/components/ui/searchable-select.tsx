@@ -81,7 +81,7 @@ export function SearchableSelect({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="h-9 w-full justify-between px-3 font-normal shadow-xs hover:bg-transparent"
+          className="h-9 w-full justify-between border-input bg-field px-3 font-normal shadow-xs hover:bg-field dark:bg-field dark:hover:bg-field"
         >
           {/* min-w-0 is load-bearing, not decoration. The trigger is a flex
               row, and a flex item defaults to `min-width: auto`, which refuses
@@ -90,7 +90,7 @@ export function SearchableSelect({
               long value overflows the button instead, visually colliding with
               the field beside it. Reported on mobile with long country and
               specialty names (Aug 10, 2026). */}
-          <span className={cn("truncate min-w-0", !value && "text-muted-foreground")}>
+          <span className={cn("truncate min-w-0", !value && "text-muted-foreground/80")}>
             {shownLabel || placeholder}
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />

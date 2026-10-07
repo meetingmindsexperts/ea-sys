@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { hubEventWhere } from "@/lib/permissions/page-event-where";
 import { Card, CardContent } from "@/components/ui/card";
+import { SectionHeading } from "@/components/ui/typography";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
 import {
   Calendar,
@@ -253,7 +254,7 @@ export default async function EventPage({ params }: EventPageProps) {
             <Card className="transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.1),0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-1 hover:border-primary/50 cursor-pointer">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-medium text-muted-foreground">
+                  <span className="text-sm text-muted-foreground">
                     {s.title}
                   </span>
                   <div
@@ -263,7 +264,7 @@ export default async function EventPage({ params }: EventPageProps) {
                   </div>
                 </div>
                 <div className="flex items-end justify-between">
-                  <span className="text-3xl font-bold tabular-nums">{s.value}</span>
+                  <span className="text-3xl font-semibold tracking-tight tabular-nums">{s.value}</span>
                   <span className="text-xs text-primary font-medium flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     View <ArrowRight className="h-3 w-3" />
                   </span>
@@ -276,9 +277,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
       {/* ── Quick Actions ────────────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-          Quick Actions
-        </h2>
+        <SectionHeading title="Quick actions" className="mb-3" />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {quickActions.map((action) => (
             <Link key={action.title} href={action.href} className="group block">
@@ -292,10 +291,10 @@ export default async function EventPage({ params }: EventPageProps) {
                   >
                     <action.icon className="h-5 w-5" />
                   </div>
-                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                  <h3 className="text-base font-semibold mb-1 group-hover:text-primary transition-colors">
                     {action.title}
                   </h3>
-                  <p className="text-xs text-muted-foreground">{action.description}</p>
+                  <p className="text-sm text-muted-foreground">{action.description}</p>
                 </CardContent>
               </Card>
             </Link>
@@ -308,8 +307,8 @@ export default async function EventPage({ params }: EventPageProps) {
               <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 bg-primary/10 text-primary">
                 <Sparkles className="h-5 w-5" />
               </div>
-              <h3 className="font-medium text-sm mb-1">More tools available</h3>
-              <p className="text-xs text-muted-foreground mb-3">
+              <h3 className="text-base font-semibold mb-1">More tools available</h3>
+              <p className="text-sm text-muted-foreground mb-3">
                 Included with every event — explore the extras
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -362,7 +361,7 @@ export default async function EventPage({ params }: EventPageProps) {
                       <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300 flex items-center justify-center">
                         <TrendingUp className="h-4 w-4" />
                       </div>
-                      <h3 className="font-medium text-sm">Registrations by Tier</h3>
+                      <h3 className="text-base font-semibold">Registrations by Tier</h3>
                     </div>
                     <Link
                       href={`/events/${eventId}/registrations`}
@@ -432,7 +431,7 @@ export default async function EventPage({ params }: EventPageProps) {
                     <Rocket className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold">Conference Launch Readiness</p>
+                    <p className="text-base font-semibold">Conference Launch Readiness</p>
                     <p className="text-xs text-muted-foreground">
                       Pre-launch checklist — set up payments, abstracts &amp; content, then dry-run before you open registration.
                     </p>
@@ -446,9 +445,7 @@ export default async function EventPage({ params }: EventPageProps) {
           </div>
           <Card>
             <CardContent className="p-5">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-                Recent Activity
-              </h3>
+              <h3 className="text-base font-semibold mb-3">Recent activity</h3>
               <div className="max-h-[600px] overflow-y-auto">
                 <ActivityFeed eventId={eventId} />
               </div>

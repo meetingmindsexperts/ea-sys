@@ -29,6 +29,7 @@ import {
 } from "@/lib/abstract-limits";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSection, PageHeader } from "@/components/ui/typography";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandingImageField } from "@/components/events/branding-image-field";
@@ -985,23 +986,20 @@ export default function EventSettingsPage() {
 
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
+        <PageHeader
+          icon={Settings}
+          title="Event Settings"
+          description={`Configure settings for ${event.name}`}
+          leading={
             <Link
               href={`/events/${eventId}`}
+              aria-label="Back to the event"
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Settings className="h-8 w-8" />
-              Event Settings
-            </h1>
-          </div>
-          <p className="text-muted-foreground">
-            Configure settings for {event.name}
-          </p>
-        </div>
+          }
+        />
       </div>
 
       <Tabs defaultValue="general" className="space-y-6">
@@ -1037,7 +1035,7 @@ export default function EventSettingsPage() {
             Email Templates
           </TabsTrigger>
           
-          <TabsTrigger value="danger" className="flex items-center gap-2 text-red-600">
+          <TabsTrigger value="danger" className="flex items-center gap-2 data-[state=active]:text-red-600">
             <Trash2 className="h-4 w-4" />
             Danger Zone
           </TabsTrigger>
@@ -1046,14 +1044,11 @@ export default function EventSettingsPage() {
         {/* General Settings */}
         <TabsContent value="general" className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>General Information</CardTitle>
-              <CardDescription>
-                Basic details about your event
-              </CardDescription>
-            </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
+              <FormSection
+                title="Basics"
+                description="The name people see and the address of its public page."
+              >
                 <div className="space-y-2">
                   <Label htmlFor="name">Event Name</Label>
                   <Input
@@ -1078,110 +1073,134 @@ export default function EventSettingsPage() {
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="eventId">Event ID</Label>
-                  <Input
-                    id="eventId"
-                    value={eventId}
-                    disabled
-                    className="bg-muted font-mono text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={generalFormData.description}
-                  onChange={(e) =>
-                    setGeneralFormData({ ...generalFormData, description: e.target.value })
-                  }
-                  rows={4}
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="eventType">Event Type</Label>
-                  <Select
-                    value={generalFormData.eventType}
-                    onValueChange={(value) =>
-                      setGeneralFormData({ ...generalFormData, eventType: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CONFERENCE">Conference</SelectItem>
-                      <SelectItem value="WEBINAR">Webinar</SelectItem>
-                      <SelectItem value="HYBRID">Hybrid</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tag">Tag</Label>
-                  <Input
-                    id="tag"
-                    placeholder="e.g., Medical, Tech"
-                    value={generalFormData.tag}
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={generalFormData.description}
                     onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, tag: e.target.value })
+                      setGeneralFormData({ ...generalFormData, description: e.target.value })
                     }
+                    rows={4}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="specialty">Specialty</Label>
-                  <SpecialtySelect
-                    value={generalFormData.specialty}
-                    onChange={(specialty) =>
-                      setGeneralFormData({ ...generalFormData, specialty })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="code">Event Code</Label>
-                <Input
-                  id="code"
-                  placeholder="e.g., HFC2026"
-                  value={generalFormData.code}
-                  onChange={(e) =>
-                    setGeneralFormData({ ...generalFormData, code: e.target.value.toUpperCase() })
-                  }
-                  maxLength={20}
-                  disabled={codeReferenced}
-                />
                 <p className="text-xs text-muted-foreground">
-                  {codeReferenced
-                    ? "A budget references this code, so it cannot change. Discard the budget first if the code is wrong."
-                    : "Used as prefix for invoice/receipt/quote numbers (e.g., HFC2026-INV-001)"}
+                  Event ID <span className="font-mono text-foreground/80 select-all">{eventId}</span>
                 </p>
-              </div>
+              </FormSection>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date & Time</Label>
-                  <Input
-                    id="startDate"
-                    type="datetime-local"
-                    value={generalFormData.startDate}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, startDate: e.target.value })
-                    }
-                  />
+              <FormSection
+                title="Type and status"
+                description="What kind of event this is and whether it is live."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="eventType">Event Type</Label>
+                    <Select
+                      value={generalFormData.eventType}
+                      onValueChange={(value) =>
+                        setGeneralFormData({ ...generalFormData, eventType: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CONFERENCE">Conference</SelectItem>
+                        <SelectItem value="WEBINAR">Webinar</SelectItem>
+                        <SelectItem value="HYBRID">Hybrid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={generalFormData.status}
+                      onValueChange={(value) =>
+                        setGeneralFormData({ ...generalFormData, status: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {eventStatuses.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="tag">Tag</Label>
+                    <Input
+                      id="tag"
+                      placeholder="e.g., Medical, Tech"
+                      value={generalFormData.tag}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, tag: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="specialty">Specialty</Label>
+                    <SpecialtySelect
+                      value={generalFormData.specialty}
+                      onChange={(specialty) =>
+                        setGeneralFormData({ ...generalFormData, specialty })
+                      }
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="endDate">End Date & Time</Label>
+                  <Label htmlFor="code">Event Code</Label>
                   <Input
-                    id="endDate"
-                    type="datetime-local"
-                    value={generalFormData.endDate}
+                    id="code"
+                    placeholder="e.g., HFC2026"
+                    value={generalFormData.code}
                     onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, endDate: e.target.value })
+                      setGeneralFormData({ ...generalFormData, code: e.target.value.toUpperCase() })
                     }
+                    maxLength={20}
+                    disabled={codeReferenced}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {codeReferenced
+                      ? "A budget references this code, so it cannot change. Discard the budget first if the code is wrong."
+                      : "Used as prefix for invoice/receipt/quote numbers (e.g., HFC2026-INV-001)"}
+                  </p>
+                </div>
+              </FormSection>
+
+              <FormSection
+                title="Date and time"
+                description="When the event runs, in its own timezone."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="startDate">Start Date & Time</Label>
+                    <Input
+                      id="startDate"
+                      type="datetime-local"
+                      value={generalFormData.startDate}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, startDate: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="endDate">End Date & Time</Label>
+                    <Input
+                      id="endDate"
+                      type="datetime-local"
+                      value={generalFormData.endDate}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, endDate: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
@@ -1191,7 +1210,7 @@ export default function EventSettingsPage() {
                       setGeneralFormData({ ...generalFormData, timezone: value })
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1203,95 +1222,83 @@ export default function EventSettingsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
+              </FormSection>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="venue">Venue</Label>
-                  <Input
-                    id="venue"
-                    value={generalFormData.venue}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, venue: e.target.value })
-                    }
-                    placeholder="e.g., Convention Center"
-                  />
+              <FormSection
+                title="Location"
+                description="Where it takes place. Shown on the public pages and in emails."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="venue">Venue</Label>
+                    <Input
+                      id="venue"
+                      value={generalFormData.venue}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, venue: e.target.value })
+                      }
+                      placeholder="e.g., Convention Center"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="address">Address</Label>
+                    <Input
+                      id="address"
+                      value={generalFormData.address}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, address: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={generalFormData.address}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, address: e.target.value })
-                    }
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      value={generalFormData.city}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, city: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="country">Country</Label>
+                    <Input
+                      id="country"
+                      value={generalFormData.country}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, country: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
+              </FormSection>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <FormSection
+                title="Support"
+                description="Who attendees write to with questions."
+              >
                 <div className="space-y-2">
-                  <Label htmlFor="city">City</Label>
+                  <Label htmlFor="supportEmail">Support Email</Label>
                   <Input
-                    id="city"
-                    value={generalFormData.city}
+                    id="supportEmail"
+                    type="email"
+                    placeholder="support@yourorganization.com"
+                    value={generalFormData.supportEmail}
                     onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, city: e.target.value })
+                      setGeneralFormData({ ...generalFormData, supportEmail: e.target.value })
                     }
                   />
+                  <p className="text-xs text-muted-foreground">Shown on public registration forms for attendee inquiries</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    value={generalFormData.country}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, country: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={generalFormData.status}
-                    onValueChange={(value) =>
-                      setGeneralFormData({ ...generalFormData, status: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eventStatuses.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="supportEmail">Support Email</Label>
-                <Input
-                  id="supportEmail"
-                  type="email"
-                  placeholder="support@yourorganization.com"
-                  value={generalFormData.supportEmail}
-                  onChange={(e) =>
-                    setGeneralFormData({ ...generalFormData, supportEmail: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">Shown on public registration forms for attendee inquiries</p>
-              </div>
-
+              </FormSection>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
+              <CardTitle className="text-lg">Notification Settings</CardTitle>
               <CardDescription>
                 Which alerts reach the bell and your mobile app. Payments,
                 check-ins and anything flagged with a warning are always sent.
@@ -1325,7 +1332,7 @@ export default function EventSettingsPage() {
 
           {/* One Save for the tab — see handleSaveTab. */}
           {canUpdate && (
-          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 pr-20 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <Button onClick={handleSaveTab} disabled={saving} size="lg">
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save general settings"}
@@ -1373,7 +1380,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Registration Settings</CardTitle>
+              <CardTitle className="text-lg">Registration Settings</CardTitle>
               <CardDescription>
                 Configure how attendees can register for your event
               </CardDescription>
@@ -1590,7 +1597,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Tax &amp; Payment</CardTitle>
+              <CardTitle className="text-lg">Tax &amp; Payment</CardTitle>
               <CardDescription>Applied to quotes and invoices for this event.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1652,7 +1659,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Agenda</CardTitle>
+              <CardTitle className="text-lg">Agenda</CardTitle>
               <CardDescription>Controls the public agenda page for this event.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1682,7 +1689,7 @@ export default function EventSettingsPage() {
           {!isWebinar(event) && (
           <Card>
             <CardHeader>
-              <CardTitle>Badge</CardTitle>
+              <CardTitle className="text-lg">Badge</CardTitle>
               <CardDescription>Size and position the printed badge on the A4 sheet, and choose what prints on it. Using pre-printed stock? Turn the border off and switch off anything already on the card.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2057,7 +2064,7 @@ export default function EventSettingsPage() {
               change. Both halves PUT to the same endpoint, so this sends them
               together in one request. */}
           {canUpdate && (
-          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="sticky bottom-0 -mx-1 flex justify-end border-t bg-background/95 px-1 py-4 pr-20 backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <Button onClick={handleSaveTab} disabled={saving} size="lg">
               <Save className="mr-2 h-4 w-4" />
               {saving ? "Saving..." : "Save registration settings"}
@@ -2074,7 +2081,7 @@ export default function EventSettingsPage() {
         <TabsContent value="abstracts" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Submissions</CardTitle>
+              <CardTitle className="text-lg">Submissions</CardTitle>
               <CardDescription>
                 Control who may submit, when the windows close, and the limits applied
                 to each submission.
@@ -2082,7 +2089,7 @@ export default function EventSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="text-lg font-medium mb-4">Abstract Submissions</h3>
+                <h3 className="text-base font-semibold mb-4">Abstract Submissions</h3>
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -2260,7 +2267,7 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Session Proposals</h3>
+                <h3 className="text-base font-semibold mb-4">Session Proposals</h3>
                 <div className="space-y-2">
                   <Label htmlFor="sessionProposalDeadline">
                     Session Proposal Deadline{" "}
@@ -2291,7 +2298,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Travel Grant</CardTitle>
+              <CardTitle className="text-lg">Travel Grant</CardTitle>
               <CardDescription>
                 Offer a travel grant to abstract authors based outside the countries you
                 pick below &mdash; usually the one your venue is in. When on, a personal
@@ -2437,7 +2444,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Abstract Themes</CardTitle>
+              <CardTitle className="text-lg">Abstract Themes</CardTitle>
               <CardDescription>
                 Define themes that submitters can tag their abstracts with.
               </CardDescription>
@@ -2449,7 +2456,7 @@ export default function EventSettingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Review Criteria</CardTitle>
+              <CardTitle className="text-lg">Review Criteria</CardTitle>
               <CardDescription>
                 Define weighted scoring criteria for abstract reviews. Weights should total 100%.
               </CardDescription>
@@ -2464,7 +2471,7 @@ export default function EventSettingsPage() {
         <TabsContent value="branding">
           <Card>
             <CardHeader>
-              <CardTitle>Branding Settings</CardTitle>
+              <CardTitle className="text-lg">Branding Settings</CardTitle>
               <CardDescription>
                 Customize the appearance of your public event pages
               </CardDescription>
@@ -2525,7 +2532,7 @@ export default function EventSettingsPage() {
         <TabsContent value="email-branding">
           <Card>
             <CardHeader>
-              <CardTitle>Email Branding</CardTitle>
+              <CardTitle className="text-lg">Email Branding</CardTitle>
               <CardDescription>
                 Add a header image and footer to all outgoing emails for this event
               </CardDescription>
@@ -2676,7 +2683,7 @@ export default function EventSettingsPage() {
         <TabsContent value="danger">
           <Card className="border-red-200">
             <CardHeader>
-              <CardTitle className="text-red-600">Danger Zone</CardTitle>
+              <CardTitle className="text-lg text-red-600">Danger Zone</CardTitle>
               <CardDescription>
                 Irreversible and destructive actions
               </CardDescription>

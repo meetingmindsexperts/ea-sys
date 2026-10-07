@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader, StatTile } from "@/components/ui/typography";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -481,18 +482,14 @@ export default function RegistrationsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Users className="h-8 w-8" />
-            Registrations
-            {isFetching && !loading && (
-              <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            )}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Manage attendee registrations
-          </p>
-        </div>
+        <PageHeader
+          icon={Users}
+          title="Registrations"
+          description="Manage attendee registrations"
+          trailing={isFetching && !loading && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          )}
+        />
         <div className="ps-4 pl-4 flex flex-wrap gap-2">
           <Button
             variant="ghost"
@@ -659,57 +656,29 @@ export default function RegistrationsPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+        <Card className="py-5">
+          <CardContent className="px-5">
+            <StatTile label="Total" value={stats.total} />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Confirmed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.confirmed}</div>
+        <Card className="py-5">
+          <CardContent className="px-5">
+            <StatTile label="Confirmed" value={stats.confirmed} valueClassName="text-green-600" />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+        <Card className="py-5">
+          <CardContent className="px-5">
+            <StatTile label="Pending" value={stats.pending} valueClassName="text-yellow-600" />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Checked In
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{stats.checkedIn}</div>
+        <Card className="py-5">
+          <CardContent className="px-5">
+            <StatTile label="Checked In" value={stats.checkedIn} valueClassName="text-purple-600" />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Paid
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.paid}</div>
-            {paidNote && (
-              <p className="mt-1 text-xs text-muted-foreground">{paidNote}</p>
-            )}
+        <Card className="py-5">
+          <CardContent className="px-5">
+            <StatTile label="Paid" value={stats.paid} valueClassName="text-blue-600" note={paidNote || undefined} />
           </CardContent>
         </Card>
       </div>

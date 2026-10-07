@@ -28,6 +28,8 @@
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
+  --color-field: var(--field);
+  --color-label: var(--label);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
@@ -87,6 +89,10 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.9 0.015 218);
   --input: oklch(0.92 0.01 218);
+  /* Form field fill: a step off the card so a field reads as a field (Oct 7, 2026). */
+  --field: oklch(0.985 0 0);
+  /* Field labels: a deep shade of the theme colour, so a label never reads as the value under it. */
+  --label: color-mix(in oklch, var(--primary) 45%, var(--foreground));
   --ring: oklch(0.726 0.165 218);
   /* Chart colors with MMGroup brand palette */
   --chart-1: oklch(0.726 0.165 218);
@@ -140,6 +146,8 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(0.3 0.02 218);
   --input: oklch(0.28 0.02 218);
+  --field: oklch(0.24 0.02 218);
+  --label: color-mix(in oklch, var(--primary) 55%, white);
   --ring: oklch(0.726 0.165 218);
   /* Chart colors */
   --chart-1: oklch(0.726 0.165 218);
